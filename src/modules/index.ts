@@ -5,6 +5,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { BullBoardModule } from "@bull-board/nestjs";
 import { ExpressAdapter } from "@bull-board/express";
 import { FactoryModule } from "./factory";
+import { SchedulerModule } from "./scheduler";
 
 @Module({
     imports: [
@@ -16,6 +17,7 @@ import { FactoryModule } from "./factory";
         }),
 
         ScheduleModule.forRoot(),
+        SchedulerModule,
         FactoryModule,
     ],
 })
