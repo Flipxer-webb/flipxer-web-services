@@ -1,5 +1,5 @@
 import { storageDirConfig } from "@/config";
-import { EmailService } from "@/modules/core/email/services/email.service";
+import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { generateRandomNum } from "@/utils";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";

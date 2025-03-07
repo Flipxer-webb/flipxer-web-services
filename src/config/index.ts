@@ -6,7 +6,6 @@ import validate, {
 } from "@boxpositron/vre";
 import { ConfigOptions } from "cloudinary";
 
-
 export * from "./constants";
 
 config();
@@ -27,30 +26,30 @@ const runtimeEnvironment: RequiredEnvironment[] = [
 
     //mail
     {
-        name: "MAIL_SMTP_HOST",
+        name: "ZEPTOMAIL_URL",
         type: RequiredEnvironmentTypes.String,
     },
     {
-        name: "MAIL_SMTP_PORT",
+        name: "ZEPTOMAIL_TOKEN",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "ZEPTOMAIL_SENDER",
+        type: RequiredEnvironmentTypes.String,
+    },
+    //templates
+    {
+        name: "REGISTRATION_SUCCESS_TEMPLATE",
         type: RequiredEnvironmentTypes.Number,
     },
     {
-        name: "MAIL_SMTP_USER",
-        type: RequiredEnvironmentTypes.String,
+        name: "VERIFY_ACCOUNT_TEMPLATE",
+        type: RequiredEnvironmentTypes.Number,
     },
     {
-        name: "MAIL_SMTP_PASSWORD",
-        type: RequiredEnvironmentTypes.String,
+        name: "FORGOT_PASSWORD_TEMPLATE",
+        type: RequiredEnvironmentTypes.Number,
     },
-    {
-        name: "MAIL_SENDER_NAME",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "MAIL_SENDER_EMAIL",
-        type: RequiredEnvironmentTypes.String,
-    },
-
 
     // secret
     {
@@ -93,7 +92,6 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "ENVIRONMENT",
         type: RequiredEnvironmentTypes.String,
     },
-
 ];
 
 validate(runtimeEnvironment);
@@ -112,22 +110,29 @@ export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
 export const encryptSecret: string = process.env.ENCRYPT_SECRET;
 
 //email templates
+export interface EMailTemplateConfig {
+    registration_success: string;
+    verify_account: string;
+    forgot_password: string;
+}
+
+export const emailTemplateConfig: EMailTemplateConfig = {
+    registration_success: process.env.REGISTRATION_SUCCESS_TEMPLATE,
+    verify_account: process.env.VERIFY_ACCOUNT_TEMPLATE,
+    forgot_password: process.env.FORGOT_PASSWORD_TEMPLATE,
+};
+
+//email config
 export interface EMailConfig {
-    host: string;
-    port: number;
-    user: string;
-    pass: string;
-    senderName: string;
-    senderEmail: string;
+    url: string;
+    token: string;
+    senderMail: string;
 }
 
 export const mailConfig: EMailConfig = {
-    host: process.env.MAIL_SMTP_HOST,
-    port: +process.env.MAIL_SMTP_PORT,
-    user: process.env.MAIL_SMTP_USER,
-    pass: process.env.MAIL_SMTP_PASSWORD,
-    senderName: process.env.MAIL_SENDER_NAME,
-    senderEmail: process.env.MAIL_SENDER_EMAIL,
+    url: process.env.ZEPTOMAIL_URL,
+    token: process.env.ZEPTOMAIL_TOKEN,
+    senderMail: process.env.ZEPTOMAIL_SENDER,
 };
 
 //prod deployment env
@@ -142,8 +147,6 @@ interface StorageDirConfig {
 export const storageDirConfig: StorageDirConfig = {
     profile: process.env.PROFILE_DIR,
 };
-
-
 
 export interface Configuration {
     emailConfig: EMailConfig;

@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -17,11 +17,11 @@ import {
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { EmailService } from "@/modules/core/email/services/email.service";
+import { EmailService } from "@/modules/core/email/services";
 import { encrypt, formatName, generateId } from "@/utils";
 import { LoginPlatform, SignInOptions } from "../interfaces";
 import { customAlphabet } from "nanoid";
-import { DuplicateUserException } from "../../user";
+import { DuplicateUserException, UserNotFoundException } from "../../user";
 import {
     DuplicateBvnVerificationException,
     DuplicateVerificationException,
@@ -33,14 +33,17 @@ import {
 import { Prisma, Role, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
+    emailTemplateConfig,
     jwt_refresh_secret,
     jwtSecret,
+    mailConfig,
     REFRESH_TOKEN_EXPIRATION,
     TOKEN_EXPIRATION,
 } from "@/config";
 
 @Injectable()
 export class AuthService {
+    private readonly logger = new Logger("AuthServices");
     constructor(
         private jwtService: JwtService,
         private prisma: PrismaService,
@@ -125,16 +128,22 @@ export class AuthService {
             sub: createdUser.id,
         });
 
-        //todo: send email success message and remind them of the need to complete email verification within 3 days after which account will be deleted
-        // await this.emailService.send<RegistrationSuccessEmailParams>({
-        //     mailOptions: {
-        //         to: createdUser.email,
-        //     },
-        //     template: "registration_success_email",
-        //     params: {
-        //         email: createdUser.email,
-        //     },
-        // });
+        try {
+            await this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: options.email } }],
+                template_key: emailTemplateConfig.registration_success,
+                merge_info: {
+                    code: verificationCode,
+                    notice: "Please proceed to verify your account with the code. Accounts that are not verified after 3days will be removed from our platform. Thank you",
+                }, //for passing extra data to templates
+            });
+        } catch (error) {
+            this.logger.error(
+                "Error sending account verification email",
+                error.error.details
+            );
+        }
 
         return buildResponse({
             message: "Account successfully created",
@@ -152,6 +161,14 @@ export class AuthService {
             where: { email: email },
             select: { id: true, isEmailVerified: true },
         });
+
+        if (!emailExist) {
+            throw new UserNotFoundException(
+                "Account with email not found. Kindly register first",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         if (emailExist && emailExist.isEmailVerified) {
             throw new DuplicateUserException(
                 "Account already verified. Kindly login",
@@ -171,17 +188,19 @@ export class AuthService {
                 code: verificationCode,
             },
         });
-
-        //todo: send code to email
-        // await this.emailService.send<VerifyEmailParams>({
-        //     mailOptions: {
-        //         to: email,
-        //     },
-        //     template: "verify_email",
-        //     params: {
-        //         code: verificationCode,
-        //     },
-        // });
+        try {
+            await this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: options.email } }],
+                template_key: emailTemplateConfig.verify_account,
+                merge_info: { code: verificationCode }, //for passing extra data to templates
+            });
+        } catch (error) {
+            this.logger.error(
+                "Error sending account verification email",
+                error.error.details
+            );
+        }
 
         return buildResponse({
             message: `An email verification code has been sent to your email, ${options.email}`,
@@ -196,6 +215,14 @@ export class AuthService {
             where: { email: options.email },
             select: { id: true, isEmailVerified: true },
         });
+
+        if (!emailExist) {
+            throw new UserNotFoundException(
+                "Account with email not found. Kindly register first",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         if (emailExist && emailExist.isEmailVerified) {
             throw new DuplicateUserException(
                 "Account already verified. Kindly login",

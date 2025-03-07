@@ -146,6 +146,9 @@ importers:
       uuid:
         specifier: ^11.0.3
         version: 11.0.3
+      zeptomail:
+        specifier: ^6.1.0
+        version: 6.1.0
     devDependencies:
       '@commitlint/cli':
         specifier: ^17.6.1
@@ -4765,6 +4768,9 @@ packages:
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  zeptomail@6.1.0:
+    resolution: {integrity: sha512-0eyQ4NS6ktbQhQ9IIWXaCql8LOFPmp4Fk2J9KLOTGtklnZmidycPoWztD/icU/LBPrwAZBN7sRmErlYchUNdAg==}
 
 snapshots:
 
@@ -9924,3 +9930,9 @@ snapshots:
   yn@3.1.1: {}
 
   yocto-queue@0.1.0: {}
+
+  zeptomail@6.1.0:
+    dependencies:
+      node-fetch: 2.7.0
+    transitivePeerDependencies:
+      - encoding
