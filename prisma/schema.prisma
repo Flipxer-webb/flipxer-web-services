@@ -12,7 +12,7 @@ datasource db {
 //User
 enum UserType {
   ADMIN
-  CUSTOMER
+  INDIVIDUAL
   BUSINESS
 }
 
@@ -26,34 +26,107 @@ enum Gender {
   FEMALE
 }
 
+enum Country {
+  NIGERIA
+}
+
+enum DocumentVerificationStatus {
+  PENDING
+  VERIFIED
+  DECLINED
+}
+
 model User {
-  id                   Int                   @id @default(autoincrement())
-  identifier           String                @unique
-  firstName            String
-  lastName             String
-  username             String?
-  middleName           String?
-  email                String                @unique
-  phone                String?               @unique
-  password             String
-  userType             UserType
-  photo                String?
-  gender               Gender?
-  dateOfBirth          DateTime?
-  status               Status                @default(ACTIVE)
-  roleId               Int
-  ipAddress            String?
-  notificationToken    String?
-  isVerified           Boolean               @default(true) //email verification
-  isDeleted            Boolean?              @default(false)
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  passwordResetRequest PasswordResetRequest?
-  role                 Role                  @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  lastLogin            DateTime?
-  loginCount           Int                   @default(0) // Field to track login frequency
+  id                                 Int                         @id @default(autoincrement())
+  identifier                         String                      @unique
+  firstName                          String?
+  lastName                           String?
+  username                           String?
+  middleName                         String?
+  email                              String                      @unique
+  phone                              String?                     @unique
+  password                           String?
+  userType                           UserType
+  photo                              String?
+  gender                             Gender?
+  dateOfBirth                        DateTime?
+  bvn                                String?
+  bvnRegisteredPhone                 String?
+  country                            Country                     @default(NIGERIA)
+  status                             Status                      @default(ACTIVE)
+  roleId                             Int
+  ipAddress                          String?
+  notificationToken                  String?
+  isEmailVerified                    Boolean                     @default(false) //email verification
+  isPhoneVerified                    Boolean                     @default(false) //phone verification
+  isPasswordCreated                  Boolean                     @default(false)
+  isBvnVerified                      Boolean                     @default(false)
+  isDocumentVerified                 Boolean                     @default(false)
+  businessRecordCompleted            Boolean                     @default(false)
+  businessDocumentVerificationStatus DocumentVerificationStatus?
+  isDeleted                          Boolean                     @default(false)
+  createdAt                          DateTime                    @default(now())
+  updatedAt                          DateTime                    @updatedAt
+  passwordResetRequest               PasswordResetRequest?
+  role                               Role                        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  lastLogin                          DateTime?
+  loginCount                         Int                         @default(0) // Field to track login frequency
+  userDocument                       UserDocument?
+  businessRecord                     BusinessRecord?
+  businessDocument                   BusinessDocument?
 
   @@map("Users")
+}
+
+model BusinessRecord {
+  id                           Int    @id @default(autoincrement())
+  userId                       Int?   @unique
+  businessName                 String
+  natureOfBusiness             String
+  taxIdentificationNumber      String
+  expectedTransactionVolume    String
+  expectedTransactionFrequency String
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("BusinessRecords")
+}
+
+enum DocumentType {
+  INTERNATIONAL_PASSPORT
+  NIN
+  DRIVER_LICENSE
+}
+
+model UserDocument {
+  id               Int          @id @default(autoincrement())
+  userId           Int?         @unique
+  type             DocumentType
+  country          Country
+  documentNumber   String
+  documentImageUrl String
+  documentImageFieldId String
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("UserDocuments")
+}
+
+model BusinessDocument {
+  id     Int  @id @default(autoincrement())
+  userId Int? @unique
+
+  cacDocumentNumber                           String
+  cacImageUrl                                 String
+  articleOfAssociationNumber                  String?
+  articleOfAssociationImageUrl                String
+  boardResolutionAuthorzedAcctOpeningImageUrl String
+  proofOfAddressForBeneficialOwner            String
+  meansOfIdentificatioForBeneficialOwner      String
+
+  user User? @relation(fields: [userId], references: [id])
+  
+  @@map("BusinessDocuments")
 }
 
 //Account Verification
@@ -65,7 +138,23 @@ model AccountVerificationRequest {
   updatedAt  DateTime @updatedAt
   isVerified Boolean  @default(false)
 
+  @@index([email, code])
+  @@unique([email, code])
   @@map("AccountVerificationRequests")
+}
+
+//phone verification
+model PhoneVerificationRequest {
+  id         Int      @id @default(autoincrement())
+  phone      String   @unique
+  code       String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isVerified Boolean  @default(false)
+
+  @@index([phone, code])
+  @@unique([phone, code])
+  @@map("PhoneVerificationRequests")
 }
 
 //Roles

@@ -1,5 +1,5 @@
 import { storageDirConfig } from "@/config";
-import { EmailService } from "@/modules/core/email/services/email.service";
+import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { generateRandomNum } from "@/utils";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -10,11 +10,12 @@ import { AuthService } from "../../auth/services";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
-import { User } from "@prisma/client";
+import { ImagekitService } from "@/modules/core/upload/services/imagekit";
+import { UploadResponse } from "imagekit/dist/libs/interfaces";
 
 @Injectable()
 export class UserService {
-    private uploadService: CloudinaryService;
+    private uploadService: ImagekitService | CloudinaryService;
     constructor(
         private prisma: PrismaService,
         @Inject(forwardRef(() => AuthService))
@@ -23,7 +24,7 @@ export class UserService {
         private uploadFactory: UploadFactory
     ) {
         this.uploadService = this.uploadFactory.build({
-            provider: "cloudinary",
+            provider: "imagekit",
         });
     }
 
@@ -35,7 +36,9 @@ export class UserService {
         });
     }
 
-    private async uploadProfileImage(file: string): Promise<UploadApiResponse> {
+    private async uploadProfileImage(
+        file: string
+    ): Promise<UploadApiResponse | UploadResponse> {
         const date = Date.now();
         const body = Buffer.from(file, "base64");
 

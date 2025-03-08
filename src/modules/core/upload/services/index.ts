@@ -1,6 +1,8 @@
 import { BuildOptions } from "../interfaces";
-import { cloudinaryConfig } from "@/config";
+import { cloudinaryConfig, imagekitConfig } from "@/config";
 import { CloudinaryService } from "./cloudinary";
+import ImageKit from "imagekit";
+import { ImagekitService } from "./imagekit";
 
 export class UploadFactory {
     build(options: BuildOptions) {
@@ -12,6 +14,15 @@ export class UploadFactory {
                     api_secret: cloudinaryConfig.api_secret,
                 };
                 return new CloudinaryService(cdnary);
+            }
+
+            case "imagekit": {
+                const imagekit = new ImageKit({
+                    publicKey: imagekitConfig.public_key,
+                    privateKey: imagekitConfig.private_key,
+                    urlEndpoint: imagekitConfig.url,
+                });
+                return new ImagekitService(imagekit);
             }
 
             default:

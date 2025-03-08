@@ -72,6 +72,7 @@
         "ejs": "^3.1.10",
         "email-templates": "^12.0.1",
         "helmet": "^6.0.1",
+        "imagekit": "^6.0.0",
         "ioredis": "^5.4.1",
         "ip": "^2.0.1",
         "moment": "^2.30.1",
@@ -86,7 +87,8 @@
         "rxjs": "^7.2.0",
         "sharp": "^0.32.5",
         "slugify": "^1.6.6",
-        "uuid": "^11.0.3"
+        "uuid": "^11.0.3",
+        "zeptomail": "^6.1.0"
     },
     "devDependencies": {
         "@commitlint/cli": "^17.6.1",

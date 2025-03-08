@@ -27,3 +27,26 @@ export class AuthGenericException extends HttpException {
 export class UserAccountDisabledException extends HttpException {
     name = "UserAccountDisabledException";
 }
+
+export class InvalidEmailVerificationCodeException extends HttpException {
+    name = "InvalidVerificationCodeException";
+}
+
+export class VerificationCodeExpiredException extends HttpException {
+    name = "VerificationCodeExpiredException";
+}
+
+export class DuplicateBvnVerificationException extends HttpException {
+    name = "DuplicateBvnVerificationException";
+}
+export class DuplicateVerificationException extends HttpException {
+    name = "DuplicateVerificationException";
+}
+
+export class InvalidVerificationCodeException extends HttpException {
+    name = "InvalidVerificationCodeException";
+}
+
+export class VerificationGenericException extends HttpException {
+    name = "VerificationGenericException";
+}
