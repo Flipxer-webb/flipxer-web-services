@@ -90,7 +90,7 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "CLOUDINARY_API_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
-
+    //imagekit
     {
         name: "IMAGEKIT_PUBLIC_KEY",
         type: RequiredEnvironmentTypes.String,
@@ -101,6 +101,23 @@ const runtimeEnvironment: RequiredEnvironment[] = [
     },
     {
         name: "IMAGEKIT_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    //dojah
+    {
+        name: "DOJAH_APP_ID",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOJAH_PUBLIC_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOJAH_SECRET_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOJAH_TOKEN_ID",
         type: RequiredEnvironmentTypes.String,
     },
 
@@ -191,4 +208,19 @@ export const imagekitConfig: ImagekitConfig = {
     public_key: process.env.IMAGEKIT_PUBLIC_KEY,
     private_key: process.env.IMAGEKIT_PRIVATE_KEY,
     url: process.env.IMAGEKIT_URL,
+};
+
+//dojah
+export interface DojahConfig {
+    app_id: string;
+    public_key: string;
+    secret_key: string;
+    token_id: string;
+}
+
+export const dojahConfig: DojahConfig = {
+    app_id: process.env.DOJAH_APP_ID,
+    public_key: process.env.DOJAH_PUBLIC_KEY,
+    secret_key: process.env.DOJAH_SECRET_KEY,
+    token_id: process.env.DOJAH_TOKEN_ID,
 };
