@@ -16,4 +16,4 @@ export enum LoginPlatform {
     USER = "USER",
 }
 
-export type SignInOptions = Optional<UserSigInDto, "appType">;
+export type SignInOptions = Optional<UserSigInDto, "userType">;
