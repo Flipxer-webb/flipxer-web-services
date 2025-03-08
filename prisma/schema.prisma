@@ -212,4 +212,8 @@ model RolePermission {
 
   @@id([roleId, permissionId])
   @@map("RolePermissions")
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 88d7fe0c5b3a6ecfe8e992b7c3057df137799e84

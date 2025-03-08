@@ -7,6 +7,8 @@ import { AuthGuard } from "./guard";
 import { AdminAuthController } from "./controllers/v1/admin";
 export * from "./interfaces";
 export * from "./errors";
+import { PasswordService } from "./services/passworReset.services";
+import { PasswordController } from "./controllers/v1/passwordReset";
 
 @Module({
     imports: [
@@ -16,8 +18,8 @@ export * from "./errors";
             signOptions: { expiresIn: TOKEN_EXPIRATION },
         }),
     ],
-    controllers: [AuthController, AdminAuthController],
-    providers: [AuthService, AuthGuard],
+    controllers: [AuthController, AdminAuthController, PasswordController],
+    providers: [AuthService, AuthGuard, PasswordService],
     exports: [AuthService],
 })
 export class AuthModule {}
