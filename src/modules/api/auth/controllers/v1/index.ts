@@ -107,6 +107,7 @@ export class AuthController {
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "verify phone verification otp" })
+    @ApiBearerAuth("access-token")
     @Post("/verify-phone-otp")
     async verifyPhoneOtp(
         @User() user: UserModel,
@@ -118,8 +119,9 @@ export class AuthController {
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "dcoument verification for users with individual account type",
+        summary: "document verification for users with individual account type",
     })
+    @ApiBearerAuth("access-token")
     @Post("/verify-document")
     async documentVerification(
         @User() user: UserModel,
@@ -133,6 +135,7 @@ export class AuthController {
     @ApiOperation({
         summary: "submit business record for users with business account type",
     })
+    @ApiBearerAuth("access-token")
     @Post("/submit-business-record")
     async submitBusinessRecord(
         @User() user: UserModel,

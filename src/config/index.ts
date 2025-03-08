@@ -72,6 +72,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "PROFILE_DIR",
         type: RequiredEnvironmentTypes.String,
     },
+    {
+        name: "DOCUMENT_DIR",
+        type: RequiredEnvironmentTypes.String,
+    },
 
     //clodinary
     {
@@ -84,6 +88,19 @@ const runtimeEnvironment: RequiredEnvironment[] = [
     },
     {
         name: "CLOUDINARY_API_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
+
+    {
+        name: "IMAGEKIT_PUBLIC_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "IMAGEKIT_PRIVATE_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "IMAGEKIT_URL",
         type: RequiredEnvironmentTypes.String,
     },
 
@@ -142,10 +159,12 @@ export const frontendDevOrigin = [/^http:\/\/localhost:\d+$/];
 
 interface StorageDirConfig {
     profile: string;
+    document: string;
 }
 
 export const storageDirConfig: StorageDirConfig = {
     profile: process.env.PROFILE_DIR,
+    document: process.env.DOCUMENT_DIR,
 };
 
 export interface Configuration {
@@ -160,4 +179,16 @@ export const cloudinaryConfig: ConfigOptions = {
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
+};
+
+//imagekit
+export interface ImagekitConfig {
+    public_key: string;
+    private_key: string;
+    url: string;
+}
+export const imagekitConfig: ImagekitConfig = {
+    public_key: process.env.IMAGEKIT_PUBLIC_KEY,
+    private_key: process.env.IMAGEKIT_PRIVATE_KEY,
+    url: process.env.IMAGEKIT_URL,
 };

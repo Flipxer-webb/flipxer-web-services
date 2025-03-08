@@ -18,7 +18,7 @@ import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
-import { encrypt, formatName, generateId } from "@/utils";
+import { encrypt, formatName, generateId, generateRandomNum } from "@/utils";
 import { LoginPlatform, SignInOptions } from "../interfaces";
 import { customAlphabet } from "nanoid";
 import { DuplicateUserException, UserNotFoundException } from "../../user";
@@ -38,17 +38,29 @@ import {
     jwtSecret,
     mailConfig,
     REFRESH_TOKEN_EXPIRATION,
+    storageDirConfig,
     TOKEN_EXPIRATION,
 } from "@/config";
+import { UploadResponse } from "imagekit/dist/libs/interfaces";
+import { ImagekitService } from "@/modules/core/upload/services/imagekit";
+import { UploadFactory } from "@/modules/core/upload/services";
+import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
+import { UploadApiResponse } from "cloudinary";
 
 @Injectable()
 export class AuthService {
+    private uploadService: ImagekitService | CloudinaryService;
     private readonly logger = new Logger("AuthServices");
     constructor(
         private jwtService: JwtService,
         private prisma: PrismaService,
-        private emailService: EmailService
-    ) {}
+        private emailService: EmailService,
+        private uploadFactory: UploadFactory
+    ) {
+        this.uploadService = this.uploadFactory.build({
+            provider: "imagekit",
+        });
+    }
 
     async hashPassword(password: string): Promise<string> {
         return await bcrypt.hash(password, 10);
@@ -231,8 +243,10 @@ export class AuthService {
         }
 
         const verificationData =
-            await this.prisma.accountVerificationRequest.findFirst({
-                where: { email: options.email, code: options.otp },
+            await this.prisma.accountVerificationRequest.findUnique({
+                where: {
+                    email_code: { email: options.email, code: options.otp },
+                },
             });
 
         if (!verificationData) {
@@ -358,8 +372,10 @@ export class AuthService {
         }
 
         const verificationData =
-            await this.prisma.phoneVerificationRequest.findFirst({
-                where: { phone: options.phone, code: options.otp },
+            await this.prisma.phoneVerificationRequest.findUnique({
+                where: {
+                    phone_code: { phone: options.phone, code: options.otp },
+                },
             });
 
         if (!verificationData) {
@@ -425,6 +441,7 @@ export class AuthService {
                 lastName: dto.lastName,
                 dateOfBirth: dto.dateOfBirth,
                 isBvnVerified: true,
+                bvn: dto.bvn,
                 //phone:''
             },
         });
@@ -444,32 +461,53 @@ export class AuthService {
         /**
           TODO:
         1.  verify document using doja
-
-        2. upload image base64 string
-
         */
 
-        await this.prisma.$transaction(async (tx) => {
-            await tx.userDocument.upsert({
-                where: { id: user.id },
-                update: {},
-                create: {
-                    userId: user.id,
-                    type: dto.type,
-                    country: dto.country,
-                    documentNumber: dto.documentNumber,
-                    documentImageUrl: "document url",
-                },
-            });
+        const uploadedDoc = await this.uploadDocumentImage(
+            dto.documentImageUrl
+        );
 
-            await tx.user.update({
-                where: { id: user.id },
-                data: { isDocumentVerified: true },
-            });
-        });
+        await this.prisma.$transaction(
+            async (tx) => {
+                await tx.userDocument.upsert({
+                    where: { userId: user.id },
+                    update: {},
+                    create: {
+                        userId: user.id,
+                        type: dto.documentType,
+                        country: dto.country,
+                        documentNumber: dto.documentNumber,
+                        documentImageUrl: uploadedDoc.url,
+                        documentImageFieldId: uploadedDoc.fileId,
+                    },
+                });
+
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: { isDocumentVerified: true },
+                });
+            },
+            { timeout: 30000 }
+        );
 
         return buildResponse({
             message: "Document Verification successfully",
+        });
+    }
+
+    private async uploadDocumentImage(
+        file: string
+    ): Promise<UploadResponse | UploadApiResponse> {
+        const date = Date.now();
+        const body = Buffer.from(file, "base64");
+
+        return await this.uploadService.uploadCompressedImage({
+            dir: storageDirConfig.document,
+            name: `documet-image-${date}-${generateRandomNum(5)}`,
+            format: "webp",
+            body: body,
+            quality: 100,
+            width: 989,
         });
     }
 

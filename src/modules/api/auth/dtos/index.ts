@@ -72,7 +72,7 @@ enum AccountType {
 }
 
 export class SignUpDto {
-    @ApiProperty()
+    @ApiProperty({ enum: AccountType, enumName: "AccountType" })
     @IsNotEmpty()
     @IsEnum(AccountType)
     accountType: AccountType;
@@ -110,9 +110,11 @@ export class BvnVerificationDto {
 }
 
 export class SignInDto {
+    @ApiProperty()
     @IsEmail({}, { message: "Invalid email address" })
     email: string;
 
+    @ApiProperty()
     @IsString({ message: "Invalid password format" })
     password: string;
 }
@@ -122,6 +124,7 @@ export enum UserSignInAppType {
     BUSINESS = "BUSINESS",
 }
 export class UserSigInDto extends SignInDto {
+    @ApiProperty({ enum: UserSignInAppType, enumName: "AppType" })
     @IsEnum(UserSignInAppType)
     appType: UserSignInAppType;
 }
@@ -135,12 +138,12 @@ export class SendPhoneVerificationCodeDto {
 }
 
 export class DocumentVerificationDto {
-    @ApiProperty()
+    @ApiProperty({ enum: DocumentType, enumName: "DocumentType" })
     @IsNotEmpty()
     @IsEnum(DocumentType)
-    type: DocumentType;
+    documentType: DocumentType;
 
-    @ApiProperty()
+    @ApiProperty({ enum: Country, enumName: "Country" })
     @IsNotEmpty()
     @IsEnum(Country)
     country: Country;

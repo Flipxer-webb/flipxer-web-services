@@ -105,6 +105,7 @@ model UserDocument {
   country          Country
   documentNumber   String
   documentImageUrl String
+  documentImageFieldId String
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -124,7 +125,7 @@ model BusinessDocument {
   meansOfIdentificatioForBeneficialOwner      String
 
   user User? @relation(fields: [userId], references: [id])
-
+  
   @@map("BusinessDocuments")
 }
 
@@ -138,6 +139,7 @@ model AccountVerificationRequest {
   isVerified Boolean  @default(false)
 
   @@index([email, code])
+  @@unique([email, code])
   @@map("AccountVerificationRequests")
 }
 
@@ -151,6 +153,7 @@ model PhoneVerificationRequest {
   isVerified Boolean  @default(false)
 
   @@index([phone, code])
+  @@unique([phone, code])
   @@map("PhoneVerificationRequests")
 }
 

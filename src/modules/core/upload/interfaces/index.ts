@@ -20,13 +20,17 @@ export interface DeleteFileOptions {
     key: string;
 }
 
+export interface DeleteImageKitFileOptions {
+    fileId: string;
+}
+
 export interface IUploadService {
     uploadImage(options: UploadImageOptions): Promise<string>;
     uploadCompressedImage(options: CompressImageOptions): Promise<string>;
     deleteFile(options: DeleteFileOptions): Promise<boolean>;
 }
 
-type Provider = "cloudinary";
+type Provider = "cloudinary" | "imagekit";
 export type BuildOptions = {
     provider: Provider;
 };
