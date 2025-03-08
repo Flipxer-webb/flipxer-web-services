@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Email Template</title>
+        <style></style>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap"
+            rel="stylesheet"
+        />
+    </head>
+    <body
+        style="
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        "
+    >
+        <table
+            style="
+                width: 100%;
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                border-radius: 8px;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+                margin-top: 50px;
+            "
+            cellpadding="0"
+            cellspacing="0"
+        >
+            <tr>
+                <td style="padding: 20px 0; width: 100%; text-align: center">
+                    <img
+                        style="max-width: 150px"
+                        src=""
+                        alt="Resolve"
+                    />
+                    <div
+                        style="
+                            border: 1px solid rgba(233, 202, 255, 1);
+                            width: 80%;
+                            margin-inline: auto;
+                            margin-top: 29px;
+                        "
+                    ></div>
+                </td>
+            </tr>
+            <tr>
+                <td
+                    style="
+                        padding: 48px;
+                        width: 100%;
+                        text-align: center;
+                        color: #333333;
+                        font-family: Inter;
+                        font-size: 14px;
+                        font-weight: 400;
+                        line-height: 22px;
+                        text-align: left;
+                    "
+                >
+                    <h1
+                        style="
+                            text-align: left;
+                            font-size: 24px;
+                            font-weight: 500;
+                            line-height: 32px;
+                            color: black;
+                        "
+                    >
+                        Hi,
+                    </h1>
+                    <p
+                        style="
+                            font-size: 16px;
+                            color: #555555;
+                            color: #333333;
+                            font-family: Inter;
+                            font-size: 14px;
+                            font-weight: 400;
+                            line-height: 22px;
+                            text-align: left;
+                        "
+                    >
+                        You are receiving this mail so that you can verify your
+                        email.
+                        <br />
+                        Kindly use the code below to verify your email
+                    </p>
+                    <table
+                        align="center"
+                        cellpadding="0"
+                        cellspacing="0"
+                        style="font-size: 32px; margin: 32px 0"
+                    >
+                        <tr>
+                            <% for(let i = 0; i<code.length; i++ ) { %>
+                             <% if(i > 0) { %> 
+                               <td style="width: 15.25px"></td>
+                            <% }%>
+                            <td
+                                style="
+                                    background: #fab857;
+                                    color: #10241b;
+                                    border-radius: 5px;
+                                    padding: 20px;
+                                    font-family: Inter;
+                                    font-size: 24px;
+                                    font-weight: 600;
+                                    line-height: 16px;
+                                    text-align: center;
+                                "
+                            >
+                                <%= code[i] %>
+                            </td>
+                            <% } %>
+                        </tr>
+                    </table>
+                    <p
+                        style="
+                            color: #333333;
+                            font-family: Inter;
+                            font-size: 14px;
+                            font-weight: 400;
+                            line-height: 22px;
+                            text-align: left;
+                            margin-bottom: 32px;
+                        "
+                    >
+                        OTP will expire in
+                        <strong style="font-weight: 600">30 minutes</strong>.
+                    </p>
+                    <div
+                        style="
+                            color: #333333;
+                            font-family: Inter;
+                            font-size: 14px;
+                            font-weight: 400;
+                            line-height: 22px;
+                            text-align: left;
+                        "
+                    >
+                        <p style="margin-block: 0px">Best Regards,<br /></p>
+                        <p style="color: #1f3a95; margin-block: 0px">
+                            Resolve Team
+                        </p>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td
+                    style="
+                        padding: 48px;
+                        width: 100%;
+                        text-align: center;
+                        background: #1f3a95;
+                        color: white;
+                    "
+                >
+                    <p
+                        style="
+                            color: white;
+                            font-family: Inter;
+                            font-size: 10px;
+                            font-weight: 400;
+                            line-height: 12.1px;
+                            text-align: center;
+                        "
+                    >
+                        &copy; 2024 Resolve. All rights reserved.
+                    </p>
+                    <div
+                        style="
+                            border: 1px solid rgba(250, 184, 87, 0.42);
+                            width: 80%;
+                            margin-inline: auto;
+                            margin-block: 10px;
+                        "
+                    ></div>
+                    <table
+                        align="center"
+                        cellpadding="0"
+                        cellspacing="0"
+                        style="margin-top: 32px"
+                    >
+                        <tr>
+                            <td style="width: 16px"></td>
+                            <td>
+                                <a
+                                    style="
+                                        text-decoration: none;
+                                        color: white !important;
+                                        cursor: pointer;
+                                    "
+                                    href="#"
+                                >
+                                    <img
+                                        src=""
+                                        alt="facebook icon"
+                                    />
+                                </a>
+                            </td>
+                            <td style="width: 16px"></td>
+                            <td>
+                                <a
+                                    style="
+                                        text-decoration: none;
+                                        color: white !important;
+                                        cursor: pointer;
+                                    "
+                                    href="#"
+                                >
+                                    <img
+                                        src=""
+                                        alt="instagram icon"
+                                    />
+                                </a>
+                            </td>
+                            <td style="width: 16px"></td>
+                        </tr>
+                    </table>
+                    <div
+                        style="
+                            border: 1px solid rgba(250, 184, 87, 0.42);
+                            width: 80%;
+                            margin-inline: auto;
+                            margin-block: 10px;
+                        "
+                    ></div>
+                    <p
+                        style="
+                            margin-top: 32px;
+                            color: white;
+                            font-family: Inter;
+                            font-size: 10px;
+                            font-weight: 400;
+                            line-height: 12.1px;
+                            text-align: center;
+                        "
+                    >
+                        You are receiving this mail because you registered to
+                        join the Resolve platform as a user or a creator. This
+                        also shows that you agree to our
+                        <a
+                            href="#"
+                            style="
+                                color: white !important;
+                                text-decoration: underline;
+                            "
+                            >Terms of Use</a
+                        >
+                        and
+                        <a
+                            href="#"
+                            style="
+                                color: white !important;
+                                text-decoration: underline;
+                            "
+                            >Privacy Policy</a
+                        >. If you no longer want to receive mails from us, click
+                        the
+                        <a
+                            href="#"
+                            style="
+                                color: white !important;
+                                text-decoration: underline;
+                            "
+                            >unsubscribe link</a
+                        >
+                        below to unsubscribe.
+                    </p>
+                    <table
+                        align="center"
+                        cellpadding="0"
+                        cellspacing="0"
+                        style="margin-top: 10px"
+                    >
+                        <tr>
+                            <td>
+                                <a
+                                    style="
+                                        text-decoration: none;
+                                        color: white !important;
+                                        cursor: pointer;
+                                        font-family: Inter;
+                                        font-size: 10px;
+                                        font-weight: 400;
+                                        line-height: 12.1px;
+                                        text-align: center;
+                                        text-decoration: underline;
+                                    "
+                                    href="#"
+                                    >Privacy policy</a
+                                >
+                                <div
+                                    style="
+                                        display: inline-block;
+                                        margin-right: 5px;
+                                        width: 4px;
+                                        height: 4px;
+                                        border-radius: 50%;
+                                        background-color: white;
+                                    "
+                                ></div>
+                            </td>
+
+                            <td>
+                                <a
+                                    style="
+                                        text-decoration: none;
+                                        color: white !important;
+                                        cursor: pointer;
+                                        font-family: Inter;
+                                        font-size: 10px;
+                                        font-weight: 400;
+                                        line-height: 12.1px;
+                                        text-align: center;
+                                        text-decoration: underline;
+                                    "
+                                    href="#"
+                                    >Terms of service</a
+                                >
+                                <div
+                                    style="
+                                        display: inline-block;
+                                        margin-right: 5px;
+                                        width: 4px;
+                                        height: 4px;
+                                        border-radius: 100px;
+                                        background-color: white;
+                                    "
+                                ></div>
+                            </td>
+
+                            <td>
+                                <a
+                                    style="
+                                        text-decoration: none;
+                                        color: white !important;
+                                        cursor: pointer;
+                                        font-family: Inter;
+                                        font-size: 10px;
+                                        font-weight: 400;
+                                        line-height: 12.1px;
+                                        text-align: center;
+                                        text-decoration: underline;
+                                    "
+                                    href="#"
+                                    >Help center</a
+                                >
+                                <div
+                                    style="
+                                        display: inline-block;
+                                        margin-right: 5px;
+                                        width: 4px;
+                                        height: 4px;
+                                        border-radius: 100px;
+                                        background-color: white;
+                                    "
+                                ></div>
+                            </td>
+
+                            <td>
+                                <a
+                                    style="
+                                        text-decoration: none;
+                                        color: white !important;
+                                        cursor: pointer;
+                                        font-family: Inter;
+                                        font-size: 10px;
+                                        font-weight: 400;
+                                        line-height: 12.1px;
+                                        text-align: center;
+                                        text-decoration: underline;
+                                    "
+                                    href="#"
+                                    >Unsubscribe</a
+                                >
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>

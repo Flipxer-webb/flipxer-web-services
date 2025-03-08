@@ -1,0 +1,215 @@
+generator client {
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "rhel-openssl-1.0.x"]
+  previewFeatures = ["fullTextSearch", "fulltextIndex"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//User
+enum UserType {
+  ADMIN
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum Status {
+  ACTIVE
+  BLOCKED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum Country {
+  NIGERIA
+}
+
+enum DocumentVerificationStatus {
+  PENDING
+  VERIFIED
+  DECLINED
+}
+
+model User {
+  id                                 Int                         @id @default(autoincrement())
+  identifier                         String                      @unique
+  firstName                          String?
+  lastName                           String?
+  username                           String?
+  middleName                         String?
+  email                              String                      @unique
+  phone                              String?                     @unique
+  password                           String?
+  userType                           UserType
+  photo                              String?
+  gender                             Gender?
+  dateOfBirth                        DateTime?
+  bvn                                String?
+  bvnRegisteredPhone                 String?
+  country                            Country                     @default(NIGERIA)
+  status                             Status                      @default(ACTIVE)
+  roleId                             Int
+  ipAddress                          String?
+  notificationToken                  String?
+  isEmailVerified                    Boolean                     @default(false) //email verification
+  isPhoneVerified                    Boolean                     @default(false) //phone verification
+  isPasswordCreated                  Boolean                     @default(false)
+  isBvnVerified                      Boolean                     @default(false)
+  isDocumentVerified                 Boolean                     @default(false)
+  businessRecordCompleted            Boolean                     @default(false)
+  businessDocumentVerificationStatus DocumentVerificationStatus?
+  isDeleted                          Boolean                     @default(false)
+  createdAt                          DateTime                    @default(now())
+  updatedAt                          DateTime                    @updatedAt
+  passwordResetRequest               PasswordResetRequest?
+  role                               Role                        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  lastLogin                          DateTime?
+  loginCount                         Int                         @default(0) // Field to track login frequency
+  userDocument                       UserDocument?
+  businessRecord                     BusinessRecord?
+  businessDocument                   BusinessDocument?
+
+  @@map("Users")
+}
+
+model BusinessRecord {
+  id                           Int    @id @default(autoincrement())
+  userId                       Int?   @unique
+  businessName                 String
+  natureOfBusiness             String
+  taxIdentificationNumber      String
+  expectedTransactionVolume    String
+  expectedTransactionFrequency String
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("BusinessRecords")
+}
+
+enum DocumentType {
+  INTERNATIONAL_PASSPORT
+  NIN
+  DRIVER_LICENSE
+}
+
+model UserDocument {
+  id               Int          @id @default(autoincrement())
+  userId           Int?         @unique
+  type             DocumentType
+  country          Country
+  documentNumber   String
+  documentImageUrl String
+  documentImageFieldId String
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("UserDocuments")
+}
+
+model BusinessDocument {
+  id     Int  @id @default(autoincrement())
+  userId Int? @unique
+
+  cacDocumentNumber                           String
+  cacImageUrl                                 String
+  articleOfAssociationNumber                  String?
+  articleOfAssociationImageUrl                String
+  boardResolutionAuthorzedAcctOpeningImageUrl String
+  proofOfAddressForBeneficialOwner            String
+  meansOfIdentificatioForBeneficialOwner      String
+
+  user User? @relation(fields: [userId], references: [id])
+  
+  @@map("BusinessDocuments")
+}
+
+//Account Verification
+model AccountVerificationRequest {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  code       String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isVerified Boolean  @default(false)
+
+  @@index([email, code])
+  @@unique([email, code])
+  @@map("AccountVerificationRequests")
+}
+
+//phone verification
+model PhoneVerificationRequest {
+  id         Int      @id @default(autoincrement())
+  phone      String   @unique
+  code       String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isVerified Boolean  @default(false)
+
+  @@index([phone, code])
+  @@unique([phone, code])
+  @@map("PhoneVerificationRequests")
+}
+
+//Roles
+model Role {
+  id             Int              @id @default(autoincrement())
+  name           String           @unique
+  slug           String           @unique
+  description    String?          @db.Text
+  isAdmin        Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  users          User[]
+  rolePermission RolePermission[]
+
+  @@map("Roles")
+}
+
+//Password Reset
+model PasswordResetRequest {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("PasswordResetRequests")
+}
+
+enum PermissionGroup {
+  USERS
+}
+
+//Permission
+model Permission {
+  id          Int              @id @default(autoincrement())
+  group       PermissionGroup
+  name        String           @unique
+  description String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+
+  @@map("Permissions")
+}
+
+//RolePermission
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("RolePermissions")
+}
