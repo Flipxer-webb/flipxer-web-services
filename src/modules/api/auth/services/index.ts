@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -23,6 +23,7 @@ import { DuplicateUserException, UserNotFoundException } from "../../user";
 import {
     DuplicateBvnVerificationException,
     DuplicateVerificationException,
+    InvalidCredentialException,
     InvalidEmailVerificationCodeException,
     InvalidVerificationCodeException,
     VerificationCodeExpiredException,
@@ -44,6 +45,8 @@ import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
+import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
+import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { LoginPlatform, SignInOptions } from "../interfaces";
 
 @Injectable()
@@ -54,7 +57,9 @@ export class AuthService {
         private jwtService: JwtService,
         private prisma: PrismaService,
         private emailService: EmailService,
-        private uploadFactory: UploadFactory
+        private uploadFactory: UploadFactory,
+        @Inject(IdentityComplianceInjectionToken.DOJAH)
+        private readonly dojahService: DojahService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -414,16 +419,62 @@ export class AuthService {
             );
         }
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                firstName: dto.firstName,
-                lastName: dto.lastName,
-                dateOfBirth: dto.dateOfBirth,
-                isBvnVerified: true,
-                bvn: dto.bvn,
-            },
+        //check if bvn is already in use by another account
+        const bvnInUseByAnother = await this.prisma.user.findFirst({
+            where: { id: { not: user.id }, bvn: dto.bvn },
         });
+
+        if (bvnInUseByAnother) {
+            throw new VerificationGenericException(
+                "Bvn already in use",
+                HttpStatus.CONFLICT
+            );
+        }
+
+        const result = await this.dojahService.verifyBvn({
+            bvn: dto.bvn, //22222222222 sandbox bvn
+        });
+
+        if (dto.bvn === "22222222222") {
+            //sandbox mode
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    firstName: dto.firstName,
+                    lastName: dto.lastName,
+                    dateOfBirth: dto.dateOfBirth,
+                    isBvnVerified: true,
+                    bvn: "",
+                    //phone:''
+                },
+            });
+        } else {
+            //cross check the names and dob
+            if (
+                dto.firstName.toLowerCase() !==
+                    result?.data?.entity?.first_name.toLowerCase() ||
+                dto.lastName.toLowerCase() !==
+                    result?.data?.entity?.last_name.toLowerCase() ||
+                dto.dateOfBirth !== result?.data?.entity?.date_of_birth
+            ) {
+                throw new VerificationGenericException(
+                    "Incorrect first name, last name or date of birth",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    firstName: dto.firstName,
+                    lastName: dto.lastName,
+                    dateOfBirth: dto.dateOfBirth,
+                    isBvnVerified: true,
+                    bvn: dto.bvn,
+                    bvnRegisteredPhone: result.data.entity.phone_number1,
+                },
+            });
+        }
+
         return buildResponse({
             message: "Bvn Verification successfully",
         });
@@ -533,11 +584,17 @@ export class AuthService {
         });
     }
 
-    async customerSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
+    async customerSignIn(
+        options: UserSigInDto,
+        ip: string
+    ): Promise<ApiResponse> {
         return await this.signIn(options, LoginPlatform.CUSTOMER, ip);
     }
 
-    async bussinessSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
+    async bussinessSignIn(
+        options: UserSigInDto,
+        ip: string
+    ): Promise<ApiResponse> {
         return await this.signIn(options, LoginPlatform.BUSINESS, ip);
     }
 
@@ -563,20 +620,21 @@ export class AuthService {
         });
 
         if (!user) {
-            return buildResponse({
-                success: false,
-                message: "User not found",
-                data: {},
-            });
+            throw new InvalidCredentialException(
+                "Incorrect login credential",
+                HttpStatus.NOT_FOUND
+            );
         }
 
-        const passwordMatch = await this.comparePassword(options.password, user.password);
+        const passwordMatch = await this.comparePassword(
+            options.password,
+            user.password
+        );
         if (!passwordMatch) {
-            return buildResponse({
-                success: false,
-                message: "Incorrect password",
-                data: {},
-            });
+            throw new InvalidCredentialException(
+                "Incorrect login credential",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         // Generate both access and refresh tokens
