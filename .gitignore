@@ -43,4 +43,5 @@ lerna-debug.log*
 
 #env
 .env
-.env.prod
+.env.
+.package-lock.json
