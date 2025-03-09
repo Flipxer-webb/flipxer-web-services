@@ -79,10 +79,10 @@ export class AuthController {
         return await this.authService.createPassword(user, createPasswordDto);
     }
 
-    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    // @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "verify user with individual account bvn" })
-    @ApiBearerAuth("access-token")
     @Post("/verify-bvn")
     async bvnVerification(
         @User() user: UserModel,
