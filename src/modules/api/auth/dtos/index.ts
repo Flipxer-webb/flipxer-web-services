@@ -28,7 +28,7 @@ export class SendEmailVerificationCodeDto {
     email: string;
 }
 
-export class VerifyEmailOtpDto {
+export class VerifyEmailOtpDto {ll
     @ApiProperty()
     @IsNotEmpty()
     @IsEmail({}, { message: "Invalid email address" })
@@ -64,6 +64,29 @@ export class CreatePasswordDto {
             "Password must contain at least one uppercase letter, one number, and one special character",
     })
     password: string;
+}
+
+// New DTO for sending forgot password email
+export class SendForgotPasswordDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsEmail({}, { message: "Invalid email address" })
+    email: string;
+}
+
+// Extended DTO for reset password
+export class ResetPasswordDto extends CreatePasswordDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsEmail({}, { message: "Invalid email address" })
+    email: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    resetCode: string;
+
+    // password field is inherited from CreatePasswordDto
 }
 
 enum AccountType {
@@ -126,11 +149,13 @@ export class SignInDto {
 export enum UserSignInAppType {
     INDIVIDUAL = "INDIVIDUAL",
     BUSINESS = "BUSINESS",
+    ADMIN = "ADMIN", // Add ADMIN type for admin sign-in
 }
+
 export class UserSigInDto extends SignInDto {
     @ApiProperty({ enum: UserSignInAppType, enumName: "AppType" })
-    @IsEnum(UserSignInAppType)
-    appType: UserSignInAppType;
+    @IsEnum(UserSignInAppType, { message: "Invalid app type" })
+    userType: UserSignInAppType; // Add appType field to handle different types of sign-ins
 }
 
 export class SendPhoneVerificationCodeDto {

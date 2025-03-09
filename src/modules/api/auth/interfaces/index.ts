@@ -1,4 +1,4 @@
-import { User, UserType } from "@prisma/client";
+import { User } from "@prisma/client";
 import { Request } from "express";
 import { UserSigInDto } from "../dtos";
 import { Optional } from "@/utils";
@@ -12,8 +12,9 @@ export interface RequestWithUser extends Request {
 }
 
 export enum LoginPlatform {
-    ADMIN = "ADMIN",
-    USER = "USER",
+    ADMIN = "ADMIN",       // Admin sign-in platform
+    CUSTOMER = "CUSTOMER", // Customer sign-in platform
+    BUSINESS = "BUSINESS"  // Business sign-in platform
 }
 
-export type SignInOptions = Optional<UserSigInDto, "appType">;
+export type SignInOptions = Optional<UserSigInDto, "userType">;

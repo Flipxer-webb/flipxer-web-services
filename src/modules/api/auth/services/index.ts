@@ -2,7 +2,7 @@ import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
-    SignInDto,
+    UserSignInAppType,
     UserSigInDto,
     SendEmailVerificationCodeDto,
     VerifyEmailOtpDto,
@@ -13,18 +13,17 @@ import {
     DocumentVerificationDto,
     SubmitBusinessRecordDto,
 } from "../dtos";
-
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
 import { encrypt, formatName, generateId, generateRandomNum } from "@/utils";
-import { LoginPlatform, SignInOptions } from "../interfaces";
 import { customAlphabet } from "nanoid";
 import { DuplicateUserException, UserNotFoundException } from "../../user";
 import {
     DuplicateBvnVerificationException,
     DuplicateVerificationException,
+    InvalidCredentialException,
     InvalidEmailVerificationCodeException,
     InvalidVerificationCodeException,
     VerificationCodeExpiredException,
@@ -48,6 +47,7 @@ import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
+import { LoginPlatform, SignInOptions } from "../interfaces";
 
 @Injectable()
 export class AuthService {
@@ -76,13 +76,13 @@ export class AuthService {
 
     async generateTokens(payload: any) {
         const accessToken = await this.jwtService.signAsync(payload, {
-            secret: jwtSecret, // Access token secret
-            expiresIn: TOKEN_EXPIRATION, // Short lifespan
+            secret: jwtSecret,
+            expiresIn: TOKEN_EXPIRATION,
         });
 
         const refreshToken = await this.jwtService.signAsync(payload, {
-            secret: jwt_refresh_secret, // Refresh token secret
-            expiresIn: REFRESH_TOKEN_EXPIRATION, // Longer lifespan
+            secret: jwt_refresh_secret,
+            expiresIn: REFRESH_TOKEN_EXPIRATION,
         });
 
         return { accessToken, refreshToken };
@@ -152,7 +152,7 @@ export class AuthService {
                 merge_info: {
                     code: verificationCode,
                     notice: "Please proceed to verify your account with the code. Accounts that are not verified after 3days will be removed from our platform. Thank you",
-                }, //for passing extra data to templates
+                },
             });
         } catch (error) {
             this.logger.error(
@@ -209,7 +209,7 @@ export class AuthService {
                 from: { address: mailConfig.senderMail },
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.verify_account,
-                merge_info: { code: verificationCode }, //for passing extra data to templates
+                merge_info: { code: verificationCode },
             });
         } catch (error) {
             this.logger.error(
@@ -260,10 +260,9 @@ export class AuthService {
             );
         }
 
-        //check verification expiration
         const timeDifference =
             Date.now() - verificationData.updatedAt.getTime();
-        const threeDaysInMs = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
+        const threeDaysInMs = 3 * 24 * 60 * 60 * 1000;
 
         if (timeDifference > threeDaysInMs) {
             throw new VerificationCodeExpiredException(
@@ -272,7 +271,6 @@ export class AuthService {
             );
         }
 
-        //update user email verification status
         await this.prisma.user.update({
             where: { email: options.email },
             data: { isEmailVerified: true },
@@ -300,7 +298,6 @@ export class AuthService {
             );
         }
 
-        //check  that phone has not been used by another user
         const alreadyInUse = await this.prisma.user.findFirst({
             where: { id: { not: user.id }, phone: options.phone },
         });
@@ -312,7 +309,6 @@ export class AuthService {
             );
         }
 
-        //check that this phone tallies with the one used for bvn verification
         if (
             user.userType === UserType.INDIVIDUAL &&
             user.bvnRegisteredPhone !== options.phone
@@ -344,17 +340,7 @@ export class AuthService {
         const phoneNumber = options.phone
             ? `234${options.phone.trim().substring(1)}`
             : null;
-        //TODO: send code to phone
-
-        // await this.emailService.send<VerifyEmailParams>({
-        //     mailOptions: {
-        //         to: email,
-        //     },
-        //     template: "verify_email",
-        //     params: {
-        //         code: verificationCode,
-        //     },
-        // });
+        // TODO: send code to phone
 
         return buildResponse({
             message: `A phone verification code has been sent to your phone, ${options.phone}`,
@@ -389,7 +375,6 @@ export class AuthService {
             );
         }
 
-        //check verification expiration
         const timeDifference =
             Date.now() - verificationData.updatedAt.getTime();
         const timeDiffInMin = timeDifference / (1000 * 60);
@@ -401,7 +386,6 @@ export class AuthService {
             );
         }
 
-        //update user phone verification status
         await this.prisma.user.update({
             where: { phone: options.phone },
             data: { isPhoneVerified: true },
@@ -504,11 +488,6 @@ export class AuthService {
             );
         }
 
-        /**
-          TODO:
-        1.  verify document using doja
-        */
-
         const uploadedDoc = await this.uploadDocumentImage(
             dto.documentImageUrl
         );
@@ -588,35 +567,93 @@ export class AuthService {
         });
     }
 
-    async userSignIn(options: UserSigInDto): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.USER);
+    async userSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
+        const { userType } = options;
+
+        if (userType === UserSignInAppType.INDIVIDUAL) {
+            return this.customerSignIn(options, ip);
+        } else if (userType === UserSignInAppType.BUSINESS) {
+            return this.bussinessSignIn(options, ip);
+        } else if (userType === UserSignInAppType.ADMIN) {
+            return this.adminSignIn(options, ip);
+        }
+
+        return buildResponse({
+            message: "Invalid sign-in type",
+            data: {},
+        });
     }
 
-    async adminSignIn(options: SignInDto, ip: string): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.ADMIN);
+    async customerSignIn(
+        options: UserSigInDto,
+        ip: string
+    ): Promise<ApiResponse> {
+        return await this.signIn(options, LoginPlatform.CUSTOMER, ip);
     }
 
-    async signIn(
+    async bussinessSignIn(
+        options: UserSigInDto,
+        ip: string
+    ): Promise<ApiResponse> {
+        return await this.signIn(options, LoginPlatform.BUSINESS, ip);
+    }
+
+    async adminSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
+        return await this.signIn(options, LoginPlatform.ADMIN, ip);
+    }
+
+    // Updated signIn method to return both access and refresh tokens
+    private async signIn(
         options: SignInOptions,
-        loginPlatform: LoginPlatform
+        loginPlatform: LoginPlatform,
+        ip: string
     ): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: {
                 email: options.email,
             },
             select: {
+                id: true, // Include id for token generation
                 identifier: true,
+                password: true,
             },
         });
 
-        const accessToken = await this.jwtService.signAsync({
-            sub: user.identifier,
+        if (!user) {
+            throw new InvalidCredentialException(
+                "Incorrect login credential",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        const passwordMatch = await this.comparePassword(
+            options.password,
+            user.password
+        );
+        if (!passwordMatch) {
+            throw new InvalidCredentialException(
+                "Incorrect login credential",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Generate both access and refresh tokens
+        const tokens = await this.generateTokens({
+            sub: user.id, // Use id instead of identifier for consistency
+            platform: loginPlatform,
+        });
+
+        // Update user's last login IP
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { ipAddress: ip },
         });
 
         return buildResponse({
             message: "Login successful",
             data: {
-                accessToken,
+                accessToken: tokens.accessToken,
+                refreshToken: tokens.refreshToken,
             },
         });
     }

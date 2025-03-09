@@ -1,4 +1,4 @@
-import { ApiResponse } from "@/utils/api-response-util";
+import {SwaggerResponse, ApiResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -9,7 +9,6 @@ import {
     UseGuards,
     ValidationPipe,
 } from "@nestjs/common";
-
 import { Request } from "express";
 import {
     BvnVerificationDto,
@@ -24,11 +23,11 @@ import {
     VerifyPhoneOtpDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody, ApiResponse as SwaggerApiResponse } from "@nestjs/swagger";
 import { AuthGuard } from "../../guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 
 @ApiTags("user")
 @Controller({
@@ -38,6 +37,11 @@ export class AuthController {
     constructor(private authService: AuthService) {}
 
     @Post("signup")
+    @ApiOperation({ summary: 'User login', description: 'Allows an admin to sign in.' })
+    @ApiBody({ description: 'User login credentials', type: UserSigInDto })
+    @SwaggerApiResponse({ status: 200, description: 'Login successful', type: SwaggerResponse })  // This is the class, not the interface
+    @SwaggerApiResponse({ status: 401, description: 'Unauthorized' })
+    @SwaggerApiResponse({ status: 400, description: 'Bad Request - Validation Error' })
     @ApiOperation({ summary: "individual and business signup" })
     async signUp(
         @Body(ValidationPipe) signUpDto: SignUpDto,
@@ -147,8 +151,9 @@ export class AuthController {
     @HttpCode(HttpStatus.OK)
     @Post("login")
     async signIn(
-        @Body(ValidationPipe) signInDto: UserSigInDto
+        @Body(ValidationPipe) signInDto: UserSigInDto,
+        @Req() req: Request // Include Request object to get client IP
     ): Promise<ApiResponse> {
-        return await this.authService.userSignIn(signInDto);
+        return await this.authService.userSignIn(signInDto, req.ip); // Pass signInDto and req.ip
     }
 }
