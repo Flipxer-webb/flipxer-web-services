@@ -117,7 +117,11 @@ export class BvnVerificationDto {
     @IsString()
     lastName: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: "Date of Birth in YYYY-MM-DD format",
+        example: "2024-06-01",
+        format: "date",
+    })
     @IsNotEmpty()
     @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
         message:

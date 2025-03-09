@@ -105,6 +105,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
     },
     //dojah
     {
+        name: "DOJAH_BASE_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
         name: "DOJAH_APP_ID",
         type: RequiredEnvironmentTypes.String,
     },
@@ -212,6 +216,7 @@ export const imagekitConfig: ImagekitConfig = {
 
 //dojah
 export interface DojahConfig {
+    baseUrl: string;
     app_id: string;
     public_key: string;
     secret_key: string;
@@ -219,8 +224,17 @@ export interface DojahConfig {
 }
 
 export const dojahConfig: DojahConfig = {
+    baseUrl: process.env.DOJAH_BASE_URL,
     app_id: process.env.DOJAH_APP_ID,
     public_key: process.env.DOJAH_PUBLIC_KEY,
     secret_key: process.env.DOJAH_SECRET_KEY,
     token_id: process.env.DOJAH_TOKEN_ID,
+};
+
+export interface IdentityComplianceConfig {
+    dojah: DojahConfig;
+}
+
+export const identityComplianceConfig: IdentityComplianceConfig = {
+    dojah: dojahConfig,
 };

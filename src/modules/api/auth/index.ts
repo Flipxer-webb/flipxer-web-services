@@ -5,6 +5,7 @@ import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
 import { AuthController } from "./controllers/v1";
 import { AuthGuard } from "./guard";
 import { AdminAuthController } from "./controllers/v1/admin";
+import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 export * from "./interfaces";
 export * from "./errors";
 import { PasswordService } from "./services/passworReset.services";
@@ -17,6 +18,7 @@ import { PasswordController } from "./controllers/v1/passwordReset";
             secret: jwtSecret,
             signOptions: { expiresIn: TOKEN_EXPIRATION },
         }),
+        IdentityComplianceFactoryModule,
     ],
     controllers: [AuthController, AdminAuthController, PasswordController],
     providers: [AuthService, AuthGuard, PasswordService],
