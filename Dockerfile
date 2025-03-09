@@ -19,9 +19,3 @@ RUN pnpm install --prod
 RUN pnpm prisma generate 
 COPY --from=build /usr/src/app/dist ./dist
 CMD ["node", "dist/server"]
-
-
- 
-
-
- 
