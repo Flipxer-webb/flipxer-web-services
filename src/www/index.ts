@@ -10,6 +10,7 @@ import morgan from "morgan";
 import { frontendDevOrigin, isProdEnvironment } from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { Request, Response, NextFunction } from "express";
 
 export interface CreateServerOptions {
     port: number;
@@ -30,11 +31,22 @@ export default async (
     }
 
     const corsOptions: CorsOptions = {
-        origin: whitelist,
+        origin: "http://127.0.0.1:5500",
         allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type"],
         methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         credentials: true,
     };
+
+    //hanlde prflight request
+    app.use((req: Request, res: Response, next: NextFunction) => {
+        if (req.method === 'OPTIONS') {
+            res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+            res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, PATCH, DELETE, OPTIONS');
+            res.header('Access-Control-Allow-Headers', 'Authorization, X-Requested-With, Content-Type');
+            return res.sendStatus(204);
+        }
+        next();
+    });
 
     app.use(helmet());
     app.enableCors(corsOptions);
