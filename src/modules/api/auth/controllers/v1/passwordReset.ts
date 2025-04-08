@@ -1,11 +1,13 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, UseGuards } from '@nestjs/common';
 import { PasswordService } from '../../services/passworReset.services'; // Verify this path
 import { SendForgotPasswordDto, ResetPasswordDto } from '../../dtos'; // Adjust path as needed
 import { ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse as SwaggerApiResponse } from "@nestjs/swagger";
+import { AuthGuard } from '@/modules/api/auth/guard';
 
 @ApiTags("user")
 @Controller('auth')
+@UseGuards(AuthGuard) // Apply AuthGuard globally to the controller
 export class PasswordController {
     constructor(private authService: PasswordService) {}
 

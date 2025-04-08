@@ -9,7 +9,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User
+// Enums
 enum UserType {
   ADMIN
   INDIVIDUAL
@@ -36,6 +36,17 @@ enum DocumentVerificationStatus {
   DECLINED
 }
 
+enum DocumentType {
+  INTERNATIONAL_PASSPORT
+  NIN
+  DRIVER_LICENSE
+}
+
+enum PermissionGroup {
+  USERS
+}
+
+// User model
 model User {
   id                                 Int                         @id @default(autoincrement())
   identifier                         String                      @unique
@@ -74,21 +85,35 @@ model User {
   userDocument                       UserDocument?
   businessRecord                     BusinessRecord?
   businessDocument                   BusinessDocument?
-  accountLimit                       AccountLimit?               // One-to-one relation for INDIVIDUAL and BUSINESS
-  bankDetails                        BankDetail[]                // One-to-many relation for INDIVIDUAL and BUSINESS
+  accountLimit                       AccountLimit?
+  bankDetails                        BankDetail[]
+  recoveryEmail       RecoveryEmail?
 
   @@index([id, bvn])
   @@map("Users")
 }
 
-// AccountLimit Model (One-to-One with User)
+// RecoveryPassword model
+model RecoveryEmail {
+  id                  Int      @id @default(autoincrement())
+  userId              Int      @unique
+  recoveryEmail       String?  // The recovery email address
+  recoveryPin         String?  // 6-digit PIN
+  lastPinGeneratedAt  DateTime? // When the last PIN was generated
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("RecoveryEmails")
+}
+
+// AccountLimit Model
 model AccountLimit {
   id            Int      @id @default(autoincrement())
-  userId        Int      @unique // Ensures one-to-one relationship
-  sellTokenFiat Int?     @default(50000) // Fiat withdrawal limit for sell-token (daily)
+  userId        Int      @unique
+  sellTokenFiat Int?     @default(50000)
   buyToken      String?  @default("unlimited")
   swapToken     String?  @default("unlimited")
-  sendToken     Int?     @default(50000) // Daily limit for send-token
+  sendToken     Int?     @default(50000)
   receiveToken  String?  @default("unlimited")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -98,7 +123,7 @@ model AccountLimit {
   @@map("AccountLimits")
 }
 
-// BankDetail Model (One-to-Many with User)
+// BankDetail Model
 model BankDetail {
   id            Int      @id @default(autoincrement())
   userId        Int
@@ -113,6 +138,7 @@ model BankDetail {
   @@map("BankDetails")
 }
 
+// BusinessRecord Model
 model BusinessRecord {
   id                           Int    @id @default(autoincrement())
   userId                       Int?   @unique
@@ -127,26 +153,22 @@ model BusinessRecord {
   @@map("BusinessRecords")
 }
 
-enum DocumentType {
-  INTERNATIONAL_PASSPORT
-  NIN
-  DRIVER_LICENSE
-}
-
+// UserDocument Model
 model UserDocument {
-  id               Int          @id @default(autoincrement())
-  userId           Int?         @unique
-  type             DocumentType
-  country          Country
-  documentNumber   String
-  documentImageUrl String
-  documentImageFieldId String
+  id                     Int          @id @default(autoincrement())
+  userId                 Int?         @unique
+  type                   DocumentType
+  country                Country
+  documentNumber         String
+  documentImageUrl       String
+  documentImageFieldId   String
 
   user User? @relation(fields: [userId], references: [id])
 
   @@map("UserDocuments")
 }
 
+// BusinessDocument Model
 model BusinessDocument {
   id     Int  @id @default(autoincrement())
   userId Int? @unique
@@ -192,7 +214,7 @@ model PhoneVerificationRequest {
   @@map("PhoneVerificationRequests")
 }
 
-// Roles
+// Role model
 model Role {
   id             Int              @id @default(autoincrement())
   name           String           @unique
@@ -207,7 +229,7 @@ model Role {
   @@map("Roles")
 }
 
-// Password Reset
+// PasswordResetRequest model
 model PasswordResetRequest {
   id        Int      @id @default(autoincrement())
   userId    Int      @unique
@@ -219,11 +241,7 @@ model PasswordResetRequest {
   @@map("PasswordResetRequests")
 }
 
-enum PermissionGroup {
-  USERS
-}
-
-// Permission
+// Permission model
 model Permission {
   id          Int              @id @default(autoincrement())
   group       PermissionGroup
@@ -236,7 +254,7 @@ model Permission {
   @@map("Permissions")
 }
 
-// RolePermission
+// RolePermission model
 model RolePermission {
   roleId       Int
   permissionId Int
