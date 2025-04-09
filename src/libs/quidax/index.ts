@@ -43,6 +43,12 @@ export class QuidaxLib {
         }
     }
 
+    /**
+     *
+     * @param instant_order_id query options
+     * @returns order detail
+     * @description Get order detail
+     */
     async instantOrdersRequery(
         options: t.InstantOrdersRequeryOptions
     ): Promise<t.QuidaxResponse<t.InstantOrderResponse>> {
