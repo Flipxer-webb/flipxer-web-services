@@ -124,7 +124,18 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "DOJAH_TOKEN_ID",
         type: RequiredEnvironmentTypes.String,
     },
-
+    {
+        name: "QUIDAX_BASE_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "QUIDAX_API_PUBLIC",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "QUIDAX_API_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
     //server environment
     {
         name: "ENVIRONMENT",
@@ -237,4 +248,24 @@ export interface IdentityComplianceConfig {
 
 export const identityComplianceConfig: IdentityComplianceConfig = {
     dojah: dojahConfig,
+};
+
+//quidax
+export interface QuidaxConfig {
+    baseUrl: string;
+    api_public: string;
+    api_secret: string;
+}
+export const quidaxConfig: QuidaxConfig = {
+    baseUrl: process.env.QUIDAX_BASE_URL,
+    api_public: process.env.QUIDAX_API_PUBLIC,
+    api_secret: process.env.QUIDAX_API_SECRET,
+};
+
+export interface TradingConfig {
+    quidax: QuidaxConfig;
+}
+
+export const tradingConfig: TradingConfig = {
+    quidax: quidaxConfig,
 };
