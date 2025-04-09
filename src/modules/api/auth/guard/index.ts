@@ -1,4 +1,4 @@
-import { jwtSecret } from "@/config";
+import { jwtSecret, quidaxConfig } from "@/config";
 import {
     CanActivate,
     ExecutionContext,
@@ -18,10 +18,16 @@ import {
     PrismaNetworkException,
     UserAccountDisabledException,
 } from "../errors";
-import { DataStoredInToken, RequestWithUser } from "../interfaces";
+import {
+    DataStoredInToken,
+    RequestFromQuidax,
+    RequestWithUser,
+} from "../interfaces";
 import logger from "moment-logger";
 import { Status } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { Observable } from "rxjs";
+import * as crypto from "crypto";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -114,5 +120,39 @@ export class EnabledAccountGuard implements CanActivate {
             "Account is blocked. Kindly contact customer support",
             HttpStatus.BAD_REQUEST
         );
+    }
+}
+
+@Injectable()
+export class QuidaxWebhookGuard implements CanActivate {
+    canActivate(
+        context: ExecutionContext
+    ): boolean | Promise<boolean> | Observable<boolean> {
+        const request = context
+            .switchToHttp()
+            .getRequest() as RequestFromQuidax;
+        //retrieve signature and timesatmp fro header
+        const [timestampSection, signatureSection] =
+            request.headers["quidax-signature"].split(",");
+
+        const [timestamp] = timestampSection.split("=");
+
+        const [signature] = signatureSection.split("=");
+
+        const requestBody = JSON.stringify(request.body);
+
+        const payload = `${timestamp}.${requestBody}`;
+
+        const created_signature = crypto
+            .createHmac("sha256", quidaxConfig.webhook_key)
+            .update(payload)
+            .digest()
+            .toString("hex");
+
+        if (signature === created_signature) {
+            return true;
+        } else {
+            return false;
+        }
     }
 }

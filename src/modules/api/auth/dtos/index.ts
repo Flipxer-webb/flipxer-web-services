@@ -28,7 +28,8 @@ export class SendEmailVerificationCodeDto {
     email: string;
 }
 
-export class VerifyEmailOtpDto {ll
+export class VerifyEmailOtpDto {
+    ll;
     @ApiProperty()
     @IsNotEmpty()
     @IsEmail({}, { message: "Invalid email address" })

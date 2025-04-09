@@ -7,13 +7,12 @@ export class SwaggerResponse<TData = Record<string, any>> {
     @ApiProperty({ example: true })
     success: boolean;
 
-    @ApiProperty({ example: 'Request successful' })
+    @ApiProperty({ example: "Request successful" })
     message: string;
 
     @ApiProperty({ example: {}, required: false }) // Mark `data` as optional
     data?: TData;
 }
-
 
 export function buildResponse<TData = Record<string, any>>(
     options: Partial<ApiResponse<TData>> & { success?: boolean }

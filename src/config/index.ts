@@ -136,6 +136,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "QUIDAX_API_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
+    {
+        name: "QUIDAX_WEBHOOK_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
     //server environment
     {
         name: "ENVIRONMENT",
@@ -255,11 +259,13 @@ export interface QuidaxConfig {
     baseUrl: string;
     api_public: string;
     api_secret: string;
+    webhook_key: string;
 }
 export const quidaxConfig: QuidaxConfig = {
     baseUrl: process.env.QUIDAX_BASE_URL,
     api_public: process.env.QUIDAX_API_PUBLIC,
     api_secret: process.env.QUIDAX_API_SECRET,
+    webhook_key: process.env.QUIDAX_WEBHOOK_KEY,
 };
 
 export interface TradingConfig {

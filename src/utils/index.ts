@@ -75,5 +75,3 @@ export const generateRandomNum = (size: number): string => {
     }
     return str;
 };
-
-

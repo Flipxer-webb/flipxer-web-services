@@ -18,3 +18,11 @@ export enum LoginPlatform {
 }
 
 export type SignInOptions = Optional<UserSigInDto, "userType">;
+
+interface QuidaxHeader {
+    ["quidax-signature"]: string;
+}
+
+export type RequestFromQuidax = Request & {
+    headers: QuidaxHeader;
+};
