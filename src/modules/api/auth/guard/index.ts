@@ -11,7 +11,7 @@ import {
     AccountDeletedException,
     UserNotFoundException,
 } from "@/modules/api/user";
-import { UserService } from "../../user/services";
+
 import {
     AuthTokenValidationException,
     InvalidAuthTokenException,
@@ -33,7 +33,6 @@ import * as crypto from "crypto";
 export class AuthGuard implements CanActivate {
     constructor(
         private jwtService: JwtService,
-        private userService: UserService,
         private prisma: PrismaService
     ) {}
 

@@ -3,6 +3,14 @@ export interface QuidaxGenericData {
 }
 
 export enum Event {
+    WalletUpdatedEvent = "wallet.updated",
+    WalletAddressGenerated = "wallet.address.generated",
+    InstantOrderQuoted = "instant_order.pend",
+    InstantOrderConfirmed = "instant_order.confirmed",
+    InstantOrderDone = "instant_order.done",
+    InstantOrderCancelled = "instant_order.cancelled",
+    InstantOrderfailed = "instant_order.failed",
+
     ChargeSuccessEvent = "charge.success",
     TransferSuccessEvent = "transfer.success",
     TransferFailedEvent = "transfer.failed",
@@ -15,6 +23,22 @@ export interface EventBody<E extends Event = Event> {
 }
 
 type EventDataMap = {
+    // wallet events
+    [Event.WalletUpdatedEvent]: WalletUpdatedData;
+    [Event.WalletAddressGenerated]: WalletAddressGeneratedData;
+    // instant order events
+    [Event.InstantOrderQuoted]: InstantOrderData;
+    [Event.InstantOrderConfirmed]: InstantOrderData;
+    [Event.InstantOrderDone]: InstantOrderData;
+    [Event.InstantOrderCancelled]: InstantOrderData;
+    [Event.InstantOrderfailed]: InstantOrderData;
+
+    // withdraw events
+
+    // swap transaction events
+
+    // deposit events
+
     [Event.ChargeSuccessEvent]: ChargeSuccessData;
     [Event.TransferSuccessEvent]: TransferData;
     [Event.TransferFailedEvent]: TransferData;
@@ -55,6 +79,82 @@ export interface ChargeSuccessData<Meta = ChargeSuccessMetadata> {
         receiver_bank_account_number?: string;
         receiver_bank?: string;
     };
+}
+
+interface IQuidaxUser {
+    id: string;
+    sn: string;
+    email: string;
+    reference: string | null;
+    first_name: string;
+    last_name: string;
+    display_name: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface WalletUpdatedData {
+    id: string;
+    currency: string;
+    balance: string;
+    locked: string;
+    staked: string;
+    user: IQuidaxUser;
+    converted_balance: string;
+    reference_currency: string;
+    is_crypto: boolean;
+    created_at: string;
+    updated_at: string;
+    deposit_address: string;
+    destination_tag: string | null;
+}
+
+export interface WalletAddressGeneratedData {
+    id: string;
+    reference: string | null;
+    currency: string;
+    address: string;
+    network: string;
+    user: IQuidaxUser;
+    destination_tag: string | null;
+    total_payments: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface InstantOrderData {
+    id: string;
+    reference: string | null;
+    market: {
+        id: string;
+        base_unit: string;
+        quote_unit: string;
+    };
+    side: string;
+    price: {
+        unit: string;
+        amount: string;
+    };
+    volume: {
+        unit: string;
+        amount: string;
+    };
+    total: {
+        unit: string;
+        amount: string;
+    };
+    fee: {
+        unit: string;
+        amount: string;
+    };
+    receive: {
+        unit: string;
+        amount: string;
+    };
+    status: "done" | "confirm" | "pend" | "cancel" | "failed";
+    created_at: string;
+    updated_at: string;
+    user: IQuidaxUser;
 }
 
 export interface TransferData {
