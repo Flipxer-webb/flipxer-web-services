@@ -16,7 +16,7 @@ async function main() {
     });
   }
 
-  // Fetch the admin role
+  // Seed ADMIN user with recoveryEmail
   const adminRole = await prisma.role.findUnique({ where: { slug: 'super-admin' } });
   if (adminRole) {
     const plainAdminPassword = 'pass123'; // Plaintext password for admin
@@ -31,6 +31,13 @@ async function main() {
       roleId: adminRole.id,
       firstName: 'Resolve',
       lastName: 'Admin',
+      recoveryEmail: {
+        create: {
+          recoveryEmail: 'admin.recovery@resolve.com', // Recovery email for admin
+          lastPinGeneratedAt: null, // Initially no PIN generated
+          recoveryPin: null, // Initially no PIN
+        },
+      },
     };
 
     await prisma.user.upsert({
@@ -40,7 +47,7 @@ async function main() {
     });
   }
 
-  // Seed an INDIVIDUAL user with accountLimit and bankDetails
+  // Seed an INDIVIDUAL user with accountLimit, bankDetails, and recoveryEmail
   const individualRole = await prisma.role.findUnique({ where: { slug: 'individual' } });
   if (individualRole) {
     const plainIndividualPassword = 'pass123'; // Plaintext password for individual
@@ -55,6 +62,13 @@ async function main() {
       roleId: individualRole.id,
       firstName: 'John',
       lastName: 'Doe',
+      recoveryEmail: {
+        create: {
+          recoveryEmail: 'john.recovery@example.com', // Recovery email for individual
+          lastPinGeneratedAt: null, // Initially no PIN generated
+          recoveryPin: null, // Initially no PIN
+        },
+      },
       accountLimit: {
         create: {
           sellTokenFiat: 50000,
@@ -82,7 +96,7 @@ async function main() {
     });
   }
 
-  // Seed a BUSINESS user with accountLimit and bankDetails
+  // Seed a BUSINESS user with accountLimit, bankDetails, and recoveryEmail
   const businessRole = await prisma.role.findUnique({ where: { slug: 'business' } });
   if (businessRole) {
     const plainBusinessPassword = 'pass123'; // Plaintext password for business
@@ -97,6 +111,13 @@ async function main() {
       roleId: businessRole.id,
       firstName: 'Acme',
       lastName: 'Corp',
+      recoveryEmail: {
+        create: {
+          recoveryEmail: 'acme.recovery@example.com', // Recovery email for business
+          lastPinGeneratedAt: null, // Initially no PIN generated
+          recoveryPin: null, // Initially no PIN
+        },
+      },
       accountLimit: {
         create: {
           sellTokenFiat: 50000,

@@ -17,7 +17,7 @@ import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
-import { encrypt, formatName, generateId, generateRandomNum } from "@/utils";
+import { generateId, generateRandomNum } from "@/utils";
 import { customAlphabet } from "nanoid";
 import { DuplicateUserException, UserNotFoundException } from "../../user";
 import {
@@ -29,7 +29,7 @@ import {
     VerificationCodeExpiredException,
     VerificationGenericException,
 } from "../errors";
-import { Prisma, Role, User, UserType } from "@prisma/client";
+import { Prisma, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
     emailTemplateConfig,
