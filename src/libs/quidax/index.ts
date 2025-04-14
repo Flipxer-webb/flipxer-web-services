@@ -356,7 +356,371 @@ export class QuidaxLib {
         }
     }
 
+    /************************** Withdrawals  *************************/
+    /*
+      The Withdrawals A.P.I collection enables authenticated users to send cryptocurrency to internal or external wallets, 
+    users can also cancel withdrawal requests within a 6-second window after initiating the withdrawal.
+    */
+
+    /**
+     *
+     * @param options query options
+     * @returns withdrawal detail
+     * @description initiates the withdrawal of an authenticated account
+     */
+    async createWithdrawerRequest(
+        options: t.CreateWithdrawerRequestOptions
+    ): Promise<t.QuidaxResponse<t.CreateWithdrawerRequestResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.CreateWithdrawerRequestOptions> =
+                {
+                    url: `/users/${options.user_id}/withdraw`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.CreateWithdrawerRequestResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError(
+                    "Failed to initiate withdrawer"
+                );
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns n/a
+     * @description cancel initiated withdrawal
+     */
+    async cancelWithdrawerRequest(
+        options: t.CancelWithdrawerRequestOptions
+    ): Promise<t.QuidaxResponse<t.CancelWithdrawerRequestResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.CancelWithdrawerRequestOptions> =
+                {
+                    url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}/cancel`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.CancelWithdrawerRequestResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to cancel withdrawer");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns withdrawer list
+     * @description fetch all withdrawals related to the authenticated user.
+     */
+    async getWithdrawerList(
+        user_id: string,
+        options: t.WithdrawalListOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawalListResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
+                {
+                    url: `/users/${user_id}/withdraws`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.WithdrawalListResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError(
+                    "Failed to get withdrawer list"
+                );
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns withdrawer detail
+     * @description fetch a withdrawal object, related to the user
+     */
+    async getWithdrawerDetail(
+        options: t.WithdrawerDetailOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
+                {
+                    url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}`,
+                    method: "GET",
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.WithdrawerDetailResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError(
+                    "Failed to get withdrawer detail"
+                );
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns withdrawer detail
+     * @description fetch a withdrawal object, related to the user by withdrawer reference
+     */
+    async getWithdrawerByReference(
+        options: t.WithdrawerRecordByReferenceOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.WithdrawerRecordByReferenceOptions> =
+                {
+                    url: `/users/${options.user_id}/withdraws/reference/${options.reference}`,
+                    method: "GET",
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get withdrawer");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /************************** Fees  *************************/
+    /**
+     *
+     * @param options query options
+     * @returns withdrawer fee list
+     * @description withdrawal fee for a specific currency.
+     */
+    async getWithdrawerFees(
+        options: t.WithdrawerFeesOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawerFeesResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.WithdrawerFeesOptions> =
+                {
+                    url: `/fee`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.WithdrawerFeesResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get withdrawer");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
     /************************** Order  *************************/
+
+    /**
+     *
+     * @param options query options
+     * @returns order
+     * @description Create a sell or buy order for the authenticated user
+     */
+    async buyOrSellOrderRequest(
+        user_id: string,
+        options: t.SellOrBuyOrderRequestOptions
+    ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.SellOrBuyOrderRequestOptions> =
+                {
+                    url: `/users/${user_id}/orders`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to place order");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns order
+     * @description Cancels an order tethered to the authenticated user
+     */
+    async cancelBuyOrSellOrderRequest(
+        user_id: string,
+        options: t.CancelSellOrBuyOrderRequestOptions
+    ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.CancelSellOrBuyOrderRequestOptions> =
+                {
+                    url: `/users/${user_id}/orders/${options.order_id}/cancel`,
+                    method: "POST",
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to cancel order");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns orders
+     * @description Fetch all orders tethered to the authenticated user
+     */
+    async getAllOrders(
+        user_id: string,
+        options: t.GetOrderListOptions
+    ): Promise<t.QuidaxResponse<t.GetOrderListResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.GetOrderListOptions> = {
+                url: `/users/${user_id}/orders`,
+                method: "GET",
+                params: options,
+            };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetOrderListResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get order list");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns order
+     * @description Fetch order tethered to the authenticated user
+     */
+    async getOrderRecord(
+        options: t.GetOrderRecordOptions
+    ): Promise<t.QuidaxResponse<t.GetOrderRecordResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.GetOrderRecordOptions> =
+                {
+                    url: `/users/${options.user_id}/orders/${options.order_id}`,
+                    method: "GET",
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetOrderRecordResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get order");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /************************** Instant Order  *************************/
 
     /**
      *
@@ -369,7 +733,7 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.InstantOrderResponse>> {
         try {
             const requestOptions: AxiosRequestConfig = {
-                url: `/users/me/instant_orders/${options.instant_order_id}`,
+                url: `/users/${options.user_id}/instant_orders/${options.instant_order_id}`,
                 method: "GET",
             };
             const resp = await this.axios<
@@ -377,7 +741,83 @@ export class QuidaxLib {
             >(requestOptions);
 
             if (!resp.data) {
-                const error = new e.QuidaxError("Failed to verify bvn");
+                const error = new e.QuidaxError("Failed to get order");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /*********************** Instant swap ****************************/
+    /* 
+        The Instant Swap Collection feature lets users exchange one type of cryptocurrency for another or fiat.
+    */
+
+    /**
+     *
+     * @param options query options
+     * @returns swap quote
+     * @description generate an instant swap quotation. note that the instant swap quotation is valid for only
+     * 15 seconds. To refresh the swap and obtain a new quotation, you can use the Refresh Instant Swap endpoint
+     */
+    async createInstantSwapRequest(
+        user_id: string,
+        options: t.CreateInstantSwapRequestOptions
+    ): Promise<t.QuidaxResponse<t.CreateInstantSwapRequestResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.CreateInstantSwapRequestOptions> =
+                {
+                    url: `/users/${user_id}/swap_quotation`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.CreateInstantSwapRequestResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to create swap quote");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns swap quote
+     * @description used to confirm an instant swap quotation.
+     */
+    async confirmInstantSwap(
+        options: t.ConfirmInstantSwapOptions
+    ): Promise<t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.ConfirmInstantSwapOptions> =
+                {
+                    url: `/users/${options.user_id}/swap_quotation/${options.quotation_id}`,
+                    method: "POST",
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to confirm quote");
                 error.status = 500;
                 throw error;
             }
