@@ -47,7 +47,7 @@ const runtimeEnvironment: RequiredEnvironment[] = [
     },
     {
         name: "FORGOT_PASSWORD_TEMPLATE",
-        type: RequiredEnvironmentTypes.Number,
+        type: RequiredEnvironmentTypes.String,
     },
     {
         name: "RECOVERY_PIN_TEMPLATE", // Added for recovery PIN email
@@ -64,8 +64,7 @@ const runtimeEnvironment: RequiredEnvironment[] = [
 validate(runtimeEnvironment);
 
 // App
-export const allowedDomains =
-    process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
+export const allowedDomains = process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
 export const isProduction: boolean = process.env.NODE_ENV === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 
