@@ -1,6 +1,10 @@
 import {
+    CryptoMarketTicker,
     CurrencyName,
+    IMarket,
     IOrder,
+    MarketTickerData,
+    OrderBookResponse,
     OrderStatus,
     SwapTransaction,
     TradingPair,
@@ -251,10 +255,10 @@ export interface WithdrawerRecordByReferenceOptions {
 
 export type WithdrawerRecordByReferenceResponse = IQuidaxTransaction;
 
-type Networks = "trc20" | "erc20" | "bep20";
+export type NetworkTypes = "trc20" | "erc20" | "bep20";
 export interface WithdrawerFeesOptions {
     currency: string;
-    network?: Networks;
+    network?: NetworkTypes;
 }
 
 export type WithdrawerFeesResponse = Record<string, string>;
@@ -321,6 +325,38 @@ export interface ConfirmInstantSwapOptions {
 }
 
 export type ConfirmInstantSwapRequestResponse = SwapTransaction;
+
+export interface RefreshInstantSwapOptions {
+    from_currency: string; //the currency you are swapping from
+    to_currency: string; //the currency you are swapping to.
+    from_amount: string; //the amount you want to swap.
+    to_amount: string; //the amount you want to swap to.
+}
+
+export type RefreshInstantSwapResponse = SwapTransaction;
+
+export interface GetSwapTransactionOptions {
+    user_id: string;
+    swap_transaction_id: string;
+}
+
+export type GetSwapTransactionResponse = SwapTransaction;
+
+export type GetSwapTransactionListResponse = SwapTransaction[];
+
+export type GetMarketListResponse = IMarket[];
+
+export type GetMarketTickersResponse = CryptoMarketTicker;
+
+export type GetMarketTickerResponse = MarketTickerData;
+
+export interface GetOrderBookItemsForAMarketOptions {
+    currency: string;
+    ask_limit: number; //Limit the number of returned sell orders. Type: Integer, Allowed values: 1..200
+    bids_limit: number; //Limit the number of returned buy orders. Type: Integer, Allowed values: 1..200. Default to 20.
+}
+
+export type GetOrderBookItemsForAMarketResponse = OrderBookResponse;
 
 export interface QuidaxResponse<
     D extends Record<string, any> = Record<string, any>

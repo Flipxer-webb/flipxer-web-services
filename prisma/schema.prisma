@@ -9,7 +9,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-//User
+// Enums
 enum UserType {
   ADMIN
   INDIVIDUAL
@@ -36,6 +36,17 @@ enum DocumentVerificationStatus {
   DECLINED
 }
 
+enum DocumentType {
+  INTERNATIONAL_PASSPORT
+  NIN
+  DRIVER_LICENSE
+}
+
+enum PermissionGroup {
+  USERS
+}
+
+// User model
 model User {
   id                                 Int                         @id @default(autoincrement())
   identifier                         String                      @unique
@@ -57,8 +68,8 @@ model User {
   roleId                             Int
   ipAddress                          String?
   notificationToken                  String?
-  isEmailVerified                    Boolean                     @default(false) //email verification
-  isPhoneVerified                    Boolean                     @default(false) //phone verification
+  isEmailVerified                    Boolean                     @default(false)
+  isPhoneVerified                    Boolean                     @default(false)
   isPasswordCreated                  Boolean                     @default(false)
   isBvnVerified                      Boolean                     @default(false)
   isDocumentVerified                 Boolean                     @default(false)
@@ -70,15 +81,64 @@ model User {
   passwordResetRequest               PasswordResetRequest?
   role                               Role                        @relation(fields: [roleId], references: [id], onDelete: Cascade)
   lastLogin                          DateTime?
-  loginCount                         Int                         @default(0) // Field to track login frequency
+  loginCount                         Int                         @default(0)
   userDocument                       UserDocument?
   businessRecord                     BusinessRecord?
   businessDocument                   BusinessDocument?
- 
-  @@index([id,bvn])
+  accountLimit                       AccountLimit?
+  bankDetails                        BankDetail[]
+  recoveryEmail       RecoveryEmail?
+
+  @@index([id, bvn])
   @@map("Users")
 }
 
+// RecoveryPassword model
+model RecoveryEmail {
+  id                  Int      @id @default(autoincrement())
+  userId              Int      @unique
+  recoveryEmail       String?  // The recovery email address
+  recoveryPin         String?  // 6-digit PIN
+  lastPinGeneratedAt  DateTime? // When the last PIN was generated
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("RecoveryEmails")
+}
+
+// AccountLimit Model
+model AccountLimit {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @unique
+  sellTokenFiat Int?     @default(50000)
+  buyToken      String?  @default("unlimited")
+  swapToken     String?  @default("unlimited")
+  sendToken     Int?     @default(50000)
+  receiveToken  String?  @default("unlimited")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("AccountLimits")
+}
+
+// BankDetail Model
+model BankDetail {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  bankName      String
+  accountName   String
+  accountNumber String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("BankDetails")
+}
+
+// BusinessRecord Model
 model BusinessRecord {
   id                           Int    @id @default(autoincrement())
   userId                       Int?   @unique
@@ -93,26 +153,22 @@ model BusinessRecord {
   @@map("BusinessRecords")
 }
 
-enum DocumentType {
-  INTERNATIONAL_PASSPORT
-  NIN
-  DRIVER_LICENSE
-}
-
+// UserDocument Model
 model UserDocument {
-  id               Int          @id @default(autoincrement())
-  userId           Int?         @unique
-  type             DocumentType
-  country          Country
-  documentNumber   String
-  documentImageUrl String
-  documentImageFieldId String
+  id                     Int          @id @default(autoincrement())
+  userId                 Int?         @unique
+  type                   DocumentType
+  country                Country
+  documentNumber         String
+  documentImageUrl       String
+  documentImageFieldId   String
 
   user User? @relation(fields: [userId], references: [id])
 
   @@map("UserDocuments")
 }
 
+// BusinessDocument Model
 model BusinessDocument {
   id     Int  @id @default(autoincrement())
   userId Int? @unique
@@ -130,7 +186,7 @@ model BusinessDocument {
   @@map("BusinessDocuments")
 }
 
-//Account Verification
+// Account Verification
 model AccountVerificationRequest {
   id         Int      @id @default(autoincrement())
   email      String   @unique
@@ -144,7 +200,7 @@ model AccountVerificationRequest {
   @@map("AccountVerificationRequests")
 }
 
-//phone verification
+// Phone Verification
 model PhoneVerificationRequest {
   id         Int      @id @default(autoincrement())
   phone      String   @unique
@@ -158,7 +214,7 @@ model PhoneVerificationRequest {
   @@map("PhoneVerificationRequests")
 }
 
-//Roles
+// Role model
 model Role {
   id             Int              @id @default(autoincrement())
   name           String           @unique
@@ -173,7 +229,7 @@ model Role {
   @@map("Roles")
 }
 
-//Password Reset
+// PasswordResetRequest model
 model PasswordResetRequest {
   id        Int      @id @default(autoincrement())
   userId    Int      @unique
@@ -185,11 +241,7 @@ model PasswordResetRequest {
   @@map("PasswordResetRequests")
 }
 
-enum PermissionGroup {
-  USERS
-}
-
-//Permission
+// Permission model
 model Permission {
   id          Int              @id @default(autoincrement())
   group       PermissionGroup
@@ -202,7 +254,7 @@ model Permission {
   @@map("Permissions")
 }
 
-//RolePermission
+// RolePermission model
 model RolePermission {
   roleId       Int
   permissionId Int

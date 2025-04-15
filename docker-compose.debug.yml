@@ -1,0 +1,28 @@
+version: '3.8'
+services:
+  authentication:
+    image: authentication-service
+    build:
+      context: .
+    ports:
+      - "3500:3500"
+      - "9229:9229" # Port for Node.js debugger
+    env_file:
+      - .env
+    depends_on:
+      - db
+    command: sh -c "pnpm prisma migrate deploy && node --inspect=0.0.0.0:9229 dist/main" # Debug command
+
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:

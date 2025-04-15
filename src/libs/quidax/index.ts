@@ -830,4 +830,254 @@ export class QuidaxLib {
             this.handleQuidaxError(error);
         }
     }
+
+    /**
+     *
+     * @param options query options
+     * @returns swap quote
+     * @description used to refresh an instant swap quotation.
+     */
+    async refreshInstantSwapQuote(
+        user_id: string,
+        quotation_id: string,
+        options: t.RefreshInstantSwapOptions
+    ): Promise<t.QuidaxResponse<t.RefreshInstantSwapResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.RefreshInstantSwapOptions> =
+                {
+                    url: `/users/${user_id}/swap_quotation/${quotation_id}/refresh`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.RefreshInstantSwapResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to refresh quote");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns swap transaction
+     * @description Fetch an instant swap transaction.
+     */
+    async getSwapTransaction(
+        options: t.GetSwapTransactionOptions
+    ): Promise<t.QuidaxResponse<t.GetSwapTransactionResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/users/${options.user_id}/instant_orders/${options.swap_transaction_id}`,
+                method: "GET",
+            };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetSwapTransactionResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError(
+                    "Failed to get swap transaction"
+                );
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns swap transaction list
+     * @description Get user swap transactions for an authenticated use.
+     */
+    async getSwapTransactionList(
+        user_id: string
+    ): Promise<t.QuidaxResponse<t.GetSwapTransactionListResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/users/${user_id}/swap_transactions`,
+                method: "GET",
+            };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetSwapTransactionListResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError(
+                    "Failed to get swap transaction list"
+                );
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /*********************** Market ****************************/
+    /* 
+        The Market API collection enables users to have access to current market-related data such as tickers, 
+        k-line (HLOC) data, order book items, and market depth.
+    */
+
+    /**
+     *
+     * @param options query options
+     * @returns market list
+     * @description Returns a list of all available markets. The sorting of the list is based on
+     * Quidax's internal ranking of the markets.
+     */
+    async getMarketList(): Promise<t.QuidaxResponse<t.GetMarketListResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/markets`,
+                method: "GET",
+            };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetMarketListResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get market list");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns market tickers
+     * @description Returns the list of tickers(a cryptocurrency buy, sell, volume information)
+     * for all available markets.
+     */
+    async getMarketTickers(): Promise<
+        t.QuidaxResponse<t.GetMarketTickersResponse>
+    > {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/markets/tickers`,
+                method: "GET",
+            };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetMarketTickersResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get market tickers");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns market ticker
+     * @description Returns the market ticker for a specific market.
+     */
+    async getSingleMarketTicker(
+        currency: string
+    ): Promise<t.QuidaxResponse<t.GetMarketTickerResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/markets/tickers/${currency}`,
+                method: "GET",
+            };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetMarketTickerResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get market ticker");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns order book
+     * @description Gets the volume of trades that are currently being processed by the order book.
+     */
+    async getOrderBookItemsForAMarket(
+        options: t.GetOrderBookItemsForAMarketOptions
+    ): Promise<t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.GetOrderBookItemsForAMarketOptions> =
+                {
+                    url: `/markets/${options.currency}/order_book`,
+                    method: "GET",
+                    params: {
+                        ask_limit: options.ask_limit,
+                        bids_limit: options.bids_limit,
+                    },
+                };
+            const resp = await this.axios<
+                t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get order book");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
 }

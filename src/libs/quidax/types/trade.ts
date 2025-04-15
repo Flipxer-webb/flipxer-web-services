@@ -71,6 +71,57 @@ export interface SwapTransaction {
     user: IAccount;
 }
 
+export interface IMarket {
+    id: string;
+    name: string;
+    base_unit: string;
+    quote_unit: string;
+    filters: {
+        price_step: number;
+    };
+}
+
+interface Ticker {
+    buy: string;
+    sell: string;
+    low: string;
+    high: string;
+    open: string;
+    last: string;
+    vol: string;
+}
+
+export interface MarketTickerData {
+    at: number;
+    ticker: Ticker;
+    market?: string;
+}
+
+export interface CryptoMarketTicker {
+    [pair: string]: MarketTickerData;
+}
+
+export interface Order {
+    id: string;
+    side: "buy" | "sell";
+    ord_type: "market" | "limit";
+    price: number | null;
+    avg_price: string;
+    state: "wait" | "done" | "cancel";
+    currency: string;
+    origin_volume: string;
+    volume: string;
+    executed_volume: string;
+    trades_count: number;
+    created_at: string; // ISO string
+    updated_at: string; // ISO string
+}
+
+export interface OrderBookResponse {
+    asks: Order[];
+    bids: Order[];
+}
+
 export type TradingPair =
     | "qdxusdt"
     | "btcusdt"

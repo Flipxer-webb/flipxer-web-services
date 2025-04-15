@@ -1,5 +1,4 @@
 import { config } from "dotenv";
-
 import validate, {
     RequiredEnvironment,
     RequiredEnvironmentTypes,
@@ -11,6 +10,7 @@ export * from "./constants";
 config();
 
 const runtimeEnvironment: RequiredEnvironment[] = [
+    // Existing entries...
     {
         name: "PORT",
         type: RequiredEnvironmentTypes.Number,
@@ -23,8 +23,7 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "ALLOWED_DOMAINS",
         type: RequiredEnvironmentTypes.String,
     },
-
-    //mail
+    // Mail
     {
         name: "ZEPTOMAIL_URL",
         type: RequiredEnvironmentTypes.String,
@@ -37,7 +36,7 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "ZEPTOMAIL_SENDER",
         type: RequiredEnvironmentTypes.String,
     },
-    //templates
+    // Templates
     {
         name: "REGISTRATION_SUCCESS_TEMPLATE",
         type: RequiredEnvironmentTypes.Number,
@@ -50,8 +49,11 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "FORGOT_PASSWORD_TEMPLATE",
         type: RequiredEnvironmentTypes.Number,
     },
-
-    // secret
+    {
+        name: "RECOVERY_PIN_TEMPLATE", // Added for recovery PIN email
+        type: RequiredEnvironmentTypes.Number,
+    },
+    // Rest of the existing entries...
     {
         name: "JWT_SECRET",
         type: RequiredEnvironmentTypes.String,
@@ -149,33 +151,35 @@ const runtimeEnvironment: RequiredEnvironment[] = [
 
 validate(runtimeEnvironment);
 
-//app
+// App
 export const allowedDomains =
     process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
 export const isProduction: boolean = process.env.NODE_ENV === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 
-//jwt
+// JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
 
-//encrypt
+// Encrypt
 export const encryptSecret: string = process.env.ENCRYPT_SECRET;
 
-//email templates
+// Email templates
 export interface EMailTemplateConfig {
     registration_success: string;
     verify_account: string;
     forgot_password: string;
+    recovery_pin: string; // Added for recovery PIN
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
     registration_success: process.env.REGISTRATION_SUCCESS_TEMPLATE,
     verify_account: process.env.VERIFY_ACCOUNT_TEMPLATE,
     forgot_password: process.env.FORGOT_PASSWORD_TEMPLATE,
+    recovery_pin: process.env.RECOVERY_PIN_TEMPLATE, // Added
 };
 
-//email config
+// Email config
 export interface EMailConfig {
     url: string;
     token: string;
@@ -188,9 +192,8 @@ export const mailConfig: EMailConfig = {
     senderMail: process.env.ZEPTOMAIL_SENDER,
 };
 
-//prod deployment env
+// Rest of the config remains unchanged...
 export const isProdEnvironment = process.env.ENVIRONMENT === "production";
-
 export const frontendDevOrigin = [/^http:\/\/localhost:\d+$/];
 
 interface StorageDirConfig {

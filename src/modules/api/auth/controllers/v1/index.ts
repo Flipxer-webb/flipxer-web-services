@@ -100,7 +100,7 @@ export class AuthController {
     }
 
     @ApiBearerAuth("access-token")
-    // @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "verify user with individual account bvn" })
     @Post("/verify-bvn")

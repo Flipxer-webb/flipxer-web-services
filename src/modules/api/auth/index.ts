@@ -22,6 +22,6 @@ import { PasswordController } from "./controllers/v1/passwordReset";
     ],
     controllers: [AuthController, AdminAuthController, PasswordController],
     providers: [AuthService, AuthGuard, PasswordService],
-    exports: [AuthService],
+    exports: [AuthService, AuthGuard],
 })
 export class AuthModule {}
