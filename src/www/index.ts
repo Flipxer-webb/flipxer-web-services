@@ -11,7 +11,7 @@ import { frontendDevOrigin, isProdEnvironment } from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Request, Response, NextFunction } from "express";
-
+import { allowedDomains } from "@/config";
 export interface CreateServerOptions {
     port: number;
     production?: boolean;
@@ -31,7 +31,7 @@ export default async (
     }
 
     const corsOptions: CorsOptions = {
-        origin: "http://127.0.0.1:5500",
+        origin: allowedDomains,
         allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type"],
         methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         credentials: true,
