@@ -7,10 +7,17 @@ import { AllExceptionsFilter } from "@/core/exception/http";
 import { classValidatorPipeInstance } from "@/core/pipe";
 import { PrismaService } from "@/modules/core/prisma/services";
 import morgan from "morgan";
-import { frontendDevOrigin, isProdEnvironment } from "@/config";
+import {
+    Configuration,
+    frontendDevOrigin,
+    isProdEnvironment,
+    RedisConfig,
+} from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Request, Response, NextFunction } from "express";
+import { waitForRedis } from "@/utils";
+import { ConfigService } from "@nestjs/config";
 
 export interface CreateServerOptions {
     port: number;
@@ -24,6 +31,10 @@ export default async (
     const app = await NestFactory.create<NestExpressApplication>(AppModule, {
         //logger: false,
     });
+
+    const configService = app.get<ConfigService<Configuration>>(ConfigService);
+    const redisConfig = configService.get<RedisConfig>("redisConfig");
+    console.log(redisConfig, "redis");
 
     let whitelist = options.whitelistedDomains ?? [];
     if (!isProdEnvironment) {
@@ -83,6 +94,8 @@ export default async (
     app.useGlobalPipes(classValidatorPipeInstance());
     const httpAdapterHost = app.get(HttpAdapterHost);
     app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
+
+    waitForRedis(redisConfig);
     app.listen(options.port);
 
     //handle prisma enableShutDownHook interference with nest app enableShutdownHooks

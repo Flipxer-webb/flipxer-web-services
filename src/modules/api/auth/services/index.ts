@@ -48,6 +48,8 @@ import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { LoginPlatform, SignInOptions } from "../interfaces";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 
 @Injectable()
 export class AuthService {
@@ -59,7 +61,9 @@ export class AuthService {
         private emailService: EmailService,
         private uploadFactory: UploadFactory,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
-        private readonly dojahService: DojahService
+        private readonly dojahService: DojahService,
+        @Inject(TradingInjectionToken.QUIDAX)
+        private readonly quidaxService: QuidaxService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -157,6 +161,34 @@ export class AuthService {
                 "Error sending account verification email",
                 error.error.details
             );
+        }
+
+        //create user quidax account
+        const result = await this.quidaxService.createSubAccount({
+            email: createdUser.email,
+            first_name: createdUser.firstName,
+            last_name: createdUser.lastName,
+        });
+
+        if (result.status == "success") {
+            await this.prisma.user.update({
+                where: { id: createdUser.id },
+                data: { cryptoSubAccountId: result.data.id },
+            });
+
+            //create default wallet address for btc and usdt
+            const walletResult = await this.quidaxService.createPaymentAddress({
+                user_id: result.data.id,
+                currency: "usdt",
+            });
+
+            await this.prisma.cryptoWallet.create({
+                data: {
+                    assetSymbol: "USDT",
+                    walletId: walletResult.data.id,
+                    userId: createdUser.id,
+                },
+            });
         }
 
         return buildResponse({

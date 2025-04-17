@@ -147,6 +147,24 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "ENVIRONMENT",
         type: RequiredEnvironmentTypes.String,
     },
+
+    //redis
+    {
+        name: "REDIS_HOST",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "REDIS_PORT",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "REDIS_USER",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "REDIS_PASSWORD",
+        type: RequiredEnvironmentTypes.String,
+    },
 ];
 
 validate(runtimeEnvironment);
@@ -278,3 +296,32 @@ export interface TradingConfig {
 export const tradingConfig: TradingConfig = {
     quidax: quidaxConfig,
 };
+
+export interface RedisConfig {
+    host: string;
+    user: string;
+    password: string;
+    port: number;
+    redisOptions: {
+        tls: Record<string, any> | undefined;
+    };
+}
+
+export const redisConfig: RedisConfig = {
+    host: process.env.REDIS_HOST,
+    password: process.env.REDIS_PASSWORD,
+    port: +process.env.REDIS_PORT,
+    user: process.env.REDIS_USER,
+    redisOptions: {
+        tls: undefined,
+    },
+};
+
+export interface Configuration {
+    redisConfig: RedisConfig;
+    tradingConfig: TradingConfig;
+    identityComplianceConfig: IdentityComplianceConfig;
+    imagekitConfig: ImagekitConfig;
+    mailConfig: EMailConfig;
+    emailTemplateConfig: EMailTemplateConfig;
+}

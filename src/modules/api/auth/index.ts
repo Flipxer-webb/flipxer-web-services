@@ -10,6 +10,7 @@ export * from "./interfaces";
 export * from "./errors";
 import { PasswordService } from "./services/passworReset.services";
 import { PasswordController } from "./controllers/v1/passwordReset";
+import { TradingFactoryModule } from "@/modules/factory/trading";
 
 @Module({
     imports: [
@@ -19,6 +20,7 @@ import { PasswordController } from "./controllers/v1/passwordReset";
             signOptions: { expiresIn: TOKEN_EXPIRATION },
         }),
         IdentityComplianceFactoryModule,
+        TradingFactoryModule,
     ],
     controllers: [AuthController, AdminAuthController, PasswordController],
     providers: [AuthService, AuthGuard, PasswordService],

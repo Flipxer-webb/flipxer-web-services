@@ -1,8 +1,9 @@
 import { customAlphabet, urlAlphabet } from "nanoid";
 import { TransactionIdOption } from "./interfaces";
 import { AES } from "crypto-js";
-import { encryptSecret } from "@/config";
+import { encryptSecret, RedisConfig } from "@/config";
 import slugify from "slugify";
+import Redis, { RedisOptions } from "ioredis";
 
 export * from "./api-response-util";
 export * from "./interfaces";
@@ -75,3 +76,25 @@ export const generateRandomNum = (size: number): string => {
     }
     return str;
 };
+
+export const waitForRedis = (config: RedisConfig) => {
+    console.log(config, "config");
+    const redisOptions: RedisOptions = {
+        lazyConnect: false,
+        showFriendlyErrorStack: true,
+        maxRetriesPerRequest: null,
+        enableReadyCheck: false,
+        tls: config.redisOptions.tls,
+        host: config.host,
+        username: config.user,
+        password: config.password,
+        port: config.port,
+    };
+
+    const client = new Redis(redisOptions);
+    new Promise((resolve) => client.once("connect", resolve));
+};
+
+export function formatLocalPhoneToIntlWithoutPlus(phone: string) {
+    return `234${phone.substring(1)}`;
+}
