@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { AuthService } from "./services";
 import { JwtModule } from "@nestjs/jwt";
 import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
@@ -10,7 +10,7 @@ export * from "./interfaces";
 export * from "./errors";
 import { PasswordService } from "./services/passworReset.services";
 import { PasswordController } from "./controllers/v1/passwordReset";
-import { TradingFactoryModule } from "@/modules/factory/trading";
+import { TradingModule } from "../trade";
 
 @Module({
     imports: [
@@ -20,7 +20,7 @@ import { TradingFactoryModule } from "@/modules/factory/trading";
             signOptions: { expiresIn: TOKEN_EXPIRATION },
         }),
         IdentityComplianceFactoryModule,
-        TradingFactoryModule,
+        forwardRef(() => TradingModule),
     ],
     controllers: [AuthController, AdminAuthController, PasswordController],
     providers: [AuthService, AuthGuard, PasswordService],

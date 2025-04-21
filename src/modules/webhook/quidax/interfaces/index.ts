@@ -10,11 +10,6 @@ export enum Event {
     InstantOrderDone = "instant_order.done",
     InstantOrderCancelled = "instant_order.cancelled",
     InstantOrderfailed = "instant_order.failed",
-
-    ChargeSuccessEvent = "charge.success",
-    TransferSuccessEvent = "transfer.success",
-    TransferFailedEvent = "transfer.failed",
-    TransferReversedEvent = "transfer.reversed",
 }
 
 export interface EventBody<E extends Event = Event> {
@@ -38,48 +33,7 @@ type EventDataMap = {
     // swap transaction events
 
     // deposit events
-
-    [Event.ChargeSuccessEvent]: ChargeSuccessData;
-    [Event.TransferSuccessEvent]: TransferData;
-    [Event.TransferFailedEvent]: TransferData;
-    [Event.TransferReversedEvent]: TransferData;
 };
-
-//charge.success data (both normal and transfer)
-export interface ChargeSuccessData<Meta = ChargeSuccessMetadata> {
-    id: number;
-    amount: number;
-    domain: string;
-    status: string;
-    reference: string;
-    channel: string;
-    currency: string;
-    metadata: Meta;
-    customer: {
-        id: number;
-        first_name: string;
-        last_name: string;
-        email: string;
-        customer_code: string;
-        phone: string;
-    };
-    authorization: {
-        authorization_code: string;
-        card_type: string;
-        bank: string;
-        country_code: string;
-        brand: string;
-        account_name?: string;
-        channel?: string;
-        sender_bank?: string;
-        sender_bank_account_number?: string;
-        sender_country?: string;
-        sender_name?: string;
-        narration?: string;
-        receiver_bank_account_number?: string;
-        receiver_bank?: string;
-    };
-}
 
 interface IQuidaxUser {
     id: string;

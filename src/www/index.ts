@@ -11,7 +11,7 @@ import {
     Configuration,
     frontendDevOrigin,
     isProdEnvironment,
-    RedisConfig,
+    redisConfig,
 } from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
@@ -31,10 +31,6 @@ export default async (
     const app = await NestFactory.create<NestExpressApplication>(AppModule, {
         //logger: false,
     });
-
-    const configService = app.get<ConfigService<Configuration>>(ConfigService);
-    const redisConfig = configService.get<RedisConfig>("redisConfig");
-    console.log(redisConfig, "redis");
 
     let whitelist = options.whitelistedDomains ?? [];
     if (!isProdEnvironment) {

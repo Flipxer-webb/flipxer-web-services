@@ -6,4 +6,4 @@ export interface BankDetail {
     accountNumber: string;
     createdAt: Date;
     updatedAt: Date;
-  }
+}

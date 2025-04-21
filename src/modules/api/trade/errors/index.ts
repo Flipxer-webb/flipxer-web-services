@@ -1,5 +1,5 @@
 import { HttpException } from "@nestjs/common";
 
-export class TradeNotfoundException extends HttpException {
-    name = "TradeNotfoundException";
+export class WalletAddressNotFoundException extends HttpException {
+    name = "WalletAddressNotFoundException";
 }

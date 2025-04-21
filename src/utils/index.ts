@@ -78,7 +78,6 @@ export const generateRandomNum = (size: number): string => {
 };
 
 export const waitForRedis = (config: RedisConfig) => {
-    console.log(config, "config");
     const redisOptions: RedisOptions = {
         lazyConnect: false,
         showFriendlyErrorStack: true,

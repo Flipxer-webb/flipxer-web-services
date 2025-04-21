@@ -280,6 +280,9 @@ model CryptoWallet {
   assetSymbol String // BTC, USDT, ETH, etc.
   walletId    String             @unique //from Quidax
   address     String? //null until webhook updates
+  balance      Decimal  @default(0.0)
+  converted_balance Decimal  @default(0.0)
+  lastSyncedAt DateTime?
   status      CryptoWalletStatus @default(PENDING)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
