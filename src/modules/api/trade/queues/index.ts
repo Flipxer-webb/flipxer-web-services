@@ -8,7 +8,7 @@ export const quidaxTradingOptions: BullModuleOptions = {
     name: TradingQueue.QUIDAX_ACCOUNT_INIT,
     defaultJobOptions: {
         attempts: 3, //If a job fails, retry once more (total 3 attempts).
-        delay: 60 * 3 * 1000, //each job execution will be delayed by 3min
+        delay: 20000, //each job execution will be delayed by 3min
         removeOnFail: true, //automatically removes failed jobs.
         removeOnComplete: true, //automatically removes successfully completed jobs.
     },

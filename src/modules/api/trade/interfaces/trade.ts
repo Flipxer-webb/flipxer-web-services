@@ -13,6 +13,12 @@ export interface IWalletAddressCreatedSuccess {
     converted_balance?: string;
 }
 
+export interface IWalletUpdated {
+    walletId: string;
+    balance: string;
+    converted_balance?: string;
+}
+
 export enum SupportedAssets {
     QDX = "qdx",
     USD = "usd",
@@ -62,4 +68,48 @@ export enum SupportedAssets {
     APE = "ape",
     SUSHI = "sushi",
     ZIL = "zil",
+}
+
+export enum TradingPair {
+    QDX_USDT = "qdxusdt",
+    BTC_USDT = "btcusdt",
+    BTC_NGN = "btcngn",
+    ETH_NGN = "ethngn",
+    QDX_NGN = "qdxngn",
+    XRP_NGN = "xrpngn",
+    DASH_NGN = "dashngn",
+    LTC_NGN = "ltcngn",
+    USDT_NGN = "usdtngn",
+    BTC_GHS = "btcghs",
+    USDT_GHS = "usdtghs",
+    TRX_NGN = "trxngn",
+    DOGE_USDT = "dogeusdt",
+    BNB_USDT = "bnbusdt",
+    MATIC_USDT = "maticusdt",
+    SAFEMOON_USDT = "safemoonusdt",
+    AAVE_USDT = "aaveusdt",
+    SHIB_USDT = "shibusdt",
+    DOT_USDT = "dotusdt",
+    LINK_USDT = "linkusdt",
+    CAKE_USDT = "cakeusdt",
+    XLM_USDT = "xlmusdt",
+    XRP_USDT = "xrpusdt",
+    LTC_USDT = "ltcusdt",
+    ETH_USDT = "ethusdt",
+    TRX_USDT = "trxusdt",
+    AXS_USDT = "axsusdt",
+    WSG_USDT = "wsgusdt",
+    AFEN_USDT = "afenusdt",
+    BLS_USDT = "blsusdt",
+    DASH_USDT = "dashusdt",
+}
+
+export enum OrderType {
+    LIMIT = "limit",
+    MARKET = "market",
+}
+
+export enum OrderSide {
+    BUY = "buy",
+    SELL = "sell",
 }

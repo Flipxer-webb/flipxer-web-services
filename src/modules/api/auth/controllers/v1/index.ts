@@ -43,21 +43,6 @@ export class AuthController {
     constructor(private authService: AuthService) {}
 
     @Post("signup")
-    @ApiOperation({
-        summary: "User login",
-        description: "Allows an admin to sign in.",
-    })
-    @ApiBody({ description: "User login credentials", type: UserSigInDto })
-    @SwaggerApiResponse({
-        status: 200,
-        description: "Login successful",
-        type: SwaggerResponse,
-    }) // This is the class, not the interface
-    @SwaggerApiResponse({ status: 401, description: "Unauthorized" })
-    @SwaggerApiResponse({
-        status: 400,
-        description: "Bad Request - Validation Error",
-    })
     @ApiOperation({ summary: "individual and business signup" })
     async signUp(
         @Body(ValidationPipe) signUpDto: SignUpDto,

@@ -9,6 +9,8 @@ import { BullModule } from "@nestjs/bull";
 import { BullBoardModule } from "@bull-board/nestjs";
 import { quidaxBoardQueueConfig, quidaxQueueConfig } from "./queues";
 import { CryptoAccountQueueProducer } from "./queues/producers/producer.service";
+import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processors/account_init_processor";
+import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
 
 @Module({
     imports: [
@@ -17,7 +19,17 @@ import { CryptoAccountQueueProducer } from "./queues/producers/producer.service"
         TradingFactoryModule,
     ],
     controllers: [TradingController],
-    providers: [TradingService, TradingEvent, CryptoAccountQueueProducer],
-    exports: [TradingService, CryptoAccountQueueProducer],
+    providers: [
+        TradingService,
+        TradingEvent,
+        QuidaxTradingCryptoAccountInitQueueProcessor,
+        CryptoAccountQueueProducer,
+        QuidaxTradingBalanceSyncProcessor,
+    ],
+    exports: [
+        TradingService,
+        CryptoAccountQueueProducer,
+        QuidaxTradingBalanceSyncProcessor,
+    ],
 })
 export class TradingModule {}

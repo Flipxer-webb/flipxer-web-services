@@ -15,7 +15,7 @@ export class AssetBalanceSchedulerService {
     ) {}
 
     //every 15 minute
-    @Cron("*/15 * * * *", { timeZone: "Africa/Lagos" })
+    @Cron("*/2 * * * *", { timeZone: "Africa/Lagos" })
     async syncAllQuidaxAssetBalance() {
         this.logger.debug("Cron job triggered!");
 
@@ -27,14 +27,17 @@ export class AssetBalanceSchedulerService {
             );
 
             const users = await this.getAllUserIdsWithSubAccounts();
+
             const batchSize = 100;
 
             for (let i = 0; i < users.length; i += batchSize) {
                 const batch = users.slice(i, i + batchSize);
                 await Promise.all(
-                    batch.map((userId) =>
-                        this.cryptoAccountProducer.enqueueSyncBalance(userId)
-                    )
+                    batch.map(async (userId) => {
+                        await this.cryptoAccountProducer.enqueueSyncBalance(
+                            userId
+                        );
+                    })
                 );
             }
         } catch (error) {

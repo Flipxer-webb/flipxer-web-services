@@ -9,6 +9,7 @@ import {
     QuidaxTradingQueue,
     TradingQueue,
 } from "../interfaces";
+import { CryptoWalletStatus } from "@prisma/client";
 
 @Processor(TradingQueue.QUIDAX_SYNC_BALANCE)
 export class QuidaxTradingBalanceSyncProcessor {
@@ -54,6 +55,13 @@ export class QuidaxTradingBalanceSyncProcessor {
                 data: {
                     balance: updated.balance,
                     converted_balance: updated.converted_balance,
+                    ...(!wallet.address && {
+                        address: updated.deposit_address,
+                    }),
+                    ...(wallet.status === CryptoWalletStatus.PENDING &&
+                        updated.deposit_address && {
+                            status: CryptoWalletStatus.ACTIVE,
+                        }),
                     lastSyncedAt: new Date(),
                 },
             });

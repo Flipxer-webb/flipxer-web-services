@@ -37,6 +37,7 @@ export interface GetPaymentAddressByIdOptions {
 export interface CreatePaymentAddressOptions {
     user_id: string;
     currency: string;
+    network: string;
 }
 
 export interface VerifyAddressOptions {

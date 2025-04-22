@@ -11,6 +11,7 @@ import { TradingService } from "../../services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { Inject } from "@nestjs/common";
+import { NetworkTypes } from "@prisma/client";
 
 @Processor(TradingQueue.QUIDAX_ACCOUNT_INIT)
 export class QuidaxTradingCryptoAccountInitQueueProcessor {
@@ -30,7 +31,7 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
                 where: { id: user_id },
             });
 
-            if (!user) return;
+            if (!user) return "user_not_found";
 
             // Create sub-account
             const result = await this.quidaxService.createSubAccount({
@@ -39,7 +40,9 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
                 last_name: user.lastName,
             });
 
-            if (result.status !== "success") return false;
+            if (result.status !== "success") {
+                return "subaccount_failed";
+            }
 
             await this.prisma.$transaction(async (tx) => {
                 await tx.user.update({
@@ -52,6 +55,7 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
                         await this.quidaxService.createPaymentAddress({
                             user_id: result.data.id,
                             currency,
+                            network: NetworkTypes.erc20,
                         });
 
                     await tx.cryptoWallet.create({
@@ -59,6 +63,7 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
                             assetSymbol: currency.toUpperCase(),
                             walletId: wallet.data.id,
                             userId: user.id,
+                            defaultNetwork: wallet.data.network as NetworkTypes,
                         },
                     });
                 }

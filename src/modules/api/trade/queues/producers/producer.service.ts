@@ -11,7 +11,10 @@ import {
 export class CryptoAccountQueueProducer {
     constructor(
         @InjectQueue(TradingQueue.QUIDAX_ACCOUNT_INIT)
-        private quidaxCryptoQueue: Queue<QuidaxTradingJobOptions>
+        private quidaxCryptoQueue: Queue<QuidaxTradingJobOptions>,
+
+        @InjectQueue(TradingQueue.QUIDAX_SYNC_BALANCE)
+        private syncBalanceQueue: Queue<QuidaxTradingJobOptions>
     ) {}
 
     async enqueue(user_id: number) {
@@ -22,7 +25,7 @@ export class CryptoAccountQueueProducer {
     }
 
     async enqueueSyncBalance(user_id: number) {
-        await this.quidaxCryptoQueue.add(
+        await this.syncBalanceQueue.add(
             QuidaxTradingQueue.SYNC_CRYPTO_BALANCE,
             {
                 user_id: user_id,

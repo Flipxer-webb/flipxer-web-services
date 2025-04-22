@@ -161,9 +161,6 @@ export class AuthService {
             );
         }
 
-        //create user quidax account and default wallet address
-        await this.cryptoAccountQueueProducer.enqueue(createdUser.id);
-
         return buildResponse({
             message: "Account successfully created",
             data: tokens,
@@ -282,6 +279,9 @@ export class AuthService {
         await this.prisma.accountVerificationRequest.delete({
             where: { email: options.email },
         });
+
+        //create user quidax account and default wallet address once email is verified
+        await this.cryptoAccountQueueProducer.enqueue(emailExist.id);
 
         return buildResponse({
             message: "Email verification completed",

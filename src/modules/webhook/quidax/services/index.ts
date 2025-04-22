@@ -4,6 +4,7 @@ import {
     Event,
     QuidaxWebhook,
     WalletAddressGeneratedData,
+    WalletUpdatedData,
 } from "../interfaces";
 import logger from "moment-logger";
 
@@ -27,6 +28,14 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     break;
                 }
 
+                case Event.WalletUpdatedEvent:
+                    {
+                        await this.walletUpdatedHandler(
+                            eventBody.data as WalletUpdatedData
+                        );
+                    }
+                    break;
+
                 default:
                     break;
             }
@@ -39,6 +48,19 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         switch (true) {
             default: {
                 await this.processWalletAddress(eventData);
+                break;
+            }
+        }
+    }
+
+    async walletUpdatedHandler(eventData: WalletUpdatedData) {
+        switch (true) {
+            default: {
+                await this.tradingService.walletUpdatedHandler({
+                    walletId: eventData.id,
+                    balance: eventData.balance,
+                    converted_balance: eventData.converted_balance,
+                });
                 break;
             }
         }

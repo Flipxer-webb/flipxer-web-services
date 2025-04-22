@@ -17,25 +17,27 @@ export class QuidaxLib {
     private handleQuidaxError(error: AxiosError<any>) {
         switch (true) {
             case error.response?.status == 401: {
-                throw new e.QuidaxAuthorizationError(error.response.data.error);
+                throw new e.QuidaxAuthorizationError(
+                    error.response.data.message
+                );
             }
             case error.response?.status == 400: {
-                throw new e.QuidaxValidationError(error.response.data.error);
+                throw new e.QuidaxValidationError(error.response.data.message);
             }
 
             case error.response?.status == 404: {
-                throw new e.QuidaxNotFoundError(error.response.data.error);
+                throw new e.QuidaxNotFoundError(error.response.data.message);
             }
 
             case error.response?.status == 429: {
                 throw new e.QuidaxTooManyRequestError(
-                    error.response.data.error
+                    error.response.data.message
                 );
             }
 
             default: {
                 const err = new e.QuidaxGenericError(
-                    error.response?.data?.error || error.response?.statusText
+                    error.response?.data?.message || error.response?.statusText
                 );
                 err.status = error.response?.status;
                 throw err;
