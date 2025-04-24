@@ -11,3 +11,7 @@ export class AccountCreationException extends HttpException {
 export class IncompleteAccountSetupException extends HttpException {
     name = "IncompleteAccountSetupException";
 }
+
+export class TransactionNotFoundException extends HttpException {
+    name = "TransactionNotFoundException";
+}

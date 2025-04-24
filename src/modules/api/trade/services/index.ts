@@ -7,25 +7,30 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import {
     AccountCreationException,
     IncompleteAccountSetupException,
+    TransactionNotFoundException,
     WalletAddressNotFoundException,
 } from "../errors";
 import {
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
     SupportedAssets,
+    SwapTransactionHandlerOptions,
     TradingPair,
 } from "../interfaces/trade";
 import {
     CryptoWalletStatus,
     NetworkTypes,
+    OrderCategory,
     OrderStatus,
     User,
 } from "@prisma/client";
 import {
+    ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
     InitiateWalletCreationDto,
     PlaceBuyOrSellOrderDto,
+    PlaceInstantSwapRequestDto,
     VerifyWalletAddressDto,
 } from "../dtos";
 import { UserNotFoundException } from "../../user";
@@ -191,6 +196,7 @@ export class TradingService {
         if (order.data) {
             await this.prisma.order.create({
                 data: {
+                    orderCategory: OrderCategory.TRADE,
                     orderType: dto.order_type,
                     market: dto.market,
                     orderSide: dto.order_side,
@@ -207,6 +213,70 @@ export class TradingService {
         return buildResponse({
             message: "order placed successfully",
             data: {},
+        });
+    }
+
+    async createInstantSwap(user: User, dto: PlaceInstantSwapRequestDto) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const swapInfo = await this.quidaxService.createInstantSwapRequest(
+            user.cryptoSubAccountId,
+            {
+                from_currency: dto.from_currency,
+                to_currency: dto.to_currency,
+                from_amount: dto.from_amount.toString(),
+                to_amount: dto.to_amount.toString(),
+            }
+        );
+
+        return buildResponse({
+            message: "Swap request quote retrieved successfully",
+            data: swapInfo.data,
+        });
+    }
+
+    async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const swapInfo = await this.quidaxService.confirmInstantSwap({
+            quotation_id: dto.quotationId,
+            user_id: user.cryptoSubAccountId,
+        });
+
+        if (swapInfo.data) {
+            await this.prisma.order.create({
+                data: {
+                    orderCategory: OrderCategory.SWAP,
+                    status: swapInfo.data.status,
+                    providerOrderId: swapInfo.data.id,
+                    orderReference: swapInfo.data.id,
+                    userId: user.id,
+                    fromCurrency: swapInfo.data.from_currency.toUpperCase(),
+                    toCurrency: swapInfo.data.to_currency.toUpperCase(),
+                    fromAmount: +swapInfo.data.from_amount,
+                    toAmount: +swapInfo.data.received_amount,
+                    quotationId: swapInfo.data.swap_quotation.id,
+                    quoted_currency:
+                        swapInfo.data.swap_quotation.quoted_currency,
+                    quoted_price: +swapInfo.data.swap_quotation.quoted_price,
+                    executionPrice: +swapInfo.data.execution_price,
+                },
+            });
+        }
+
+        return buildResponse({
+            message: "Swap request processed successfully",
+            data: swapInfo.data,
         });
     }
 
@@ -270,6 +340,29 @@ export class TradingService {
             data: {
                 balance: data.balance,
                 converted_balance: data.converted_balance,
+            },
+        });
+    }
+
+    async swapTransactionHandler(options: SwapTransactionHandlerOptions) {
+        const transaction = await this.prisma.order.findUnique({
+            where: { providerOrderId: options.orderReference },
+        });
+
+        if (!transaction) {
+            throw new TransactionNotFoundException(
+                "Transaction not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        if (transaction.status === options.status) {
+            return;
+        }
+        await this.prisma.order.update({
+            where: { id: transaction.id },
+            data: {
+                status: options.status,
             },
         });
     }

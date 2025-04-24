@@ -25,10 +25,12 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import {
+    ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
     InitiateWalletCreationDto,
     PlaceBuyOrSellOrderDto,
+    PlaceInstantSwapRequestDto,
     VerifyWalletAddressDto,
 } from "../../dtos";
 
@@ -125,5 +127,33 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.buyOrSellCrypto(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "make instant swap quote request",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("request-instant-swap-quote")
+    async createInstantSwap(
+        @Body() dto: PlaceInstantSwapRequestDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.createInstantSwap(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "make instant swap request",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("confirm-instant-swap-quote")
+    async confirmInstantSwapQuote(
+        @Body() dto: ConfirmInstantSwapQuoteDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.confirmInstantSwapQuote(user, dto);
     }
 }

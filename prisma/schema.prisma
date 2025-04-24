@@ -307,6 +307,11 @@ enum OrderStatus {
   partial
   cancelled
   failed
+  confirmed
+  initiated
+  completed
+  reversed
+  done
 }
 
 enum OrderSide {
@@ -319,16 +324,36 @@ enum OrderType {
   market
 }
 
+ enum OrderCategory {
+  TRADE // includes buy/sell
+  SWAP
+}
+
 
 model Order {
   id              Int         @id @default(autoincrement())
   userId          Int
-  market          String // from TradingPair enum
-  orderType       String
-  orderSide       OrderSide
-  volume          Float
+  orderCategory   OrderCategory
+
+  //trade (buy/sell) related
+  market          String?    // from TradingPair enum
+  orderType       OrderType?
+  orderSide       OrderSide?
+  volume          Float?
   price           Float? // optional for market orders
   status          OrderStatus
+  
+  //swap related
+  quotationId      String?
+  fromCurrency     String?  // e.g. BTC
+  toCurrency       String?  // e.g. USDT
+  fromAmount       Float?   // original currency amount (from `SwapTransaction.from_amount`)
+  toAmount         Float?   // received amount (from `SwapTransaction.received_amount`)
+  quoted_price     Float?
+  quoted_currency   String?
+  executionPrice   Float?   // actual rate at execution (from `SwapTransaction.execution_price`)
+  swapExpiresAt    DateTime?
+
   providerOrderId String? @unique// String?  @unique // Quidax reference ID
   orderReference  String?   @unique //Quidax order ref
   createdAt       DateTime    @default(now())

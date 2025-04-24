@@ -3,8 +3,20 @@ export interface QuidaxGenericData {
 }
 
 export enum Event {
+    //wallet
     WalletUpdatedEvent = "wallet.updated",
     WalletAddressGenerated = "wallet.address.generated",
+    //swap
+    SwapTransactionCompleted = "swap_transaction.completed",
+    SwapTransactionRevered = "swap_transaction.reversed",
+    SwapTransactionFailed = "swap_transaction.failed",
+    //withdrawer
+    WithdrawSuccessful = "withdraw.successful",
+    WithdrawRejected = "withdraw.rejected",
+    //order
+    OrderDone = "order.done",
+    OrderCancelled = "order.cancelled",
+
     InstantOrderQuoted = "instant_order.pend",
     InstantOrderConfirmed = "instant_order.confirmed",
     InstantOrderDone = "instant_order.done",
@@ -21,6 +33,10 @@ type EventDataMap = {
     // wallet events
     [Event.WalletUpdatedEvent]: WalletUpdatedData;
     [Event.WalletAddressGenerated]: WalletAddressGeneratedData;
+    //swap
+    [Event.SwapTransactionCompleted]: SwapTransactionEventData;
+    [Event.SwapTransactionRevered]: SwapTransactionEventData;
+    [Event.SwapTransactionFailed]: SwapTransactionEventData;
     // instant order events
     [Event.InstantOrderQuoted]: InstantOrderData;
     [Event.InstantOrderConfirmed]: InstantOrderData;
@@ -74,6 +90,35 @@ export interface WalletAddressGeneratedData {
     total_payments: string | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface SwapTransactionEventData {
+    id: string;
+    from_currency: string;
+    to_currency: string;
+    from_amount: string;
+    received_amount: string;
+    execution_price: string;
+    status: "completed" | "reversed" | "failed";
+    created_at: string;
+    updated_at: string;
+    swap_quotation: SwapQuotation;
+    user: IQuidaxUser;
+}
+
+export interface SwapQuotation {
+    id: string;
+    from_currency: string;
+    to_currency: string;
+    quoted_price: string;
+    quoted_currency: string;
+    from_amount: string;
+    to_amount: string;
+    confirmed: boolean;
+    expires_at: string;
+    created_at: string;
+    updated_at: string;
+    user: IQuidaxUser;
 }
 
 export interface InstantOrderData {

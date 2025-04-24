@@ -5,11 +5,13 @@ import {
     QuidaxWebhook,
     WalletAddressGeneratedData,
     WalletUpdatedData,
+    SwapTransactionEventData,
 } from "../interfaces";
 import logger from "moment-logger";
 
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingService } from "@/modules/api/trade/services";
+import { OrderStatus } from "@prisma/client";
 
 @Injectable()
 export class QuidaxWebhookService implements QuidaxWebhook {
@@ -32,6 +34,29 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     {
                         await this.walletUpdatedHandler(
                             eventBody.data as WalletUpdatedData
+                        );
+                    }
+                    break;
+
+                case Event.SwapTransactionCompleted:
+                    {
+                        await this.swapTransactionHandlerHandler(
+                            eventBody.data as SwapTransactionEventData
+                        );
+                    }
+                    break;
+                case Event.SwapTransactionRevered:
+                    {
+                        await this.swapTransactionHandlerHandler(
+                            eventBody.data as SwapTransactionEventData
+                        );
+                    }
+                    break;
+
+                case Event.SwapTransactionFailed:
+                    {
+                        await this.swapTransactionHandlerHandler(
+                            eventBody.data as SwapTransactionEventData
                         );
                     }
                     break;
@@ -61,6 +86,32 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     balance: eventData.balance,
                     converted_balance: eventData.converted_balance,
                 });
+                break;
+            }
+        }
+    }
+
+    async swapTransactionHandlerHandler(eventData: SwapTransactionEventData) {
+        switch (true) {
+            case eventData.status === OrderStatus.completed:
+                await this.tradingService.swapTransactionHandler({
+                    orderReference: eventData.id,
+                    status: OrderStatus.completed,
+                });
+                break;
+            case eventData.status === OrderStatus.failed:
+                await this.tradingService.swapTransactionHandler({
+                    orderReference: eventData.id,
+                    status: OrderStatus.failed,
+                });
+                break;
+            case eventData.status === OrderStatus.reversed:
+                await this.tradingService.swapTransactionHandler({
+                    orderReference: eventData.id,
+                    status: OrderStatus.reversed,
+                });
+                break;
+            default: {
                 break;
             }
         }

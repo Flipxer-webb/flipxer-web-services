@@ -1,3 +1,5 @@
+import { OrderStatus } from "@prisma/client";
+
 interface FundingFailure {
     transactionId: number;
 }
@@ -112,4 +114,9 @@ export enum OrderType {
 export enum OrderSide {
     BUY = "buy",
     SELL = "sell",
+}
+
+export interface SwapTransactionHandlerOptions {
+    orderReference: string;
+    status: OrderStatus;
 }

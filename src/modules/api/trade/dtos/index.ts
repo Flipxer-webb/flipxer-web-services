@@ -86,3 +86,33 @@ export class GetCryptoWithdrawerFeeDto {
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
 }
+
+export class PlaceInstantSwapRequestDto {
+    @ApiProperty({ enum: SupportedAssets })
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    from_currency: SupportedAssets;
+
+    @ApiProperty({ enum: SupportedAssets })
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    to_currency: SupportedAssets; //the currency you are swapping to.
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    from_amount: number; //the amount you want to swap.
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    to_amount: number; //the amount you want to swap to.
+}
+
+export class ConfirmInstantSwapQuoteDto {
+    @IsNotEmpty()
+    @IsString()
+    quotationId: string;
+}
