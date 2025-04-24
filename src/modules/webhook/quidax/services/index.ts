@@ -120,9 +120,9 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     async processWalletAddress(eventData: WalletAddressGeneratedData) {
         try {
             this.tradingService.walletAddressCreatedSuccessHandler({
-                walletId: eventData.id,
+                walletAddressId: eventData.id,
                 walletAddress: eventData.address,
-                balance: eventData.total_payments,
+                totalPayments: eventData.total_payments,
             });
         } catch (error) {
             logger.error(error);

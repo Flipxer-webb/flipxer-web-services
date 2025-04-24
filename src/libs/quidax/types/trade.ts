@@ -64,7 +64,7 @@ export interface SwapTransaction {
     from_amount: string;
     received_amount: string;
     execution_price: string;
-    status: "initiated";
+    status: "initiated" | "completed" | "reversed" | "failed";
     created_at: string;
     updated_at: string;
     swap_quotation: SwapQuotation;

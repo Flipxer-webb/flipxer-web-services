@@ -20,6 +20,11 @@ export class GetWalletDto {
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     asset: SupportedAssets;
+
+    @ApiProperty({ enum: NetworkTypes })
+    @IsNotEmpty()
+    @IsEnum(NetworkTypes)
+    network: NetworkTypes;
 }
 
 export class InitiateWalletCreationDto {
@@ -109,6 +114,13 @@ export class PlaceInstantSwapRequestDto {
     @IsNumber()
     @IsPositive()
     to_amount: number; //the amount you want to swap to.
+}
+
+export class RefreshInstantSwapRequestDto extends PlaceInstantSwapRequestDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    quotation_id: string;
 }
 
 export class ConfirmInstantSwapQuoteDto {

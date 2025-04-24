@@ -125,7 +125,7 @@ export type GetUserWalletResponse = ICryptoWalletData;
 
 export type GetPaymentAddressOptions = GetUserWalletOptions;
 
-interface IPaymentAddress {
+export interface IPaymentAddress {
     id: string;
     reference: string | null;
     currency: string;
@@ -134,6 +134,7 @@ interface IPaymentAddress {
     total_payments: string;
     created_at: string;
     updated_at: string;
+    network: string;
 }
 
 export type GetPaymentAddressResponse = IPaymentAddress;

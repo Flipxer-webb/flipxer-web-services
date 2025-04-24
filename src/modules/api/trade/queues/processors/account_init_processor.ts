@@ -55,15 +55,15 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
                         await this.quidaxService.createPaymentAddress({
                             user_id: result.data.id,
                             currency,
-                            network: NetworkTypes.erc20,
+                            //network: NetworkTypes.trc20,
                         });
 
-                    await tx.cryptoWallet.create({
+                    await tx.cryptoWalletAddress.create({
                         data: {
                             assetSymbol: currency.toUpperCase(),
-                            walletId: wallet.data.id,
+                            walletAddressId: wallet.data.id,
                             userId: user.id,
-                            defaultNetwork: wallet.data.network as NetworkTypes,
+                            network: wallet.data.network as NetworkTypes,
                         },
                     });
                 }

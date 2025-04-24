@@ -31,6 +31,7 @@ import {
     InitiateWalletCreationDto,
     PlaceBuyOrSellOrderDto,
     PlaceInstantSwapRequestDto,
+    RefreshInstantSwapRequestDto,
     VerifyWalletAddressDto,
 } from "../../dtos";
 
@@ -90,17 +91,19 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary:
-            "initiate wallet and wallet address generation for non default assets",
+        summary: "initiate  wallet address generation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
-    @Post("initiate-wallet-generation")
+    @Post("initiate-wallet-address-generation")
     async initiateWalletCreation(
         @Body() dto: InitiateWalletCreationDto,
         @User() user: UserModel
     ) {
-        return await this.tradingService.initiateWalletCreation(user.id, dto);
+        return await this.tradingService.initiateWalletAddressCreation(
+            user.id,
+            dto
+        );
     }
 
     @HttpCode(HttpStatus.OK)
@@ -131,7 +134,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "make instant swap quote request",
+        summary:
+            "endpoint is used to generate an instant swap quotation. Please note that the instant swap quotation is valid for only 15 seconds. To refresh the swap and obtain a new quotation, you can use the Refresh Instant Swap endpoint.",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -145,7 +149,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "make instant swap request",
+        summary: "endpoint is used to confirm an instant swap quotation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -155,5 +159,19 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.confirmInstantSwapQuote(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "endpoint is used to refresh an instant swap quotation - ",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("refresh-instant-swap-quote")
+    async refreshInstantSwapQuote(
+        @Body() dto: RefreshInstantSwapRequestDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.refreshInstantSwap(user, dto);
     }
 }

@@ -9,7 +9,6 @@ import {
     QuidaxTradingQueue,
     TradingQueue,
 } from "../interfaces";
-import { CryptoWalletStatus } from "@prisma/client";
 
 @Processor(TradingQueue.QUIDAX_SYNC_BALANCE)
 export class QuidaxTradingBalanceSyncProcessor {
@@ -34,7 +33,7 @@ export class QuidaxTradingBalanceSyncProcessor {
         if (!user?.cryptoSubAccountId) return;
 
         const [wallets, quidaxWallets] = await Promise.all([
-            this.prisma.cryptoWallet.findMany({
+            this.prisma.assetWallet.findMany({
                 where: { userId: user.id },
             }),
             this.quidaxService.getUserWalletList({
@@ -42,27 +41,37 @@ export class QuidaxTradingBalanceSyncProcessor {
             }),
         ]);
 
+        // Create a map using Quidax wallet ID (wallet.id) as the key
         const walletMap = new Map(
-            (quidaxWallets.data || []).map((w) => [w.currency.toUpperCase(), w])
+            (quidaxWallets.data || []).map((w) => [w.id, w])
         );
 
         for (const wallet of wallets) {
-            const updated = walletMap.get(wallet.assetSymbol);
-            if (!updated) continue;
+            const updated = walletMap.get(wallet.quidaxWalletId);
 
-            await this.prisma.cryptoWallet.update({
+            if (!updated) {
+                console.warn(
+                    `No wallet update data found for walletId: ${wallet.quidaxWalletId}`
+                );
+                continue;
+            }
+
+            await this.prisma.assetWallet.update({
                 where: { id: wallet.id },
                 data: {
                     balance: updated.balance,
-                    converted_balance: updated.converted_balance,
-                    ...(!wallet.address && {
-                        address: updated.deposit_address,
-                    }),
-                    ...(wallet.status === CryptoWalletStatus.PENDING &&
-                        updated.deposit_address && {
-                            status: CryptoWalletStatus.ACTIVE,
-                        }),
-                    lastSyncedAt: new Date(),
+                    locked: updated.locked,
+                    staked: updated.staked,
+                    convertedBalance: updated.converted_balance,
+                    blockchainEnabled: updated.blockchain_enabled,
+                    defaultNetwork: updated.default_network,
+                    isCrypto: updated.is_crypto,
+                    networks: updated.networks,
+                    referenceCurrency: updated.reference_currency,
+                    depositAddress: updated.deposit_address,
+                    destinationTag: updated.destination_tag,
+                    ...(updated.deposit_address && { addressSynced: true }), // Mark address as synced if present
+                    ...(updated.deposit_address && { isActive: true }), // Mark wallet as active if deposit address exists
                 },
             });
         }

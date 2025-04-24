@@ -89,8 +89,9 @@ model User {
   accountLimit                       AccountLimit?
   bankDetails                        BankDetail[]
   recoveryEmail                      RecoveryEmail?
-  cryptoWallet                       CryptoWallet[]
   order                              Order[]
+  cryptoWalletAddressList            CryptoWalletAddress[]
+  assetWallets                        AssetWallet[]
 
   @@index([id, bvn])
   @@map("Users")
@@ -270,6 +271,37 @@ model RolePermission {
   @@map("RolePermissions")
 }
 
+model AssetWallet {
+  id                String  @id @default(uuid())
+  userId            Int
+  quidaxWalletId    String    @unique
+  assetName         String // "Bitcoin"
+  assetCurrency     String // "BTC"
+  balance           Decimal @db.Decimal(20, 18)
+  locked            Decimal @db.Decimal(20, 18)
+  staked            Decimal @db.Decimal(20, 18)
+  convertedBalance  Decimal @db.Decimal(20, 8)
+  referenceCurrency String
+  isCrypto          Boolean
+  defaultNetwork    String
+  blockchainEnabled Boolean
+  depositAddress    String?
+  destinationTag    String?
+  isActive          Boolean @default(false)
+  addressSynced     Boolean @default(false)
+
+  networks  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, assetCurrency])
+  @@index([userId])
+  @@index([assetCurrency])
+  @@map("AssetWallets")
+}
+
 enum CryptoWalletStatus {
   ACTIVE
   PENDING
@@ -277,28 +309,38 @@ enum CryptoWalletStatus {
 
 enum NetworkTypes {
   trc20
-  erc20 
+  erc20
   bep20
+  btc
+  ltc
+  dash
+  doge
+  bch
+  ripple
+  stellar
+  cardano
+  solana
+  polygon
 }
 
-model CryptoWallet {
-  id                Int                @id @default(autoincrement())
-  userId            Int
-  assetSymbol       String // BTC, USDT, ETH, etc.
-  walletId          String             @unique //from Quidax
-  address           String? //null until webhook updates
-  balance           Decimal            @default(0.0)
-  converted_balance Decimal            @default(0.0)
-  lastSyncedAt      DateTime?
-  defaultNetwork    NetworkTypes?
-  status            CryptoWalletStatus @default(PENDING)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+model CryptoWalletAddress {
+  id              Int                @id @default(autoincrement())
+  userId          Int
+  assetSymbol     String // BTC, USDT, ETH, etc.
+  walletAddressId String             @unique // from Quidax
+  address         String? // null until webhook updates
+  totalPayments   Decimal            @default(0.0)
+  lastSyncedAt    DateTime?
+  network         NetworkTypes?
+  destination_tag String?
+  status          CryptoWalletStatus @default(PENDING)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 
-  @@unique([userId, assetSymbol])
-  @@map("CryptoWallets")
+  @@unique([userId, assetSymbol, network])
+  @@map("CryptoWalletAddresses")
 }
 
 enum OrderStatus {
@@ -324,40 +366,39 @@ enum OrderType {
   market
 }
 
- enum OrderCategory {
+enum OrderCategory {
   TRADE // includes buy/sell
   SWAP
 }
 
-
 model Order {
-  id              Int         @id @default(autoincrement())
-  userId          Int
-  orderCategory   OrderCategory
+  id            Int           @id @default(autoincrement())
+  userId        Int
+  orderCategory OrderCategory
 
   //trade (buy/sell) related
-  market          String?    // from TradingPair enum
-  orderType       OrderType?
-  orderSide       OrderSide?
-  volume          Float?
-  price           Float? // optional for market orders
-  status          OrderStatus
-  
-  //swap related
-  quotationId      String?
-  fromCurrency     String?  // e.g. BTC
-  toCurrency       String?  // e.g. USDT
-  fromAmount       Float?   // original currency amount (from `SwapTransaction.from_amount`)
-  toAmount         Float?   // received amount (from `SwapTransaction.received_amount`)
-  quoted_price     Float?
-  quoted_currency   String?
-  executionPrice   Float?   // actual rate at execution (from `SwapTransaction.execution_price`)
-  swapExpiresAt    DateTime?
+  market    String? // from TradingPair enum
+  orderType OrderType?
+  orderSide OrderSide?
+  volume    Float?
+  price     Float? // optional for market orders
+  status    OrderStatus
 
-  providerOrderId String? @unique// String?  @unique // Quidax reference ID
-  orderReference  String?   @unique //Quidax order ref
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  //swap related
+  quotationId     String?
+  fromCurrency    String? // e.g. BTC
+  toCurrency      String? // e.g. USDT
+  fromAmount      Float? // original currency amount (from `SwapTransaction.from_amount`)
+  toAmount        Float? // received amount (from `SwapTransaction.received_amount`)
+  quoted_price    Float?
+  quoted_currency String?
+  executionPrice  Float? // actual rate at execution (from `SwapTransaction.execution_price`)
+  swapExpiresAt   DateTime?
+
+  providerOrderId String?  @unique // String?  @unique // Quidax reference ID
+  orderReference  String?  @unique //Quidax order ref
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 

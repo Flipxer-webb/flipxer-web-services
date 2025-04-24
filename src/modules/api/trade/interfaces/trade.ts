@@ -9,10 +9,10 @@ export interface TradingEventMap {
 }
 
 export interface IWalletAddressCreatedSuccess {
-    walletId: string;
+    walletAddressId: string;
     walletAddress: string;
-    balance: string;
-    converted_balance?: string;
+    totalPayments: string;
+    destination_tag?: string;
 }
 
 export interface IWalletUpdated {
