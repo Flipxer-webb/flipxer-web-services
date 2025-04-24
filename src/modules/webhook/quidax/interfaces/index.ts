@@ -16,6 +16,11 @@ export enum Event {
     //order
     OrderDone = "order.done",
     OrderCancelled = "order.cancelled",
+    //deposit
+    DepositTransactionConfirmation = "deposit.transaction.confirmation",
+    DepositTransactionSuccessful = "deposit.successful",
+    DepositTransactionOnHold = "deposit.on_hold",
+    DepositTransactionFailedAml = "deposit.failed_aml",
 
     InstantOrderQuoted = "instant_order.pend",
     InstantOrderConfirmed = "instant_order.confirmed",
@@ -41,6 +46,10 @@ type EventDataMap = {
     [Event.WithdrawSuccessful]: WithdrawerEventData;
     [Event.WithdrawRejected]: WithdrawerEventData;
     // deposit events
+    [Event.DepositTransactionConfirmation]: DepositTransactionEventData;
+    [Event.DepositTransactionSuccessful]: DepositTransactionEventData;
+    [Event.DepositTransactionOnHold]: DepositTransactionEventData;
+    [Event.DepositTransactionFailedAml]: DepositTransactionEventData;
 
     // instant order events
     [Event.InstantOrderQuoted]: InstantOrderData;
@@ -195,6 +204,63 @@ export interface WithdrawerEventData {
     };
 
     user: IQuidaxUser;
+}
+
+export interface DepositTransactionEventData {
+    id: string;
+    type: string;
+    currency: string;
+    amount: string;
+    fee: string;
+    txid: string;
+    status: string;
+    reason: string | null;
+    created_at: string;
+    done_at: string | null;
+    wallet: {
+        id: string;
+        name: string;
+        currency: string;
+        balance: string;
+        locked: string;
+        staked: string;
+        user: IQuidaxUser;
+        converted_balance: string;
+        reference_currency: string;
+        is_crypto: boolean;
+        created_at: string;
+        updated_at: string;
+        blockchain_enabled: boolean;
+        default_network: string;
+        networks: Network[];
+        deposit_address: string;
+        destination_tag: string | null;
+    };
+    user: IQuidaxUser;
+    payment_transaction: {
+        status: string;
+        confirmations: number;
+        required_confirmations: number;
+    };
+    payment_address: {
+        id: string;
+        reference: string | null;
+        currency: string;
+        address: string;
+        network: string;
+        user: IQuidaxUser;
+        destination_tag: string | null;
+        total_payments: string | null;
+        created_at: string;
+        updated_at: string;
+    };
+}
+
+export interface Network {
+    id: string;
+    name: string;
+    deposits_enabled: boolean;
+    withdraws_enabled: boolean;
 }
 
 export interface QuidaxWebhook {
