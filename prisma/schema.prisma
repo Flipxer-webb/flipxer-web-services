@@ -354,6 +354,8 @@ enum OrderStatus {
   completed
   reversed
   done
+  processing
+  rejected
 }
 
 enum OrderSide {
@@ -369,6 +371,7 @@ enum OrderType {
 enum OrderCategory {
   TRADE // includes buy/sell
   SWAP
+  WITHDRAWER
 }
 
 model Order {
@@ -394,6 +397,16 @@ model Order {
   quoted_currency String?
   executionPrice  Float? // actual rate at execution (from `SwapTransaction.execution_price`)
   swapExpiresAt   DateTime?
+
+  //withdrawer related
+  currency     String?
+  narration   String?
+  transaction_note String?
+  recipient    String?  //wallet address
+  amount      Float?
+  fee         Float?
+  total       Float?
+  withdrawerType String?
 
   providerOrderId String?  @unique // String?  @unique // Quidax reference ID
   orderReference  String?  @unique //Quidax order ref

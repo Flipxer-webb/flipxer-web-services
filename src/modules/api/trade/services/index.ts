@@ -7,6 +7,7 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import {
     AccountCreationException,
     IncompleteAccountSetupException,
+    TransactionCompletedException,
     TransactionNotFoundException,
     WalletAddressNotFoundException,
 } from "../errors";
@@ -16,15 +17,18 @@ import {
     SupportedAssets,
     SwapTransactionHandlerOptions,
     TradingPair,
+    WithdrawerTransactionHandlerOptions,
 } from "../interfaces/trade";
 import {
     CryptoWalletStatus,
     NetworkTypes,
     OrderCategory,
     OrderStatus,
+    Prisma,
     User,
 } from "@prisma/client";
 import {
+    CancelWithdrawerRequestDto,
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
@@ -33,10 +37,12 @@ import {
     PlaceInstantSwapRequestDto,
     RefreshInstantSwapRequestDto,
     VerifyWalletAddressDto,
+    WithdrawerRequestDto,
 } from "../dtos";
 import { UserNotFoundException } from "../../user";
 import { CryptoAccountQueueProducer } from "../queues/producers/producer.service";
 import { GetPaymentAddressByIdOptions } from "@/libs/quidax";
+import { generateId } from "@/utils";
 
 @Injectable()
 export class TradingService {
@@ -271,6 +277,68 @@ export class TradingService {
         });
     }
 
+    async withdrawerRequest(user: User, dto: WithdrawerRequestDto) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const reference = generateId({ type: "reference" });
+        const requestRes = await this.quidaxService.createWithdrawerRequest({
+            amount: dto.amount.toString(),
+            currency: dto.currency,
+            narration: dto.narration,
+            transaction_note: dto.transaction_note,
+            user_id: user.cryptoSubAccountId,
+            fund_uid: dto.fund_uid, //receiving wallet address
+            reference: reference,
+        });
+
+        await this.prisma.order.create({
+            data: {
+                orderCategory: OrderCategory.WITHDRAWER,
+                status: OrderStatus.processing,
+                orderReference: reference,
+                providerOrderId: requestRes.data.id,
+                userId: user.id,
+                currency: requestRes.data.currency,
+                narration: requestRes.data.narration,
+                transaction_note: requestRes.data.transaction_note,
+                recipient: requestRes.data.recipient.details.address,
+                amount: +requestRes.data.amount,
+                fee: +requestRes.data.fee,
+                total: +requestRes.data.total,
+                withdrawerType: requestRes.data.type,
+            },
+        });
+
+        return buildResponse({
+            message: "Withdrawer request placed successfully",
+            data: requestRes.data,
+        });
+    }
+
+    async cancelWithdrawerRequest(user: User, dto: CancelWithdrawerRequestDto) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const requestRes = await this.quidaxService.cancelWithdrawerRequest({
+            user_id: user.cryptoSubAccountId,
+            withdrawal_id: dto.withdrawal_id,
+        });
+
+        return buildResponse({
+            message: "Withdrawer cancel request placed successfully",
+            data: requestRes.data,
+        });
+    }
+
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
@@ -318,6 +386,17 @@ export class TradingService {
         const result = await this.quidaxService.getSwapTransaction({
             swap_transaction_id,
             user_id,
+        });
+        return result;
+    }
+
+    async getWithdrawerTransactionByReference(
+        reference: string,
+        user_id: string
+    ) {
+        const result = await this.quidaxService.getWithdrawerByReference({
+            user_id,
+            reference,
         });
         return result;
     }
@@ -428,8 +507,8 @@ export class TradingService {
     }
 
     async walletUpdatedHandler(data: IWalletUpdated) {
-        const wallet = await this.prisma.cryptoWalletAddress.findUnique({
-            where: { walletAddressId: data.walletId },
+        const wallet = await this.prisma.assetWallet.findUnique({
+            where: { quidaxWalletId: data.walletId },
         });
 
         if (!wallet) {
@@ -439,10 +518,18 @@ export class TradingService {
             );
         }
 
-        await this.prisma.cryptoWalletAddress.update({
+        await this.prisma.assetWallet.update({
             where: { id: wallet.id },
             data: {
-                totalPayments: data.balance,
+                balance: data.balance,
+                locked: data.locked,
+                staked: data.staked,
+                convertedBalance: data.convertedBalance,
+                updatedAt: new Date(data.updatedAt),
+                depositAddress: data.depositAddress, // Can be null initially
+                destinationTag: data.destinationTag,
+                ...(data.depositAddress && { addressSynced: true }), // Mark address as synced if present
+                ...(data.depositAddress && { isActive: true }), // Mark wallet as active if deposit address exists
             },
         });
     }
@@ -456,6 +543,45 @@ export class TradingService {
             throw new TransactionNotFoundException(
                 "Transaction not found",
                 HttpStatus.NOT_FOUND
+            );
+        }
+
+        if (transaction.status === OrderStatus.completed) {
+            throw new TransactionCompletedException(
+                "Transaction already completed",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (transaction.status === options.status) {
+            return;
+        }
+        await this.prisma.order.update({
+            where: { id: transaction.id },
+            data: {
+                status: options.status,
+            },
+        });
+    }
+
+    async withdrawerTransactionHandler(
+        options: WithdrawerTransactionHandlerOptions
+    ) {
+        const transaction = await this.prisma.order.findUnique({
+            where: { orderReference: options.orderReference },
+        });
+
+        if (!transaction) {
+            throw new TransactionNotFoundException(
+                "Transaction not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        if (transaction.status === OrderStatus.done) {
+            throw new TransactionCompletedException(
+                "Transaction already completed",
+                HttpStatus.BAD_REQUEST
             );
         }
 

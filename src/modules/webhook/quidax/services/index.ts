@@ -6,6 +6,7 @@ import {
     WalletAddressGeneratedData,
     WalletUpdatedData,
     SwapTransactionEventData,
+    WithdrawerEventData,
 } from "../interfaces";
 import logger from "moment-logger";
 
@@ -61,6 +62,21 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     }
                     break;
 
+                case Event.WithdrawSuccessful:
+                    {
+                        await this.withdrawerTransactionHandler(
+                            eventBody.data as WithdrawerEventData
+                        );
+                    }
+                    break;
+                case Event.WithdrawRejected:
+                    {
+                        await this.withdrawerTransactionHandler(
+                            eventBody.data as WithdrawerEventData
+                        );
+                    }
+                    break;
+
                 default:
                     break;
             }
@@ -84,7 +100,12 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 await this.tradingService.walletUpdatedHandler({
                     walletId: eventData.id,
                     balance: eventData.balance,
-                    converted_balance: eventData.converted_balance,
+                    convertedBalance: eventData.converted_balance,
+                    depositAddress: eventData.deposit_address,
+                    destinationTag: eventData.destination_tag,
+                    locked: eventData.locked,
+                    staked: eventData.staked,
+                    updatedAt: eventData.updated_at,
                 });
                 break;
             }
@@ -111,6 +132,27 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     status: OrderStatus.reversed,
                 });
                 break;
+            default: {
+                break;
+            }
+        }
+    }
+
+    async withdrawerTransactionHandler(eventData: WithdrawerEventData) {
+        switch (true) {
+            case eventData.status.toLowerCase() === OrderStatus.done:
+                await this.tradingService.swapTransactionHandler({
+                    orderReference: eventData.id,
+                    status: OrderStatus.completed,
+                });
+                break;
+            case eventData.status.toLowerCase() === OrderStatus.rejected:
+                await this.tradingService.swapTransactionHandler({
+                    orderReference: eventData.id,
+                    status: OrderStatus.failed,
+                });
+                break;
+
             default: {
                 break;
             }

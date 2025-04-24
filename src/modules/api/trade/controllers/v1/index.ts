@@ -25,6 +25,7 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import {
+    CancelWithdrawerRequestDto,
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
@@ -33,6 +34,7 @@ import {
     PlaceInstantSwapRequestDto,
     RefreshInstantSwapRequestDto,
     VerifyWalletAddressDto,
+    WithdrawerRequestDto,
 } from "../../dtos";
 
 @ApiTags("trade")
@@ -173,5 +175,34 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.refreshInstantSwap(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary:
+            "This end point initiates the withdrawal - verify the details before proceeding with the withdrawal process. Once submitted, funds cannot be recovered if sent to an incorrect address.",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("withdrawer-request")
+    async withdrawerRequest(
+        @Body() dto: WithdrawerRequestDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.withdrawerRequest(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "This endpoint is used to cancel initiated withdrawal.",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("cancel-withdrawer-request")
+    async cancelWithdrawerRequest(
+        @Body() dto: CancelWithdrawerRequestDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.cancelWithdrawerRequest(user, dto);
     }
 }

@@ -177,6 +177,7 @@ export interface CreateWithdrawerRequestOptions {
     narration: string;
     fund_uid: string; // wallet address
     reference: string; //<your_unique_reference>
+    network?: string;
 }
 
 export interface Recipient {
@@ -206,7 +207,7 @@ export interface Wallet {
 export interface IQuidaxTransaction {
     id: string;
     reference: string | null;
-    type: "coin_address";
+    type: "coin_address" | string;
     currency: string;
     amount: string;
     fee: string;
@@ -214,7 +215,7 @@ export interface IQuidaxTransaction {
     txid: string | null;
     transaction_note: string;
     narration: string;
-    status: "Processing" | "Pending" | "Completed" | "Failed";
+    status: "Processing" | "Done" | "Rejected";
     reason: string | null;
     created_at: string;
     done_at: string | null;

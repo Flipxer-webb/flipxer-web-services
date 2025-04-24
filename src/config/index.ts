@@ -39,19 +39,19 @@ const runtimeEnvironment: RequiredEnvironment[] = [
     // Templates
     {
         name: "REGISTRATION_SUCCESS_TEMPLATE",
-        type: RequiredEnvironmentTypes.Number,
+        type: RequiredEnvironmentTypes.String,
     },
     {
         name: "VERIFY_ACCOUNT_TEMPLATE",
-        type: RequiredEnvironmentTypes.Number,
+        type: RequiredEnvironmentTypes.String,
     },
     {
         name: "FORGOT_PASSWORD_TEMPLATE",
-        type: RequiredEnvironmentTypes.Number,
+        type: RequiredEnvironmentTypes.String,
     },
     {
         name: "RECOVERY_PIN_TEMPLATE", // Added for recovery PIN email
-        type: RequiredEnvironmentTypes.Number,
+        type: RequiredEnvironmentTypes.String,
     },
     // Rest of the existing entries...
     {

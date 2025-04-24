@@ -115,4 +115,98 @@ export class ManageOrdersSchedulerService {
             this.logger.debug("Lock released: Job completed");
         }
     }
+
+    @Cron("0 */1 * * *", { timeZone: "Africa/Lagos" })
+    async verifyWithdrawerTransaction() {
+        this.logger.debug("Cron job triggered!");
+
+        // Use the mutex to ensure only one execution at a time
+        const release = await this.mutex.acquire();
+        try {
+            const cutoffTime = new Date();
+            cutoffTime.setHours(cutoffTime.getHours() - 2); //2hrs
+
+            // Fetch all pending withdrawer transactions
+            const pendingWithdrawerTransactions =
+                await this.prisma.order.findMany({
+                    where: {
+                        orderCategory: OrderCategory.WITHDRAWER,
+                        status: OrderStatus.processing,
+                        createdAt: { gte: cutoffTime },
+                    },
+                    select: {
+                        id: true,
+                        providerOrderId: true,
+                        orderReference: true,
+                        user: { select: { cryptoSubAccountId: true } },
+                    },
+                });
+
+            if (pendingWithdrawerTransactions.length === 0) {
+                this.logger.debug("No pending withdrawer transactions found.");
+                return;
+            }
+
+            this.logger.debug(
+                `Found ${pendingWithdrawerTransactions.length} withdrawer pending transactions.`
+            );
+
+            // Process transactions in parallel
+            const results = await Promise.allSettled(
+                pendingWithdrawerTransactions.map(
+                    async ({ orderReference, user }) => {
+                        try {
+                            if (user.cryptoSubAccountId) {
+                                const response =
+                                    await this.tradingService.getWithdrawerTransactionByReference(
+                                        orderReference,
+                                        user.cryptoSubAccountId
+                                    );
+
+                                switch (response.data.status.toLowerCase()) {
+                                    case OrderStatus.done:
+                                        await this.tradingService.withdrawerTransactionHandler(
+                                            {
+                                                orderReference: orderReference,
+                                                status: OrderStatus.done,
+                                            }
+                                        );
+                                        break;
+                                    case OrderStatus.rejected:
+                                        await this.tradingService.withdrawerTransactionHandler(
+                                            {
+                                                orderReference: orderReference,
+                                                status: OrderStatus.rejected,
+                                            }
+                                        );
+                                        break;
+                                }
+                            }
+                        } catch (error) {
+                            this.logger.error(
+                                `Error processing withdrawer transaction reference ${orderReference}:`,
+                                error
+                            );
+                        }
+                    }
+                )
+            );
+
+            // Log batch processing results
+            const successCount = results.filter(
+                (r) => r.status === "fulfilled"
+            ).length;
+            this.logger.log(
+                `Processed ${successCount} transactions successfully.`
+            );
+        } catch (error) {
+            this.logger.error(
+                "Error in running quidax swap transaction verification cron job:",
+                error
+            );
+        } finally {
+            release(); // Ensure lock is released even if an error occurs
+            this.logger.debug("Lock released: Job completed");
+        }
+    }
 }

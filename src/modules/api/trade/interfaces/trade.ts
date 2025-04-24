@@ -18,7 +18,12 @@ export interface IWalletAddressCreatedSuccess {
 export interface IWalletUpdated {
     walletId: string;
     balance: string;
-    converted_balance?: string;
+    locked: string;
+    staked: string;
+    convertedBalance: string;
+    updatedAt: string;
+    depositAddress: string; // Can be null initially
+    destinationTag: string;
 }
 
 export enum SupportedAssets {
@@ -117,6 +122,11 @@ export enum OrderSide {
 }
 
 export interface SwapTransactionHandlerOptions {
+    orderReference: string;
+    status: OrderStatus;
+}
+
+export interface WithdrawerTransactionHandlerOptions {
     orderReference: string;
     status: OrderStatus;
 }

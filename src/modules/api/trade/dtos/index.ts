@@ -3,6 +3,7 @@ import {
     IsEnum,
     IsNotEmpty,
     IsNumber,
+    IsOptional,
     IsPositive,
     IsString,
     ValidateIf,
@@ -127,4 +128,44 @@ export class ConfirmInstantSwapQuoteDto {
     @IsNotEmpty()
     @IsString()
     quotationId: string;
+}
+
+export class WithdrawerRequestDto {
+    @ApiProperty({ enum: SupportedAssets })
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    currency: SupportedAssets;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    amount: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    transaction_note: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    narration: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    fund_uid: string; // wallet address
+
+    @ApiProperty({ enum: NetworkTypes })
+    @IsOptional()
+    @IsEnum(NetworkTypes)
+    network?: string;
+}
+
+export class CancelWithdrawerRequestDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    withdrawal_id: string;
 }

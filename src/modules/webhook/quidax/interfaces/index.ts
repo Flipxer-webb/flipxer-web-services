@@ -37,18 +37,17 @@ type EventDataMap = {
     [Event.SwapTransactionCompleted]: SwapTransactionEventData;
     [Event.SwapTransactionRevered]: SwapTransactionEventData;
     [Event.SwapTransactionFailed]: SwapTransactionEventData;
+    // withdraw events
+    [Event.WithdrawSuccessful]: WithdrawerEventData;
+    [Event.WithdrawRejected]: WithdrawerEventData;
+    // deposit events
+
     // instant order events
     [Event.InstantOrderQuoted]: InstantOrderData;
     [Event.InstantOrderConfirmed]: InstantOrderData;
     [Event.InstantOrderDone]: InstantOrderData;
     [Event.InstantOrderCancelled]: InstantOrderData;
     [Event.InstantOrderfailed]: InstantOrderData;
-
-    // withdraw events
-
-    // swap transaction events
-
-    // deposit events
 };
 
 interface IQuidaxUser {
@@ -156,29 +155,46 @@ export interface InstantOrderData {
     user: IQuidaxUser;
 }
 
-export interface TransferData {
-    amount: number;
+export interface WithdrawerEventData {
+    id: string;
+    reference: string | null;
+    type: "internal" | string;
     currency: string;
-    domain: string;
-    reference: string;
-    source: string;
-    status: string;
-    transfer_code: string;
+    amount: string;
+    fee: string;
+    total: string;
+    txid: string;
+    transaction_note: string;
+    narration: string;
+    status: "Processing" | "Done" | "Rejected";
+    reason: string | null;
+    created_at: string; // ISO date string
+    done_at: string | null;
+
     recipient: {
-        recipient_code: string;
-        type: string;
+        type: "internal" | string;
         details: {
-            account_number: string;
-            account_name: string;
-            bank_code: string;
-            bank_name: string;
+            user_id: string;
+            address: string;
+            destination_tag: string | null;
+            name: string | null;
         };
     };
-}
 
-//meta data
-interface ChargeSuccessMetadata {
-    wallet_fund: boolean;
+    wallet: {
+        id: string;
+        currency: string;
+        balance: string;
+        locked: string;
+        staked: string;
+        converted_balance: string;
+        reference_currency: string;
+        is_crypto: boolean;
+        created_at: string;
+        updated_at: string;
+    };
+
+    user: IQuidaxUser;
 }
 
 export interface QuidaxWebhook {

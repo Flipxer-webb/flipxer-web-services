@@ -15,3 +15,7 @@ export class IncompleteAccountSetupException extends HttpException {
 export class TransactionNotFoundException extends HttpException {
     name = "TransactionNotFoundException";
 }
+
+export class TransactionCompletedException extends HttpException {
+    name = "TransactionCompletedException";
+}
