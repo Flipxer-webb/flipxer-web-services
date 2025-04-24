@@ -55,6 +55,7 @@ import { IdentityComplianceInjectionToken } from "@/modules/factory/identityComp
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { LoginPlatform, SignInOptions } from "../interfaces";
 import * as crypto from "crypto";
+import { COMPANY_NAME } from "@/config";
 
 @Injectable()
 export class AuthService {
@@ -135,7 +136,7 @@ export class AuthService {
         const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
         const productName = "products";
         const username = user.email;
-        const team = "Resolve Team"; 
+        const team = COMPANY_NAME; 
         const resetLink = `https://your-app.com/reset-password?code=${code}&email=${dto.email}`;
         this.logger.debug(`Preparing email for ${dto.email}: name=${name}, resetLink=${resetLink}`);
     
@@ -269,6 +270,8 @@ export class AuthService {
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.registration_success,
                 merge_info: {
+                    team: COMPANY_NAME,
+                    header: "Registration Code",
                     code: verificationCode,
                     notice: "Please proceed to verify your account with the code. Accounts that are not verified after 3days will be removed from our platform. Thank you",
                 },
@@ -329,7 +332,11 @@ export class AuthService {
                 from: { address: mailConfig.senderMail },
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.verify_account,
-                merge_info: { code: verificationCode },
+                merge_info: {
+                     code: verificationCode,
+                    product_name: COMPANY_NAME,
+                    team: COMPANY_NAME
+                    }
             });
         } catch (error) {
             this.logger.error(
