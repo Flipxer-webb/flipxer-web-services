@@ -7,6 +7,7 @@ import {
     WalletUpdatedData,
     SwapTransactionEventData,
     WithdrawerEventData,
+    DepositTransactionEventData,
 } from "../interfaces";
 import logger from "moment-logger";
 
@@ -76,12 +77,105 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                         );
                     }
                     break;
+                case Event.DepositTransactionConfirmation:
+                    {
+                        await this.depositHandler(
+                            eventBody.data as DepositTransactionEventData
+                        );
+                    }
+                    break;
+                case Event.DepositTransactionSuccessful:
+                    {
+                        await this.depositHandler(
+                            eventBody.data as DepositTransactionEventData
+                        );
+                    }
+                    break;
+
+                case Event.DepositTransactionOnHold:
+                    {
+                        await this.depositHandler(
+                            eventBody.data as DepositTransactionEventData
+                        );
+                    }
+                    break;
+                case Event.DepositTransactionFailedAml:
+                    {
+                        await this.depositHandler(
+                            eventBody.data as DepositTransactionEventData
+                        );
+                    }
+                    break;
 
                 default:
                     break;
             }
         } catch (error) {
             logger.error(error);
+        }
+    }
+
+    async depositHandler(eventData: DepositTransactionEventData) {
+        switch (true) {
+            case eventData.status === OrderStatus.submitted:
+                await this.tradingService.depositHandler({
+                    referenceId: eventData.id,
+                    amount: eventData.amount,
+                    currency: eventData.currency,
+                    fee: eventData.fee,
+                    quidaxUserId: eventData.wallet.user.id,
+                    reason: eventData.reason,
+                    recipient: eventData.wallet.deposit_address,
+                    type: eventData.type,
+                    txid: eventData.txid,
+                    status: OrderStatus.submitted,
+                });
+                break;
+            case eventData.status === OrderStatus.accepted:
+                await this.tradingService.depositHandler({
+                    referenceId: eventData.id,
+                    amount: eventData.amount,
+                    currency: eventData.currency,
+                    fee: eventData.fee,
+                    quidaxUserId: eventData.wallet.user.id,
+                    reason: eventData.reason,
+                    recipient: eventData.wallet.deposit_address,
+                    type: eventData.type,
+                    txid: eventData.txid,
+                    status: OrderStatus.accepted,
+                });
+                break;
+            case eventData.status === OrderStatus.on_hold:
+                await this.tradingService.depositHandler({
+                    referenceId: eventData.id,
+                    amount: eventData.amount,
+                    currency: eventData.currency,
+                    fee: eventData.fee,
+                    quidaxUserId: eventData.wallet.user.id,
+                    reason: eventData.reason,
+                    recipient: eventData.wallet.deposit_address,
+                    type: eventData.type,
+                    txid: eventData.txid,
+                    status: OrderStatus.on_hold,
+                });
+                break;
+            case eventData.status === "failed_aml":
+                await this.tradingService.depositHandler({
+                    referenceId: eventData.id,
+                    amount: eventData.amount,
+                    currency: eventData.currency,
+                    fee: eventData.fee,
+                    quidaxUserId: eventData.wallet.user.id,
+                    reason: eventData.reason,
+                    recipient: eventData.wallet.deposit_address,
+                    type: eventData.type,
+                    txid: eventData.txid,
+                    status: OrderStatus.failed,
+                });
+                break;
+            default: {
+                break;
+            }
         }
     }
 

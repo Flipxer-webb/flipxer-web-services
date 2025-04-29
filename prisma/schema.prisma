@@ -356,6 +356,9 @@ enum OrderStatus {
   done
   processing
   rejected
+  submitted
+  on_hold
+  accepted
 }
 
 enum OrderSide {
@@ -372,6 +375,7 @@ enum OrderCategory {
   TRADE // includes buy/sell
   SWAP
   WITHDRAWER
+  DEPOSIT
 }
 
 model Order {
@@ -401,12 +405,14 @@ model Order {
   //withdrawer related
   currency     String?
   narration   String?
+  reason       String?
   transaction_note String?
   recipient    String?  //wallet address
   amount      Float?
   fee         Float?
   total       Float?
-  withdrawerType String?
+  sourceType  String?
+  blockchain_txid String?
 
   providerOrderId String?  @unique // String?  @unique // Quidax reference ID
   orderReference  String?  @unique //Quidax order ref

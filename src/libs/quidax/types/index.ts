@@ -12,6 +12,7 @@ import {
 
 export interface QuidaxOptions {
     baseURL: string;
+    rampBaseURL: string;
     api_public: string;
     api_secret: string;
 }
@@ -358,7 +359,33 @@ export interface GetOrderBookItemsForAMarketOptions {
     bids_limit: number; //Limit the number of returned buy orders. Type: Integer, Allowed values: 1..200. Default to 20.
 }
 
+export interface PaymentMethodsOptions {
+    currency: string;
+    side: string;
+}
 export type GetOrderBookItemsForAMarketResponse = OrderBookResponse;
+
+export interface PurchaseLimitBuyOptions {
+    currency_symbol: string;
+}
+
+export interface PurchaseLimitSellOptions {
+    token_symbol: string;
+}
+
+export interface PurchaseQuoteBuyOptions {
+    currency: string; //Fiat currency
+    token: string; //Token currency:
+    fiat_amount: string;
+    token_network: string;
+}
+
+export interface PurchaseQuoteSellOptions {
+    currency: string; //Fiat currency
+    token: string; //Token currency:
+    token_amount: string;
+    token_network: string;
+}
 
 export interface QuidaxResponse<
     D extends Record<string, any> = Record<string, any>

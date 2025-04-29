@@ -7,10 +7,20 @@ import * as t from "./types";
 export class QuidaxLib {
     constructor(protected instanceOptions: t.QuidaxOptions) {}
 
-    private axios: AxiosInstance = Axios.create({
+    // Quidax main API
+    private mainAxios: AxiosInstance = Axios.create({
         baseURL: this.instanceOptions.baseURL,
         headers: {
             Authorization: `Bearer ${this.instanceOptions.api_secret}`,
+        },
+    });
+
+    // Quidax Ramp API
+    private rampAxios: AxiosInstance = Axios.create({
+        baseURL: this.instanceOptions.rampBaseURL, // e.g., https://ramp-be.quidax.io/api/v1/merchants
+        headers: {
+            "x-private-key": this.instanceOptions.api_secret,
+            Accept: "application/json",
         },
     });
 
@@ -63,7 +73,7 @@ export class QuidaxLib {
                     method: "POST",
                     data: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreateSubAccountResponse>
             >(requestOptions);
 
@@ -96,7 +106,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetAccountDetailResponse>
             >(requestOptions);
 
@@ -131,7 +141,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetUserWalletListResponse>
             >(requestOptions);
 
@@ -164,7 +174,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets/${options.currency}`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetUserWalletResponse>
             >(requestOptions);
 
@@ -197,7 +207,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets/${options.currency}/address`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetUserWalletResponse>
             >(requestOptions);
 
@@ -232,7 +242,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets/${options.currency}/addresses`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetPaymentAddressListResponse>
             >(requestOptions);
 
@@ -267,7 +277,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets/${options.currency}/addresses/${options.address_id}`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetPaymentAddressByIdResponse>
             >(requestOptions);
 
@@ -304,7 +314,7 @@ export class QuidaxLib {
                     method: "POST",
                     data: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreatePaymentAddressResponse>
             >(requestOptions);
 
@@ -339,7 +349,7 @@ export class QuidaxLib {
                 url: `/${options.currency}/${options.address}/validate_address`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.VerifyAddressResponse>
             >(requestOptions);
 
@@ -380,7 +390,7 @@ export class QuidaxLib {
                     method: "POST",
                     data: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreateWithdrawerRequestResponse>
             >(requestOptions);
 
@@ -417,7 +427,7 @@ export class QuidaxLib {
                     method: "POST",
                     data: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CancelWithdrawerRequestResponse>
             >(requestOptions);
 
@@ -453,7 +463,7 @@ export class QuidaxLib {
                     method: "GET",
                     params: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawalListResponse>
             >(requestOptions);
 
@@ -489,7 +499,7 @@ export class QuidaxLib {
                     url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}`,
                     method: "GET",
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawerDetailResponse>
             >(requestOptions);
 
@@ -525,7 +535,7 @@ export class QuidaxLib {
                     url: `/users/${options.user_id}/withdraws/reference/${options.reference}`,
                     method: "GET",
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>
             >(requestOptions);
 
@@ -561,7 +571,7 @@ export class QuidaxLib {
                     method: "GET",
                     params: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawerFeesResponse>
             >(requestOptions);
 
@@ -599,7 +609,7 @@ export class QuidaxLib {
                     method: "POST",
                     data: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
             >(requestOptions);
 
@@ -634,7 +644,7 @@ export class QuidaxLib {
                     url: `/users/${user_id}/orders/${options.order_id}/cancel`,
                     method: "POST",
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
             >(requestOptions);
 
@@ -669,7 +679,7 @@ export class QuidaxLib {
                 method: "GET",
                 params: options,
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetOrderListResponse>
             >(requestOptions);
 
@@ -703,7 +713,7 @@ export class QuidaxLib {
                     url: `/users/${options.user_id}/orders/${options.order_id}`,
                     method: "GET",
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetOrderRecordResponse>
             >(requestOptions);
 
@@ -738,7 +748,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/instant_orders/${options.instant_order_id}`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.InstantOrderResponse>
             >(requestOptions);
 
@@ -780,7 +790,7 @@ export class QuidaxLib {
                     method: "POST",
                     data: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreateInstantSwapRequestResponse>
             >(requestOptions);
 
@@ -814,7 +824,7 @@ export class QuidaxLib {
                     url: `/users/${options.user_id}/swap_quotation/${options.quotation_id}`,
                     method: "POST",
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>
             >(requestOptions);
 
@@ -851,7 +861,7 @@ export class QuidaxLib {
                     method: "POST",
                     data: options,
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.RefreshInstantSwapResponse>
             >(requestOptions);
 
@@ -884,7 +894,7 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/instant_orders/${options.swap_transaction_id}`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetSwapTransactionResponse>
             >(requestOptions);
 
@@ -919,7 +929,7 @@ export class QuidaxLib {
                 url: `/users/${user_id}/swap_transactions`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetSwapTransactionListResponse>
             >(requestOptions);
 
@@ -959,7 +969,7 @@ export class QuidaxLib {
                 url: `/markets`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetMarketListResponse>
             >(requestOptions);
 
@@ -993,7 +1003,7 @@ export class QuidaxLib {
                 url: `/markets/tickers`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetMarketTickersResponse>
             >(requestOptions);
 
@@ -1026,7 +1036,7 @@ export class QuidaxLib {
                 url: `/markets/tickers/${currency}`,
                 method: "GET",
             };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetMarketTickerResponse>
             >(requestOptions);
 
@@ -1064,12 +1074,191 @@ export class QuidaxLib {
                         bids_limit: options.bids_limit,
                     },
                 };
-            const resp = await this.axios<
+            const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>
             >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get order book");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /*************************** RAMP ***********************************************/
+
+    /**
+     *
+     * @param options query options
+     * @returns payment methods
+     * @description get payment methods list
+     */
+    async getPaymentMethods(
+        options: t.PaymentMethodsOptions
+    ): Promise<t.QuidaxResponse<any>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.PaymentMethodsOptions> =
+                {
+                    url: `/payment_methods`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.QuidaxError(
+                    "Failed to get payment methods"
+                );
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns purchase buy limit
+     * @description Retrieves the minimum and maximum allowed purchase amounts for fiat currency transactions.
+     */
+    async getPurchaseLimitForBuy(
+        options: t.PurchaseLimitBuyOptions
+    ): Promise<t.QuidaxResponse<any>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.PurchaseLimitBuyOptions> =
+                {
+                    url: `/purchase_limits/buy`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get purchase limit");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns sell limit
+     * @description Retrieves the minimum and maximum allowed sell amounts for cryptocurrency transactions.
+     */
+    async getPurchaseLimitForSell(
+        options: t.PurchaseLimitSellOptions
+    ): Promise<t.QuidaxResponse<any>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.PurchaseLimitSellOptions> =
+                {
+                    url: `/purchase_limits/sell`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get purchase limit");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns buy quote
+     * @description Retrieves real-time exchange quotes between a fiat currency and a cryptocurrency, including estimated fiat processing fees.
+     */
+    async getPurchaseQuoteForBuy(
+        options: t.PurchaseQuoteBuyOptions
+    ): Promise<t.QuidaxResponse<any>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.PurchaseQuoteBuyOptions> =
+                {
+                    url: `/purchase_quotes/buy`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get purchase quote");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns sell quote
+     * @description Retrieves real-time exchange quotes between a fiat currency and a cryptocurrency, including estimated blockchain processing fees.
+     */
+    async getPurchaseQuoteForSell(
+        options: t.PurchaseQuoteSellOptions
+    ): Promise<t.QuidaxResponse<any>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.PurchaseQuoteSellOptions> =
+                {
+                    url: `/purchase_quotes/sell`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get purchase quote");
                 error.status = 500;
                 throw error;
             }

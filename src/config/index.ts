@@ -142,6 +142,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "QUIDAX_WEBHOOK_KEY",
         type: RequiredEnvironmentTypes.String,
     },
+    {
+        name: "QUIDAX_RAMP_BASEURL",
+        type: RequiredEnvironmentTypes.String,
+    },
     //server environment
     {
         name: "ENVIRONMENT",
@@ -278,12 +282,14 @@ export const identityComplianceConfig: IdentityComplianceConfig = {
 //quidax
 export interface QuidaxConfig {
     baseUrl: string;
+    rampBaseUrl: string;
     api_public: string;
     api_secret: string;
     webhook_key: string;
 }
 export const quidaxConfig: QuidaxConfig = {
     baseUrl: process.env.QUIDAX_BASE_URL,
+    rampBaseUrl: process.env.QUIDAX_RAMP_BASEURL,
     api_public: process.env.QUIDAX_API_PUBLIC,
     api_secret: process.env.QUIDAX_API_SECRET,
     webhook_key: process.env.QUIDAX_WEBHOOK_KEY,

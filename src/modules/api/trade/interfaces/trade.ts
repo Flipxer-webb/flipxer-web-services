@@ -130,3 +130,16 @@ export interface WithdrawerTransactionHandlerOptions {
     orderReference: string;
     status: OrderStatus;
 }
+
+export interface DepositTransaction {
+    status: OrderStatus;
+    txid: string;
+    referenceId: string;
+    type: string;
+    fee: string;
+    amount: string;
+    recipient: string;
+    quidaxUserId: string;
+    currency: string;
+    reason: string;
+}

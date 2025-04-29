@@ -169,3 +169,49 @@ export class CancelWithdrawerRequestDto {
     @IsString()
     withdrawal_id: string;
 }
+
+export enum RampSide {
+    on_ramp = "on_ramp",
+    off_ramp = "off_ramp",
+}
+
+export class SupportedPaymentMethodDto {
+    @ApiProperty({ enum: SupportedAssets })
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    currency: SupportedAssets;
+
+    @ApiProperty({ enum: RampSide })
+    @IsNotEmpty()
+    @IsEnum(RampSide)
+    side: RampSide;
+}
+
+export class PurchaseLimitBuyDto {
+    @ApiProperty({ description: "fiat currency symbol" })
+    @IsNotEmpty()
+    @IsString()
+    currency_symbol: string;
+}
+
+// export interface PurchaseLimitBuyOptions {
+//     currency_symbol: string;
+// }
+
+// export interface PurchaseLimitSellOptions {
+//     token_symbol: string;
+// }
+
+// export interface PurchaseQuoteBuyOptions {
+//     currency: string; //Fiat currency
+//     token: string; //Token currency:
+//     fiat_amount: string;
+//     token_network: string;
+// }
+
+// export interface PurchaseQuoteSellOptions {
+//     currency: string; //Fiat currency
+//     token: string; //Token currency:
+//     token_amount: string;
+//     token_network: string;
+// }

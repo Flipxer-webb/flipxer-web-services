@@ -12,6 +12,7 @@ import {
     WalletAddressNotFoundException,
 } from "../errors";
 import {
+    DepositTransaction,
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
     SupportedAssets,
@@ -24,7 +25,6 @@ import {
     NetworkTypes,
     OrderCategory,
     OrderStatus,
-    Prisma,
     User,
 } from "@prisma/client";
 import {
@@ -35,7 +35,9 @@ import {
     InitiateWalletCreationDto,
     PlaceBuyOrSellOrderDto,
     PlaceInstantSwapRequestDto,
+    PurchaseLimitBuyDto,
     RefreshInstantSwapRequestDto,
+    SupportedPaymentMethodDto,
     VerifyWalletAddressDto,
     WithdrawerRequestDto,
 } from "../dtos";
@@ -60,6 +62,24 @@ export class TradingService {
         return buildResponse({
             message: "Supported assets retrieved",
             data: assets,
+        });
+    }
+
+    async getSupportedPaymentMethod(query: SupportedPaymentMethodDto) {
+        const result = await this.quidaxService.getPaymentMethods(query);
+
+        return buildResponse({
+            message: "Supported payment methods retrieved",
+            data: result.data,
+        });
+    }
+
+    async getPurchaseLimitForBuy(query: PurchaseLimitBuyDto) {
+        const result = await this.quidaxService.getPurchaseLimitForBuy(query);
+
+        return buildResponse({
+            message: "Purchase limit retrieved",
+            data: result.data,
         });
     }
 
@@ -310,7 +330,7 @@ export class TradingService {
                 amount: +requestRes.data.amount,
                 fee: +requestRes.data.fee,
                 total: +requestRes.data.total,
-                withdrawerType: requestRes.data.type,
+                sourceType: requestRes.data.type,
             },
         });
 
@@ -531,6 +551,45 @@ export class TradingService {
                 ...(data.depositAddress && { addressSynced: true }), // Mark address as synced if present
                 ...(data.depositAddress && { isActive: true }), // Mark wallet as active if deposit address exists
             },
+        });
+    }
+
+    async depositHandler(options: DepositTransaction) {
+        const user = await this.prisma.user.findUnique({
+            where: { cryptoSubAccountId: options.quidaxUserId },
+        });
+
+        if (user) {
+            const transaction = await this.prisma.order.findUnique({
+                where: { providerOrderId: options.referenceId },
+            });
+
+            if (!transaction) {
+                await this.prisma.order.create({
+                    data: {
+                        orderCategory: OrderCategory.DEPOSIT,
+                        status: options.status,
+                        providerOrderId: options.referenceId,
+                        blockchain_txid: options.txid,
+                        userId: user.id,
+                        currency: options.currency.toUpperCase(),
+                        reason: options.reason,
+                        recipient: options.recipient,
+                        amount: +options.amount,
+                        fee: +options.fee,
+                        sourceType: options.type,
+                    },
+                });
+            } else {
+                await this.prisma.order.update({
+                    where: { id: transaction.id },
+                    data: { status: options.status },
+                });
+            }
+        }
+
+        return buildResponse({
+            message: "Deposit transaction logged successfully",
         });
     }
 

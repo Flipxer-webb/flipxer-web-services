@@ -32,7 +32,9 @@ import {
     InitiateWalletCreationDto,
     PlaceBuyOrSellOrderDto,
     PlaceInstantSwapRequestDto,
+    PurchaseLimitBuyDto,
     RefreshInstantSwapRequestDto,
+    SupportedPaymentMethodDto,
     VerifyWalletAddressDto,
     WithdrawerRequestDto,
 } from "../../dtos";
@@ -52,6 +54,13 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "get supported payment methods" })
+    @Get("supported-payment-methods")
+    async getSupportedPaymentMethod(@Query() query: SupportedPaymentMethodDto) {
+        return this.tradingService.getSupportedPaymentMethod(query);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get supported network list" })
     @Get("supported-networks")
     async getSupportedNetworks() {
@@ -63,6 +72,13 @@ export class TradingController {
     @Get("supported-trading-pairs")
     async getSupportedTradingPairs() {
         return this.tradingService.getSupportedTradingPairs();
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "get supported payment methods" })
+    @Get("purchase-limits/buy")
+    async getPurchaseLimitForBuy(@Query() query: PurchaseLimitBuyDto) {
+        return this.tradingService.getPurchaseLimitForBuy(query);
     }
 
     @HttpCode(HttpStatus.OK)

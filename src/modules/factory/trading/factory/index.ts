@@ -14,6 +14,7 @@ export class TradingFactory implements t.ITradingFactory {
                     api_public: quidaxConfig.api_public,
                     api_secret: quidaxConfig.api_secret,
                     baseURL: quidaxConfig.baseUrl,
+                    rampBaseURL: quidaxConfig.rampBaseUrl,
                 });
 
                 return new QuidaxService(quidax);

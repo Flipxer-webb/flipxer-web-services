@@ -1128,4 +1128,189 @@ export class QuidaxService {
             }
         }
     }
+
+    async getPaymentMethods(
+        options: t.PaymentMethodsOptions
+    ): Promise<QD.QuidaxResponse<any>> {
+        try {
+            const resp = await this.quidax.getPaymentMethods(options);
+
+            if (!resp) {
+                throw new e.QuidaxException(
+                    `Unable to retrieve payment methods`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return resp;
+        } catch (error) {
+            this.logger.error(error);
+            switch (true) {
+                case error instanceof QD.QuidaxError: {
+                    throw new e.QuidaxException(
+                        error.message ??
+                            "Failed to payment methods. Please try again",
+                        error.status ?? HttpStatus.BAD_REQUEST
+                    );
+                }
+                case error instanceof e.QuidaxException: {
+                    throw error;
+                }
+
+                default: {
+                    throw new e.QuidaxException(
+                        "Failed to payment methods",
+                        HttpStatus.NOT_IMPLEMENTED
+                    );
+                }
+            }
+        }
+    }
+
+    async getPurchaseLimitForBuy(
+        options: t.PurchaseLimitBuyOptions
+    ): Promise<QD.QuidaxResponse<any>> {
+        try {
+            const resp = await this.quidax.getPurchaseLimitForBuy(options);
+
+            if (!resp) {
+                throw new e.QuidaxException(
+                    `Unable to retrieve purchase limit`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return resp;
+        } catch (error) {
+            this.logger.error(error);
+            switch (true) {
+                case error instanceof QD.QuidaxError: {
+                    throw new e.QuidaxException(
+                        error.message ??
+                            "Failed to purchase limit. Please try again",
+                        error.status ?? HttpStatus.BAD_REQUEST
+                    );
+                }
+                case error instanceof e.QuidaxException: {
+                    throw error;
+                }
+
+                default: {
+                    throw new e.QuidaxException(
+                        "Failed to purchase limit",
+                        HttpStatus.NOT_IMPLEMENTED
+                    );
+                }
+            }
+        }
+    }
+
+    async getPurchaseLimitForSell(
+        options: t.PurchaseLimitSellOptions
+    ): Promise<QD.QuidaxResponse<any>> {
+        try {
+            const resp = await this.quidax.getPurchaseLimitForSell(options);
+
+            if (!resp) {
+                throw new e.QuidaxException(
+                    `Unable to retrieve purchase limit`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return resp;
+        } catch (error) {
+            this.logger.error(error);
+            switch (true) {
+                case error instanceof QD.QuidaxError: {
+                    throw new e.QuidaxException(
+                        error.message ??
+                            "Failed to purchase limit. Please try again",
+                        error.status ?? HttpStatus.BAD_REQUEST
+                    );
+                }
+                case error instanceof e.QuidaxException: {
+                    throw error;
+                }
+
+                default: {
+                    throw new e.QuidaxException(
+                        "Failed to purchase limit",
+                        HttpStatus.NOT_IMPLEMENTED
+                    );
+                }
+            }
+        }
+    }
+
+    async getPurchaseQuoteForBuy(
+        options: t.PurchaseQuoteBuyOptions
+    ): Promise<QD.QuidaxResponse<any>> {
+        try {
+            const resp = await this.quidax.getPurchaseQuoteForBuy(options);
+
+            if (!resp) {
+                throw new e.QuidaxException(
+                    `Unable to retrieve purchase quote`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return resp;
+        } catch (error) {
+            this.logger.error(error);
+            switch (true) {
+                case error instanceof QD.QuidaxError: {
+                    throw new e.QuidaxException(
+                        error.message ??
+                            "Failed to purchase quote. Please try again",
+                        error.status ?? HttpStatus.BAD_REQUEST
+                    );
+                }
+                case error instanceof e.QuidaxException: {
+                    throw error;
+                }
+
+                default: {
+                    throw new e.QuidaxException(
+                        "Failed to purchase quote",
+                        HttpStatus.NOT_IMPLEMENTED
+                    );
+                }
+            }
+        }
+    }
+
+    async getPurchaseQuoteForSell(
+        options: t.PurchaseQuoteSellOptions
+    ): Promise<QD.QuidaxResponse<any>> {
+        try {
+            const resp = await this.quidax.getPurchaseQuoteForSell(options);
+
+            if (!resp) {
+                throw new e.QuidaxException(
+                    `Unable to retrieve purchase quote`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return resp;
+        } catch (error) {
+            this.logger.error(error);
+            switch (true) {
+                case error instanceof QD.QuidaxError: {
+                    throw new e.QuidaxException(
+                        error.message ??
+                            "Failed to purchase quote. Please try again",
+                        error.status ?? HttpStatus.BAD_REQUEST
+                    );
+                }
+                case error instanceof e.QuidaxException: {
+                    throw error;
+                }
+
+                default: {
+                    throw new e.QuidaxException(
+                        "Failed to purchase quote",
+                        HttpStatus.NOT_IMPLEMENTED
+                    );
+                }
+            }
+        }
+    }
 }

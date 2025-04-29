@@ -135,6 +135,32 @@ export interface GetOrderBookItemsForAMarketOptions {
     bids_limit: number; //Limit the number of returned buy orders. Type: Integer, Allowed values: 1..200. Default to 20.
 }
 
+export interface PaymentMethodsOptions {
+    currency: string;
+    side: string;
+}
+
+export interface PurchaseLimitBuyOptions {
+    currency_symbol: string;
+}
+export interface PurchaseLimitSellOptions {
+    token_symbol: string;
+}
+
+export interface PurchaseQuoteBuyOptions {
+    currency: string; //Fiat currency
+    token: string; //Token currency:
+    fiat_amount: string;
+    token_network: string;
+}
+
+export interface PurchaseQuoteSellOptions {
+    currency: string; //Fiat currency
+    token: string; //Token currency:
+    token_amount: string;
+    token_network: string;
+}
+
 export interface IQuidaxService {
     instantOrdersRequery(
         options: InstantOrdersRequeryOptions
@@ -245,4 +271,24 @@ export interface IQuidaxService {
     getOrderBookItemsForAMarket(
         options: GetOrderBookItemsForAMarketOptions
     ): Promise<QD.QuidaxResponse<QD.GetOrderBookItemsForAMarketResponse>>;
+
+    getPaymentMethods(
+        options: PaymentMethodsOptions
+    ): Promise<QD.QuidaxResponse<any>>;
+
+    getPurchaseLimitForBuy(
+        options: PurchaseLimitBuyOptions
+    ): Promise<QD.QuidaxResponse<any>>;
+
+    getPurchaseLimitForSell(
+        options: PurchaseLimitSellOptions
+    ): Promise<QD.QuidaxResponse<any>>;
+
+    getPurchaseQuoteForBuy(
+        options: PurchaseQuoteBuyOptions
+    ): Promise<QD.QuidaxResponse<any>>;
+
+    getPurchaseQuoteForSell(
+        options: PurchaseQuoteSellOptions
+    ): Promise<QD.QuidaxResponse<any>>;
 }
