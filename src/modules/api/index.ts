@@ -3,7 +3,7 @@ import { AuthModule } from "./auth";
 import { AuthorizeModule } from "./authorize";
 import { UserModule } from "./user";
 import { WebExtension } from "./webExtension";
-import { BankDetailsModule } from "./bankDetails";
+import { BankModule } from "./banks";
 import { TradingModule } from "./trade";
 
 @Module({
@@ -12,7 +12,7 @@ import { TradingModule } from "./trade";
         UserModule,
         AuthModule,
         AuthorizeModule,
-        BankDetailsModule,
+        BankModule,
         TradingModule,
     ],
 })

@@ -8,8 +8,6 @@ import { AdminAuthController } from "./controllers/v1/admin";
 import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 export * from "./interfaces";
 export * from "./errors";
-import { PasswordService } from "./services/passworReset.services";
-import { PasswordController } from "./controllers/v1/passwordReset";
 import { TradingModule } from "../trade";
 
 @Module({
@@ -22,8 +20,8 @@ import { TradingModule } from "../trade";
         IdentityComplianceFactoryModule,
         forwardRef(() => TradingModule),
     ],
-    controllers: [AuthController, AdminAuthController, PasswordController],
-    providers: [AuthService, AuthGuard, PasswordService],
+    controllers: [AuthController, AdminAuthController],
+    providers: [AuthService, AuthGuard],
     exports: [AuthService, AuthGuard],
 })
 export class AuthModule {}

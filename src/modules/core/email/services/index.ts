@@ -1,9 +1,10 @@
+// src/modules/core/email/services/email.service.ts
 import { Injectable } from "@nestjs/common";
 import {
     ISendMailClient,
-    MailBatchWithTemplateOptions,
     SendMailOptions,
     SendMailWithTemplateOptions,
+    MailBatchWithTemplateOptions,
 } from "../interfaces";
 
 @Injectable()

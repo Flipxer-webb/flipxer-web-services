@@ -1,52 +1,172 @@
-import { HttpException } from "@nestjs/common";
+// src/modules/auth/errors.ts
+import { HttpException, HttpStatus } from "@nestjs/common";
 
 export class UserUnauthorizedException extends HttpException {
     name = "UserUnauthorizedException";
+    constructor(
+        message = "User is not authorized",
+        status: HttpStatus = HttpStatus.UNAUTHORIZED
+    ) {
+        super(message, status);
+    }
 }
 
 export class InvalidAuthTokenException extends HttpException {
     name = "InvalidAuthTokenException";
+    constructor(
+        message = "Invalid authentication token",
+        status: HttpStatus = HttpStatus.UNAUTHORIZED
+    ) {
+        super(message, status);
+    }
 }
 
 export class AuthTokenValidationException extends HttpException {
     name = "AuthTokenValidationException";
+    constructor(
+        message = "Token validation failed",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
 
 export class InvalidCredentialException extends HttpException {
     name = "InvalidCredentialException";
+    constructor(
+        message = "Invalid credentials provided",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
 
 export class PrismaNetworkException extends HttpException {
     name = "PrismaNetworkException";
+    constructor(
+        message = "Database network error",
+        status: HttpStatus = HttpStatus.INTERNAL_SERVER_ERROR
+    ) {
+        super(message, status);
+    }
 }
 
 export class AuthGenericException extends HttpException {
     name = "AuthGenericException";
+    constructor(
+        message = "Authentication error",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
 
 export class UserAccountDisabledException extends HttpException {
     name = "UserAccountDisabledException";
+    constructor(
+        message = "User account is disabled",
+        status: HttpStatus = HttpStatus.FORBIDDEN
+    ) {
+        super(message, status);
+    }
 }
 
 export class InvalidEmailVerificationCodeException extends HttpException {
     name = "InvalidVerificationCodeException";
+    constructor(
+        message = "Invalid email verification code",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
 
 export class VerificationCodeExpiredException extends HttpException {
     name = "VerificationCodeExpiredException";
+    constructor(
+        message = "Verification code has expired",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
 
 export class DuplicateBvnVerificationException extends HttpException {
     name = "DuplicateBvnVerificationException";
+    constructor(
+        message = "BVN verification already completed",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
+
 export class DuplicateVerificationException extends HttpException {
     name = "DuplicateVerificationException";
+    constructor(
+        message = "Verification already completed",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
 
 export class InvalidVerificationCodeException extends HttpException {
     name = "InvalidVerificationCodeException";
+    constructor(
+        message = "Invalid verification code",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }
 
 export class VerificationGenericException extends HttpException {
     name = "VerificationGenericException";
+    constructor(
+        message = "Verification error",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
+}
+
+export class UserNotFoundException extends HttpException {
+    name = "UserNotFoundException";
+    constructor(
+        message = "User not found",
+        status: HttpStatus = HttpStatus.NOT_FOUND
+    ) {
+        super(message, status);
+    }
+}
+
+export class InvalidResetCodeException extends HttpException {
+    name = "InvalidResetCodeException";
+    constructor(
+        message = "Invalid reset code",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
+}
+
+export class ResetCodeExpiredException extends HttpException {
+    name = "ResetCodeExpiredException";
+    constructor(
+        message = "Reset code has expired",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
+}
+
+export class InvalidResetRequestException extends HttpException {
+    name = "InvalidResetRequestException";
+    constructor(
+        message = "Invalid password reset request",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
 }

@@ -7,17 +7,11 @@ import { AllExceptionsFilter } from "@/core/exception/http";
 import { classValidatorPipeInstance } from "@/core/pipe";
 import { PrismaService } from "@/modules/core/prisma/services";
 import morgan from "morgan";
-import {
-    Configuration,
-    frontendDevOrigin,
-    isProdEnvironment,
-    redisConfig,
-} from "@/config";
+import { frontendDevOrigin, isProdEnvironment, redisConfig } from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Request, Response, NextFunction } from "express";
 import { waitForRedis } from "@/utils";
-import { ConfigService } from "@nestjs/config";
 
 export interface CreateServerOptions {
     port: number;

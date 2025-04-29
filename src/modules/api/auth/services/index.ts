@@ -12,6 +12,8 @@ import {
     SendPhoneVerificationCodeDto,
     DocumentVerificationDto,
     SubmitBusinessRecordDto,
+    SendForgotPasswordDto,
+    ResetPasswordDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -19,15 +21,19 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
 import { generateId, generateRandomNum } from "@/utils";
 import { customAlphabet } from "nanoid";
-import { DuplicateUserException, UserNotFoundException } from "../../user";
+import { DuplicateUserException } from "../../user";
 import {
-    DuplicateBvnVerificationException,
-    DuplicateVerificationException,
+    UserNotFoundException,
     InvalidCredentialException,
     InvalidEmailVerificationCodeException,
-    InvalidVerificationCodeException,
     VerificationCodeExpiredException,
+    DuplicateBvnVerificationException,
+    DuplicateVerificationException,
+    InvalidVerificationCodeException,
     VerificationGenericException,
+    InvalidResetCodeException,
+    ResetCodeExpiredException,
+    InvalidResetRequestException,
 } from "../errors";
 import { Prisma, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
@@ -49,11 +55,15 @@ import { IdentityComplianceInjectionToken } from "@/modules/factory/identityComp
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { LoginPlatform, SignInOptions } from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
+import * as crypto from "crypto";
+import { COMPANY_NAME } from "@/config";
 
 @Injectable()
 export class AuthService {
     private uploadService: ImagekitService | CloudinaryService;
     private readonly logger = new Logger("AuthServices");
+    private readonly SALT_ROUNDS = 10;
+
     constructor(
         private jwtService: JwtService,
         private prisma: PrismaService,
@@ -69,7 +79,7 @@ export class AuthService {
     }
 
     async hashPassword(password: string): Promise<string> {
-        return await bcrypt.hash(password, 10);
+        return await bcrypt.hash(password, this.SALT_ROUNDS);
     }
 
     async comparePassword(password: string, hash: string): Promise<boolean> {
@@ -88,6 +98,145 @@ export class AuthService {
         });
 
         return { accessToken, refreshToken };
+    }
+
+    async requestPasswordReset(
+        dto: SendForgotPasswordDto
+    ): Promise<ApiResponse> {
+        this.logger.debug(
+            `Initiating password reset request for email: ${dto.email}`
+        );
+
+        // Check for user existence
+        this.logger.debug(`Looking up user with email: ${dto.email}`);
+        const user = await this.prisma.user.findUnique({
+            where: { email: dto.email },
+        });
+        if (!user) {
+            this.logger.warn(
+                `Password reset requested for non-existent user: ${dto.email}`
+            );
+            throw new UserNotFoundException();
+        }
+        this.logger.debug(`User found: ${user.id} (${dto.email})`);
+
+        // Generate reset code
+        this.logger.debug(`Generating reset code for user: ${dto.email}`);
+        const code = crypto.randomBytes(3).toString("hex").toUpperCase();
+        this.logger.debug(`Generated reset code: ${code}`);
+
+        // Delete any previous reset requests
+        this.logger.debug(
+            `Deleting existing password reset requests for user: ${user.id}`
+        );
+        await this.prisma.passwordResetRequest.deleteMany({
+            where: { userId: user.id },
+        });
+        this.logger.debug(
+            `Deleted existing password reset requests for user: ${user.id}`
+        );
+
+        // Create new password reset request
+        this.logger.debug(
+            `Creating new password reset request for user: ${user.id}`
+        );
+        await this.prisma.passwordResetRequest.create({
+            data: {
+                userId: user.id,
+                code: code,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            },
+        });
+        this.logger.debug(
+            `Created password reset request for user: ${user.id} with code: ${code}`
+        );
+
+        // Prepare email data
+        const name =
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
+        const productName = "products";
+        const username = user.email;
+        const team = COMPANY_NAME;
+        const resetLink = `https://your-app.com/reset-password?code=${code}&email=${dto.email}`;
+        this.logger.debug(
+            `Preparing email for ${dto.email}: name=${name}, resetLink=${resetLink}`
+        );
+
+        // Send email
+        this.logger.debug(`Sending password reset email to: ${dto.email}`);
+        try {
+            await this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: dto.email } }],
+                template_key: emailTemplateConfig.forgot_password,
+                merge_info: {
+                    name,
+                    product_name: productName,
+                    username,
+                    team,
+                    reset_link: resetLink,
+                },
+            });
+            this.logger.log(
+                `Password reset email sent successfully to ${dto.email}`
+            );
+        } catch (error) {
+            this.logger.error(
+                `Failed to send password reset email to ${dto.email}`,
+                error instanceof Error ? error.stack : String(error)
+            );
+            throw new Error("Failed to send password reset email");
+        }
+
+        return buildResponse({
+            message: "Password reset email sent successfully",
+            data: { email: dto.email },
+        });
+    }
+
+    async resetPassword(dto: ResetPasswordDto): Promise<ApiResponse> {
+        const user = await this.prisma.user.findUnique({
+            where: { email: dto.email },
+            include: { passwordResetRequest: true },
+        });
+
+        if (!user || !user.passwordResetRequest) {
+            this.logger.warn(
+                `Invalid password reset request for user: ${dto.email}`
+            );
+            throw new InvalidResetRequestException();
+        }
+
+        if (user.passwordResetRequest.code !== dto.resetCode) {
+            this.logger.warn(`Invalid reset code for user: ${dto.email}`);
+            throw new InvalidResetCodeException();
+        }
+
+        const createdAt = user.passwordResetRequest.createdAt;
+        if (Date.now() - createdAt.getTime() > 30 * 60 * 1000) {
+            await this.prisma.passwordResetRequest.delete({
+                where: { userId: user.id },
+            });
+            this.logger.warn(`Expired reset code for user: ${dto.email}`);
+            throw new ResetCodeExpiredException();
+        }
+
+        const hashedPassword = await this.hashPassword(dto.password);
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { password: hashedPassword, updatedAt: new Date() },
+        });
+
+        await this.prisma.passwordResetRequest.delete({
+            where: { userId: user.id },
+        });
+        this.logger.log(`Password reset successfully for user: ${dto.email}`);
+
+        return buildResponse({
+            message: "Password reset successfully",
+        });
     }
 
     async signUp(options: SignUpDto, ip: string): Promise<ApiResponse> {
@@ -150,6 +299,8 @@ export class AuthService {
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.registration_success,
                 merge_info: {
+                    team: COMPANY_NAME,
+                    header: "Registration Code",
                     code: verificationCode,
                     notice: "Please proceed to verify your account with the code. Accounts that are not verified after 3days will be removed from our platform. Thank you",
                 },
@@ -209,7 +360,11 @@ export class AuthService {
                 from: { address: mailConfig.senderMail },
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.verify_account,
-                merge_info: { code: verificationCode },
+                merge_info: {
+                    code: verificationCode,
+                    product_name: COMPANY_NAME,
+                    team: COMPANY_NAME,
+                },
             });
         } catch (error) {
             this.logger.error(
@@ -605,7 +760,6 @@ export class AuthService {
         return await this.signIn(options, LoginPlatform.ADMIN, ip);
     }
 
-    // Updated signIn method to return both access and refresh tokens
     private async signIn(
         options: SignInOptions,
         loginPlatform: LoginPlatform,
@@ -616,17 +770,14 @@ export class AuthService {
                 email: options.email,
             },
             select: {
-                id: true, // Include id for token generation
+                id: true,
                 identifier: true,
                 password: true,
             },
         });
 
         if (!user) {
-            throw new InvalidCredentialException(
-                "Incorrect login credential",
-                HttpStatus.NOT_FOUND
-            );
+            throw new InvalidCredentialException();
         }
 
         const passwordMatch = await this.comparePassword(
@@ -634,19 +785,14 @@ export class AuthService {
             user.password
         );
         if (!passwordMatch) {
-            throw new InvalidCredentialException(
-                "Incorrect login credential",
-                HttpStatus.BAD_REQUEST
-            );
+            throw new InvalidCredentialException();
         }
 
-        // Generate both access and refresh tokens
         const tokens = await this.generateTokens({
-            sub: user.id, // Use id instead of identifier for consistency
+            sub: user.id,
             platform: loginPlatform,
         });
 
-        // Update user's last login IP
         await this.prisma.user.update({
             where: { id: user.id },
             data: { ipAddress: ip },

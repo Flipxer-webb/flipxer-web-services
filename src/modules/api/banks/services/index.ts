@@ -3,21 +3,22 @@ import {
     ForbiddenException,
     NotFoundException,
 } from "@nestjs/common";
-import { PrismaService } from "../../../core/prisma/services"; // Adjust path as needed
+import { PrismaService } from "../../../core/prisma/services";
 import {
     CreateBankDetailDto,
     UpdateBankDetailDto,
     BankDetailResponseDto,
 } from "../dtos";
+import { ApiResponse, buildResponse } from "@/utils";
 
 @Injectable()
-export class BankDetailsService {
+export class BankService {
     constructor(private readonly prisma: PrismaService) {}
 
     async create(
         userId: number,
         dto: CreateBankDetailDto
-    ): Promise<BankDetailResponseDto> {
+    ): Promise<ApiResponse<BankDetailResponseDto>> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
         });
@@ -30,7 +31,7 @@ export class BankDetailsService {
             );
         }
 
-        return this.prisma.bankDetail.create({
+        const data = await this.prisma.bankDetail.create({
             data: {
                 userId,
                 bankName: dto.bankName,
@@ -38,9 +39,16 @@ export class BankDetailsService {
                 accountNumber: dto.accountNumber,
             },
         });
+
+        return buildResponse({
+            message: "Bank detail created",
+            data,
+        });
     }
 
-    async findAll(userId: number): Promise<BankDetailResponseDto[]> {
+    async findAll(
+        userId: number
+    ): Promise<ApiResponse<BankDetailResponseDto[]>> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
         });
@@ -48,15 +56,35 @@ export class BankDetailsService {
             throw new NotFoundException("User not found");
         }
 
-        return this.prisma.bankDetail.findMany({
+        const data = await this.prisma.bankDetail.findMany({
             where: { userId },
+        });
+
+        return buildResponse({
+            message: "Bank details retrieved",
+            data,
         });
     }
 
     async findOne(
         userId: number,
         bankDetailId: number
-    ): Promise<BankDetailResponseDto> {
+    ): Promise<ApiResponse<BankDetailResponseDto>> {
+        const bankDetail = await this.prisma.bankDetail.findUnique({
+            where: { id: bankDetailId },
+        });
+
+        return buildResponse({
+            message: "Bank detail retrieved",
+            data: bankDetail,
+        });
+    }
+
+    async update(
+        userId: number,
+        bankDetailId: number,
+        dto: UpdateBankDetailDto
+    ): Promise<ApiResponse<BankDetailResponseDto>> {
         const bankDetail = await this.prisma.bankDetail.findUnique({
             where: { id: bankDetailId },
         });
@@ -67,17 +95,7 @@ export class BankDetailsService {
             );
         }
 
-        return bankDetail;
-    }
-
-    async update(
-        userId: number,
-        bankDetailId: number,
-        dto: UpdateBankDetailDto
-    ): Promise<BankDetailResponseDto> {
-        const bankDetail = await this.findOne(userId, bankDetailId);
-
-        return this.prisma.bankDetail.update({
+        const data = await this.prisma.bankDetail.update({
             where: { id: bankDetailId },
             data: {
                 bankName: dto.bankName ?? bankDetail.bankName,
@@ -85,12 +103,34 @@ export class BankDetailsService {
                 accountNumber: dto.accountNumber ?? bankDetail.accountNumber,
             },
         });
+
+        return buildResponse({
+            message: "Bank detail updated",
+            data,
+        });
     }
 
-    async remove(userId: number, bankDetailId: number): Promise<void> {
-        await this.findOne(userId, bankDetailId);
+    async remove(
+        userId: number,
+        bankDetailId: number
+    ): Promise<ApiResponse<null>> {
+        const bankDetail = await this.prisma.bankDetail.findUnique({
+            where: { id: bankDetailId },
+        });
+
+        if (!bankDetail || bankDetail.userId !== userId) {
+            throw new NotFoundException(
+                "Bank detail not found or does not belong to this user"
+            );
+        }
+
         await this.prisma.bankDetail.delete({
             where: { id: bankDetailId },
+        });
+
+        return buildResponse({
+            message: "Bank detail deleted",
+            data: null,
         });
     }
 }
