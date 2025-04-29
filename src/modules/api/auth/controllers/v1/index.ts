@@ -24,11 +24,10 @@ import {
     ResetPasswordDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
-import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { AuthGuard } from "../../guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
-import { ApiResponse, SwaggerResponse } from "@/utils/api-response-util";
 
 @ApiTags("user")
 @Controller({
