@@ -54,6 +54,7 @@ import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { LoginPlatform, SignInOptions } from "../interfaces";
+import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import * as crypto from "crypto";
 import { COMPANY_NAME } from "@/config";
 
@@ -69,7 +70,8 @@ export class AuthService {
         private emailService: EmailService,
         private uploadFactory: UploadFactory,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
-        private readonly dojahService: DojahService
+        private readonly dojahService: DojahService,
+        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -98,30 +100,46 @@ export class AuthService {
         return { accessToken, refreshToken };
     }
 
-    async requestPasswordReset(dto: SendForgotPasswordDto): Promise<ApiResponse> {
-        this.logger.debug(`Initiating password reset request for email: ${dto.email}`);
-    
+    async requestPasswordReset(
+        dto: SendForgotPasswordDto
+    ): Promise<ApiResponse> {
+        this.logger.debug(
+            `Initiating password reset request for email: ${dto.email}`
+        );
+
         // Check for user existence
         this.logger.debug(`Looking up user with email: ${dto.email}`);
-        const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+        const user = await this.prisma.user.findUnique({
+            where: { email: dto.email },
+        });
         if (!user) {
-            this.logger.warn(`Password reset requested for non-existent user: ${dto.email}`);
+            this.logger.warn(
+                `Password reset requested for non-existent user: ${dto.email}`
+            );
             throw new UserNotFoundException();
         }
         this.logger.debug(`User found: ${user.id} (${dto.email})`);
-    
+
         // Generate reset code
         this.logger.debug(`Generating reset code for user: ${dto.email}`);
-        const code = crypto.randomBytes(3).toString('hex').toUpperCase();
+        const code = crypto.randomBytes(3).toString("hex").toUpperCase();
         this.logger.debug(`Generated reset code: ${code}`);
-    
+
         // Delete any previous reset requests
-        this.logger.debug(`Deleting existing password reset requests for user: ${user.id}`);
-        await this.prisma.passwordResetRequest.deleteMany({ where: { userId: user.id } });
-        this.logger.debug(`Deleted existing password reset requests for user: ${user.id}`);
-    
+        this.logger.debug(
+            `Deleting existing password reset requests for user: ${user.id}`
+        );
+        await this.prisma.passwordResetRequest.deleteMany({
+            where: { userId: user.id },
+        });
+        this.logger.debug(
+            `Deleted existing password reset requests for user: ${user.id}`
+        );
+
         // Create new password reset request
-        this.logger.debug(`Creating new password reset request for user: ${user.id}`);
+        this.logger.debug(
+            `Creating new password reset request for user: ${user.id}`
+        );
         await this.prisma.passwordResetRequest.create({
             data: {
                 userId: user.id,
@@ -130,16 +148,21 @@ export class AuthService {
                 updatedAt: new Date(),
             },
         });
-        this.logger.debug(`Created password reset request for user: ${user.id} with code: ${code}`);
-    
+        this.logger.debug(
+            `Created password reset request for user: ${user.id} with code: ${code}`
+        );
+
         // Prepare email data
-        const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
+        const name =
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
         const productName = "products";
         const username = user.email;
-        const team = COMPANY_NAME; 
+        const team = COMPANY_NAME;
         const resetLink = `https://your-app.com/reset-password?code=${code}&email=${dto.email}`;
-        this.logger.debug(`Preparing email for ${dto.email}: name=${name}, resetLink=${resetLink}`);
-    
+        this.logger.debug(
+            `Preparing email for ${dto.email}: name=${name}, resetLink=${resetLink}`
+        );
+
         // Send email
         this.logger.debug(`Sending password reset email to: ${dto.email}`);
         try {
@@ -155,21 +178,23 @@ export class AuthService {
                     reset_link: resetLink,
                 },
             });
-            this.logger.log(`Password reset email sent successfully to ${dto.email}`);
+            this.logger.log(
+                `Password reset email sent successfully to ${dto.email}`
+            );
         } catch (error) {
             this.logger.error(
                 `Failed to send password reset email to ${dto.email}`,
                 error instanceof Error ? error.stack : String(error)
             );
-            throw new Error('Failed to send password reset email');
+            throw new Error("Failed to send password reset email");
         }
-    
+
         return buildResponse({
-            message: 'Password reset email sent successfully',
+            message: "Password reset email sent successfully",
             data: { email: dto.email },
         });
     }
-    
+
     async resetPassword(dto: ResetPasswordDto): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { email: dto.email },
@@ -177,7 +202,9 @@ export class AuthService {
         });
 
         if (!user || !user.passwordResetRequest) {
-            this.logger.warn(`Invalid password reset request for user: ${dto.email}`);
+            this.logger.warn(
+                `Invalid password reset request for user: ${dto.email}`
+            );
             throw new InvalidResetRequestException();
         }
 
@@ -188,7 +215,9 @@ export class AuthService {
 
         const createdAt = user.passwordResetRequest.createdAt;
         if (Date.now() - createdAt.getTime() > 30 * 60 * 1000) {
-            await this.prisma.passwordResetRequest.delete({ where: { userId: user.id } });
+            await this.prisma.passwordResetRequest.delete({
+                where: { userId: user.id },
+            });
             this.logger.warn(`Expired reset code for user: ${dto.email}`);
             throw new ResetCodeExpiredException();
         }
@@ -200,11 +229,13 @@ export class AuthService {
             data: { password: hashedPassword, updatedAt: new Date() },
         });
 
-        await this.prisma.passwordResetRequest.delete({ where: { userId: user.id } });
+        await this.prisma.passwordResetRequest.delete({
+            where: { userId: user.id },
+        });
         this.logger.log(`Password reset successfully for user: ${dto.email}`);
 
         return buildResponse({
-            message: 'Password reset successfully',
+            message: "Password reset successfully",
         });
     }
 
@@ -233,9 +264,7 @@ export class AuthService {
             );
         }
 
-        let createUserOptions: Prisma.UserUncheckedCreateInput;
-
-        createUserOptions = {
+        const createUserOptions: Prisma.UserUncheckedCreateInput = {
             email: options.email,
             identifier: generateId({ type: "identifier" }),
             userType: options.accountType,
@@ -289,7 +318,6 @@ export class AuthService {
         });
     }
 
-
     async sendAccountVerificationEmail(
         options: SendEmailVerificationCodeDto
     ): Promise<ApiResponse> {
@@ -333,10 +361,10 @@ export class AuthService {
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.verify_account,
                 merge_info: {
-                     code: verificationCode,
+                    code: verificationCode,
                     product_name: COMPANY_NAME,
-                    team: COMPANY_NAME
-                    }
+                    team: COMPANY_NAME,
+                },
             });
         } catch (error) {
             this.logger.error(
@@ -406,6 +434,9 @@ export class AuthService {
         await this.prisma.accountVerificationRequest.delete({
             where: { email: options.email },
         });
+
+        //create user quidax account and default wallet address once email is verified
+        await this.cryptoAccountQueueProducer.enqueue(emailExist.id);
 
         return buildResponse({
             message: "Email verification completed",

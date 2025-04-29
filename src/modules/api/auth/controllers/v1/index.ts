@@ -38,14 +38,20 @@ export class AuthController {
 
     @Post("signup")
     @ApiOperation({ summary: "individual and business signup" })
-    async signUp(@Body(ValidationPipe) signUpDto: SignUpDto, @Req() req: Request) {
+    async signUp(
+        @Body(ValidationPipe) signUpDto: SignUpDto,
+        @Req() req: Request
+    ) {
         return await this.authService.signUp(signUpDto, req.ip);
     }
 
     @HttpCode(HttpStatus.OK)
     @Post("login")
     @ApiOperation({ summary: "user login" })
-    async signIn(@Body(ValidationPipe) signInDto: UserSigInDto, @Req() req: Request) {
+    async signIn(
+        @Body(ValidationPipe) signInDto: UserSigInDto,
+        @Req() req: Request
+    ) {
         return await this.authService.userSignIn(signInDto, req.ip);
     }
 
@@ -53,15 +59,20 @@ export class AuthController {
     @Post("initiate-email-verification")
     @ApiOperation({ summary: "initiate email verification process" })
     async sendAccountVerificationEmail(
-        @Body(ValidationPipe) sendVerificationCodeDto: SendEmailVerificationCodeDto
+        @Body(ValidationPipe)
+        sendVerificationCodeDto: SendEmailVerificationCodeDto
     ) {
-        return await this.authService.sendAccountVerificationEmail(sendVerificationCodeDto);
+        return await this.authService.sendAccountVerificationEmail(
+            sendVerificationCodeDto
+        );
     }
 
     @HttpCode(HttpStatus.OK)
     @Post("verify-email-otp")
     @ApiOperation({ summary: "verify email verification otp" })
-    async verifyEmailOtp(@Body(ValidationPipe) verifyEmailOtpDto: VerifyEmailOtpDto) {
+    async verifyEmailOtp(
+        @Body(ValidationPipe) verifyEmailOtpDto: VerifyEmailOtpDto
+    ) {
         return await this.authService.verifyEmailOtp(verifyEmailOtpDto);
     }
 
@@ -77,7 +88,8 @@ export class AuthController {
         return await this.authService.createPassword(user, createPasswordDto);
     }
 
-    // @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @Post("verify-bvn")
     @ApiOperation({ summary: "verify user with individual account bvn" })
@@ -116,7 +128,9 @@ export class AuthController {
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @Post("verify-document")
-    @ApiOperation({ summary: "document verification for users with individual account type" })
+    @ApiOperation({
+        summary: "document verification for users with individual account type",
+    })
     @ApiBearerAuth("access-token")
     async documentVerification(
         @User() user: UserModel,
@@ -128,7 +142,9 @@ export class AuthController {
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @Post("submit-business-record")
-    @ApiOperation({ summary: "submit business record for users with business account type" })
+    @ApiOperation({
+        summary: "submit business record for users with business account type",
+    })
     @ApiBearerAuth("access-token")
     async submitBusinessRecord(
         @User() user: UserModel,

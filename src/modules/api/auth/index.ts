@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { AuthService } from "./services";
 import { JwtModule } from "@nestjs/jwt";
 import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
@@ -8,6 +8,7 @@ import { AdminAuthController } from "./controllers/v1/admin";
 import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 export * from "./interfaces";
 export * from "./errors";
+import { TradingModule } from "../trade";
 
 @Module({
     imports: [
@@ -17,6 +18,7 @@ export * from "./errors";
             signOptions: { expiresIn: TOKEN_EXPIRATION },
         }),
         IdentityComplianceFactoryModule,
+        forwardRef(() => TradingModule),
     ],
     controllers: [AuthController, AdminAuthController],
     providers: [AuthService, AuthGuard],

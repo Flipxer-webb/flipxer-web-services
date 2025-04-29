@@ -12,9 +12,17 @@ export interface RequestWithUser extends Request {
 }
 
 export enum LoginPlatform {
-    ADMIN = "ADMIN",       // Admin sign-in platform
+    ADMIN = "ADMIN", // Admin sign-in platform
     CUSTOMER = "CUSTOMER", // Customer sign-in platform
-    BUSINESS = "BUSINESS"  // Business sign-in platform
+    BUSINESS = "BUSINESS", // Business sign-in platform
 }
 
 export type SignInOptions = Optional<UserSigInDto, "userType">;
+
+interface QuidaxHeader {
+    ["quidax-signature"]: string;
+}
+
+export type RequestFromQuidax = Request & {
+    headers: QuidaxHeader;
+};

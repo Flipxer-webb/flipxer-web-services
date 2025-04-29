@@ -58,13 +58,124 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "JWT_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
-    // ... (keeping the rest unchanged)
+    {
+        name: "JWT_REFRESH_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
+
+    //
+    {
+        name: "ENCRYPT_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
+
+    //cloud bucket
+    {
+        name: "PROFILE_DIR",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOCUMENT_DIR",
+        type: RequiredEnvironmentTypes.String,
+    },
+
+    //clodinary
+    {
+        name: "CLOUDINARY_CLOUD_NAME",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "CLOUDINARY_API_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "CLOUDINARY_API_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
+    //imagekit
+    {
+        name: "IMAGEKIT_PUBLIC_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "IMAGEKIT_PRIVATE_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "IMAGEKIT_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    //dojah
+    {
+        name: "DOJAH_BASE_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOJAH_APP_ID",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOJAH_PUBLIC_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOJAH_SECRET_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "DOJAH_TOKEN_ID",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "QUIDAX_BASE_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "QUIDAX_API_PUBLIC",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "QUIDAX_API_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "QUIDAX_WEBHOOK_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "QUIDAX_RAMP_BASEURL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    //server environment
+    {
+        name: "ENVIRONMENT",
+        type: RequiredEnvironmentTypes.String,
+    },
+
+    //redis
+    {
+        name: "REDIS_HOST",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "REDIS_PORT",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "REDIS_USER",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "REDIS_PASSWORD",
+        type: RequiredEnvironmentTypes.String,
+    },
 ];
 
 validate(runtimeEnvironment);
 
 // App
-export const allowedDomains = process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
+export const allowedDomains =
+    process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
 export const isProduction: boolean = process.env.NODE_ENV === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 
@@ -167,3 +278,56 @@ export interface IdentityComplianceConfig {
 export const identityComplianceConfig: IdentityComplianceConfig = {
     dojah: dojahConfig,
 };
+
+//quidax
+export interface QuidaxConfig {
+    baseUrl: string;
+    rampBaseUrl: string;
+    api_public: string;
+    api_secret: string;
+    webhook_key: string;
+}
+export const quidaxConfig: QuidaxConfig = {
+    baseUrl: process.env.QUIDAX_BASE_URL,
+    rampBaseUrl: process.env.QUIDAX_RAMP_BASEURL,
+    api_public: process.env.QUIDAX_API_PUBLIC,
+    api_secret: process.env.QUIDAX_API_SECRET,
+    webhook_key: process.env.QUIDAX_WEBHOOK_KEY,
+};
+
+export interface TradingConfig {
+    quidax: QuidaxConfig;
+}
+
+export const tradingConfig: TradingConfig = {
+    quidax: quidaxConfig,
+};
+
+export interface RedisConfig {
+    host: string;
+    user: string;
+    password: string;
+    port: number;
+    redisOptions: {
+        tls: Record<string, any> | undefined;
+    };
+}
+
+export const redisConfig: RedisConfig = {
+    host: process.env.REDIS_HOST,
+    password: process.env.REDIS_PASSWORD,
+    port: +process.env.REDIS_PORT,
+    user: process.env.REDIS_USER,
+    redisOptions: {
+        tls: undefined,
+    },
+};
+
+export interface Configuration {
+    redisConfig: RedisConfig;
+    tradingConfig: TradingConfig;
+    identityComplianceConfig: IdentityComplianceConfig;
+    imagekitConfig: ImagekitConfig;
+    mailConfig: EMailConfig;
+    emailTemplateConfig: EMailTemplateConfig;
+}

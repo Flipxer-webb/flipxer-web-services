@@ -3,7 +3,8 @@ import { AuthModule } from "./auth";
 import { AuthorizeModule } from "./authorize";
 import { UserModule } from "./user";
 import { WebExtension } from "./webExtension";
-import { BankDetailsModule } from "./bankDetails";
+import { BankModule } from "./banks";
+import { TradingModule } from "./trade";
 
 @Module({
     imports: [
@@ -11,7 +12,8 @@ import { BankDetailsModule } from "./bankDetails";
         UserModule,
         AuthModule,
         AuthorizeModule,
-        BankDetailsModule
+        BankModule,
+        TradingModule,
     ],
 })
 export class APIModule {}

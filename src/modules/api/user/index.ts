@@ -7,7 +7,6 @@ export * from "./interfaces";
 export * from "./errors";
 export * from "./decorators";
 
-
 @Global()
 @Module({
     imports: [forwardRef(() => AuthModule)],
