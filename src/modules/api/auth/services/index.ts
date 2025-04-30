@@ -435,9 +435,6 @@ export class AuthService {
             where: { email: options.email },
         });
 
-        //create user quidax account and default wallet address once email is verified
-        await this.cryptoAccountQueueProducer.enqueue(emailExist.id);
-
         return buildResponse({
             message: "Email verification completed",
         });
@@ -600,9 +597,9 @@ export class AuthService {
                 data: {
                     firstName: dto.firstName,
                     lastName: dto.lastName,
-                    dateOfBirth: dto.dateOfBirth,
+                    dateOfBirth: new Date(dto.dateOfBirth),
                     isBvnVerified: true,
-                    bvn: "",
+                    bvn: generateId({ type: "numeric" }),
                     //phone:''
                 },
             });
@@ -625,13 +622,16 @@ export class AuthService {
                 data: {
                     firstName: dto.firstName,
                     lastName: dto.lastName,
-                    dateOfBirth: dto.dateOfBirth,
+                    dateOfBirth: new Date(dto.dateOfBirth),
                     isBvnVerified: true,
                     bvn: dto.bvn,
                     bvnRegisteredPhone: result.data.entity.phone_number1,
                 },
             });
         }
+
+        //create user quidax account and default wallet address once email is verified
+        await this.cryptoAccountQueueProducer.enqueue(user.id);
 
         return buildResponse({
             message: "Bvn Verification successfully",

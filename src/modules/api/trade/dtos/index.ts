@@ -35,9 +35,9 @@ export class InitiateWalletCreationDto {
     asset: SupportedAssets;
 
     @ApiProperty({ enum: NetworkTypes })
-    @IsNotEmpty()
+    @IsOptional()
     @IsEnum(NetworkTypes)
-    network: NetworkTypes;
+    network?: NetworkTypes;
 }
 
 export class PlaceBuyOrSellOrderDto {

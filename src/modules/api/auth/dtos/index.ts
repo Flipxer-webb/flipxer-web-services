@@ -129,7 +129,10 @@ export class BvnVerificationDto {
     })
     dateOfBirth: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: "user bvn",
+        example: "use 22222222222 for sandbox bvn testing",
+    })
     @IsNotEmpty()
     @IsNumberString()
     @Length(11, 11, { message: "Bnv number must be 11 digits" })
