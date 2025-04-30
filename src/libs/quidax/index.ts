@@ -3,6 +3,7 @@ import Axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from "axios";
 export * from "./errors";
 export * from "./types";
 import * as t from "./types";
+import { Logger } from "@nestjs/common";
 
 export class QuidaxLib {
     constructor(protected instanceOptions: t.QuidaxOptions) {}
@@ -46,9 +47,11 @@ export class QuidaxLib {
             }
 
             default: {
+                console.log(error, "error");
                 const err = new e.QuidaxGenericError(
                     error.response?.data?.message || error.response?.statusText
                 );
+
                 err.status = error.response?.status;
                 throw err;
             }

@@ -11,6 +11,8 @@ import { UserService } from "../../services";
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { AuthGuard } from "@/modules/api/auth/guard";
 import { SendRecoveryPinDto, VerifyRecoveryPinDto } from "../../dtos";
+import { User } from "../../decorators";
+import { User as UserModel } from "@prisma/client";
 
 @ApiTags("user")
 @Controller({
@@ -25,6 +27,20 @@ export class UserController {
     @Get("profile")
     async getProfile() {
         return await this.userService.getProfile();
+    }
+
+    @ApiOperation({ summary: "Get user wallet grand balance" })
+    @ApiBearerAuth("access-token")
+    @Get("wallets/grand-balance")
+    async getUserAggregatedWalletBalance(@User() user: UserModel) {
+        return await this.userService.getUserAggregatedWalletBalance(user);
+    }
+
+    @ApiOperation({ summary: "Get user digital wallet" })
+    @ApiBearerAuth("access-token")
+    @Get("wallets")
+    async getUserWallets(@User() user: UserModel) {
+        return await this.userService.getUserWallets(user);
     }
 
     @Post("recovery-email/send-pin")

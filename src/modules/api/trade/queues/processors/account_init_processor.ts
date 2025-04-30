@@ -50,7 +50,18 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
                     data: { cryptoSubAccountId: result.data.id },
                 });
 
-                for (const currency of ["btc", "usdt"]) {
+                for (const currency of [
+                    "btc",
+                    "eth",
+                    "usdt",
+                    "bnb",
+                    "xrp",
+                    "sol",
+                    "ada",
+                    "doge",
+                    "ton",
+                    "ltc",
+                ]) {
                     const wallet =
                         await this.quidaxService.createPaymentAddress({
                             user_id: result.data.id,

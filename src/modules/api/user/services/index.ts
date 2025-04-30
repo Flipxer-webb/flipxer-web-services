@@ -19,6 +19,7 @@ import {
     AuthGenericException,
 } from "../../auth/errors";
 import { COMPANY_NAME } from "@/config";
+import { User } from "@prisma/client";
 
 const logger = new Logger();
 
@@ -43,6 +44,33 @@ export class UserService {
         return buildResponse({
             message: "Profile successfully retrieved",
             data: profile,
+        });
+    }
+
+    async getUserAggregatedWalletBalance(user: User) {
+        const result = await this.prisma.assetWallet.aggregate({
+            where: { userId: user.id },
+            _sum: {
+                convertedBalance: true,
+            },
+        });
+
+        return buildResponse({
+            message: "Aggregated wallet balance retrieved",
+            data: {
+                total: result._sum.convertedBalance ?? 0,
+                referenceCurrency: "ngn",
+            },
+        });
+    }
+
+    async getUserWallets(user: User) {
+        const assets = await this.prisma.assetWallet.findMany({
+            where: { userId: user.id },
+        });
+        return buildResponse({
+            message: "Assets successfully retrieved",
+            data: assets,
         });
     }
 
