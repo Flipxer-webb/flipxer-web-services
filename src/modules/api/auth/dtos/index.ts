@@ -219,3 +219,10 @@ export class SubmitBusinessRecordDto {
     @IsString()
     expectedTransactionFrequency: string;
 }
+
+export class RefreshTokenDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    refreshToken: string;
+}

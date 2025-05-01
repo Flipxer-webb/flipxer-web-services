@@ -14,6 +14,7 @@ import {
     SubmitBusinessRecordDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
+    RefreshTokenDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -34,6 +35,7 @@ import {
     InvalidResetCodeException,
     ResetCodeExpiredException,
     InvalidResetRequestException,
+    InvalidRefreshToken,
 } from "../errors";
 import { Prisma, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
@@ -805,5 +807,50 @@ export class AuthService {
                 refreshToken: tokens.refreshToken,
             },
         });
+    }
+
+    async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
+        // Verify the refresh token
+        const payload = await this.jwtService.verify(options.refreshToken, {
+            secret: jwt_refresh_secret,
+        });
+
+        // Validate against stored refresh token
+        const isValid = await this.validateRefreshToken(
+            payload.sub,
+            options.refreshToken
+        );
+
+        if (!isValid) {
+            throw new InvalidRefreshToken(
+                "Invalid refresh token",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        // Generate new tokens
+        const newTokens = await this.generateTokens({ sub: payload.sub });
+
+        // Optionally update the stored refresh token (rotate)
+        await this.saveRefreshToken(payload.sub, newTokens.refreshToken);
+
+        return buildResponse({
+            message: `Refresh token generated`,
+            data: newTokens,
+        });
+    }
+
+    async saveRefreshToken(identifier: string, refreshToken: string) {
+        return this.prisma.user.update({
+            where: { identifier: identifier },
+            data: { refreshToken },
+        });
+    }
+
+    async validateRefreshToken(identifier: string, refreshToken: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { identifier: identifier },
+        });
+        return user && user.refreshToken === refreshToken;
     }
 }
