@@ -134,9 +134,9 @@ export class QuidaxWebhookGuard implements CanActivate {
         const [timestampSection, signatureSection] =
             request.headers["quidax-signature"].split(",");
 
-        const [timestamp] = timestampSection.split("=");
+        const [timestampPrefix, timestamp] = timestampSection.split("=");
 
-        const [signature] = signatureSection.split("=");
+        const [signaturePrefix, signature] = signatureSection.split("=");
 
         const requestBody = JSON.stringify(request.body);
 

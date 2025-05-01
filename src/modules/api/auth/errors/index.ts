@@ -170,3 +170,7 @@ export class InvalidResetRequestException extends HttpException {
         super(message, status);
     }
 }
+
+export class InvalidRefreshToken extends HttpException {
+    name = "InvalidRefreshToken";
+}

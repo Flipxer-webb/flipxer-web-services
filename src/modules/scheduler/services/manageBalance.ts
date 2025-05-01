@@ -55,7 +55,7 @@ export class AssetBalanceSchedulerService {
     }
 
     //every 1hr "0 */1 * * *"
-    @Cron("0 */1 * * *", { timeZone: "Africa/Lagos" })
+    @Cron("*/15 * * * *", { timeZone: "Africa/Lagos" })
     async syncWalletAddress() {
         this.logger.debug("Cron job triggered!");
 

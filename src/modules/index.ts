@@ -6,6 +6,7 @@ import { BullBoardModule } from "@bull-board/nestjs";
 import { ExpressAdapter } from "@bull-board/express";
 import { FactoryModule } from "./factory";
 import { SchedulerModule } from "./scheduler";
+import { WebhookModule } from "./webhook";
 import { BullModule } from "@nestjs/bull";
 import { redisConfig } from "@/config";
 import { ConfigModule, ConfigService } from "@nestjs/config";
@@ -16,6 +17,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
         CoreModule,
         ScheduleModule.forRoot(),
         SchedulerModule,
+        WebhookModule,
         FactoryModule,
         ConfigModule.forRoot({
             isGlobal: true,

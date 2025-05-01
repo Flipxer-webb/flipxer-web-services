@@ -22,6 +22,7 @@ import {
     VerifyPhoneOtpDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
+    RefreshTokenDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
@@ -165,5 +166,14 @@ export class AuthController {
     @ApiOperation({ summary: "reset password" })
     async resetPassword(@Body(ValidationPipe) dto: ResetPasswordDto) {
         return await this.authService.resetPassword(dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "refresh user access token" })
+    @Post("refresh-token")
+    async refreshToken(
+        @Body(ValidationPipe) refreshTokenDto: RefreshTokenDto
+    ): Promise<ApiResponse> {
+        return await this.authService.refreshToken(refreshTokenDto);
     }
 }

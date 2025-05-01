@@ -145,27 +145,27 @@ export class TradingService {
         userId: number,
         dto: InitiateWalletCreationDto
     ) {
-        const existingWallet = await this.prisma.cryptoWalletAddress.findUnique(
-            {
-                where: {
-                    userId_assetSymbol_network: {
-                        userId,
-                        assetSymbol: dto.asset.toUpperCase(),
-                        network: dto.network,
-                    },
-                },
-            }
-        );
+        // const existingWallet = await this.prisma.cryptoWalletAddress.findUnique(
+        //     {
+        //         where: {
+        //             userId_assetSymbol_network: {
+        //                 userId,
+        //                 assetSymbol: dto.asset.toUpperCase(),
+        //                 network: dto.network,
+        //             },
+        //         },
+        //     }
+        // );
 
-        if (existingWallet) {
-            return buildResponse({
-                message: "wallet info retrieved",
-                data: {
-                    status: "already_created",
-                    address: existingWallet,
-                },
-            });
-        }
+        // if (existingWallet) {
+        //     return buildResponse({
+        //         message: "wallet info retrieved",
+        //         data: {
+        //             status: "already_created",
+        //             address: existingWallet,
+        //         },
+        //     });
+        // }
 
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -177,24 +177,29 @@ export class TradingService {
             );
         }
 
-        const cryptoWallet = await this.prisma.$transaction(async (tx) => {
-            const wallet = await this.quidaxService.createPaymentAddress({
-                user_id: user.cryptoSubAccountId,
-                currency: dto.asset.toLowerCase(),
-                network: dto.network,
-            });
-
-            const cryptoWallet = await tx.cryptoWalletAddress.create({
-                data: {
-                    assetSymbol: dto.asset.toUpperCase(),
-                    walletAddressId: wallet.data.id,
-                    userId: user.id,
-                    network: wallet.data.network as NetworkTypes,
-                },
-            });
-
-            return cryptoWallet;
+        const wallet = await this.quidaxService.createPaymentAddress({
+            user_id: user.cryptoSubAccountId,
+            currency: dto.asset.toLowerCase(),
+            network: dto.network,
         });
+
+        const cryptoWallet = await this.prisma.$transaction(
+            async (tx) => {
+                const cryptoWallet = await tx.cryptoWalletAddress.create({
+                    data: {
+                        assetSymbol: dto.asset.toUpperCase(),
+                        walletAddressId: wallet.data.id,
+                        userId: user.id,
+                        network: wallet.data.network as NetworkTypes,
+                    },
+                });
+
+                return cryptoWallet;
+            },
+            {
+                timeout: 20000, // 20 seconds
+            }
+        );
 
         return buildResponse({
             message: "wallet address generation initiated",
@@ -453,10 +458,8 @@ export class TradingService {
 
         // Step 2: If wallet address is not found, throw an error
         if (!walletAddress) {
-            throw new WalletAddressNotFoundException(
-                "Crypto Wallet Address Record not found",
-                HttpStatus.NOT_FOUND
-            );
+            this.logger.error("Crypto Wallet Address Record not found");
+            return;
         }
 
         // Step 3: Check if an asset wallet already exists for this user and asset
