@@ -36,8 +36,10 @@ import {
     ResetCodeExpiredException,
     InvalidResetRequestException,
     InvalidRefreshToken,
+    AuthGenericException,
+    UserAccountDisabledException,
 } from "../errors";
-import { Prisma, User, UserType } from "@prisma/client";
+import { Prisma, Status, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
     emailTemplateConfig,
@@ -86,6 +88,28 @@ export class AuthService {
 
     async comparePassword(password: string, hash: string): Promise<boolean> {
         return await bcrypt.compare(password, hash);
+    }
+
+    validateAdminAccount(userType: UserType) {
+        const adminUserTypes: UserType[] = [UserType.ADMIN];
+
+        if (!adminUserTypes.includes(userType)) {
+            throw new InvalidCredentialException(
+                "Incorrect email or password",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+    }
+
+    validateUserAccount(userType: UserType) {
+        const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
+
+        if (!userTypes.includes(userType)) {
+            throw new InvalidCredentialException(
+                "Incorrect email or password",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
     }
 
     async generateTokens(payload: any) {
@@ -728,34 +752,7 @@ export class AuthService {
     }
 
     async userSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
-        const { userType } = options;
-
-        if (userType === UserSignInAppType.INDIVIDUAL) {
-            return this.customerSignIn(options, ip);
-        } else if (userType === UserSignInAppType.BUSINESS) {
-            return this.bussinessSignIn(options, ip);
-        } else if (userType === UserSignInAppType.ADMIN) {
-            return this.adminSignIn(options, ip);
-        }
-
-        return buildResponse({
-            message: "Invalid sign-in type",
-            data: {},
-        });
-    }
-
-    async customerSignIn(
-        options: UserSigInDto,
-        ip: string
-    ): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.CUSTOMER, ip);
-    }
-
-    async bussinessSignIn(
-        options: UserSigInDto,
-        ip: string
-    ): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.BUSINESS, ip);
+        return await this.signIn(options, LoginPlatform.USER, ip);
     }
 
     async adminSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
@@ -775,11 +772,48 @@ export class AuthService {
                 id: true,
                 identifier: true,
                 password: true,
+                userType: true,
+                status: true,
+                role: { select: { name: true, rolePermission: true } },
             },
         });
 
         if (!user) {
             throw new InvalidCredentialException();
+        }
+
+        //check that user account is not blocked
+        if (user.status == Status.BLOCKED) {
+            throw new UserAccountDisabledException(
+                "Account is disabled. Kindly contact customer support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        //check that user is login to right platform
+        switch (loginPlatform) {
+            case LoginPlatform.ADMIN: {
+                this.validateAdminAccount(user.userType);
+                break;
+            }
+            case LoginPlatform.USER: {
+                this.validateUserAccount(user.userType);
+                break;
+            }
+
+            default: {
+                throw new AuthGenericException(
+                    "Invalid login platform",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
+        }
+
+        if (!user.password) {
+            throw new AuthGenericException(
+                "Please create your password first",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         const passwordMatch = await this.comparePassword(

@@ -150,16 +150,11 @@ export class SignInDto {
 }
 
 export enum UserSignInAppType {
-    INDIVIDUAL = "INDIVIDUAL",
-    BUSINESS = "BUSINESS",
-    ADMIN = "ADMIN", // Add ADMIN type for admin sign-in
+    USER = "USER",
+    ADMIN = "ADMIN",
 }
 
-export class UserSigInDto extends SignInDto {
-    @ApiProperty({ enum: UserSignInAppType, enumName: "AppType" })
-    @IsEnum(UserSignInAppType, { message: "Invalid app type" })
-    userType: UserSignInAppType; // Add appType field to handle different types of sign-ins
-}
+export class UserSigInDto extends SignInDto {}
 
 export class SendPhoneVerificationCodeDto {
     @ApiProperty()
