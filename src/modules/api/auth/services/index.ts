@@ -37,8 +37,9 @@ import {
     InvalidResetRequestException,
     InvalidRefreshToken,
     AuthGenericException,
+    UserAccountDisabledException,
 } from "../errors";
-import { Prisma, User, UserType } from "@prisma/client";
+import { Prisma, Status, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
     emailTemplateConfig,
@@ -87,6 +88,28 @@ export class AuthService {
 
     async comparePassword(password: string, hash: string): Promise<boolean> {
         return await bcrypt.compare(password, hash);
+    }
+
+    validateAdminAccount(userType: UserType) {
+        const adminUserTypes: UserType[] = [UserType.ADMIN];
+
+        if (!adminUserTypes.includes(userType)) {
+            throw new InvalidCredentialException(
+                "Incorrect email or password",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+    }
+
+    validateUserAccount(userType: UserType) {
+        const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
+
+        if (!userTypes.includes(userType)) {
+            throw new InvalidCredentialException(
+                "Incorrect email or password",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
     }
 
     async generateTokens(payload: any) {
@@ -749,11 +772,41 @@ export class AuthService {
                 id: true,
                 identifier: true,
                 password: true,
+                userType: true,
+                status: true,
+                role: { select: { name: true, rolePermission: true } },
             },
         });
 
         if (!user) {
             throw new InvalidCredentialException();
+        }
+
+        //check that user account is not blocked
+        if (user.status == Status.BLOCKED) {
+            throw new UserAccountDisabledException(
+                "Account is disabled. Kindly contact customer support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        //check that user is login to right platform
+        switch (loginPlatform) {
+            case LoginPlatform.ADMIN: {
+                this.validateAdminAccount(user.userType);
+                break;
+            }
+            case LoginPlatform.USER: {
+                this.validateUserAccount(user.userType);
+                break;
+            }
+
+            default: {
+                throw new AuthGenericException(
+                    "Invalid login platform",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
         }
 
         if (!user.password) {
