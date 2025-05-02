@@ -10,7 +10,7 @@ import { ApiTags, ApiBody, ApiResponse as SwaggerApiResponse } from "@nestjs/swa
 import { SignInDto } from "../../dtos"; // Replaced UserSigInDto with SignInDto
 import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
-import {  ApiResponse } from "@/utils/api-response-util";
+import { ApiResponse } from "@/utils/api-response-util";
 
 @ApiTags("Admin Authentication")
 @Controller({
@@ -20,12 +20,12 @@ export class AdminAuthController {
     constructor(private authService: AuthService) {}
 
     @HttpCode(HttpStatus.OK)
-    @Post("login")
-    @ApiBody({ description: 'User login credentials', type: SignInDto }) // Updated to SignInDto
+    @ApiOperation({ summary: "admin login" })
     async signIn(
         @Body(ValidationPipe) signInDto: SignInDto, // Updated to SignInDto
         @ClientData() clientData: ClientDataInterface
     ): Promise<ApiResponse> {
+        // The return type is still the interface
         return await this.authService.adminSignIn(
             signInDto,
             clientData.ipAddress

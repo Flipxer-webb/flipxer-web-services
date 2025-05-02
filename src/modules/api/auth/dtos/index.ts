@@ -150,10 +150,11 @@ export class SignInDto {
 }
 
 export enum UserSignInAppType {
-    INDIVIDUAL = "INDIVIDUAL",
-    BUSINESS = "BUSINESS",
-    ADMIN = "ADMIN", // Add ADMIN type for admin sign-in
+    USER = "USER",
+    ADMIN = "ADMIN",
 }
+
+export class UserSigInDto extends SignInDto {}
 
 export class SendPhoneVerificationCodeDto {
     @ApiProperty()

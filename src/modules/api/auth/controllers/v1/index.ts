@@ -50,7 +50,7 @@ export class AuthController {
     @Post("login")
     @ApiOperation({ summary: "user login" })
     async signIn(
-        @Body(ValidationPipe) signInDto: SignInDto,
+        @Body(ValidationPipe) signInDto: UserSigInDto,
         @Req() req: Request
     ) {
         return await this.authService.userSignIn(signInDto, req.ip);

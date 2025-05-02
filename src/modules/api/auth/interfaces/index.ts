@@ -1,5 +1,6 @@
 import { User } from "@prisma/client";
 import { Request } from "express";
+import { UserSigInDto } from "../dtos";
 
 export interface DataStoredInToken {
     sub: string;
@@ -11,10 +12,10 @@ export interface RequestWithUser extends Request {
 
 export enum LoginPlatform {
     ADMIN = "ADMIN", // Admin sign-in platform
-    CUSTOMER = "CUSTOMER", // Customer sign-in platform
-    BUSINESS = "BUSINESS", // Business sign-in platform
+    USER = "USER", // individual and business sign-in platform
 }
 
+export type SignInOptions = UserSigInDto;
 
 interface QuidaxHeader {
     ["quidax-signature"]: string;
