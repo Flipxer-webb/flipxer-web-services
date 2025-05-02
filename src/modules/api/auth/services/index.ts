@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -66,7 +66,6 @@ import * as crypto from "crypto";
 @Injectable()
 export class AuthService {
     private uploadService: ImagekitService | CloudinaryService;
-    private readonly logger = new Logger("AuthServices");
     private readonly SALT_ROUNDS = 10;
 
     constructor(
@@ -127,46 +126,24 @@ export class AuthService {
         return { accessToken, refreshToken };
     }
 
-    async requestPasswordReset(
-        dto: SendForgotPasswordDto
-    ): Promise<ApiResponse> {
-        this.logger.debug(
-            `Initiating password reset request for email: ${dto.email}`
-        );
-
+    async requestPasswordReset(dto: SendForgotPasswordDto): Promise<ApiResponse> {
         // Check for user existence
-        this.logger.debug(`Looking up user with email: ${dto.email}`);
         const user = await this.prisma.user.findUnique({
             where: { email: dto.email },
         });
         if (!user) {
-            this.logger.warn(
-                `Password reset requested for non-existent user: ${dto.email}`
-            );
-            throw new UserNotFoundException();
+            throw new UserNotFoundException("User not found");
         }
-        this.logger.debug(`User found: ${user.id} (${dto.email})`);
 
         // Generate reset code
-        this.logger.debug(`Generating reset code for user: ${dto.email}`);
         const code = crypto.randomBytes(3).toString("hex").toUpperCase();
-        this.logger.debug(`Generated reset code: ${code}`);
 
         // Delete any previous reset requests
-        this.logger.debug(
-            `Deleting existing password reset requests for user: ${user.id}`
-        );
         await this.prisma.passwordResetRequest.deleteMany({
             where: { userId: user.id },
         });
-        this.logger.debug(
-            `Deleted existing password reset requests for user: ${user.id}`
-        );
 
         // Create new password reset request
-        this.logger.debug(
-            `Creating new password reset request for user: ${user.id}`
-        );
         await this.prisma.passwordResetRequest.create({
             data: {
                 userId: user.id,
@@ -175,20 +152,13 @@ export class AuthService {
                 updatedAt: new Date(),
             },
         });
-        this.logger.debug(
-            `Created password reset request for user: ${user.id} with code: ${code}`
-        );
 
         // Prepare email data
-        const name =
-            `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
-        const productName = "products";
+        const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
         const username = user.email;
-        const team = COMPANY_NAME; 
+        const team = COMPANY_NAME;
         const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${dto.email}`;
-        this.logger.debug(`Preparing email for ${dto.email}: name=${name}, resetLink=${resetLink}`);
-    
-        this.logger.debug(`Sending password reset email to: ${dto.email}`);
+
         try {
             await this.emailService.sendMailWithTemplate({
                 from: { address: mailConfig.senderMail },
@@ -202,15 +172,8 @@ export class AuthService {
                     password_reset_link: resetLink,
                 },
             });
-            this.logger.log(
-                `Password reset email sent successfully to ${dto.email}`
-            );
         } catch (error) {
-            this.logger.error(
-                `Failed to send password reset email to ${dto.email}`,
-                error instanceof Error ? error.stack : String(error)
-            );
-            throw new Error("Failed to send password reset email");
+            throw new AuthGenericException("Failed to send password reset email");
         }
 
         return buildResponse({
@@ -226,15 +189,11 @@ export class AuthService {
         });
 
         if (!user || !user.passwordResetRequest) {
-            this.logger.warn(
-                `Invalid password reset request for user: ${dto.email}`
-            );
-            throw new InvalidResetRequestException();
+            throw new InvalidResetRequestException("Invalid password reset request");
         }
 
         if (user.passwordResetRequest.code !== dto.resetCode) {
-            this.logger.warn(`Invalid reset code for user: ${dto.email}`);
-            throw new InvalidResetCodeException();
+            throw new InvalidResetCodeException("Invalid reset code");
         }
 
         const createdAt = user.passwordResetRequest.createdAt;
@@ -242,8 +201,7 @@ export class AuthService {
             await this.prisma.passwordResetRequest.delete({
                 where: { userId: user.id },
             });
-            this.logger.warn(`Expired reset code for user: ${dto.email}`);
-            throw new ResetCodeExpiredException();
+            throw new ResetCodeExpiredException("Reset code has expired");
         }
 
         const hashedPassword = await this.hashPassword(dto.password);
@@ -256,7 +214,6 @@ export class AuthService {
         await this.prisma.passwordResetRequest.delete({
             where: { userId: user.id },
         });
-        this.logger.log(`Password reset successfully for user: ${dto.email}`);
 
         return buildResponse({
             message: "Password reset successfully",
@@ -330,10 +287,7 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            this.logger.error(
-                "Error sending account verification email",
-                error.error.details
-            );
+            throw new AuthGenericException("Failed to send account verification email");
         }
 
         return buildResponse({
@@ -379,6 +333,7 @@ export class AuthService {
                 code: verificationCode,
             },
         });
+
         try {
             await this.emailService.sendMailWithTemplate({
                 from: { address: mailConfig.senderMail },
@@ -391,10 +346,7 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            this.logger.error(
-                "Error sending account verification email",
-                error.error.details
-            );
+            throw new AuthGenericException("Failed to send account verification email");
         }
 
         return buildResponse({
@@ -622,7 +574,6 @@ export class AuthService {
                     dateOfBirth: new Date(dto.dateOfBirth),
                     isBvnVerified: true,
                     bvn: generateId({ type: "numeric" }),
-                    //phone:''
                 },
             });
         } else {
@@ -759,33 +710,51 @@ export class AuthService {
         loginPlatform: LoginPlatform,
         ip: string
     ): Promise<ApiResponse> {
+        // Define base select fields for all cases
+        const baseSelect = {
+            id: true,
+            identifier: true,
+            password: true,
+            userType: true,
+            status: true,
+            role: { select: { name: true, rolePermission: true } },
+        };
+
+        // Add additional fields for USER platform
+        const selectFields =
+            loginPlatform === LoginPlatform.USER
+                ? {
+                      ...baseSelect,
+                      isEmailVerified: true,
+                      isPhoneVerified: true,
+                      isPasswordCreated: true,
+                      isBvnVerified: true,
+                      isDocumentVerified: true,
+                      businessRecordCompleted: true,
+                      businessDocumentVerificationStatus: true,
+                  }
+                : baseSelect;
+
         const user = await this.prisma.user.findUnique({
             where: {
                 email: options.email,
             },
-            select: {
-                id: true,
-                identifier: true,
-                password: true,
-                userType: true,
-                status: true,
-                role: { select: { name: true, rolePermission: true } },
-            },
+            select: selectFields,
         });
 
         if (!user) {
-            throw new InvalidCredentialException();
+            throw new InvalidCredentialException("Invalid email or password");
         }
 
-        //check that user account is not blocked
-        if (user.status == Status.BLOCKED) {
+        // Check that user account is not blocked
+        if (user.status === Status.BLOCKED) {
             throw new UserAccountDisabledException(
                 "Account is disabled. Kindly contact customer support",
                 HttpStatus.BAD_REQUEST
             );
         }
 
-        //check that user is login to right platform
+        // Check that user is logging into the right platform
         switch (loginPlatform) {
             case LoginPlatform.ADMIN: {
                 this.validateAdminAccount(user.userType);
@@ -795,7 +764,6 @@ export class AuthService {
                 this.validateUserAccount(user.userType);
                 break;
             }
-
             default: {
                 throw new AuthGenericException(
                     "Invalid login platform",
@@ -816,7 +784,7 @@ export class AuthService {
             user.password
         );
         if (!passwordMatch) {
-            throw new InvalidCredentialException();
+            throw new InvalidCredentialException("Invalid email or password");
         }
 
         const tokens = await this.generateTokens({
@@ -829,12 +797,54 @@ export class AuthService {
             data: { ipAddress: ip },
         });
 
+        // For ADMIN platform, return only tokens
+        if (loginPlatform === LoginPlatform.ADMIN) {
+            return buildResponse({
+                message: "Login successful",
+                data: {
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                },
+            });
+        }
+
+        // For USER platform, include specified fields
+        const userWithVerification = user as typeof user & {
+            isEmailVerified: boolean;
+            isPhoneVerified: boolean;
+            isPasswordCreated: boolean;
+            isBvnVerified: boolean;
+            isDocumentVerified: boolean;
+            businessRecordCompleted: boolean;
+            businessDocumentVerificationStatus: string | null;
+        };
+
+        const verificationStatus: any = {
+            isEmailVerified: userWithVerification.isEmailVerified,
+            isPhoneVerified: userWithVerification.isPhoneVerified,
+            isPasswordCreated: userWithVerification.isPasswordCreated,
+            isBvnVerified: userWithVerification.isBvnVerified,
+            isDocumentVerified: userWithVerification.isDocumentVerified,
+        };
+
+        // Add business-specific fields for BUSINESS users
+        if (userWithVerification.userType.toLowerCase() === "business") {
+            verificationStatus.businessRecordCompleted =
+                userWithVerification.businessRecordCompleted;
+            verificationStatus.businessDocumentVerificationStatus =
+                userWithVerification.businessDocumentVerificationStatus || null;
+        }
+
+        const responseData = {
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            userType: userWithVerification.userType.toLowerCase(),
+            verificationStatus,
+        };
+
         return buildResponse({
             message: "Login successful",
-            data: {
-                accessToken: tokens.accessToken,
-                refreshToken: tokens.refreshToken,
-            },
+            data: responseData,
         });
     }
 
