@@ -2,8 +2,7 @@ import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
-    UserSignInAppType,
-    UserSigInDto,
+    SignInDto,
     SendEmailVerificationCodeDto,
     VerifyEmailOtpDto,
     CreatePasswordDto,
@@ -34,17 +33,20 @@ import {
     InvalidResetCodeException,
     ResetCodeExpiredException,
     InvalidResetRequestException,
+    UserUnauthorizedException
 } from "../errors";
 import { Prisma, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
     emailTemplateConfig,
+    frontendDevUrl,
     jwt_refresh_secret,
     jwtSecret,
     mailConfig,
     REFRESH_TOKEN_EXPIRATION,
     storageDirConfig,
     TOKEN_EXPIRATION,
+    COMPANY_NAME,
 } from "@/config";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
@@ -53,9 +55,8 @@ import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
-import { LoginPlatform, SignInOptions } from "../interfaces";
+import { LoginPlatform } from "../interfaces";
 import * as crypto from "crypto";
-import { COMPANY_NAME } from "@/config";
 
 @Injectable()
 export class AuthService {
@@ -101,7 +102,6 @@ export class AuthService {
     async requestPasswordReset(dto: SendForgotPasswordDto): Promise<ApiResponse> {
         this.logger.debug(`Initiating password reset request for email: ${dto.email}`);
     
-        // Check for user existence
         this.logger.debug(`Looking up user with email: ${dto.email}`);
         const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
         if (!user) {
@@ -110,17 +110,14 @@ export class AuthService {
         }
         this.logger.debug(`User found: ${user.id} (${dto.email})`);
     
-        // Generate reset code
         this.logger.debug(`Generating reset code for user: ${dto.email}`);
         const code = crypto.randomBytes(3).toString('hex').toUpperCase();
         this.logger.debug(`Generated reset code: ${code}`);
     
-        // Delete any previous reset requests
         this.logger.debug(`Deleting existing password reset requests for user: ${user.id}`);
         await this.prisma.passwordResetRequest.deleteMany({ where: { userId: user.id } });
         this.logger.debug(`Deleted existing password reset requests for user: ${user.id}`);
     
-        // Create new password reset request
         this.logger.debug(`Creating new password reset request for user: ${user.id}`);
         await this.prisma.passwordResetRequest.create({
             data: {
@@ -132,15 +129,12 @@ export class AuthService {
         });
         this.logger.debug(`Created password reset request for user: ${user.id} with code: ${code}`);
     
-        // Prepare email data
         const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
-        const productName = "products";
         const username = user.email;
         const team = COMPANY_NAME; 
-        const resetLink = `https://your-app.com/reset-password?code=${code}&email=${dto.email}`;
+        const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${dto.email}`;
         this.logger.debug(`Preparing email for ${dto.email}: name=${name}, resetLink=${resetLink}`);
     
-        // Send email
         this.logger.debug(`Sending password reset email to: ${dto.email}`);
         try {
             await this.emailService.sendMailWithTemplate({
@@ -149,10 +143,10 @@ export class AuthService {
                 template_key: emailTemplateConfig.forgot_password,
                 merge_info: {
                     name,
-                    product_name: productName,
+                    product_name: COMPANY_NAME,
                     username,
                     team,
-                    reset_link: resetLink,
+                    password_reset_link: resetLink,
                 },
             });
             this.logger.log(`Password reset email sent successfully to ${dto.email}`);
@@ -289,7 +283,6 @@ export class AuthService {
         });
     }
 
-
     async sendAccountVerificationEmail(
         options: SendEmailVerificationCodeDto
     ): Promise<ApiResponse> {
@@ -333,10 +326,10 @@ export class AuthService {
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.verify_account,
                 merge_info: {
-                     code: verificationCode,
+                    code: verificationCode,
                     product_name: COMPANY_NAME,
                     team: COMPANY_NAME
-                    }
+                }
             });
         } catch (error) {
             this.logger.error(
@@ -546,7 +539,6 @@ export class AuthService {
             );
         }
 
-        //check if bvn is already in use by another account
         const bvnInUseByAnother = await this.prisma.user.findFirst({
             where: { id: { not: user.id }, bvn: dto.bvn },
         });
@@ -559,11 +551,10 @@ export class AuthService {
         }
 
         const result = await this.dojahService.verifyBvn({
-            bvn: dto.bvn, //22222222222 sandbox bvn
+            bvn: dto.bvn,
         });
 
         if (dto.bvn === "22222222222") {
-            //sandbox mode
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {
@@ -572,11 +563,9 @@ export class AuthService {
                     dateOfBirth: dto.dateOfBirth,
                     isBvnVerified: true,
                     bvn: "",
-                    //phone:''
                 },
             });
         } else {
-            //cross check the names and dob
             if (
                 dto.firstName.toLowerCase() !==
                     result?.data?.entity?.first_name.toLowerCase() ||
@@ -694,81 +683,129 @@ export class AuthService {
         });
     }
 
-    async userSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
-        const { userType } = options;
+   async userSignIn(options: SignInDto, ip: string): Promise<ApiResponse> {
+    const { email, password } = options;
 
-        if (userType === UserSignInAppType.INDIVIDUAL) {
-            return this.customerSignIn(options, ip);
-        } else if (userType === UserSignInAppType.BUSINESS) {
-            return this.bussinessSignIn(options, ip);
-        } else if (userType === UserSignInAppType.ADMIN) {
-            return this.adminSignIn(options, ip);
+    this.logger.debug(`Attempting user sign-in for email: ${email}`);
+
+    // Validate input
+    if (!email || !password) {
+        this.logger.warn(`Invalid sign-in attempt - Missing email or password: ${email}`);
+        throw new InvalidCredentialException("Email and password are required");
+    }
+
+    const user = await this.prisma.user.findUnique({
+        where: { email },
+        select: {
+            id: true,
+            identifier: true,
+            password: true,
+            userType: true,
+        },
+    });
+
+    if (!user) {
+        this.logger.warn(`User sign-in failed - No user found with email: ${email}`);
+        throw new InvalidCredentialException("Invalid email or password");
+    }
+
+    if (user.userType === UserType.ADMIN) {
+        this.logger.warn(`User sign-in failed - Admin user attempted regular login: ${email}`);
+        throw new InvalidCredentialException("Please use admin login portal");
+    }
+
+    if (!user.password) {
+        this.logger.error(`User sign-in failed - No password set for user: ${email}`);
+        throw new InvalidCredentialException("Account has no password set. Please reset your password");
+    }
+
+    try {
+        const passwordMatch = await this.comparePassword(password, user.password);
+        if (!passwordMatch) {
+            this.logger.warn(`User sign-in failed - Incorrect password for email: ${email}`);
+            throw new InvalidCredentialException("Invalid email or password");
         }
-
-        return buildResponse({
-            message: "Invalid sign-in type",
-            data: {},
-        });
+    } catch (error) {
+        this.logger.error(
+            `Password comparison failed for user: ${email}`,
+            error instanceof Error ? error.stack : String(error)
+        );
+        throw new InvalidCredentialException("Error verifying credentials");
     }
 
-    async customerSignIn(
-        options: UserSigInDto,
-        ip: string
-    ): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.CUSTOMER, ip);
-    }
+    const platform = user.userType === UserType.INDIVIDUAL 
+        ? LoginPlatform.CUSTOMER 
+        : LoginPlatform.BUSINESS;
 
-    async bussinessSignIn(
-        options: UserSigInDto,
-        ip: string
-    ): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.BUSINESS, ip);
-    }
+    this.logger.debug(`Generating tokens for user: ${email}, platform: ${platform}`);
+    const tokens = await this.generateTokens({
+        sub: user.id,
+        platform: platform,
+    });
 
-    async adminSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.ADMIN, ip);
-    }
+    await this.prisma.user.update({
+        where: { id: user.id },
+        data: { ipAddress: ip },
+    });
 
-    private async signIn(
-        options: SignInOptions,
-        loginPlatform: LoginPlatform,
-        ip: string
-    ): Promise<ApiResponse> {
+    this.logger.log(`User sign-in successful for email: ${email}`);
+    return buildResponse({
+        message: "Login successful",
+        data: {
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+        },
+    });
+}
+
+    async adminSignIn(options: SignInDto, ip: string): Promise<ApiResponse> {
+        const { email, password } = options;
+    
         const user = await this.prisma.user.findUnique({
-            where: {
-                email: options.email,
-            },
+            where: { email },
             select: {
                 id: true,
                 identifier: true,
                 password: true,
+                userType: true,
+                roleId: true,
             },
         });
-
+    
         if (!user) {
-            throw new InvalidCredentialException();
+            this.logger.warn(`Admin login attempt failed - User not found: ${email}`);
+            throw new UserNotFoundException("Invalid admin credentials");
+        }
+    
+        if (user.userType !== UserType.ADMIN) {
+            this.logger.warn(`Non-admin user attempted admin login: ${email}`);
+            throw new UserUnauthorizedException("Access restricted to admin users only");
         }
 
-        const passwordMatch = await this.comparePassword(
-            options.password,
-            user.password
-        );
+    
+        const passwordMatch = await this.comparePassword(password, user.password);
         if (!passwordMatch) {
-            throw new InvalidCredentialException();
+            this.logger.warn(`Admin login failed - Incorrect password for: ${email}`);
+            throw new InvalidCredentialException("Invalid admin credentials");
         }
-
+    
         const tokens = await this.generateTokens({
             sub: user.id,
-            platform: loginPlatform,
+            platform: LoginPlatform.ADMIN,
+            roleId: user.roleId,
         });
-
+    
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { ipAddress: ip },
+            data: { 
+                ipAddress: ip,
+                lastLogin: new Date(),
+            },
         });
-
+    
+        this.logger.log(`Admin login successful for: ${email}`);
         return buildResponse({
-            message: "Login successful",
+            message: "Admin login successful",
             data: {
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken,

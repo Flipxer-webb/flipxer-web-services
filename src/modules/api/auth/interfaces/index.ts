@@ -1,7 +1,5 @@
 import { User } from "@prisma/client";
 import { Request } from "express";
-import { UserSigInDto } from "../dtos";
-import { Optional } from "@/utils";
 
 export interface DataStoredInToken {
     sub: string;
@@ -17,4 +15,3 @@ export enum LoginPlatform {
     BUSINESS = "BUSINESS"  // Business sign-in platform
 }
 
-export type SignInOptions = Optional<UserSigInDto, "userType">;

@@ -16,8 +16,8 @@ import {
     SendEmailVerificationCodeDto,
     SendPhoneVerificationCodeDto,
     SignUpDto,
+    SignInDto, // Replaced UserSigInDto with SignInDto
     SubmitBusinessRecordDto,
-    UserSigInDto,
     VerifyEmailOtpDto,
     VerifyPhoneOtpDto,
     SendForgotPasswordDto,
@@ -45,7 +45,7 @@ export class AuthController {
     @HttpCode(HttpStatus.OK)
     @Post("login")
     @ApiOperation({ summary: "user login" })
-    async signIn(@Body(ValidationPipe) signInDto: UserSigInDto, @Req() req: Request) {
+    async signIn(@Body(ValidationPipe) signInDto: SignInDto, @Req() req: Request) {
         return await this.authService.userSignIn(signInDto, req.ip);
     }
 
