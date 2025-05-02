@@ -13,6 +13,7 @@ import {
     SubmitBusinessRecordDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
+    RefreshTokenDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -33,7 +34,8 @@ import {
     InvalidResetCodeException,
     ResetCodeExpiredException,
     InvalidResetRequestException,
-    UserUnauthorizedException
+    UserUnauthorizedException,
+    InvalidRefreshToken,
 } from "../errors";
 import { Prisma, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
@@ -55,7 +57,8 @@ import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
-import { LoginPlatform } from "../interfaces";
+import { LoginPlatform} from "../interfaces";
+import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import * as crypto from "crypto";
 
 @Injectable()
@@ -70,7 +73,8 @@ export class AuthService {
         private emailService: EmailService,
         private uploadFactory: UploadFactory,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
-        private readonly dojahService: DojahService
+        private readonly dojahService: DojahService,
+        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -102,22 +106,30 @@ export class AuthService {
     async requestPasswordReset(dto: SendForgotPasswordDto): Promise<ApiResponse> {
         this.logger.debug(`Initiating password reset request for email: ${dto.email}`);
     
+        // Check for user existence
         this.logger.debug(`Looking up user with email: ${dto.email}`);
-        const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+        const user = await this.prisma.user.findUnique({
+            where: { email: dto.email },
+        });
         if (!user) {
-            this.logger.warn(`Password reset requested for non-existent user: ${dto.email}`);
+            this.logger.warn(
+                `Password reset requested for non-existent user: ${dto.email}`
+            );
             throw new UserNotFoundException();
         }
         this.logger.debug(`User found: ${user.id} (${dto.email})`);
     
+        // Generate reset code
         this.logger.debug(`Generating reset code for user: ${dto.email}`);
-        const code = crypto.randomBytes(3).toString('hex').toUpperCase();
+        const code = crypto.randomBytes(3).toString("hex").toUpperCase();
         this.logger.debug(`Generated reset code: ${code}`);
     
+        // Delete any previous reset requests
         this.logger.debug(`Deleting existing password reset requests for user: ${user.id}`);
         await this.prisma.passwordResetRequest.deleteMany({ where: { userId: user.id } });
         this.logger.debug(`Deleted existing password reset requests for user: ${user.id}`);
     
+        // Create new password reset request
         this.logger.debug(`Creating new password reset request for user: ${user.id}`);
         await this.prisma.passwordResetRequest.create({
             data: {
@@ -129,7 +141,9 @@ export class AuthService {
         });
         this.logger.debug(`Created password reset request for user: ${user.id} with code: ${code}`);
     
+        // Prepare email data
         const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
+        const productName = "products";
         const username = user.email;
         const team = COMPANY_NAME; 
         const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${dto.email}`;
@@ -149,21 +163,23 @@ export class AuthService {
                     password_reset_link: resetLink,
                 },
             });
-            this.logger.log(`Password reset email sent successfully to ${dto.email}`);
+            this.logger.log(
+                `Password reset email sent successfully to ${dto.email}`
+            );
         } catch (error) {
             this.logger.error(
                 `Failed to send password reset email to ${dto.email}`,
                 error instanceof Error ? error.stack : String(error)
             );
-            throw new Error('Failed to send password reset email');
+            throw new Error("Failed to send password reset email");
         }
-    
+
         return buildResponse({
-            message: 'Password reset email sent successfully',
+            message: "Password reset email sent successfully",
             data: { email: dto.email },
         });
     }
-    
+
     async resetPassword(dto: ResetPasswordDto): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { email: dto.email },
@@ -171,7 +187,9 @@ export class AuthService {
         });
 
         if (!user || !user.passwordResetRequest) {
-            this.logger.warn(`Invalid password reset request for user: ${dto.email}`);
+            this.logger.warn(
+                `Invalid password reset request for user: ${dto.email}`
+            );
             throw new InvalidResetRequestException();
         }
 
@@ -182,7 +200,9 @@ export class AuthService {
 
         const createdAt = user.passwordResetRequest.createdAt;
         if (Date.now() - createdAt.getTime() > 30 * 60 * 1000) {
-            await this.prisma.passwordResetRequest.delete({ where: { userId: user.id } });
+            await this.prisma.passwordResetRequest.delete({
+                where: { userId: user.id },
+            });
             this.logger.warn(`Expired reset code for user: ${dto.email}`);
             throw new ResetCodeExpiredException();
         }
@@ -194,11 +214,13 @@ export class AuthService {
             data: { password: hashedPassword, updatedAt: new Date() },
         });
 
-        await this.prisma.passwordResetRequest.delete({ where: { userId: user.id } });
+        await this.prisma.passwordResetRequest.delete({
+            where: { userId: user.id },
+        });
         this.logger.log(`Password reset successfully for user: ${dto.email}`);
 
         return buildResponse({
-            message: 'Password reset successfully',
+            message: "Password reset successfully",
         });
     }
 
@@ -227,9 +249,7 @@ export class AuthService {
             );
         }
 
-        let createUserOptions: Prisma.UserUncheckedCreateInput;
-
-        createUserOptions = {
+        const createUserOptions: Prisma.UserUncheckedCreateInput = {
             email: options.email,
             identifier: generateId({ type: "identifier" }),
             userType: options.accountType,
@@ -326,10 +346,10 @@ export class AuthService {
                 to: [{ email_address: { address: options.email } }],
                 template_key: emailTemplateConfig.verify_account,
                 merge_info: {
-                    code: verificationCode,
+                     code: verificationCode,
                     product_name: COMPANY_NAME,
                     team: COMPANY_NAME
-                }
+                    }
             });
         } catch (error) {
             this.logger.error(
@@ -560,9 +580,10 @@ export class AuthService {
                 data: {
                     firstName: dto.firstName,
                     lastName: dto.lastName,
-                    dateOfBirth: dto.dateOfBirth,
+                    dateOfBirth: new Date(dto.dateOfBirth),
                     isBvnVerified: true,
-                    bvn: "",
+                    bvn: generateId({ type: "numeric" }),
+                    //phone:''
                 },
             });
         } else {
@@ -583,13 +604,16 @@ export class AuthService {
                 data: {
                     firstName: dto.firstName,
                     lastName: dto.lastName,
-                    dateOfBirth: dto.dateOfBirth,
+                    dateOfBirth: new Date(dto.dateOfBirth),
                     isBvnVerified: true,
                     bvn: dto.bvn,
                     bvnRegisteredPhone: result.data.entity.phone_number1,
                 },
             });
         }
+
+        //create user quidax account and default wallet address once email is verified
+        await this.cryptoAccountQueueProducer.enqueue(user.id);
 
         return buildResponse({
             message: "Bvn Verification successfully",
@@ -811,5 +835,50 @@ export class AuthService {
                 refreshToken: tokens.refreshToken,
             },
         });
+    }
+
+    async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
+        // Verify the refresh token
+        const payload = await this.jwtService.verify(options.refreshToken, {
+            secret: jwt_refresh_secret,
+        });
+
+        // Validate against stored refresh token
+        const isValid = await this.validateRefreshToken(
+            payload.sub,
+            options.refreshToken
+        );
+
+        if (!isValid) {
+            throw new InvalidRefreshToken(
+                "Invalid refresh token",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        // Generate new tokens
+        const newTokens = await this.generateTokens({ sub: payload.sub });
+
+        // Optionally update the stored refresh token (rotate)
+        await this.saveRefreshToken(payload.sub, newTokens.refreshToken);
+
+        return buildResponse({
+            message: `Refresh token generated`,
+            data: newTokens,
+        });
+    }
+
+    async saveRefreshToken(identifier: string, refreshToken: string) {
+        return this.prisma.user.update({
+            where: { identifier: identifier },
+            data: { refreshToken },
+        });
+    }
+
+    async validateRefreshToken(identifier: string, refreshToken: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { identifier: identifier },
+        });
+        return user && user.refreshToken === refreshToken;
     }
 }

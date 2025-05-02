@@ -50,6 +50,7 @@ enum PermissionGroup {
 model User {
   id                                 Int                         @id @default(autoincrement())
   identifier                         String                      @unique
+  cryptoSubAccountId                 String?                     @unique
   firstName                          String?
   lastName                           String?
   username                           String?
@@ -67,6 +68,7 @@ model User {
   status                             Status                      @default(ACTIVE)
   roleId                             Int
   ipAddress                          String?
+  refreshToken           String?
   notificationToken                  String?
   isEmailVerified                    Boolean                     @default(false)
   isPhoneVerified                    Boolean                     @default(false)
@@ -87,7 +89,10 @@ model User {
   businessDocument                   BusinessDocument?
   accountLimit                       AccountLimit?
   bankDetails                        BankDetail[]
-  recoveryEmail       RecoveryEmail?
+  recoveryEmail                      RecoveryEmail?
+  order                              Order[]
+  cryptoWalletAddressList            CryptoWalletAddress[]
+  assetWallets                        AssetWallet[]
 
   @@index([id, bvn])
   @@map("Users")
@@ -95,13 +100,13 @@ model User {
 
 // RecoveryPassword model
 model RecoveryEmail {
-  id                  Int      @id @default(autoincrement())
-  userId              Int      @unique
-  recoveryEmail       String?  // The recovery email address
-  recoveryPin         String?  // 6-digit PIN
-  lastPinGeneratedAt  DateTime? // When the last PIN was generated
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @unique
+  recoveryEmail      String? // The recovery email address
+  recoveryPin        String? // 6-digit PIN
+  lastPinGeneratedAt DateTime? // When the last PIN was generated
 
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("RecoveryEmails")
 }
@@ -118,7 +123,7 @@ model AccountLimit {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("AccountLimits")
 }
@@ -133,7 +138,7 @@ model BankDetail {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("BankDetails")
 }
@@ -155,13 +160,13 @@ model BusinessRecord {
 
 // UserDocument Model
 model UserDocument {
-  id                     Int          @id @default(autoincrement())
-  userId                 Int?         @unique
-  type                   DocumentType
-  country                Country
-  documentNumber         String
-  documentImageUrl       String
-  documentImageFieldId   String
+  id                   Int          @id @default(autoincrement())
+  userId               Int?         @unique
+  type                 DocumentType
+  country              Country
+  documentNumber       String
+  documentImageUrl     String
+  documentImageFieldId String
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -182,7 +187,7 @@ model BusinessDocument {
   meansOfIdentificatioForBeneficialOwner      String
 
   user User? @relation(fields: [userId], references: [id])
-  
+
   @@map("BusinessDocuments")
 }
 
@@ -195,8 +200,8 @@ model AccountVerificationRequest {
   updatedAt  DateTime @updatedAt
   isVerified Boolean  @default(false)
 
-  @@index([email, code])
   @@unique([email, code])
+  @@index([email, code])
   @@map("AccountVerificationRequests")
 }
 
@@ -209,8 +214,8 @@ model PhoneVerificationRequest {
   updatedAt  DateTime @updatedAt
   isVerified Boolean  @default(false)
 
-  @@index([phone, code])
   @@unique([phone, code])
+  @@index([phone, code])
   @@map("PhoneVerificationRequests")
 }
 
@@ -265,4 +270,157 @@ model RolePermission {
 
   @@id([roleId, permissionId])
   @@map("RolePermissions")
+}
+
+model AssetWallet {
+  id                String  @id @default(uuid())
+  userId            Int
+  quidaxWalletId    String    @unique
+  assetName         String // "Bitcoin"
+  assetCurrency     String // "BTC"
+  balance           Decimal @db.Decimal(20, 18)
+  locked            Decimal @db.Decimal(20, 18)
+  staked            Decimal @db.Decimal(20, 18)
+  convertedBalance  Decimal @db.Decimal(20, 8)
+  referenceCurrency String
+  isCrypto          Boolean
+  defaultNetwork    String
+  blockchainEnabled Boolean
+  depositAddress    String?
+  destinationTag    String?
+  isActive          Boolean @default(false)
+  addressSynced     Boolean @default(false)
+
+  networks  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, assetCurrency])
+  @@index([userId])
+  @@index([assetCurrency])
+  @@map("AssetWallets")
+}
+
+enum CryptoWalletStatus {
+  ACTIVE
+  PENDING
+}
+
+enum NetworkTypes {
+  trc20
+  erc20
+  bep20
+  btc
+  ltc
+  dash
+  doge
+  bch
+  ripple
+  stellar
+  cardano
+  solana
+  polygon
+}
+
+model CryptoWalletAddress {
+  id              Int                @id @default(autoincrement())
+  userId          Int
+  assetSymbol     String // BTC, USDT, ETH, etc.
+  walletAddressId String             @unique // from Quidax
+  address         String? // null until webhook updates
+  totalPayments   Decimal            @default(0.0)
+  lastSyncedAt    DateTime?
+  network         NetworkTypes?
+  destination_tag String?
+  status          CryptoWalletStatus @default(PENDING)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, assetSymbol, network])
+  @@map("CryptoWalletAddresses")
+}
+
+enum OrderStatus {
+  pending
+  filled
+  partial
+  cancelled
+  failed
+  confirmed
+  initiated
+  completed
+  reversed
+  done
+  processing
+  rejected
+  submitted
+  on_hold
+  accepted
+}
+
+enum OrderSide {
+  buy
+  sell
+}
+
+enum OrderType {
+  limit
+  market
+}
+
+enum OrderCategory {
+  TRADE // includes buy/sell
+  SWAP
+  WITHDRAWER
+  DEPOSIT
+}
+
+model Order {
+  id            Int           @id @default(autoincrement())
+  userId        Int
+  orderCategory OrderCategory
+
+  //trade (buy/sell) related
+  market    String? // from TradingPair enum
+  orderType OrderType?
+  orderSide OrderSide?
+  volume    Float?
+  price     Float? // optional for market orders
+  status    OrderStatus
+
+  //swap related
+  quotationId     String?
+  fromCurrency    String? // e.g. BTC
+  toCurrency      String? // e.g. USDT
+  fromAmount      Float? // original currency amount (from `SwapTransaction.from_amount`)
+  toAmount        Float? // received amount (from `SwapTransaction.received_amount`)
+  quoted_price    Float?
+  quoted_currency String?
+  executionPrice  Float? // actual rate at execution (from `SwapTransaction.execution_price`)
+  swapExpiresAt   DateTime?
+
+  //withdrawer related
+  currency     String?
+  narration   String?
+  reason       String?
+  transaction_note String?
+  recipient    String?  //wallet address
+  amount      Float?
+  fee         Float?
+  total       Float?
+  sourceType  String?
+  blockchain_txid String?
+
+  providerOrderId String?  @unique // String?  @unique // Quidax reference ID
+  orderReference  String?  @unique //Quidax order ref
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("Orders")
 }

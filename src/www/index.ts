@@ -7,11 +7,12 @@ import { AllExceptionsFilter } from "@/core/exception/http";
 import { classValidatorPipeInstance } from "@/core/pipe";
 import { PrismaService } from "@/modules/core/prisma/services";
 import morgan from "morgan";
-import { frontendDevOrigin, isProdEnvironment } from "@/config";
+import { frontendDevOrigin, isProdEnvironment, redisConfig } from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Request, Response, NextFunction } from "express";
-import { allowedDomains } from "@/config";
+import { waitForRedis } from "@/utils";
+
 export interface CreateServerOptions {
     port: number;
     production?: boolean;
@@ -31,7 +32,7 @@ export default async (
     }
 
     const corsOptions: CorsOptions = {
-        origin: allowedDomains,
+        origin: whitelist,
         allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type"],
         methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         credentials: true,
@@ -39,10 +40,19 @@ export default async (
 
     //hanlde prflight request
     app.use((req: Request, res: Response, next: NextFunction) => {
-        if (req.method === 'OPTIONS') {
-            res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-            res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, PATCH, DELETE, OPTIONS');
-            res.header('Access-Control-Allow-Headers', 'Authorization, X-Requested-With, Content-Type');
+        if (req.method === "OPTIONS") {
+            res.header(
+                "Access-Control-Allow-Origin",
+                req.headers.origin || "*"
+            );
+            res.header(
+                "Access-Control-Allow-Methods",
+                "GET, PUT, POST, PATCH, DELETE, OPTIONS"
+            );
+            res.header(
+                "Access-Control-Allow-Headers",
+                "Authorization, X-Requested-With, Content-Type"
+            );
             return res.sendStatus(204);
         }
         next();
@@ -74,6 +84,8 @@ export default async (
     app.useGlobalPipes(classValidatorPipeInstance());
     const httpAdapterHost = app.get(HttpAdapterHost);
     app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
+
+    waitForRedis(redisConfig);
     app.listen(options.port);
 
     //handle prisma enableShutDownHook interference with nest app enableShutdownHooks

@@ -12,7 +12,7 @@ import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import {  ApiResponse } from "@/utils/api-response-util";
 
-@ApiTags('Admin Authentication')
+@ApiTags("Admin Authentication")
 @Controller({
     path: "admin/auth",
 })

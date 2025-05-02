@@ -28,7 +28,7 @@ export class SendEmailVerificationCodeDto {
     email: string;
 }
 
-export class VerifyEmailOtpDto {ll
+export class VerifyEmailOtpDto {
     @ApiProperty()
     @IsNotEmpty()
     @IsEmail({}, { message: "Invalid email address" })
@@ -129,7 +129,10 @@ export class BvnVerificationDto {
     })
     dateOfBirth: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: "user bvn",
+        example: "use 22222222222 for sandbox bvn testing",
+    })
     @IsNotEmpty()
     @IsNumberString()
     @Length(11, 11, { message: "Bnv number must be 11 digits" })
@@ -209,4 +212,11 @@ export class SubmitBusinessRecordDto {
     @IsNotEmpty()
     @IsString()
     expectedTransactionFrequency: string;
+}
+
+export class RefreshTokenDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    refreshToken: string;
 }
