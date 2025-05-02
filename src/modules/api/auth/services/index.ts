@@ -36,6 +36,7 @@ import {
     ResetCodeExpiredException,
     InvalidResetRequestException,
     InvalidRefreshToken,
+    AuthGenericException,
 } from "../errors";
 import { Prisma, User, UserType } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
@@ -728,34 +729,7 @@ export class AuthService {
     }
 
     async userSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
-        const { userType } = options;
-
-        if (userType === UserSignInAppType.INDIVIDUAL) {
-            return this.customerSignIn(options, ip);
-        } else if (userType === UserSignInAppType.BUSINESS) {
-            return this.bussinessSignIn(options, ip);
-        } else if (userType === UserSignInAppType.ADMIN) {
-            return this.adminSignIn(options, ip);
-        }
-
-        return buildResponse({
-            message: "Invalid sign-in type",
-            data: {},
-        });
-    }
-
-    async customerSignIn(
-        options: UserSigInDto,
-        ip: string
-    ): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.CUSTOMER, ip);
-    }
-
-    async bussinessSignIn(
-        options: UserSigInDto,
-        ip: string
-    ): Promise<ApiResponse> {
-        return await this.signIn(options, LoginPlatform.BUSINESS, ip);
+        return await this.signIn(options, LoginPlatform.USER, ip);
     }
 
     async adminSignIn(options: UserSigInDto, ip: string): Promise<ApiResponse> {
@@ -780,6 +754,13 @@ export class AuthService {
 
         if (!user) {
             throw new InvalidCredentialException();
+        }
+
+        if (!user.password) {
+            throw new AuthGenericException(
+                "Please create your password first",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         const passwordMatch = await this.comparePassword(
