@@ -59,6 +59,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
     {
+        name: "FRONTEND_DEV_DOMAIN",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
         name: "JWT_REFRESH_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
@@ -178,7 +182,7 @@ export const allowedDomains =
     process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
 export const isProduction: boolean = process.env.NODE_ENV === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
-
+export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
 // JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
