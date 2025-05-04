@@ -319,6 +319,9 @@ export class AuthService {
             sub: createdUser.id,
         });
 
+        //save the refresh token
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
+
         try {
             await this.emailService.sendMailWithTemplate({
                 from: { address: mailConfig.senderMail },
@@ -490,15 +493,15 @@ export class AuthService {
             );
         }
 
-        if (
-            user.userType === UserType.INDIVIDUAL &&
-            user.bvnRegisteredPhone !== options.phone
-        ) {
-            throw new VerificationGenericException(
-                "Please use the phone registered with your bvn",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        // if (
+        //     user.userType === UserType.INDIVIDUAL &&
+        //     user.bvnRegisteredPhone !== options.phone
+        // ) {
+        //     throw new VerificationGenericException(
+        //         "Please use the phone registered with your bvn",
+        //         HttpStatus.BAD_REQUEST
+        //     );
+        // }
 
         await this.prisma.user.update({
             where: { id: user.id },
@@ -829,6 +832,9 @@ export class AuthService {
             platform: loginPlatform,
         });
 
+        //save the refresh token
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
+
         await this.prisma.user.update({
             where: { id: user.id },
             data: { ipAddress: ip },
@@ -874,16 +880,16 @@ export class AuthService {
         });
     }
 
-    async saveRefreshToken(identifier: string, refreshToken: string) {
+    async saveRefreshToken(id: number, refreshToken: string) {
         return this.prisma.user.update({
-            where: { identifier: identifier },
+            where: { id: id },
             data: { refreshToken },
         });
     }
 
-    async validateRefreshToken(identifier: string, refreshToken: string) {
+    async validateRefreshToken(id: number, refreshToken: string) {
         const user = await this.prisma.user.findUnique({
-            where: { identifier: identifier },
+            where: { id: id },
         });
         return user && user.refreshToken === refreshToken;
     }
