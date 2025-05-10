@@ -5,6 +5,8 @@ import {
     Matches,
     IsOptional,
     IsNumber,
+    IsNumberString,
+    Length,
 } from "class-validator";
 import { Type } from "class-transformer";
 
@@ -111,4 +113,21 @@ export class BankDetailResponseDto {
     })
     @Type(() => Date)
     updatedAt: Date;
+}
+
+export class VerifyBankAccountDto {
+    @ApiProperty({
+        description: "account number",
+        example: "6065915011",
+    })
+    @IsNumberString({}, { message: "Please enter a valid account number" })
+    @Length(10, 10, { message: "Please enter a valid account number" })
+    accountNumber: string;
+
+    @ApiProperty({
+        description: "Bank code",
+        example: "214",
+    })
+    @IsNumberString({}, { message: "Invalid bank code" })
+    bankCode: string;
 }

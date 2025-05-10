@@ -9,6 +9,7 @@ import {
     CreateBankDetailDto,
     UpdateBankDetailDto,
     BankDetailResponseDto,
+    VerifyBankAccountDto,
 } from "../dtos";
 import { ApiResponse, buildResponse } from "@/utils";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
@@ -27,6 +28,21 @@ export class BankService {
         return buildResponse({
             message: "banks successfully retrieved",
             data: banks,
+        });
+    }
+
+    async verifyBankAccount(options: VerifyBankAccountDto) {
+        const account = await this.paystackService.resolveBankAccount({
+            account_number: options.accountNumber,
+            bank_code: options.bankCode,
+        });
+
+        return buildResponse({
+            message: "account successfully verified",
+            data: {
+                accountName: account.data.account_name,
+                accountNumber: account.data.account_number,
+            },
         });
     }
 

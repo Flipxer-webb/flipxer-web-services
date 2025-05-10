@@ -7,6 +7,8 @@ import {
     PaystackMetadata,
     IPaystackInitializePaymentDetail,
     VerifyTransactionResponseData,
+    ResolveBankAccountOptions,
+    ResolveBankAccountResponse,
 } from "@/libs/paystack";
 import { TBankFactory } from "../types";
 import logger from "moment-logger";
@@ -25,6 +27,32 @@ export class PaystackBank implements TBankFactory<"paystack"> {
             return banks;
         } catch (error) {
             logger.error(error, "****GET BANKS****** PAYSTACK");
+            switch (true) {
+                case error instanceof PaystackError: {
+                    throw new e.PAYSTACKBankException(
+                        error.message,
+                        HttpStatus.BAD_REQUEST
+                    );
+                }
+
+                default: {
+                    throw new e.PAYSTACKBankException(
+                        error.message,
+                        HttpStatus.BAD_REQUEST
+                    );
+                }
+            }
+        }
+    }
+
+    async resolveBankAccount(
+        options: ResolveBankAccountOptions
+    ): Promise<PaystackResponse<ResolveBankAccountResponse>> {
+        try {
+            const bank = await this.paystackBank.resolveBankAccount(options);
+            return bank;
+        } catch (error) {
+            logger.error(error, "****confirm account number****** PAYSTACK");
             switch (true) {
                 case error instanceof PaystackError: {
                     throw new e.PAYSTACKBankException(
