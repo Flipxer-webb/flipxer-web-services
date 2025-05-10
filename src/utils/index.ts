@@ -97,3 +97,11 @@ export const waitForRedis = (config: RedisConfig) => {
 export function formatLocalPhoneToIntlWithoutPlus(phone: string) {
     return `234${phone.substring(1)}`;
 }
+
+export const defaultPagination = {
+    pageNumber: 1,
+    pageSize: 10,
+    startDate: new Date("1970-01-01"),
+    endDate: new Date(),
+    search: "",
+};

@@ -6,11 +6,16 @@ import {
     UsePipes,
     ValidationPipe,
     UseGuards,
+    Query,
 } from "@nestjs/common";
 import { UserService } from "../../services";
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { AuthGuard } from "@/modules/api/auth/guard";
-import { SendRecoveryPinDto, VerifyRecoveryPinDto } from "../../dtos";
+import {
+    GetUserAssetsDto,
+    SendRecoveryPinDto,
+    VerifyRecoveryPinDto,
+} from "../../dtos";
 import { User } from "../../decorators";
 import { User as UserModel } from "@prisma/client";
 
@@ -25,8 +30,8 @@ export class UserController {
     @ApiOperation({ summary: "Get client profile" })
     @ApiBearerAuth("access-token")
     @Get("profile")
-    async getProfile() {
-        return await this.userService.getProfile();
+    async getProfile(@User() user: UserModel) {
+        return await this.userService.getProfile(user);
     }
 
     @ApiOperation({ summary: "Get user wallet grand balance" })
@@ -39,8 +44,11 @@ export class UserController {
     @ApiOperation({ summary: "Get user digital wallet" })
     @ApiBearerAuth("access-token")
     @Get("wallets")
-    async getUserWallets(@User() user: UserModel) {
-        return await this.userService.getUserWallets(user);
+    async getUserWallets(
+        @User() user: UserModel,
+        @Query() query: GetUserAssetsDto
+    ) {
+        return await this.userService.getUserWallets(user, query);
     }
 
     @Post("recovery-email/send-pin")

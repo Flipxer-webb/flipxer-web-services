@@ -424,3 +424,16 @@ model Order {
 
   @@map("Orders")
 }
+
+model Bank {
+  id        Int      @id @default(autoincrement())
+  name      String
+  slug      String   @unique
+  code      String   @unique
+  longCode  String?
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("Banks")
+}

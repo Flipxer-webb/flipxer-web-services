@@ -28,11 +28,16 @@ import { User as UserModel } from "@prisma/client";
 
 @ApiTags("Bank")
 @Controller("banks")
-@UseGuards(AuthGuard)
-@ApiBearerAuth()
 export class BankController {
     constructor(private readonly bankService: BankService) {}
 
+    @Get("list")
+    async getBankList() {
+        return await this.bankService.getListOfBanks();
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth()
     @Post()
     @ApiOperation({
         summary: "Add a new bank detail for the authenticated user",
@@ -45,6 +50,8 @@ export class BankController {
         return this.bankService.create(user.id, createBankDetailDto);
     }
 
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth()
     @Get()
     @ApiOperation({
         summary: "Get all bank details for the authenticated user",
@@ -65,6 +72,8 @@ export class BankController {
         type: Number,
         example: 1,
     })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth()
     async findOne(
         @User() user: UserModel,
         @Param("id") id: string
@@ -83,6 +92,8 @@ export class BankController {
         type: Number,
         example: 1,
     })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth()
     async update(
         @User() user: UserModel,
         @Param("id") id: string,
@@ -106,6 +117,8 @@ export class BankController {
         type: Number,
         example: 1,
     })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth()
     async remove(
         @User() user: UserModel,
         @Param("id") id: string
