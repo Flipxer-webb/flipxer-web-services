@@ -8,6 +8,8 @@ import {
     Param,
     UseGuards,
     ValidationPipe,
+    HttpCode,
+    HttpStatus,
 } from "@nestjs/common";
 import {
     ApiTags,
@@ -21,6 +23,7 @@ import {
     CreateBankDetailDto,
     UpdateBankDetailDto,
     BankDetailResponseDto,
+    VerifyBankAccountDto,
 } from "../dtos";
 import { ApiResponse } from "@/utils";
 import { User } from "@/modules/api/user";
@@ -34,6 +37,12 @@ export class BankController {
     @Get("list")
     async getBankList() {
         return await this.bankService.getListOfBanks();
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-account")
+    async verifyBankAccount(@Body() dto: VerifyBankAccountDto) {
+        return await this.bankService.verifyBankAccount(dto);
     }
 
     @UseGuards(AuthGuard)

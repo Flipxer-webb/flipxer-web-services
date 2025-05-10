@@ -30,7 +30,7 @@ import { GetUserTransactionListDto } from "../../dtos";
 @Controller({
     path: "transactions",
 })
-export class TradingController {
+export class TransactionController {
     constructor(private transactionService: TransactionService) {}
 
     @HttpCode(HttpStatus.OK)
