@@ -18,4 +18,9 @@ declare global {
         meta: Partial<PaginationMeta>;
         records: TData[];
     }
+
+    interface ErrorResponseBody {
+        message: string;
+        code: string;
+    }
 }

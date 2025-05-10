@@ -4,6 +4,7 @@ import validate, {
     RequiredEnvironmentTypes,
 } from "@boxpositron/vre";
 import { ConfigOptions } from "cloudinary";
+import { PaystackOptions } from "@/libs/paystack";
 
 export * from "./constants";
 
@@ -173,6 +174,19 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "REDIS_PASSWORD",
         type: RequiredEnvironmentTypes.String,
     },
+    //paystack
+    {
+        name: "PAYSTACK_SECRET_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "PAYSTACK_BASE_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
+        name: "PAYSTACK_CANCEL_ACTION",
+        type: RequiredEnvironmentTypes.String,
+    },
 ];
 
 validate(runtimeEnvironment);
@@ -327,6 +341,15 @@ export const redisConfig: RedisConfig = {
     },
 };
 
+//payment
+export const paystackSecretKey: string = process.env.PAYSTACK_SECRET_KEY;
+
+export const paystackOptions: PaystackOptions = {
+    baseUrl: process.env.PAYSTACK_BASE_URL,
+    secretKey: process.env.PAYSTACK_SECRET_KEY,
+    cancel_action: process.env.PAYSTACK_CANCEL_ACTION,
+};
+
 export interface Configuration {
     redisConfig: RedisConfig;
     tradingConfig: TradingConfig;
@@ -334,4 +357,5 @@ export interface Configuration {
     imagekitConfig: ImagekitConfig;
     mailConfig: EMailConfig;
     emailTemplateConfig: EMailTemplateConfig;
+    paystackConfig: PaystackOptions;
 }

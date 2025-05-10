@@ -2,6 +2,7 @@ import {
     Injectable,
     ForbiddenException,
     NotFoundException,
+    Inject,
 } from "@nestjs/common";
 import { PrismaService } from "../../../core/prisma/services";
 import {
@@ -10,10 +11,24 @@ import {
     BankDetailResponseDto,
 } from "../dtos";
 import { ApiResponse, buildResponse } from "@/utils";
+import { BankInjectionToken } from "@/modules/factory/bank/types";
+import { PaystackBank } from "@/modules/factory/bank/providers/paystack.provider";
 
 @Injectable()
 export class BankService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        @Inject(BankInjectionToken.PAYSTACK)
+        private readonly paystackService: PaystackBank
+    ) {}
+
+    async getListOfBanks() {
+        const banks = await this.paystackService.getBanks();
+        return buildResponse({
+            message: "banks successfully retrieved",
+            data: banks,
+        });
+    }
 
     async create(
         userId: number,

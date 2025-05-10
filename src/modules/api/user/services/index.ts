@@ -1,7 +1,11 @@
 import { storageDirConfig, mailConfig, emailTemplateConfig } from "@/config";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { generateRandomNum } from "@/utils";
+import {
+    buildPaginationMeta,
+    defaultPagination,
+    generateRandomNum,
+} from "@/utils";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { Injectable, forwardRef, Inject } from "@nestjs/common";
 import { AuthService } from "../../auth/services";
@@ -10,7 +14,11 @@ import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
-import { SendRecoveryPinDto, VerifyRecoveryPinDto } from "../dtos";
+import {
+    GetUserAssetsDto,
+    SendRecoveryPinDto,
+    VerifyRecoveryPinDto,
+} from "../dtos";
 import { Logger } from "moment-logger";
 import {
     UserNotFoundException,
@@ -19,7 +27,7 @@ import {
     AuthGenericException,
 } from "../../auth/errors";
 import { COMPANY_NAME } from "@/config";
-import { User } from "@prisma/client";
+import { AssetWallet, Prisma, User } from "@prisma/client";
 
 const logger = new Logger();
 
@@ -39,11 +47,65 @@ export class UserService {
         });
     }
 
-    async getProfile(): Promise<ApiResponse> {
-        const profile = {};
+    async getProfile(user: User): Promise<ApiResponse> {
+        const profile = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                photo: true,
+                phone: true,
+                userType: true,
+                gender: true,
+                dateOfBirth: true,
+                country: true,
+                status: true,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+                isBvnVerified: true,
+                isDocumentVerified: true,
+                businessRecordCompleted: true,
+                businessDocumentVerificationStatus: true,
+                accountLimit: {
+                    select: {
+                        buyToken: true,
+                        receiveToken: true,
+                        sellTokenFiat: true,
+                        sendToken: true,
+                        swapToken: true,
+                    },
+                },
+            },
+        });
+
+        const defaultWallet = await this.prisma.assetWallet.findFirst({
+            where: {
+                userId: user.id,
+                assetCurrency: "USDT",
+            },
+            select: {
+                assetCurrency: true,
+                defaultNetwork: true,
+                depositAddress: true,
+                destinationTag: true,
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
+            },
+        });
+
         return buildResponse({
             message: "Profile successfully retrieved",
-            data: profile,
+            data: {
+                ...profile,
+                assetWallet: defaultWallet,
+            },
         });
     }
 
@@ -64,13 +126,72 @@ export class UserService {
         });
     }
 
-    async getUserWallets(user: User) {
-        const assets = await this.prisma.assetWallet.findMany({
-            where: { userId: user.id },
-        });
+    async getUserWallets(user: User, query: GetUserAssetsDto) {
+        const { pageNumber, pageSize, sortBy } = query;
+
+        const resolvedPageNumber: number =
+            !pageNumber || (pageNumber && pageNumber <= 1)
+                ? defaultPagination.pageNumber
+                : pageNumber;
+
+        const resolvedPageSize: number =
+            !pageSize || (pageSize && pageSize <= 0)
+                ? defaultPagination.pageSize
+                : query.pageSize;
+
+        const dbQuery: Prisma.AssetWalletFindManyArgs = {
+            orderBy: { createdAt: sortBy },
+            where: {
+                userId: user.id,
+                ...(query.searchText && {
+                    OR: [
+                        { assetName: { contains: query.searchText } },
+                        { assetCurrency: { contains: query.searchText } },
+                    ],
+                }),
+            },
+        };
+
+        const [assets, count] = await this.prisma.$transaction([
+            this.prisma.assetWallet.findMany({
+                ...dbQuery,
+                ...(query.paginated === "true" && {
+                    skip: (resolvedPageNumber - 1) * resolvedPageSize,
+                    take: resolvedPageSize,
+                }),
+            }),
+            this.prisma.assetWallet.count({ where: dbQuery.where }),
+        ]);
+
+        //buy and sell rate to come from admin settings
+        const buyRate = 0.0;
+        const sellRate = 0.0;
+
+        const responseData: DataWithPagination<AssetWallet> = {
+            ...(query.paginated === "true" && {
+                meta: buildPaginationMeta(
+                    resolvedPageNumber,
+                    resolvedPageSize,
+                    count,
+                    assets.length
+                ),
+            }),
+            records: assets.map((asset) => ({
+                ...asset,
+                buyRate: {
+                    value: buyRate.toFixed(4),
+                    referenceCurrency: "ngn",
+                },
+                sellRate: {
+                    value: sellRate.toFixed(4),
+                    referenceCurrency: "ngn",
+                },
+            })),
+        };
+
         return buildResponse({
             message: "Assets successfully retrieved",
-            data: assets,
+            data: responseData,
         });
     }
 
