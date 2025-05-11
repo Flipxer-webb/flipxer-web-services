@@ -17,7 +17,7 @@ export enum Sort {
 export class PaginationQueryDto {
     @ApiProperty({
         description: "Whether it should be paginated or not : defaults to true",
-        example: "'true' or 'false'",
+        example: "'true' or 'false' : optional",
         required: false,
     })
     @IsOptional()
@@ -44,7 +44,7 @@ export class PaginationQueryDto {
 
     @ApiProperty({
         description: "Sort enum (asc or desc) : default to desc",
-        example: "10",
+        example: "desc",
         required: false,
     })
     @IsEnum(Sort)

@@ -266,8 +266,10 @@ export class TradingService {
             {
                 from_currency: dto.from_currency,
                 to_currency: dto.to_currency,
-                from_amount: dto.from_amount.toString(),
-                to_amount: dto.to_amount.toString(),
+                ...(dto.from_amount && {
+                    from_amount: dto.from_amount.toString(),
+                }),
+                ...(dto.to_amount && { to_amount: dto.to_amount?.toString() }),
             }
         );
 
@@ -291,8 +293,10 @@ export class TradingService {
             {
                 from_currency: dto.from_currency,
                 to_currency: dto.to_currency,
-                from_amount: dto.from_amount.toString(),
-                to_amount: dto.to_amount.toString(),
+                ...(dto.from_amount && {
+                    from_amount: dto.from_amount.toString(),
+                }),
+                ...(dto.to_amount && { to_amount: dto.to_amount?.toString() }),
             }
         );
 
@@ -387,8 +391,8 @@ export class TradingService {
                     userId: user.id,
                     fromCurrency: swapInfo.data.from_currency.toUpperCase(),
                     toCurrency: swapInfo.data.to_currency.toUpperCase(),
-                    fromAmount: +swapInfo.data.from_amount,
-                    toAmount: +swapInfo.data.received_amount,
+                    fromAmount: +swapInfo.data?.from_amount,
+                    toAmount: +swapInfo.data?.received_amount,
                     quotationId: swapInfo.data.swap_quotation.id,
                     quoted_currency:
                         swapInfo.data.swap_quotation.quoted_currency,

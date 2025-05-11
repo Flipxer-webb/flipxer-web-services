@@ -27,6 +27,8 @@ import { User as UserModel } from "@prisma/client";
 import { GetUserTransactionListDto } from "../../dtos";
 
 @ApiTags("transactions")
+@UseGuards(AuthGuard)
+@ApiBearerAuth("access-token")
 @Controller({
     path: "transactions",
 })

@@ -15,6 +15,7 @@ import {
     SendForgotPasswordDto,
     ResetPasswordDto,
     RefreshTokenDto,
+    BusinessDocumentUploadDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -39,7 +40,13 @@ import {
     AuthGenericException,
     UserAccountDisabledException,
 } from "../errors";
-import { Prisma, Status, User, UserType } from "@prisma/client";
+import {
+    DocumentVerificationStatus,
+    Prisma,
+    Status,
+    User,
+    UserType,
+} from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
     emailTemplateConfig,
@@ -320,7 +327,7 @@ export class AuthService {
         });
 
         //save the refresh token
-        await this.saveRefreshToken(user.id, tokens.refreshToken);
+        await this.saveRefreshToken(createdUser.id, tokens.refreshToken);
 
         try {
             await this.emailService.sendMailWithTemplate({
@@ -675,9 +682,13 @@ export class AuthService {
             );
         }
 
+        //todo: verify document number using the verification API
+
         const uploadedDoc = await this.uploadDocumentImage(
             dto.documentImageUrl
         );
+
+        console.log(uploadedDoc, "uploadedDoc");
 
         await this.prisma.$transaction(
             async (tx) => {
@@ -723,7 +734,82 @@ export class AuthService {
         });
     }
 
+    async updloadBusinessDocuments(user: User, dto: BusinessDocumentUploadDto) {
+        if (user.businessDocumentsUploaded) {
+            throw new VerificationGenericException(
+                `Document has already been upload and is ${user.businessDocumentVerificationStatus}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Upload all images concurrently
+        const [
+            cacImage,
+            articleImage,
+            boardResolutionImage,
+            proofOfAddressImage,
+            meansOfIdImage,
+        ] = await Promise.all([
+            this.uploadDocumentImage(dto.cacImageUrl),
+            this.uploadDocumentImage(dto.articleOfAssociationImageUrl),
+            this.uploadDocumentImage(
+                dto.boardResolutionAuthorizedAcctOpeningImageUrl
+            ),
+            this.uploadDocumentImage(dto.proofOfAddressForBeneficialOwner),
+            this.uploadDocumentImage(
+                dto.meansOfIdentificationForBeneficialOwner
+            ),
+        ]);
+
+        await this.prisma.$transaction(
+            async (tx) => {
+                await tx.businessDocument.upsert({
+                    where: { userId: user.id },
+                    update: {},
+                    create: {
+                        userId: user.id,
+                        cacDocumentNumber: dto.cacDocumentNumber,
+                        cacImageUrl: cacImage.url,
+                        cacImageUrlFieldId: cacImage.fileId,
+                        articleOfAssociationNumber:
+                            dto.articleOfAssociationNumber,
+                        articleOfAssociationImageUrl: articleImage.url,
+                        articleOfAssociationImageUrlFieldId:
+                            articleImage.fileId,
+                        boardResolutionAuthorizedAcctOpeningImageUrl:
+                            boardResolutionImage.url,
+                        boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
+                            boardResolutionImage.fileId,
+                        meansOfIdentificationForBeneficialOwner:
+                            meansOfIdImage.url,
+                        meansOfIdentificationForBeneficialOwnerImageFieldId:
+                            meansOfIdImage.fileId,
+                        proofOfAddressForBeneficialOwner:
+                            proofOfAddressImage.url,
+                        proofOfAddressForBeneficialOwnerImageFieldId:
+                            proofOfAddressImage.fileId,
+                    },
+                });
+
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        businessDocumentsUploaded: true,
+                        businessDocumentVerificationStatus:
+                            DocumentVerificationStatus.PENDING,
+                    },
+                });
+            },
+            { timeout: 30000 }
+        );
+
+        return buildResponse({
+            message: "Document Verification successfully",
+        });
+    }
+
     async submitBusinessRecord(user: User, dto: SubmitBusinessRecordDto) {
+        //todo: taxid verification
         const record = await this.prisma.businessRecord.upsert({
             where: { id: user.id },
             update: {

@@ -145,8 +145,18 @@ export class UserService {
                 userId: user.id,
                 ...(query.searchText && {
                     OR: [
-                        { assetName: { contains: query.searchText } },
-                        { assetCurrency: { contains: query.searchText } },
+                        {
+                            assetName: {
+                                contains: query.searchText,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            assetCurrency: {
+                                contains: query.searchText,
+                                mode: "insensitive",
+                            },
+                        },
                     ],
                 }),
             },
