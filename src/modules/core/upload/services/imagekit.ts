@@ -34,7 +34,7 @@ export class ImagekitService extends BaseUploadService {
         };base64,${compressedBuffer.toString("base64")}`;
 
         const uploadedResponse = await this.imagekit.upload({
-            file: base64String,
+            file: compressedBuffer, //base64String,
             fileName: options.name,
             folder: options.dir,
         });

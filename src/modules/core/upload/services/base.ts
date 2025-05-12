@@ -9,18 +9,19 @@ export class BaseUploadService {
             height: options.height,
         });
 
-        switch (true) {
-            case options.format == "webp": {
+        switch (options.format) {
+            case "webp":
                 resizedBody.webp(quality);
-            }
-            case options.format == "jpeg": {
+                break;
+            case "jpeg":
                 resizedBody.jpeg(quality);
-            }
-
-            default: {
+                break;
+            case "png":
+            default:
                 resizedBody.png(quality);
-            }
+                break;
         }
+
         return await resizedBody.toBuffer();
     }
 }

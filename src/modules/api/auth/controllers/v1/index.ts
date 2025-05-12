@@ -5,7 +5,9 @@ import {
     HttpStatus,
     Post,
     Req,
+    UploadedFiles,
     UseGuards,
+    UseInterceptors,
     ValidationPipe,
 } from "@nestjs/common";
 import { Request } from "express";
@@ -24,14 +26,27 @@ import {
     ResetPasswordDto,
     RefreshTokenDto,
     BusinessDocumentUploadDto,
+    BusinessDocumentUploadFormDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
-import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
+import {
+    ApiTags,
+    ApiOperation,
+    ApiBearerAuth,
+    ApiConsumes,
+    ApiBody,
+} from "@nestjs/swagger";
 import { AuthGuard } from "../../guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { UserTypes } from "@/modules/api/authorize/decorator";
+import {
+    FileFieldsInterceptor,
+    FileInterceptor,
+} from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
+import { RequiredFilesMissing } from "../../errors";
 
 @ApiTags("user")
 @Controller({
@@ -160,16 +175,64 @@ export class AuthController {
     @UseGuards(AuthGuard, RoleGuard)
     @UserTypes([UserType.BUSINESS])
     @HttpCode(HttpStatus.OK)
-    @Post("upload-business-documents")
     @ApiOperation({
         summary: "upload requested business documents",
     })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: BusinessDocumentUploadFormDto,
+        description: "Business document upload",
+    })
     @ApiBearerAuth("access-token")
+    @Post("upload-business-documents")
+    @UseInterceptors(
+        FileFieldsInterceptor(
+            [
+                { name: "cacImage", maxCount: 1 },
+                { name: "articleOfAssociationImage", maxCount: 1 },
+                {
+                    name: "boardResolutionAuthorizedAcctOpeningImage",
+                    maxCount: 1,
+                },
+                { name: "proofOfAddressForBeneficialOwner", maxCount: 1 },
+                {
+                    name: "meansOfIdentificationForBeneficialOwner",
+                    maxCount: 1,
+                },
+            ],
+            {
+                storage: memoryStorage(),
+                limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit per file
+            }
+        )
+    )
     async updloadBusinessDocuments(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: BusinessDocumentUploadDto
+        @UploadedFiles()
+        files: {
+            cacImage?: Express.Multer.File[];
+            articleOfAssociationImage?: Express.Multer.File[];
+            boardResolutionAuthorizedAcctOpeningImage?: Express.Multer.File[];
+            proofOfAddressForBeneficialOwner?: Express.Multer.File[];
+            meansOfIdentificationForBeneficialOwner?: Express.Multer.File[];
+        },
+        @Body() body: BusinessDocumentUploadDto
     ) {
-        return await this.authService.updloadBusinessDocuments(user, dto);
+        if (
+            !files.cacImage ||
+            !files.boardResolutionAuthorizedAcctOpeningImage ||
+            !files.articleOfAssociationImage ||
+            !files.proofOfAddressForBeneficialOwner ||
+            !files.meansOfIdentificationForBeneficialOwner
+        ) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.authService.updloadBusinessDocuments(
+            user,
+            files,
+            body
+        );
     }
 
     @HttpCode(HttpStatus.OK)
