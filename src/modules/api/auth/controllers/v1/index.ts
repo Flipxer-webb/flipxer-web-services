@@ -23,12 +23,15 @@ import {
     SendForgotPasswordDto,
     ResetPasswordDto,
     RefreshTokenDto,
+    BusinessDocumentUploadDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { AuthGuard } from "../../guard";
 import { User } from "@/modules/api/user";
-import { User as UserModel } from "@prisma/client";
+import { User as UserModel, UserType } from "@prisma/client";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
 
 @ApiTags("user")
 @Controller({
@@ -152,6 +155,21 @@ export class AuthController {
         @Body(ValidationPipe) dto: SubmitBusinessRecordDto
     ) {
         return await this.authService.submitBusinessRecord(user, dto);
+    }
+
+    @UseGuards(AuthGuard, RoleGuard)
+    @UserTypes([UserType.BUSINESS])
+    @HttpCode(HttpStatus.OK)
+    @Post("upload-business-documents")
+    @ApiOperation({
+        summary: "upload requested business documents",
+    })
+    @ApiBearerAuth("access-token")
+    async updloadBusinessDocuments(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: BusinessDocumentUploadDto
+    ) {
+        return await this.authService.updloadBusinessDocuments(user, dto);
     }
 
     @HttpCode(HttpStatus.OK)

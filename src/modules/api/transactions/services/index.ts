@@ -30,12 +30,41 @@ export class TransactionService {
             orderBy: { createdAt: sortBy },
             where: {
                 userId: user.id,
-                // ...(query.searchText && {
-                //     OR: [
-                //         { assetName: { contains: query.searchText } },
-                //         { assetCurrency: { contains: query.searchText } },
-                //     ],
-                // }),
+                ...(query.type && { orderCategory: query.type }),
+                ...(query.asset && {
+                    OR: [
+                        {
+                            currency: {
+                                contains: query.asset,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            fromCurrency: {
+                                contains: query.asset,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            toCurrency: {
+                                contains: query.asset,
+                                mode: "insensitive",
+                            },
+                        },
+                    ],
+                }),
+                ...(query.startDate || query.endDate
+                    ? {
+                          createdAt: {
+                              ...(query.startDate && {
+                                  gte: new Date(query.startDate),
+                              }),
+                              ...(query.endDate && {
+                                  lte: new Date(query.endDate),
+                              }),
+                          },
+                      }
+                    : {}),
             },
         };
 

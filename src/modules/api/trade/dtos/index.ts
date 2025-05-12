@@ -104,17 +104,17 @@ export class PlaceInstantSwapRequestDto {
     @IsEnum(SupportedAssets)
     to_currency: SupportedAssets; //the currency you are swapping to.
 
-    @ApiProperty()
-    @IsNotEmpty()
+    @ApiProperty({ required: false })
+    @IsOptional()
     @IsNumber()
     @IsPositive()
-    from_amount: number; //the amount you want to swap.
+    from_amount?: number; //the amount you want to swap.
 
-    @ApiProperty()
-    @IsNotEmpty()
+    @ApiProperty({ required: false })
+    @IsOptional()
     @IsNumber()
     @IsPositive()
-    to_amount: number; //the amount you want to swap to.
+    to_amount?: number; //the amount you want to swap to.
 }
 
 export class RefreshInstantSwapRequestDto extends PlaceInstantSwapRequestDto {
@@ -125,6 +125,7 @@ export class RefreshInstantSwapRequestDto extends PlaceInstantSwapRequestDto {
 }
 
 export class ConfirmInstantSwapQuoteDto {
+    @ApiProperty()
     @IsNotEmpty()
     @IsString()
     quotationId: string;
