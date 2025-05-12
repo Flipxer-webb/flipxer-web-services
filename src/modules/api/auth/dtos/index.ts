@@ -197,61 +197,58 @@ export class BusinessDocumentUploadDto {
     cacDocumentNumber: string;
 
     @ApiProperty({
-        description: "A valid base64 cac image plain text",
-        example: "Base64 plain text image",
+        description: "A valid article of association number",
+        required: false,
     })
-    @IsNotEmpty()
-    @IsBase64({
-        message: "Image must be a valid base64 plain text",
-    })
-    cacImageUrl: string;
-
-    @ApiProperty({ description: "A valid article of association number" })
     @IsOptional()
-    articleOfAssociationNumber: string;
+    articleOfAssociationNumber?: string;
+}
+
+export class BusinessDocumentUploadFormDto {
+    @ApiProperty({ type: "string", description: "CAC document number" })
+    cacDocumentNumber: string;
 
     @ApiProperty({
-        description: "A valid base64 Article Of Association image plain text",
-        example: "Base64 plain text image",
+        type: "string",
+        required: false,
+        description: "Article of Association number",
     })
-    @IsNotEmpty()
-    @IsBase64({
-        message: "Image must be a valid base64 plain text",
-    })
-    articleOfAssociationImageUrl: string;
+    articleOfAssociationNumber?: string;
 
     @ApiProperty({
-        description:
-            "A valid base64 board resolution authorized acct opening image plain text",
-        example: "Base64 plain text image",
+        type: "string",
+        format: "binary",
+        description: "CAC document image file",
     })
-    @IsNotEmpty()
-    @IsBase64({
-        message: "Image must be a valid base64 plain text",
-    })
-    boardResolutionAuthorizedAcctOpeningImageUrl: string;
+    cacImage: any;
 
     @ApiProperty({
-        description:
-            "A valid base64 proof of address for beneficial owner image plain text",
-        example: "Base64 plain text image",
+        type: "string",
+        format: "binary",
+        description: "Article of Association image file",
     })
-    @IsNotEmpty()
-    @IsBase64({
-        message: "Image must be a valid base64 plain text",
-    })
-    proofOfAddressForBeneficialOwner: string;
+    articleOfAssociationImage: any;
 
     @ApiProperty({
-        description:
-            "A valid base64 means of identification for beneficial owner image plain text",
-        example: "Base64 plain text image",
+        type: "string",
+        format: "binary",
+        description: "Board resolution image file",
     })
-    @IsNotEmpty()
-    @IsBase64({
-        message: "Image must be a valid base64 plain text",
+    boardResolutionAuthorizedAcctOpeningImage: any;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Proof of address for beneficial owner",
     })
-    meansOfIdentificationForBeneficialOwner: string;
+    proofOfAddressForBeneficialOwner: any;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Means of identification for beneficial owner",
+    })
+    meansOfIdentificationForBeneficialOwner: any;
 }
 
 export class SubmitBusinessRecordDto {

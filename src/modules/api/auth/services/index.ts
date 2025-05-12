@@ -688,8 +688,6 @@ export class AuthService {
             dto.documentImageUrl
         );
 
-        console.log(uploadedDoc, "uploadedDoc");
-
         await this.prisma.$transaction(
             async (tx) => {
                 await tx.userDocument.upsert({
@@ -734,7 +732,28 @@ export class AuthService {
         });
     }
 
-    async updloadBusinessDocuments(user: User, dto: BusinessDocumentUploadDto) {
+    async uploadAsFile(file: Express.Multer.File) {
+        console.log(file, "file");
+        const date = Date.now();
+        const body = file[0].buffer;
+
+        const result = await this.uploadService.uploadCompressedImage({
+            dir: storageDirConfig.document,
+            name: `document-${date}-${generateRandomNum(5)}`,
+            format: "webp",
+            body: body,
+            quality: 100,
+            width: 989,
+        });
+
+        return result;
+    }
+
+    async updloadBusinessDocuments(
+        user: User,
+        files: any,
+        dto: BusinessDocumentUploadDto
+    ) {
         if (user.businessDocumentsUploaded) {
             throw new VerificationGenericException(
                 `Document has already been upload and is ${user.businessDocumentVerificationStatus}`,
@@ -750,15 +769,11 @@ export class AuthService {
             proofOfAddressImage,
             meansOfIdImage,
         ] = await Promise.all([
-            this.uploadDocumentImage(dto.cacImageUrl),
-            this.uploadDocumentImage(dto.articleOfAssociationImageUrl),
-            this.uploadDocumentImage(
-                dto.boardResolutionAuthorizedAcctOpeningImageUrl
-            ),
-            this.uploadDocumentImage(dto.proofOfAddressForBeneficialOwner),
-            this.uploadDocumentImage(
-                dto.meansOfIdentificationForBeneficialOwner
-            ),
+            this.uploadAsFile(files.cacImage),
+            this.uploadAsFile(files.articleOfAssociationImage),
+            this.uploadAsFile(files.boardResolutionAuthorizedAcctOpeningImage),
+            this.uploadAsFile(files.proofOfAddressForBeneficialOwner),
+            this.uploadAsFile(files.meansOfIdentificationForBeneficialOwner),
         ]);
 
         await this.prisma.$transaction(
