@@ -684,12 +684,12 @@ export class AuthService {
         files: DocumentVerificationFileInterface,
         dto: DocumentVerificationDto
     ) {
-        // if (user.isDocumentVerified) {
-        //     throw new VerificationGenericException(
-        //         "Document has already been verified",
-        //         HttpStatus.BAD_REQUEST
-        //     );
-        // }
+        if (user.isDocumentVerified) {
+            throw new VerificationGenericException(
+                "Document has already been verified",
+                HttpStatus.BAD_REQUEST
+            );
+        }
 
         //todo: verify document number using the verification API
 
