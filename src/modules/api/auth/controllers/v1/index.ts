@@ -27,6 +27,7 @@ import {
     RefreshTokenDto,
     BusinessDocumentUploadDto,
     BusinessDocumentUploadFormDto,
+    DocumentVerificationUploadFormDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
 import {
@@ -38,7 +39,7 @@ import {
 } from "@nestjs/swagger";
 import { AuthGuard } from "../../guard";
 import { User } from "@/modules/api/user";
-import { User as UserModel, UserType } from "@prisma/client";
+import { DocumentType, User as UserModel, UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import {
@@ -47,6 +48,10 @@ import {
 } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
 import { RequiredFilesMissing } from "../../errors";
+import {
+    DocumentVerificationFileInterface,
+    UploadBusinessDocumentsFileInterface,
+} from "../../interfaces";
 
 @ApiTags("user")
 @Controller({
@@ -150,12 +155,39 @@ export class AuthController {
     @ApiOperation({
         summary: "document verification for users with individual account type",
     })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: DocumentVerificationUploadFormDto,
+        description:
+            "document upload and verification for users with individual account type",
+    })
     @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileFieldsInterceptor(
+            [
+                { name: "documentImage1", maxCount: 1 },
+                { name: "documentImage2", maxCount: 1 },
+            ],
+            {
+                storage: memoryStorage(),
+                limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit per file
+            }
+        )
+    )
     async documentVerification(
         @User() user: UserModel,
+        @UploadedFiles()
+        files: DocumentVerificationFileInterface,
         @Body(ValidationPipe) dto: DocumentVerificationDto
     ) {
-        return await this.authService.documentVerification(user, dto);
+        if (
+            !files.documentImage1 ||
+            (dto.documentType === DocumentType.INTERNATIONAL_PASSPORT &&
+                !files.documentImage2)
+        ) {
+            throw new RequiredFilesMissing();
+        }
+        return await this.authService.documentVerification(user, files, dto);
     }
 
     @UseGuards(AuthGuard)
@@ -209,13 +241,7 @@ export class AuthController {
     async updloadBusinessDocuments(
         @User() user: UserModel,
         @UploadedFiles()
-        files: {
-            cacImage?: Express.Multer.File[];
-            articleOfAssociationImage?: Express.Multer.File[];
-            boardResolutionAuthorizedAcctOpeningImage?: Express.Multer.File[];
-            proofOfAddressForBeneficialOwner?: Express.Multer.File[];
-            meansOfIdentificationForBeneficialOwner?: Express.Multer.File[];
-        },
+        files: UploadBusinessDocumentsFileInterface,
         @Body() body: BusinessDocumentUploadDto
     ) {
         if (

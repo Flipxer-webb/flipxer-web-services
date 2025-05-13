@@ -179,16 +179,38 @@ export class DocumentVerificationDto {
     @IsNotEmpty()
     @IsString()
     documentNumber: string;
+}
+
+export class DocumentVerificationUploadFormDto {
+    @ApiProperty({ enum: DocumentType, enumName: "DocumentType" })
+    @IsNotEmpty()
+    @IsEnum(DocumentType)
+    documentType: DocumentType;
+
+    @ApiProperty({ enum: Country, enumName: "Country" })
+    @IsNotEmpty()
+    @IsEnum(Country)
+    country: Country;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    documentNumber: string;
 
     @ApiProperty({
-        description: "A valid base64 document image plain text",
-        example: "Base64 plain text image",
+        type: "string",
+        format: "binary",
+        description: "Document image file",
     })
-    @IsNotEmpty()
-    @IsBase64({
-        message: "Photo must be a valid base64 plain text",
+    documentImage1: any;
+
+    @ApiProperty({
+        required: false,
+        type: "string",
+        format: "binary",
+        description: "Document image file",
     })
-    documentImageUrl: string;
+    documentImage2?: any;
 }
 
 export class BusinessDocumentUploadDto {

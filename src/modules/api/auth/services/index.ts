@@ -64,7 +64,12 @@ import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
-import { LoginPlatform, SignInOptions } from "../interfaces";
+import {
+    DocumentVerificationFileInterface,
+    LoginPlatform,
+    SignInOptions,
+    UploadBusinessDocumentsFileInterface,
+} from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import * as crypto from "crypto";
 import { COMPANY_NAME } from "@/config";
@@ -674,32 +679,56 @@ export class AuthService {
         });
     }
 
-    async documentVerification(user: User, dto: DocumentVerificationDto) {
-        if (user.isDocumentVerified) {
-            throw new VerificationGenericException(
-                "Document has already been verified",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+    async documentVerification(
+        user: User,
+        files: DocumentVerificationFileInterface,
+        dto: DocumentVerificationDto
+    ) {
+        // if (user.isDocumentVerified) {
+        //     throw new VerificationGenericException(
+        //         "Document has already been verified",
+        //         HttpStatus.BAD_REQUEST
+        //     );
+        // }
 
         //todo: verify document number using the verification API
 
-        const uploadedDoc = await this.uploadDocumentImage(
-            dto.documentImageUrl
-        );
+        const documentImage1Promise = this.uploadAsFile(files.documentImage1);
+        const documentImage2Promise = files.documentImage2
+            ? this.uploadAsFile(files.documentImage2)
+            : Promise.resolve(null);
+
+        const [documentImage1, documentImage2] = await Promise.all([
+            documentImage1Promise,
+            documentImage2Promise,
+        ]);
 
         await this.prisma.$transaction(
             async (tx) => {
                 await tx.userDocument.upsert({
                     where: { userId: user.id },
-                    update: {},
+                    update: {
+                        type: dto.documentType,
+                        country: dto.country,
+                        documentNumber: dto.documentNumber,
+                        documentImageUrl: documentImage1.url,
+                        documentImageFieldId: documentImage1.fileId,
+                        ...(documentImage2 && {
+                            documentImageUrl2: documentImage2.url,
+                            documentImage2FieldId: documentImage2.fileId,
+                        }),
+                    },
                     create: {
                         userId: user.id,
                         type: dto.documentType,
                         country: dto.country,
                         documentNumber: dto.documentNumber,
-                        documentImageUrl: uploadedDoc.url,
-                        documentImageFieldId: uploadedDoc.fileId,
+                        documentImageUrl: documentImage1.url,
+                        documentImageFieldId: documentImage1.fileId,
+                        ...(documentImage2 && {
+                            documentImageUrl2: documentImage2.url,
+                            documentImage2FieldId: documentImage2.fileId,
+                        }),
                     },
                 });
 
@@ -732,8 +761,7 @@ export class AuthService {
         });
     }
 
-    async uploadAsFile(file: Express.Multer.File) {
-        console.log(file, "file");
+    async uploadAsFile(file: Express.Multer.File[]) {
         const date = Date.now();
         const body = file[0].buffer;
 
@@ -751,7 +779,7 @@ export class AuthService {
 
     async updloadBusinessDocuments(
         user: User,
-        files: any,
+        files: UploadBusinessDocumentsFileInterface,
         dto: BusinessDocumentUploadDto
     ) {
         if (user.businessDocumentsUploaded) {
