@@ -169,6 +169,9 @@ model UserDocument {
   documentImageUrl     String
   documentImageFieldId String
 
+   documentImageUrl2     String?
+  documentImage2FieldId String?
+
   user User? @relation(fields: [userId], references: [id])
 
   @@map("UserDocuments")

@@ -24,3 +24,16 @@ interface QuidaxHeader {
 export type RequestFromQuidax = Request & {
     headers: QuidaxHeader;
 };
+
+export interface UploadBusinessDocumentsFileInterface {
+    cacImage?: Express.Multer.File[];
+    articleOfAssociationImage?: Express.Multer.File[];
+    boardResolutionAuthorizedAcctOpeningImage?: Express.Multer.File[];
+    proofOfAddressForBeneficialOwner?: Express.Multer.File[];
+    meansOfIdentificationForBeneficialOwner?: Express.Multer.File[];
+}
+
+export interface DocumentVerificationFileInterface {
+    documentImage1?: Express.Multer.File[];
+    documentImage2?: Express.Multer.File[];
+}
