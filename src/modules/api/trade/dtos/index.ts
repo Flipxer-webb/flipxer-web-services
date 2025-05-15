@@ -132,36 +132,45 @@ export class ConfirmInstantSwapQuoteDto {
 }
 
 export class WithdrawerRequestDto {
-    @ApiProperty({ enum: SupportedAssets })
+    @ApiProperty({ enum: SupportedAssets, description: "allowed currencies" })
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
 
-    @ApiProperty()
+    @ApiProperty({ description: "value to be sent to the recipient." })
     @IsNotEmpty()
     @IsNumber()
     @IsPositive()
-    amount: string;
+    amount: number;
 
-    @ApiProperty()
+    @ApiProperty({ description: "notes for the recipient" })
     @IsNotEmpty()
     @IsString()
     transaction_note: string;
 
-    @ApiProperty()
+    @ApiProperty({ description: "narration for the recipient" })
     @IsNotEmpty()
     @IsString()
     narration: string;
 
-    @ApiProperty()
+    @ApiProperty({ description: "crypto address" })
     @IsNotEmpty()
     @IsString()
-    fund_uid: string; // wallet address
+    recipientWalletAddress: string; // wallet address
 
-    @ApiProperty({ enum: NetworkTypes })
+    @ApiProperty({
+        description: "Optional: Blockchain network for the transaction",
+        enum: NetworkTypes,
+        required: false,
+    })
     @IsOptional()
     @IsEnum(NetworkTypes)
     network?: string;
+
+    @ApiProperty({ description: "destination tag", required: false })
+    @IsOptional()
+    @IsString()
+    destinationTag?: string; //destination tag
 }
 
 export class CancelWithdrawerRequestDto {
