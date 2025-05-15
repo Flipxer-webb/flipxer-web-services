@@ -42,6 +42,8 @@ export class VerifyEmailOtpDto {
 }
 
 export class VerifyPhoneOtpDto {
+    @ApiProperty()
+    @IsNotEmpty()
     @IsPhoneNumber("NG")
     @Length(11, 11, { message: "Phone number must be 11 digits" })
     phone: string;
