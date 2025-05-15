@@ -321,7 +321,8 @@ export class TradingService {
             narration: dto.narration,
             transaction_note: dto.transaction_note,
             user_id: user.cryptoSubAccountId,
-            fund_uid: dto.fund_uid, //receiving wallet address
+            fund_uid: dto.recipientWalletAddress, //receiving wallet address
+            fund_uid2: dto.destinationTag, // destination tag
             reference: reference,
         });
 

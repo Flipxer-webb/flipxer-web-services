@@ -178,6 +178,7 @@ export interface CreateWithdrawerRequestOptions {
     transaction_note: string;
     narration: string;
     fund_uid: string; // wallet address
+    fund_uid2?: string; //destination tag
     reference: string; //<your_unique_reference>
     network?: string;
 }

@@ -389,7 +389,7 @@ export class QuidaxLib {
         try {
             const requestOptions: AxiosRequestConfig<t.CreateWithdrawerRequestOptions> =
                 {
-                    url: `/users/${options.user_id}/withdraw`,
+                    url: `/users/${options.user_id}/withdraws`,
                     method: "POST",
                     data: options,
                 };
