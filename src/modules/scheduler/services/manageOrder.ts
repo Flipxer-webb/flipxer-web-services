@@ -130,7 +130,7 @@ export class ManageOrdersSchedulerService {
             const pendingWithdrawerTransactions =
                 await this.prisma.order.findMany({
                     where: {
-                        orderCategory: OrderCategory.WITHDRAWER,
+                        orderCategory: OrderCategory.SEND,
                         status: OrderStatus.processing,
                         createdAt: { gte: cutoffTime },
                     },

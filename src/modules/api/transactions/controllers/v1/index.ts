@@ -42,6 +42,6 @@ export class TransactionController {
         @User() user: UserModel,
         @Query() query: GetUserTransactionListDto
     ) {
-        return this.transactionService.getUserTransactionHistory(user, query);
+        return this.transactionService.getUserTransactionHistory(query, user);
     }
 }
