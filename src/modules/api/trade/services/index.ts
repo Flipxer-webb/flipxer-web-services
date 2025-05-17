@@ -24,6 +24,7 @@ import {
     CryptoWalletStatus,
     NetworkTypes,
     OrderCategory,
+    OrderSide,
     OrderStatus,
     User,
 } from "@prisma/client";
@@ -233,7 +234,10 @@ export class TradingService {
         if (order.data) {
             await this.prisma.order.create({
                 data: {
-                    orderCategory: OrderCategory.TRADE,
+                    orderCategory:
+                        dto.order_side === OrderSide.buy
+                            ? OrderCategory.BUY
+                            : OrderCategory.SELL,
                     orderType: dto.order_type,
                     market: dto.market,
                     orderSide: dto.order_side,
@@ -328,7 +332,7 @@ export class TradingService {
 
         await this.prisma.order.create({
             data: {
-                orderCategory: OrderCategory.WITHDRAWER,
+                orderCategory: OrderCategory.SEND,
                 status: OrderStatus.processing,
                 orderReference: reference,
                 providerOrderId: requestRes.data.id,
@@ -575,7 +579,7 @@ export class TradingService {
             if (!transaction) {
                 await this.prisma.order.create({
                     data: {
-                        orderCategory: OrderCategory.DEPOSIT,
+                        orderCategory: OrderCategory.RECEIVE,
                         status: options.status,
                         providerOrderId: options.referenceId,
                         blockchain_txid: options.txid,

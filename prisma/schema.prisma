@@ -386,10 +386,11 @@ enum OrderType {
 }
 
 enum OrderCategory {
-  TRADE // includes buy/sell
+  BUY
+  SELL
   SWAP
-  WITHDRAWER
-  DEPOSIT
+  SEND
+  RECEIVE
 }
 
 model Order {
@@ -415,8 +416,8 @@ model Order {
   quoted_currency String?
   executionPrice  Float? // actual rate at execution (from `SwapTransaction.execution_price`)
   swapExpiresAt   DateTime?
-
-  //withdrawer related
+ 
+  //send and receive related
   currency         String?
   narration        String?
   reason           String?
