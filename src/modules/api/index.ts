@@ -6,6 +6,7 @@ import { WebExtension } from "./webExtension";
 import { BankModule } from "./banks";
 import { TradingModule } from "./trade";
 import { TransactionModule } from "./transactions";
+import { SettingModule } from "./settings";
 
 @Module({
     imports: [
@@ -16,6 +17,7 @@ import { TransactionModule } from "./transactions";
         BankModule,
         TradingModule,
         TransactionModule,
+        SettingModule,
     ],
 })
 export class APIModule {}
