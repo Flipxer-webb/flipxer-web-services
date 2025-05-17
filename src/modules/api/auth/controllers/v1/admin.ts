@@ -6,7 +6,11 @@ import {
     Post,
     ValidationPipe,
 } from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse as SwaggerApiResponse } from "@nestjs/swagger";
+import {
+    ApiTags,
+    ApiOperation,
+    ApiResponse as SwaggerApiResponse,
+} from "@nestjs/swagger";
 import { SignInDto } from "../../dtos"; // Replaced UserSigInDto with SignInDto
 import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
