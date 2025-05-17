@@ -6,8 +6,12 @@ import {
     Post,
     ValidationPipe,
 } from "@nestjs/common";
-import { ApiOperation, ApiTags } from "@nestjs/swagger";
-import { UserSigInDto } from "../../dtos";
+import {
+    ApiTags,
+    ApiOperation,
+    ApiResponse as SwaggerApiResponse,
+} from "@nestjs/swagger";
+import { SignInDto } from "../../dtos"; // Replaced UserSigInDto with SignInDto
 import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse } from "@/utils/api-response-util";
@@ -23,7 +27,7 @@ export class AdminAuthController {
     @ApiOperation({ summary: "admin login" })
     @Post("login")
     async signIn(
-        @Body(ValidationPipe) signInDto: UserSigInDto,
+        @Body(ValidationPipe) signInDto: SignInDto, // Updated to SignInDto
         @ClientData() clientData: ClientDataInterface
     ): Promise<ApiResponse> {
         // The return type is still the interface
