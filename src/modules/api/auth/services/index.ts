@@ -138,7 +138,9 @@ export class AuthService {
         return { accessToken, refreshToken };
     }
 
-    async requestPasswordReset(dto: SendForgotPasswordDto): Promise<ApiResponse> {
+    async requestPasswordReset(
+        dto: SendForgotPasswordDto
+    ): Promise<ApiResponse> {
         // Check for user existence
         const user = await this.prisma.user.findUnique({
             where: { email: dto.email },
@@ -166,7 +168,8 @@ export class AuthService {
         });
 
         // Prepare email data
-        const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
+        const name =
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
         const username = user.email;
         const team = COMPANY_NAME;
         const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${dto.email}`;
@@ -185,7 +188,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException("Failed to send password reset email");
+            throw new AuthGenericException(
+                "Failed to send password reset email"
+            );
         }
 
         return buildResponse({
@@ -201,7 +206,9 @@ export class AuthService {
         });
 
         if (!user || !user.passwordResetRequest) {
-            throw new InvalidResetRequestException("Invalid password reset request");
+            throw new InvalidResetRequestException(
+                "Invalid password reset request"
+            );
         }
 
         if (user.passwordResetRequest.code !== dto.resetCode) {
@@ -302,7 +309,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException("Failed to send account verification email");
+            throw new AuthGenericException(
+                "Failed to send account verification email"
+            );
         }
 
         return buildResponse({
@@ -361,7 +370,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException("Failed to send account verification email");
+            throw new AuthGenericException(
+                "Failed to send account verification email"
+            );
         }
 
         return buildResponse({
