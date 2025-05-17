@@ -6,6 +6,7 @@ import {
     IsNotEmpty,
     IsBooleanString,
     IsEnum,
+    IsDateString,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -109,6 +110,32 @@ export class VerifyRecoveryPinDto {
 export class GetUserAssetsDto extends PaginationQueryDto {
     @ApiProperty({
         description: "search asset by name",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    searchText?: string;
+}
+
+export class GetUserListDto extends PaginationQueryDto {
+    @ApiProperty({
+        description: "filter by start date",
+        required: false,
+    })
+    @IsOptional()
+    @IsDateString()
+    startDate?: string;
+
+    @ApiProperty({
+        description: "filter by end date",
+        required: false,
+    })
+    @IsOptional()
+    @IsDateString()
+    endDate?: string;
+
+    @ApiProperty({
+        description: "search user by name, phone or email",
         required: false,
     })
     @IsOptional()

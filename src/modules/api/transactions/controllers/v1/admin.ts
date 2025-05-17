@@ -27,27 +27,31 @@ import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { GetUserTransactionListDto } from "../../dtos";
 
-@ApiTags("transactions")
+@ApiTags("admin")
 @UseGuards(AuthGuard)
 @ApiBearerAuth("access-token")
 @Controller({
-    path: "transactions",
+    path: "admin/transactions",
 })
-export class TransactionController {
+export class AdminTransactionController {
     constructor(private transactionService: TransactionService) {}
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get user transactions" })
+    @ApiOperation({ summary: "admin gets all transactions" })
     @Get()
-    async getUserTransactionHistory(
-        @User() user: UserModel,
-        @Query() query: GetUserTransactionListDto
-    ) {
-        return this.transactionService.getUserTransactionHistory(query, user);
+    async getAllTransactionList(@Query() query: GetUserTransactionListDto) {
+        return this.transactionService.getUserTransactionHistory(query);
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "user get transaction detail" })
+    @ApiOperation({ summary: "admin gets recent transactions" })
+    @Get("recent")
+    async getRecentTransactionList() {
+        return this.transactionService.getRecentTransactionList();
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "admin get transaction detail" })
     @Get(":transactionId")
     async getTransactionDetail(
         @Param("transactionId", ParseIntPipe) transactionId: number

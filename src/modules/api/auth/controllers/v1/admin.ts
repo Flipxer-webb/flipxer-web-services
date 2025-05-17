@@ -12,7 +12,7 @@ import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse } from "@/utils/api-response-util";
 
-@ApiTags("Admin Authentication")
+@ApiTags("admin")
 @Controller({
     path: "admin/auth",
 })
@@ -21,6 +21,7 @@ export class AdminAuthController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "admin login" })
+    @Post("login")
     async signIn(
         @Body(ValidationPipe) signInDto: UserSigInDto,
         @ClientData() clientData: ClientDataInterface

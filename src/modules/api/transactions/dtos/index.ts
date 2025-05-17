@@ -1,6 +1,12 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { PaginationQueryDto } from "../../user/dtos";
-import { IsDateString, IsEnum, IsOptional, IsString } from "class-validator";
+import {
+    IsDateString,
+    IsEnum,
+    IsNumberString,
+    IsOptional,
+    IsString,
+} from "class-validator";
 import { OrderCategory } from "@prisma/client";
 
 export class GetUserTransactionListDto extends PaginationQueryDto {
@@ -35,4 +41,12 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
     @IsOptional()
     @IsDateString()
     endDate?: string;
+
+    @ApiProperty({
+        description: "search transaction using transaction id",
+        required: false,
+    })
+    @IsOptional()
+    @IsNumberString()
+    searchText?: string;
 }
