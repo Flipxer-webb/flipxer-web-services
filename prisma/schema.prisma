@@ -451,3 +451,36 @@ model Bank {
 
   @@map("Banks")
 }
+
+
+model CryptoRate {
+  id        Int      @id @default(autoincrement())
+  currency  String   // 'BTC', 'USDT', 'USDC'
+  buyRate   Float  @default(0)
+  sellRate  Float @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([currency])
+  @@map("CryptoRates")
+}
+
+
+enum TransactionFeeCategory {
+  BUY
+  SELL
+  SWAP
+  SEND
+}
+
+model TransactionFee {
+  id        Int      @id @default(autoincrement())
+  category  TransactionFeeCategory
+  currency  String   // 'BTC', 'USDT', 'USDC'
+  fee   Float  @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([category,currency])
+  @@map("TransactionFees")
+}

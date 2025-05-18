@@ -21,14 +21,16 @@ import {
     ApiBody,
     ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
-import { AuthGuard } from "@/modules/api/auth/guard";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
-import { User as UserModel } from "@prisma/client";
+import { User as UserModel, UserType } from "@prisma/client";
 import { GetUserTransactionListDto } from "../../dtos";
+import { UserTypes } from "@/modules/api/authorize/decorator";
 
 @ApiTags("admin")
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+@UserTypes([UserType.ADMIN])
 @ApiBearerAuth("access-token")
 @Controller({
     path: "admin/transactions",

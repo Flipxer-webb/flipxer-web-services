@@ -1,23 +1,10 @@
 import { SwaggerResponse, ApiResponse } from "@/utils/api-response-util";
-import {
-    Body,
-    Controller,
-    Get,
-    HttpCode,
-    HttpStatus,
-    Param,
-    Post,
-    Query,
-    UseGuards,
-    ValidationPipe,
-} from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus } from "@nestjs/common";
 
 import { SettingService } from "../../services";
 import {
     ApiTags,
     ApiOperation,
-    ApiBearerAuth,
-    ApiBody,
     ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
 
@@ -29,9 +16,16 @@ export class SettingController {
     constructor(private settingService: SettingService) {}
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get supported assets list" })
-    @Get("supported-assets")
-    async getSupportedAssets() {
-        return this.settingService.getSupportedNetworks();
+    @ApiOperation({ summary: "get crypto rate list" })
+    @Get("crypto/rates")
+    async getCryptoRateList() {
+        return this.settingService.getCryptoRateList();
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "get crypto transaction fee list" })
+    @Get("crypto/transaction-fees")
+    async getCryptoTransactionFees() {
+        return this.settingService.getCryptoTransactionFeeList();
     }
 }
