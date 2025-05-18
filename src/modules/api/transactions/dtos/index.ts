@@ -11,6 +11,7 @@ import { OrderCategory } from "@prisma/client";
 
 export class GetUserTransactionListDto extends PaginationQueryDto {
     @ApiProperty({
+        enum: OrderCategory,
         description: "filter by transaction type",
         required: false,
     })
@@ -20,6 +21,7 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
 
     @ApiProperty({
         description: "filter by asset name or asset symbol",
+        example: "USDT",
         required: false,
     })
     @IsOptional()
@@ -28,6 +30,7 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
 
     @ApiProperty({
         description: "filter by start date",
+        example: "2024-01-01T00:00:00Z",
         required: false,
     })
     @IsOptional()
@@ -36,6 +39,7 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
 
     @ApiProperty({
         description: "filter by end date",
+        example: "2024-01-01T00:00:00Z",
         required: false,
     })
     @IsOptional()
@@ -44,6 +48,7 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
 
     @ApiProperty({
         description: "search transaction using transaction id",
+        example: "1",
         required: false,
     })
     @IsOptional()
