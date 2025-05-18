@@ -17,8 +17,9 @@ export enum Sort {
 }
 export class PaginationQueryDto {
     @ApiProperty({
-        description: "Whether it should be paginated or not : defaults to true",
-        example: "'true' or 'false' : optional",
+        description:
+            "Whether it should be paginated or not : defaults to true - optional",
+        example: "true",
         required: false,
     })
     @IsOptional()
@@ -26,7 +27,7 @@ export class PaginationQueryDto {
     paginated?: string = "true";
 
     @ApiProperty({
-        description: "Page number desired : defaults to 1",
+        description: "Page number desired : defaults to 1 - optional",
         example: "1",
         required: false,
     })
@@ -35,7 +36,7 @@ export class PaginationQueryDto {
     pageNumber?: number;
 
     @ApiProperty({
-        description: "Document size per page : default to 10",
+        description: "Document size per page : default to 10 - optional",
         example: "10",
         required: false,
     })
@@ -44,7 +45,7 @@ export class PaginationQueryDto {
     pageSize?: number;
 
     @ApiProperty({
-        description: "Sort enum (asc or desc) : default to desc",
+        description: "Sort enum (asc or desc) : default to desc - optional",
         example: "desc",
         required: false,
     })
