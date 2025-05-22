@@ -6,6 +6,7 @@ import {
     IsNotEmpty,
     IsBooleanString,
     IsEnum,
+    Matches,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -126,9 +127,13 @@ export class UpdateProfilePasswordDto {
     oldPassword: string;
 
     @ApiProperty({
-        description: "your new desired password",
-        example: "new password",
+        description: "Your new desired password",
+        example: "NewPassw0rd!",
     })
     @IsString()
+    @Matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$&%])[A-Za-z\d!@#$&%]{10,100}$/, {
+        message:
+            "Password must be 10-100 characters long, contain at least one uppercase letter, one number, and one special character (!@#$&%)",
+    })
     newPassword: string;
 }
