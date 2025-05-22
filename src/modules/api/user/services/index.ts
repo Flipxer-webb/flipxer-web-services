@@ -7,7 +7,7 @@ import {
     generateRandomNum,
 } from "@/utils";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
-import { Injectable, forwardRef, Inject } from "@nestjs/common";
+import { Injectable, forwardRef, Inject, HttpStatus } from "@nestjs/common";
 import { AuthService } from "../../auth/services";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
@@ -17,6 +17,7 @@ import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import {
     GetUserAssetsDto,
     SendRecoveryPinDto,
+    UpdateProfilePasswordDto,
     VerifyRecoveryPinDto,
 } from "../dtos";
 import { Logger } from "moment-logger";
@@ -28,6 +29,7 @@ import {
 } from "../../auth/errors";
 import { COMPANY_NAME } from "@/config";
 import { AssetWallet, Prisma, User } from "@prisma/client";
+import { IncorrectPasswordException } from "../errors";
 
 const logger = new Logger();
 
@@ -382,5 +384,45 @@ export class UserService {
                 "An error occurred while verifying the recovery PIN"
             );
         }
+    }
+
+    async updateProfilePassword(
+        options: UpdateProfilePasswordDto,
+        user: User
+    ): Promise<ApiResponse> {
+        const userData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+        });
+
+        if (!userData) {
+            throw new UserNotFoundException(
+                "User profile could not be found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        const isMatched = await this.authService.comparePassword(
+            options.oldPassword,
+            user.password
+        );
+
+        if (!isMatched) {
+            throw new IncorrectPasswordException(
+                "The old password you entered does not match with your existing password",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+        const newHashedPassword = await this.authService.hashPassword(
+            options.newPassword
+        );
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { password: newHashedPassword },
+        });
+
+        return buildResponse({
+            message: "Password successfully updated",
+        });
     }
 }
