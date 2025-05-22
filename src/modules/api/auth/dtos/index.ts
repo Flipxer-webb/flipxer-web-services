@@ -279,6 +279,16 @@ export class SubmitBusinessRecordDto {
     @ApiProperty()
     @IsNotEmpty()
     @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
     businessName: string;
 
     @ApiProperty()
