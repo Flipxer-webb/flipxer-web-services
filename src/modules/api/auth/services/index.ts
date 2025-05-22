@@ -831,8 +831,15 @@ export class AuthService {
 
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { businessRecordCompleted: true },
+            data: {
+                businessRecordCompleted: true,
+                firstName: dto.firstName,
+                lastName: dto.lastName,
+            },
         });
+
+        //create user quidax account and default wallet address once email is verified
+        await this.cryptoAccountQueueProducer.enqueue(user.id);
 
         return buildResponse({
             message: "Business record submitted successfully",
