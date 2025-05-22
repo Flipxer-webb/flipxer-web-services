@@ -11,3 +11,7 @@ export class UserNotFoundException extends HttpException {
 export class AccountDeletedException extends HttpException {
     name = "AccountDeletedException";
 }
+
+export class IncorrectPasswordException extends HttpException {
+    name = "IncorrectPasswordException";
+}

@@ -116,3 +116,19 @@ export class GetUserAssetsDto extends PaginationQueryDto {
     @IsString()
     searchText?: string;
 }
+
+export class UpdateProfilePasswordDto {
+    @ApiProperty({
+        description: "your current password",
+        example: "current password",
+    })
+    @IsString()
+    oldPassword: string;
+
+    @ApiProperty({
+        description: "your new desired password",
+        example: "new password",
+    })
+    @IsString()
+    newPassword: string;
+}

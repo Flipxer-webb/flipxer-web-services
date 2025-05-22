@@ -10,10 +10,11 @@ import {
 } from "@nestjs/common";
 import { UserService } from "../../services";
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
-import { AuthGuard } from "@/modules/api/auth/guard";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
     SendRecoveryPinDto,
+    UpdateProfilePasswordDto,
     VerifyRecoveryPinDto,
 } from "../../dtos";
 import { User } from "../../decorators";
@@ -23,7 +24,7 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "user",
 })
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, EnabledAccountGuard)
 export class UserController {
     constructor(private readonly userService: UserService) {}
 
@@ -32,6 +33,20 @@ export class UserController {
     @Get("profile")
     async getProfile(@User() user: UserModel) {
         return await this.userService.getProfile(user);
+    }
+
+    @ApiOperation({ summary: "Update user password" })
+    @ApiBearerAuth("access-token")
+    @Post("profile/update-password")
+    async updateProfilePassword(
+        @Body(ValidationPipe)
+        updateProfilePasswordDto: UpdateProfilePasswordDto,
+        @User() user: UserModel
+    ) {
+        return await this.userService.updateProfilePassword(
+            updateProfilePasswordDto,
+            user
+        );
     }
 
     @ApiOperation({ summary: "Get user wallet grand balance" })
