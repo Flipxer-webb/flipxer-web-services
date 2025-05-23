@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -309,9 +309,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException(
-                "Failed to send account verification email"
-            );
+            //do not throw error here, only log
+            console.log(error, "errors");
+            Logger.error(`Failed to send account verification email${error}`);
         }
 
         return buildResponse({
@@ -810,33 +810,43 @@ export class AuthService {
 
     async submitBusinessRecord(user: User, dto: SubmitBusinessRecordDto) {
         //todo: taxid verification
-        const record = await this.prisma.businessRecord.upsert({
-            where: { id: user.id },
-            update: {
-                businessName: dto.businessName,
-                natureOfBusiness: dto.natureOfBusiness,
-                expectedTransactionFrequency: dto.expectedTransactionFrequency,
-                expectedTransactionVolume: dto.expectedTransactionVolumes,
-                taxIdentificationNumber: dto.taxIdentificationNumber,
-            },
-            create: {
-                userId: user.id,
-                businessName: dto.businessName,
-                natureOfBusiness: dto.natureOfBusiness,
-                expectedTransactionFrequency: dto.expectedTransactionFrequency,
-                expectedTransactionVolume: dto.expectedTransactionVolumes,
-                taxIdentificationNumber: dto.taxIdentificationNumber,
-            },
-        });
+        const record = await this.prisma.$transaction(
+            async (tx) => {
+                const record = await tx.businessRecord.upsert({
+                    where: { userId: user.id },
+                    update: {
+                        businessName: dto.businessName,
+                        natureOfBusiness: dto.natureOfBusiness,
+                        expectedTransactionFrequency:
+                            dto.expectedTransactionFrequency,
+                        expectedTransactionVolume:
+                            dto.expectedTransactionVolumes,
+                        taxIdentificationNumber: dto.taxIdentificationNumber,
+                    },
+                    create: {
+                        userId: user.id,
+                        businessName: dto.businessName,
+                        natureOfBusiness: dto.natureOfBusiness,
+                        expectedTransactionFrequency:
+                            dto.expectedTransactionFrequency,
+                        expectedTransactionVolume:
+                            dto.expectedTransactionVolumes,
+                        taxIdentificationNumber: dto.taxIdentificationNumber,
+                    },
+                });
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                businessRecordCompleted: true,
-                firstName: dto.firstName,
-                lastName: dto.lastName,
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        businessRecordCompleted: true,
+                        firstName: dto.firstName,
+                        lastName: dto.lastName,
+                    },
+                });
+                return record;
             },
-        });
+            { maxWait: 10000, timeout: 30000 }
+        );
 
         //create user quidax account and default wallet address once email is verified
         await this.cryptoAccountQueueProducer.enqueue(user.id);
