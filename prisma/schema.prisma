@@ -187,17 +187,17 @@ model BusinessDocument {
   cacImageUrlFieldId String
 
   articleOfAssociationNumber          String?
-  articleOfAssociationImageUrl        String
-  articleOfAssociationImageUrlFieldId String
+  articleOfAssociationImageUrl        String?
+  articleOfAssociationImageUrlFieldId String?
 
-  boardResolutionAuthorizedAcctOpeningImageUrl        String
-  boardResolutionAuthorizedAcctOpeningImageUrlFieldId String
+  boardResolutionAuthorizedAcctOpeningImageUrl        String?
+  boardResolutionAuthorizedAcctOpeningImageUrlFieldId String?
 
-  proofOfAddressForBeneficialOwner             String
-  proofOfAddressForBeneficialOwnerImageFieldId String
+  proofOfAddressForBeneficialOwner             String?
+  proofOfAddressForBeneficialOwnerImageFieldId String?
 
-  meansOfIdentificationForBeneficialOwner             String
-  meansOfIdentificationForBeneficialOwnerImageFieldId String
+  meansOfIdentificationForBeneficialOwner             String?
+  meansOfIdentificationForBeneficialOwnerImageFieldId String?
 
   user User? @relation(fields: [userId], references: [id])
 
