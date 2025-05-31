@@ -326,19 +326,15 @@ export class UserService {
                 include: { recoveryEmail: true },
             });
 
-            if (!user || !user.recoveryEmail) {
-                logger.warn(
-                    `User or recovery email not found for email: ${dto.email}`
-                );
+            if (!user) {
                 throw new UserNotFoundException(
-                    "User or recovery email not found"
+                    "User not found"
                 );
             }
 
             const recoveryEmail = user.recoveryEmail;
 
             if (recoveryEmail.recoveryPin !== dto.pin) {
-                logger.warn(`Invalid PIN provided for user ID: ${user.id}`);
                 throw new InvalidVerificationCodeException("Invalid PIN");
             }
 
