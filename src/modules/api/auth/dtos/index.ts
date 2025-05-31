@@ -250,29 +250,33 @@ export class BusinessDocumentUploadFormDto {
         type: "string",
         format: "binary",
         description: "Article of Association image file",
+        required: false,
     })
-    articleOfAssociationImage: any;
+    articleOfAssociationImage?: any;
 
     @ApiProperty({
         type: "string",
         format: "binary",
         description: "Board resolution image file",
+        required: false,
     })
-    boardResolutionAuthorizedAcctOpeningImage: any;
+    boardResolutionAuthorizedAcctOpeningImage?: any;
 
     @ApiProperty({
         type: "string",
         format: "binary",
         description: "Proof of address for beneficial owner",
+        required: false,
     })
-    proofOfAddressForBeneficialOwner: any;
+    proofOfAddressForBeneficialOwner?: any;
 
     @ApiProperty({
         type: "string",
         format: "binary",
         description: "Means of identification for beneficial owner",
+        required: false,
     })
-    meansOfIdentificationForBeneficialOwner: any;
+    meansOfIdentificationForBeneficialOwner?: any;
 }
 
 export class SubmitBusinessRecordDto {

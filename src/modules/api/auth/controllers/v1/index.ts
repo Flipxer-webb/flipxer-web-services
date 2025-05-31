@@ -244,13 +244,7 @@ export class AuthController {
         files: UploadBusinessDocumentsFileInterface,
         @Body() body: BusinessDocumentUploadDto
     ) {
-        if (
-            !files.cacImage ||
-            !files.boardResolutionAuthorizedAcctOpeningImage ||
-            !files.articleOfAssociationImage ||
-            !files.proofOfAddressForBeneficialOwner ||
-            !files.meansOfIdentificationForBeneficialOwner
-        ) {
+        if (!files.cacImage) {
             throw new RequiredFilesMissing();
         }
 

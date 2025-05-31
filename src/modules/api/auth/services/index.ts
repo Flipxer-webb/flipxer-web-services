@@ -746,6 +746,10 @@ export class AuthService {
             );
         }
 
+        // Helper to upload only if file exists
+        const safeUpload = async (file?: Express.Multer.File[]) =>
+            file ? this.uploadAsFile(file) : null;
+
         // Upload all images concurrently
         const [
             cacImage,
@@ -754,13 +758,12 @@ export class AuthService {
             proofOfAddressImage,
             meansOfIdImage,
         ] = await Promise.all([
-            this.uploadAsFile(files.cacImage),
-            this.uploadAsFile(files.articleOfAssociationImage),
-            this.uploadAsFile(files.boardResolutionAuthorizedAcctOpeningImage),
-            this.uploadAsFile(files.proofOfAddressForBeneficialOwner),
-            this.uploadAsFile(files.meansOfIdentificationForBeneficialOwner),
+            safeUpload(files.cacImage),
+            safeUpload(files.articleOfAssociationImage),
+            safeUpload(files.boardResolutionAuthorizedAcctOpeningImage),
+            safeUpload(files.proofOfAddressForBeneficialOwner),
+            safeUpload(files.meansOfIdentificationForBeneficialOwner),
         ]);
-
         await this.prisma.$transaction(
             async (tx) => {
                 await tx.businessDocument.upsert({
@@ -769,25 +772,25 @@ export class AuthService {
                     create: {
                         userId: user.id,
                         cacDocumentNumber: dto.cacDocumentNumber,
-                        cacImageUrl: cacImage.url,
-                        cacImageUrlFieldId: cacImage.fileId,
+                        cacImageUrl: cacImage?.url || null,
+                        cacImageUrlFieldId: cacImage?.fileId || null,
                         articleOfAssociationNumber:
-                            dto.articleOfAssociationNumber,
-                        articleOfAssociationImageUrl: articleImage.url,
+                            dto.articleOfAssociationNumber || null,
+                        articleOfAssociationImageUrl: articleImage?.url || null,
                         articleOfAssociationImageUrlFieldId:
-                            articleImage.fileId,
+                            articleImage?.fileId || null,
                         boardResolutionAuthorizedAcctOpeningImageUrl:
-                            boardResolutionImage.url,
+                            boardResolutionImage?.url || null,
                         boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
-                            boardResolutionImage.fileId,
+                            boardResolutionImage?.fileId || null,
                         meansOfIdentificationForBeneficialOwner:
-                            meansOfIdImage.url,
+                            meansOfIdImage?.url || null,
                         meansOfIdentificationForBeneficialOwnerImageFieldId:
-                            meansOfIdImage.fileId,
+                            meansOfIdImage?.fileId || null,
                         proofOfAddressForBeneficialOwner:
-                            proofOfAddressImage.url,
+                            proofOfAddressImage?.url || null,
                         proofOfAddressForBeneficialOwnerImageFieldId:
-                            proofOfAddressImage.fileId,
+                            proofOfAddressImage?.fileId || null,
                     },
                 });
 
