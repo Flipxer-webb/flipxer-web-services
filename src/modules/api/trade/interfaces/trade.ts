@@ -122,7 +122,7 @@ export enum OrderSide {
 }
 
 export interface SwapTransactionHandlerOptions {
-    orderReference: string;
+    orderId: string;
     status: OrderStatus;
 }
 

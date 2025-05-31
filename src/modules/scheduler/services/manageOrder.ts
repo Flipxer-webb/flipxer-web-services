@@ -65,7 +65,7 @@ export class ManageOrdersSchedulerService {
                                     case OrderStatus.completed:
                                         await this.tradingService.swapTransactionHandler(
                                             {
-                                                orderReference: providerOrderId,
+                                                orderId: providerOrderId,
                                                 status: OrderStatus.completed,
                                             }
                                         );
@@ -73,7 +73,7 @@ export class ManageOrdersSchedulerService {
                                     case OrderStatus.failed:
                                         await this.tradingService.swapTransactionHandler(
                                             {
-                                                orderReference: providerOrderId,
+                                                orderId: providerOrderId,
                                                 status: OrderStatus.failed,
                                             }
                                         );
@@ -81,7 +81,7 @@ export class ManageOrdersSchedulerService {
                                     case OrderStatus.reversed:
                                         await this.tradingService.swapTransactionHandler(
                                             {
-                                                orderReference: providerOrderId,
+                                                orderId: providerOrderId,
                                                 status: OrderStatus.reversed,
                                             }
                                         );
