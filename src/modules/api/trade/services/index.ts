@@ -381,35 +381,52 @@ export class TradingService {
             );
         }
 
-        const swapInfo = await this.quidaxService.confirmInstantSwap({
-            quotation_id: dto.quotationId,
-            user_id: user.cryptoSubAccountId,
-        });
-
-        if (swapInfo.data) {
-            await this.prisma.order.create({
-                data: {
-                    orderCategory: OrderCategory.SWAP,
-                    status: swapInfo.data.status,
-                    providerOrderId: swapInfo.data.id,
-                    orderReference: swapInfo.data.id,
-                    userId: user.id,
-                    fromCurrency: swapInfo.data.from_currency.toUpperCase(),
-                    toCurrency: swapInfo.data.to_currency.toUpperCase(),
-                    fromAmount: +swapInfo.data?.from_amount,
-                    toAmount: +swapInfo.data?.received_amount,
-                    quotationId: swapInfo.data.swap_quotation.id,
-                    quoted_currency:
-                        swapInfo.data.swap_quotation.quoted_currency,
-                    quoted_price: +swapInfo.data.swap_quotation.quoted_price,
-                    executionPrice: +swapInfo.data.execution_price,
-                },
+        try {
+            const swapInfo = await this.quidaxService.confirmInstantSwap({
+                quotation_id: dto.quotationId,
+                user_id: user.cryptoSubAccountId,
             });
+
+            console.log(swapInfo, "swapInfo");
+
+            if (swapInfo.data) {
+                this.prisma.$transaction(
+                    async (tx) => {
+                        await tx.order.create({
+                            data: {
+                                orderCategory: OrderCategory.SWAP,
+                                status: swapInfo.data.status,
+                                providerOrderId: swapInfo.data.id,
+                                orderReference: generateId({
+                                    type: "reference",
+                                }),
+                                userId: user.id,
+                                fromCurrency:
+                                    swapInfo.data.from_currency.toUpperCase(),
+                                toCurrency:
+                                    swapInfo.data.to_currency.toUpperCase(),
+                                fromAmount: +swapInfo.data?.from_amount,
+                                toAmount: +swapInfo.data?.received_amount,
+                                quotationId: swapInfo.data.swap_quotation.id,
+                                quoted_currency:
+                                    swapInfo.data.swap_quotation
+                                        .quoted_currency,
+                                quoted_price:
+                                    +swapInfo.data.swap_quotation.quoted_price,
+                                executionPrice: +swapInfo.data.execution_price,
+                            },
+                        });
+                    },
+                    { maxWait: 5000, timeout: 20000 }
+                );
+            }
+        } catch (error) {
+            console.log(error, "err");
         }
 
         return buildResponse({
             message: "Swap request processed successfully",
-            data: swapInfo.data,
+            // data: swapInfo.data,
         });
     }
 
@@ -607,7 +624,7 @@ export class TradingService {
 
     async swapTransactionHandler(options: SwapTransactionHandlerOptions) {
         const transaction = await this.prisma.order.findUnique({
-            where: { providerOrderId: options.orderReference },
+            where: { providerOrderId: options.orderId },
         });
 
         if (!transaction) {
