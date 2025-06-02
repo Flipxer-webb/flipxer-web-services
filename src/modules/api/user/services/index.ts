@@ -16,14 +16,12 @@ import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import {
     GetUserAssetsDto,
-    recoveryEmailDto,
+    RecoveryEmailDto,
     UpdateProfilePasswordDto,
 } from "../dtos";
 import { Logger } from "moment-logger";
 import {
     UserNotFoundException,
-    InvalidVerificationCodeException,
-    VerificationCodeExpiredException,
     AuthGenericException,
 } from "../../auth/errors";
 import { COMPANY_NAME } from "@/config";
@@ -223,52 +221,44 @@ export class UserService {
         });
     }
 
-
-    // Verify PIN and update recovery email
-    async RecoveryEmail(dto: recoveryEmailDto): Promise<ApiResponse> {
+    async RecoveryEmail(dto: RecoveryEmailDto): Promise<ApiResponse> {
         try {
-            const user = await this.prisma.user.findUnique({
-                where: { email: dto.email },
-                include: { recoveryEmail: true },
-            });
-
-            if (!user) {
-                throw new UserNotFoundException(
-                    "User not found"
-                );
-            }
-
-            // Update recovery email with dto.recoveryEmail upon verification
-            await this.prisma.recoveryEmail.update({
-                where: { userId: user.id },
-                data: {
-                    recoveryEmail: dto.recoveryEmail,
-                },
-            });
-            logger.info(
-                `Recovery email updated successfully for user ID: ${user.id}`
-            );
-
-            return buildResponse({
-                message: "Recovery email updated successfully",
-            });
+          const user = await this.prisma.user.findUnique({
+            where: { email: dto.email },
+          });
+      
+          if (!user) {
+            throw new UserNotFoundException('User not found');
+          }
+      
+          await this.prisma.user.update({
+            where: { email: dto.email },
+            data: {
+              recoveryEmail: dto.recoveryEmail,  // simple string field update
+            },
+          });
+      
+          logger.info(`Recovery email updated successfully for user: ${dto.email}`);
+      
+          return buildResponse({
+            message: 'Recovery email updated successfully',
+          });
         } catch (error) {
-            if (
-                error instanceof UserNotFoundException ||
-                error instanceof InvalidVerificationCodeException ||
-                error instanceof VerificationCodeExpiredException
-            ) {
-                throw error;
-            }
-            logger.error(
-                `Error in verifyRecoveryPin for email ${dto.email}: ${error.message}`,
-                { stack: error.stack }
-            );
-            throw new AuthGenericException(
-                "An error occurred while verifying the recovery PIN"
-            );
+          if (error instanceof UserNotFoundException) {
+            throw error;
+          }
+      
+          logger.error(
+            `Error in RecoveryEmail for user ${dto.email}: ${error.message}`,
+            { stack: error.stack }
+          );
+      
+          throw new AuthGenericException(
+            'An error occurred while updating the recovery email'
+          );
         }
-    }
+      }
+      
 
     async updateProfilePassword(
         options: UpdateProfilePasswordDto,

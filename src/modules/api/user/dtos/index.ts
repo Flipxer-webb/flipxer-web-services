@@ -2,11 +2,10 @@ import {
     IsOptional,
     IsString,
     IsEmail,
-    Length,
-    IsNotEmpty,
     IsBooleanString,
     IsEnum,
     Matches,
+    IsNotEmpty
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -74,21 +73,17 @@ export class UpdateProfileDto {
 }
 
 
-export class recoveryEmailDto {
-    @ApiProperty({
-        description: "The registered email address of the user",
-        example: "user@example.com",
-    })
+export class RecoveryEmailDto {
+    @ApiProperty({ example: 'user@example.com' })
     @IsEmail()
+    @IsNotEmpty()
     email: string;
-
-    @ApiProperty({
-        description: "The recovery email address to be updated for the user",
-        example: "recovery@example.com",
-    })
+  
+    @ApiProperty({ example: 'recovery@example.com' })
     @IsEmail()
+    @IsNotEmpty()
     recoveryEmail: string;
-}
+  }
 
 export class GetUserAssetsDto extends PaginationQueryDto {
     @ApiProperty({

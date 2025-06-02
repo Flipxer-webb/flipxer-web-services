@@ -13,7 +13,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
-    recoveryEmailDto,
+    RecoveryEmailDto,
     UpdateProfilePasswordDto
 } from "../../dtos";
 import { User } from "../../decorators";
@@ -71,7 +71,7 @@ export class UserController {
         summary: "add user's email and the actual recovery email",
     })
     @ApiBearerAuth("access-token")
-    async verifyRecoveryPin(@Body() dto: recoveryEmailDto) {
+    async verifyRecoveryPin(@Body() dto: RecoveryEmailDto) {
         return this.userService.RecoveryEmail(dto);
     }
 }
