@@ -68,7 +68,7 @@ model User {
   status                             Status                      @default(ACTIVE)
   roleId                             Int
   ipAddress                          String?
-  refreshToken           String?
+  refreshToken                       String?
   notificationToken                  String?
   isEmailVerified                    Boolean                     @default(false)
   isPhoneVerified                    Boolean                     @default(false)
@@ -76,6 +76,7 @@ model User {
   isBvnVerified                      Boolean                     @default(false)
   isDocumentVerified                 Boolean                     @default(false)
   businessRecordCompleted            Boolean                     @default(false)
+  businessDocumentsUploaded          Boolean                     @default(false)
   businessDocumentVerificationStatus DocumentVerificationStatus?
   isDeleted                          Boolean                     @default(false)
   createdAt                          DateTime                    @default(now())
@@ -92,7 +93,7 @@ model User {
   recoveryEmail                      String?
   order                              Order[]
   cryptoWalletAddressList            CryptoWalletAddress[]
-  assetWallets                        AssetWallet[]
+  assetWallets                       AssetWallet[]
 
   @@index([id, bvn])
   @@map("Users")
@@ -156,6 +157,9 @@ model UserDocument {
   documentImageUrl     String
   documentImageFieldId String
 
+   documentImageUrl2     String?
+  documentImage2FieldId String?
+
   user User? @relation(fields: [userId], references: [id])
 
   @@map("UserDocuments")
@@ -166,13 +170,22 @@ model BusinessDocument {
   id     Int  @id @default(autoincrement())
   userId Int? @unique
 
-  cacDocumentNumber                           String
-  cacImageUrl                                 String
-  articleOfAssociationNumber                  String?
-  articleOfAssociationImageUrl                String
-  boardResolutionAuthorzedAcctOpeningImageUrl String
-  proofOfAddressForBeneficialOwner            String
-  meansOfIdentificatioForBeneficialOwner      String
+  cacDocumentNumber  String
+  cacImageUrl        String
+  cacImageUrlFieldId String
+
+  articleOfAssociationNumber          String?
+  articleOfAssociationImageUrl        String?
+  articleOfAssociationImageUrlFieldId String?
+
+  boardResolutionAuthorizedAcctOpeningImageUrl        String?
+  boardResolutionAuthorizedAcctOpeningImageUrlFieldId String?
+
+  proofOfAddressForBeneficialOwner             String?
+  proofOfAddressForBeneficialOwnerImageFieldId String?
+
+  meansOfIdentificationForBeneficialOwner             String?
+  meansOfIdentificationForBeneficialOwnerImageFieldId String?
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -263,7 +276,7 @@ model RolePermission {
 model AssetWallet {
   id                String  @id @default(uuid())
   userId            Int
-  quidaxWalletId    String    @unique
+  quidaxWalletId    String  @unique
   assetName         String // "Bitcoin"
   assetCurrency     String // "BTC"
   balance           Decimal @db.Decimal(20, 18)
@@ -361,10 +374,11 @@ enum OrderType {
 }
 
 enum OrderCategory {
-  TRADE // includes buy/sell
+  BUY
+  SELL
   SWAP
-  WITHDRAWER
-  DEPOSIT
+  SEND
+  RECEIVE
 }
 
 model Order {
@@ -390,23 +404,23 @@ model Order {
   quoted_currency String?
   executionPrice  Float? // actual rate at execution (from `SwapTransaction.execution_price`)
   swapExpiresAt   DateTime?
-
-  //withdrawer related
-  currency     String?
-  narration   String?
-  reason       String?
+ 
+  //send and receive related
+  currency         String?
+  narration        String?
+  reason           String?
   transaction_note String?
-  recipient    String?  //wallet address
-  amount      Float?
-  fee         Float?
-  total       Float?
-  sourceType  String?
-  blockchain_txid String?
+  recipient        String? //wallet address
+  amount           Float?
+  fee              Float?
+  total            Float?
+  sourceType       String?
+  blockchain_txid  String?
 
-  providerOrderId String?  @unique // String?  @unique // Quidax reference ID
+  providerOrderId String?  @unique // Quidax reference ID
   orderReference  String?  @unique //Quidax order ref
   createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime @updatedAt 
 
   user User @relation(fields: [userId], references: [id])
 

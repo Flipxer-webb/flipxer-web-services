@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -14,6 +14,7 @@ import {
     SendForgotPasswordDto,
     ResetPasswordDto,
     RefreshTokenDto,
+    BusinessDocumentUploadDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -39,7 +40,13 @@ import {
     AuthGenericException,
     UserAccountDisabledException,
 } from "../errors";
-import { Prisma, Status, User, UserType } from "@prisma/client";
+import {
+    DocumentVerificationStatus,
+    Prisma,
+    Status,
+    User,
+    UserType,
+} from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
     emailTemplateConfig,
@@ -59,7 +66,12 @@ import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
-import { LoginPlatform, SignInOptions } from "../interfaces";
+import {
+    DocumentVerificationFileInterface,
+    LoginPlatform,
+    SignInOptions,
+    UploadBusinessDocumentsFileInterface,
+} from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import * as crypto from "crypto";
 
@@ -126,7 +138,9 @@ export class AuthService {
         return { accessToken, refreshToken };
     }
 
-    async requestPasswordReset(dto: SendForgotPasswordDto): Promise<ApiResponse> {
+    async requestPasswordReset(
+        dto: SendForgotPasswordDto
+    ): Promise<ApiResponse> {
         // Check for user existence
         const user = await this.prisma.user.findUnique({
             where: { email: dto.email },
@@ -154,7 +168,8 @@ export class AuthService {
         });
 
         // Prepare email data
-        const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
+        const name =
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
         const username = user.email;
         const team = COMPANY_NAME;
         const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${dto.email}`;
@@ -173,7 +188,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException("Failed to send password reset email");
+            throw new AuthGenericException(
+                "Failed to send password reset email"
+            );
         }
 
         return buildResponse({
@@ -189,7 +206,9 @@ export class AuthService {
         });
 
         if (!user || !user.passwordResetRequest) {
-            throw new InvalidResetRequestException("Invalid password reset request");
+            throw new InvalidResetRequestException(
+                "Invalid password reset request"
+            );
         }
 
         if (user.passwordResetRequest.code !== dto.resetCode) {
@@ -275,7 +294,7 @@ export class AuthService {
         });
 
         //save the refresh token
-        await this.saveRefreshToken(user.id, tokens.refreshToken);
+        await this.saveRefreshToken(createdUser.id, tokens.refreshToken);
 
         try {
             await this.emailService.sendMailWithTemplate({
@@ -290,7 +309,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException("Failed to send account verification email");
+            //do not throw error here, only log
+            console.log(error, "errors");
+            Logger.error(`Failed to send account verification email${error}`);
         }
 
         return buildResponse({
@@ -349,7 +370,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException("Failed to send account verification email");
+            throw new AuthGenericException(
+                "Failed to send account verification email"
+            );
         }
 
         return buildResponse({
@@ -613,7 +636,11 @@ export class AuthService {
         });
     }
 
-    async documentVerification(user: User, dto: DocumentVerificationDto) {
+    async documentVerification(
+        user: User,
+        files: DocumentVerificationFileInterface,
+        dto: DocumentVerificationDto
+    ) {
         if (user.isDocumentVerified) {
             throw new VerificationGenericException(
                 "Document has already been verified",
@@ -621,22 +648,44 @@ export class AuthService {
             );
         }
 
-        const uploadedDoc = await this.uploadDocumentImage(
-            dto.documentImageUrl
-        );
+        //todo: verify document number using the verification API
+
+        const documentImage1Promise = this.uploadAsFile(files.documentImage1);
+        const documentImage2Promise = files.documentImage2
+            ? this.uploadAsFile(files.documentImage2)
+            : Promise.resolve(null);
+
+        const [documentImage1, documentImage2] = await Promise.all([
+            documentImage1Promise,
+            documentImage2Promise,
+        ]);
 
         await this.prisma.$transaction(
             async (tx) => {
                 await tx.userDocument.upsert({
                     where: { userId: user.id },
-                    update: {},
+                    update: {
+                        type: dto.documentType,
+                        country: dto.country,
+                        documentNumber: dto.documentNumber,
+                        documentImageUrl: documentImage1.url,
+                        documentImageFieldId: documentImage1.fileId,
+                        ...(documentImage2 && {
+                            documentImageUrl2: documentImage2.url,
+                            documentImage2FieldId: documentImage2.fileId,
+                        }),
+                    },
                     create: {
                         userId: user.id,
                         type: dto.documentType,
                         country: dto.country,
                         documentNumber: dto.documentNumber,
-                        documentImageUrl: uploadedDoc.url,
-                        documentImageFieldId: uploadedDoc.fileId,
+                        documentImageUrl: documentImage1.url,
+                        documentImageFieldId: documentImage1.fileId,
+                        ...(documentImage2 && {
+                            documentImageUrl2: documentImage2.url,
+                            documentImage2FieldId: documentImage2.fileId,
+                        }),
                     },
                 });
 
@@ -669,30 +718,141 @@ export class AuthService {
         });
     }
 
-    async submitBusinessRecord(user: User, dto: SubmitBusinessRecordDto) {
-        const record = await this.prisma.businessRecord.upsert({
-            where: { id: user.id },
-            update: {
-                businessName: dto.businessName,
-                natureOfBusiness: dto.natureOfBusiness,
-                expectedTransactionFrequency: dto.expectedTransactionFrequency,
-                expectedTransactionVolume: dto.expectedTransactionVolumes,
-                taxIdentificationNumber: dto.taxIdentificationNumber,
-            },
-            create: {
-                userId: user.id,
-                businessName: dto.businessName,
-                natureOfBusiness: dto.natureOfBusiness,
-                expectedTransactionFrequency: dto.expectedTransactionFrequency,
-                expectedTransactionVolume: dto.expectedTransactionVolumes,
-                taxIdentificationNumber: dto.taxIdentificationNumber,
-            },
+    async uploadAsFile(file: Express.Multer.File[]) {
+        const date = Date.now();
+        const body = file[0].buffer;
+
+        const result = await this.uploadService.uploadCompressedImage({
+            dir: storageDirConfig.document,
+            name: `document-${date}-${generateRandomNum(5)}`,
+            format: "webp",
+            body: body,
+            quality: 100,
+            width: 989,
         });
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: { businessRecordCompleted: true },
+        return result;
+    }
+
+    async updloadBusinessDocuments(
+        user: User,
+        files: UploadBusinessDocumentsFileInterface,
+        dto: BusinessDocumentUploadDto
+    ) {
+        if (user.businessDocumentsUploaded) {
+            throw new VerificationGenericException(
+                `Document has already been upload and is ${user.businessDocumentVerificationStatus}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Helper to upload only if file exists
+        const safeUpload = async (file?: Express.Multer.File[]) =>
+            file ? this.uploadAsFile(file) : null;
+
+        // Upload all images concurrently
+        const [
+            cacImage,
+            articleImage,
+            boardResolutionImage,
+            proofOfAddressImage,
+            meansOfIdImage,
+        ] = await Promise.all([
+            safeUpload(files.cacImage),
+            safeUpload(files.articleOfAssociationImage),
+            safeUpload(files.boardResolutionAuthorizedAcctOpeningImage),
+            safeUpload(files.proofOfAddressForBeneficialOwner),
+            safeUpload(files.meansOfIdentificationForBeneficialOwner),
+        ]);
+        await this.prisma.$transaction(
+            async (tx) => {
+                await tx.businessDocument.upsert({
+                    where: { userId: user.id },
+                    update: {},
+                    create: {
+                        userId: user.id,
+                        cacDocumentNumber: dto.cacDocumentNumber,
+                        cacImageUrl: cacImage?.url || null,
+                        cacImageUrlFieldId: cacImage?.fileId || null,
+                        articleOfAssociationNumber:
+                            dto.articleOfAssociationNumber || null,
+                        articleOfAssociationImageUrl: articleImage?.url || null,
+                        articleOfAssociationImageUrlFieldId:
+                            articleImage?.fileId || null,
+                        boardResolutionAuthorizedAcctOpeningImageUrl:
+                            boardResolutionImage?.url || null,
+                        boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
+                            boardResolutionImage?.fileId || null,
+                        meansOfIdentificationForBeneficialOwner:
+                            meansOfIdImage?.url || null,
+                        meansOfIdentificationForBeneficialOwnerImageFieldId:
+                            meansOfIdImage?.fileId || null,
+                        proofOfAddressForBeneficialOwner:
+                            proofOfAddressImage?.url || null,
+                        proofOfAddressForBeneficialOwnerImageFieldId:
+                            proofOfAddressImage?.fileId || null,
+                    },
+                });
+
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        businessDocumentsUploaded: true,
+                        businessDocumentVerificationStatus:
+                            DocumentVerificationStatus.PENDING,
+                    },
+                });
+            },
+            { timeout: 30000 }
+        );
+
+        return buildResponse({
+            message: "Document Verification successfully",
         });
+    }
+
+    async submitBusinessRecord(user: User, dto: SubmitBusinessRecordDto) {
+        //todo: taxid verification
+        const record = await this.prisma.$transaction(
+            async (tx) => {
+                const record = await tx.businessRecord.upsert({
+                    where: { userId: user.id },
+                    update: {
+                        businessName: dto.businessName,
+                        natureOfBusiness: dto.natureOfBusiness,
+                        expectedTransactionFrequency:
+                            dto.expectedTransactionFrequency,
+                        expectedTransactionVolume:
+                            dto.expectedTransactionVolumes,
+                        taxIdentificationNumber: dto.taxIdentificationNumber,
+                    },
+                    create: {
+                        userId: user.id,
+                        businessName: dto.businessName,
+                        natureOfBusiness: dto.natureOfBusiness,
+                        expectedTransactionFrequency:
+                            dto.expectedTransactionFrequency,
+                        expectedTransactionVolume:
+                            dto.expectedTransactionVolumes,
+                        taxIdentificationNumber: dto.taxIdentificationNumber,
+                    },
+                });
+
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        businessRecordCompleted: true,
+                        firstName: dto.firstName,
+                        lastName: dto.lastName,
+                    },
+                });
+                return record;
+            },
+            { maxWait: 10000, timeout: 30000 }
+        );
+
+        //create user quidax account and default wallet address once email is verified
+        await this.cryptoAccountQueueProducer.enqueue(user.id);
 
         return buildResponse({
             message: "Business record submitted successfully",

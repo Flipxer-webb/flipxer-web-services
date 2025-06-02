@@ -104,17 +104,17 @@ export class PlaceInstantSwapRequestDto {
     @IsEnum(SupportedAssets)
     to_currency: SupportedAssets; //the currency you are swapping to.
 
-    @ApiProperty()
-    @IsNotEmpty()
+    @ApiProperty({ required: false })
+    @IsOptional()
     @IsNumber()
     @IsPositive()
-    from_amount: number; //the amount you want to swap.
+    from_amount?: number; //the amount you want to swap.
 
-    @ApiProperty()
-    @IsNotEmpty()
+    @ApiProperty({ required: false })
+    @IsOptional()
     @IsNumber()
     @IsPositive()
-    to_amount: number; //the amount you want to swap to.
+    to_amount?: number; //the amount you want to swap to.
 }
 
 export class RefreshInstantSwapRequestDto extends PlaceInstantSwapRequestDto {
@@ -125,42 +125,52 @@ export class RefreshInstantSwapRequestDto extends PlaceInstantSwapRequestDto {
 }
 
 export class ConfirmInstantSwapQuoteDto {
+    @ApiProperty()
     @IsNotEmpty()
     @IsString()
     quotationId: string;
 }
 
 export class WithdrawerRequestDto {
-    @ApiProperty({ enum: SupportedAssets })
+    @ApiProperty({ enum: SupportedAssets, description: "allowed currencies" })
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
 
-    @ApiProperty()
+    @ApiProperty({ description: "value to be sent to the recipient." })
     @IsNotEmpty()
     @IsNumber()
     @IsPositive()
-    amount: string;
+    amount: number;
 
-    @ApiProperty()
+    @ApiProperty({ description: "notes for the recipient" })
     @IsNotEmpty()
     @IsString()
     transaction_note: string;
 
-    @ApiProperty()
+    @ApiProperty({ description: "narration for the recipient" })
     @IsNotEmpty()
     @IsString()
     narration: string;
 
-    @ApiProperty()
+    @ApiProperty({ description: "crypto address" })
     @IsNotEmpty()
     @IsString()
-    fund_uid: string; // wallet address
+    recipientWalletAddress: string; // wallet address
 
-    @ApiProperty({ enum: NetworkTypes })
+    @ApiProperty({
+        description: "Optional: Blockchain network for the transaction",
+        enum: NetworkTypes,
+        required: false,
+    })
     @IsOptional()
     @IsEnum(NetworkTypes)
     network?: string;
+
+    @ApiProperty({ description: "destination tag", required: false })
+    @IsOptional()
+    @IsString()
+    destinationTag?: string; //destination tag
 }
 
 export class CancelWithdrawerRequestDto {

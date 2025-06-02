@@ -389,7 +389,7 @@ export class QuidaxLib {
         try {
             const requestOptions: AxiosRequestConfig<t.CreateWithdrawerRequestOptions> =
                 {
-                    url: `/users/${options.user_id}/withdraw`,
+                    url: `/users/${options.user_id}/withdraws`,
                     method: "POST",
                     data: options,
                 };
@@ -824,7 +824,7 @@ export class QuidaxLib {
         try {
             const requestOptions: AxiosRequestConfig<t.ConfirmInstantSwapOptions> =
                 {
-                    url: `/users/${options.user_id}/swap_quotation/${options.quotation_id}`,
+                    url: `/users/${options.user_id}/swap_quotation/${options.quotation_id}/confirm`,
                     method: "POST",
                 };
             const resp = await this.mainAxios<
@@ -836,12 +836,14 @@ export class QuidaxLib {
                 error.status = 500;
                 throw error;
             }
+
             return {
                 status: resp.data.status,
                 message: resp.data.message,
                 data: resp.data.data,
             };
         } catch (error) {
+            console.log(error, "error");
             this.handleQuidaxError(error);
         }
     }
@@ -894,7 +896,7 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.GetSwapTransactionResponse>> {
         try {
             const requestOptions: AxiosRequestConfig = {
-                url: `/users/${options.user_id}/instant_orders/${options.swap_transaction_id}`,
+                url: `/users/${options.user_id}/swap_transactions/${options.swap_transaction_id}`,
                 method: "GET",
             };
             const resp = await this.mainAxios<

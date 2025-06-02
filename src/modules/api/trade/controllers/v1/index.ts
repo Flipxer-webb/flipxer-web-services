@@ -200,6 +200,7 @@ export class TradingController {
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
+    @ApiBody({ type: WithdrawerRequestDto })
     @Post("withdrawer-request")
     async withdrawerRequest(
         @Body() dto: WithdrawerRequestDto,
@@ -210,7 +211,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "This endpoint is used to cancel initiated withdrawal.",
+        summary:
+            "users can cancel withdrawal requests within a 6-second window after initiating the withdrawal",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")

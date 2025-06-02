@@ -27,6 +27,8 @@ import { User as UserModel } from "@prisma/client";
 import { GetUserTransactionListDto } from "../../dtos";
 
 @ApiTags("transactions")
+@UseGuards(AuthGuard)
+@ApiBearerAuth("access-token")
 @Controller({
     path: "transactions",
 })
@@ -40,6 +42,6 @@ export class TransactionController {
         @User() user: UserModel,
         @Query() query: GetUserTransactionListDto
     ) {
-        return this.transactionService.getUserTransactionHistory(user, query);
+        return this.transactionService.getUserTransactionHistory(query, user);
     }
 }

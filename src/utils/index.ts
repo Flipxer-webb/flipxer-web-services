@@ -4,6 +4,12 @@ import { AES } from "crypto-js";
 import { encryptSecret, RedisConfig } from "@/config";
 import slugify from "slugify";
 import Redis, { RedisOptions } from "ioredis";
+import { Order } from "@prisma/client";
+import { isToday, isYesterday, format } from "date-fns";
+import {
+    shapeTransaction,
+    TransactionIncludeOptions,
+} from "@/modules/api/transactions/types";
 
 export * from "./api-response-util";
 export * from "./interfaces";
@@ -104,4 +110,38 @@ export const defaultPagination = {
     startDate: new Date("1970-01-01"),
     endDate: new Date(),
     search: "",
+};
+
+export const groupTransactionsByDate = (transactions: Order[]) => {
+    const groupedMap: Record<string, Order[]> = {};
+
+    for (const tx of transactions) {
+        let label: string;
+
+        if (isToday(tx.createdAt)) {
+            label = "Today";
+        } else if (isYesterday(tx.createdAt)) {
+            label = "Yesterday";
+        } else {
+            label = format(tx.createdAt, "dd-MM-yyyy");
+        }
+
+        if (!groupedMap[label]) {
+            groupedMap[label] = [];
+        }
+
+        groupedMap[label].push(tx);
+    }
+
+    // Convert to an array format
+    const groupedArray = Object.entries(groupedMap).map(
+        ([date, transactions]) => ({
+            date,
+            transactions: transactions.map((t) =>
+                shapeTransaction(t as TransactionIncludeOptions)
+            ),
+        })
+    );
+
+    return groupedArray;
 };

@@ -52,6 +52,7 @@ export interface CreateWithdrawerRequestOptions {
     transaction_note: string;
     narration: string;
     fund_uid: string; // wallet address
+    fund_uid2?: string; //destination tag
     reference: string; //<your_unique_reference>
 }
 
@@ -108,8 +109,8 @@ export interface GetOrderRecordOptions {
 export interface CreateInstantSwapRequestOptions {
     from_currency: string; //the currency you are swapping from
     to_currency: string; //the currency you are swapping to.
-    from_amount: string; //the amount you want to swap.
-    to_amount: string; //the amount you want to swap to.
+    from_amount?: string; //the amount you want to swap.
+    to_amount?: string; //the amount you want to swap to.
 }
 
 export interface ConfirmInstantSwapOptions {

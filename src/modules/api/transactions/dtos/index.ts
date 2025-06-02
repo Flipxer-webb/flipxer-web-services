@@ -1,11 +1,18 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { PaginationQueryDto } from "../../user/dtos";
-import { IsDateString, IsEnum, IsOptional, IsString } from "class-validator";
+import {
+    IsDateString,
+    IsEnum,
+    IsNumberString,
+    IsOptional,
+    IsString,
+} from "class-validator";
 import { OrderCategory } from "@prisma/client";
 
 export class GetUserTransactionListDto extends PaginationQueryDto {
     @ApiProperty({
-        description: "filter by transaction type",
+        enum: OrderCategory,
+        description: "filter by transaction type - optional",
         required: false,
     })
     @IsOptional()
@@ -13,7 +20,8 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
     type?: OrderCategory;
 
     @ApiProperty({
-        description: "filter by asset name or asset symbol",
+        description: "filter by asset name or asset symbol- optional",
+        example: "USDT",
         required: false,
     })
     @IsOptional()
@@ -21,7 +29,8 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
     asset?: string;
 
     @ApiProperty({
-        description: "filter by start date",
+        description: "filter by start date - optional",
+        example: "2024-01-01T00:00:00Z",
         required: false,
     })
     @IsOptional()
@@ -29,10 +38,20 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
     startDate?: string;
 
     @ApiProperty({
-        description: "filter by end date",
+        description: "filter by end date  - optional",
+        example: "2024-01-01T00:00:00Z",
         required: false,
     })
     @IsOptional()
     @IsDateString()
     endDate?: string;
+
+    @ApiProperty({
+        description: "search transaction using transaction id - optional",
+        example: "1",
+        required: false,
+    })
+    @IsOptional()
+    @IsNumberString()
+    searchText?: string;
 }

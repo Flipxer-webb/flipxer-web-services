@@ -42,6 +42,8 @@ export class VerifyEmailOtpDto {
 }
 
 export class VerifyPhoneOtpDto {
+    @ApiProperty()
+    @IsNotEmpty()
     @IsPhoneNumber("NG")
     @Length(11, 11, { message: "Phone number must be 11 digits" })
     phone: string;
@@ -177,18 +179,117 @@ export class DocumentVerificationDto {
 
     @ApiProperty()
     @IsNotEmpty()
-    @IsNumberString()
+    @IsString()
     documentNumber: string;
+}
+
+export class DocumentVerificationUploadFormDto {
+    @ApiProperty({ enum: DocumentType, enumName: "DocumentType" })
+    @IsNotEmpty()
+    @IsEnum(DocumentType)
+    documentType: DocumentType;
+
+    @ApiProperty({ enum: Country, enumName: "Country" })
+    @IsNotEmpty()
+    @IsEnum(Country)
+    country: Country;
 
     @ApiProperty()
     @IsNotEmpty()
-    @IsBase64({
-        message: "Photo must be a valid base64 plain text",
+    @IsString()
+    documentNumber: string;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Document image file",
     })
-    documentImageUrl: string;
+    documentImage1: any;
+
+    @ApiProperty({
+        required: false,
+        type: "string",
+        format: "binary",
+        description: "Document image file",
+    })
+    documentImage2?: any;
+}
+
+export class BusinessDocumentUploadDto {
+    @ApiProperty({ description: "A valid CAC document number" })
+    @IsNotEmpty()
+    cacDocumentNumber: string;
+
+    @ApiProperty({
+        description: "A valid article of association number",
+        required: false,
+    })
+    @IsOptional()
+    articleOfAssociationNumber?: string;
+}
+
+export class BusinessDocumentUploadFormDto {
+    @ApiProperty({ type: "string", description: "CAC document number" })
+    cacDocumentNumber: string;
+
+    @ApiProperty({
+        type: "string",
+        required: false,
+        description: "Article of Association number",
+    })
+    articleOfAssociationNumber?: string;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "CAC document image file",
+    })
+    cacImage: any;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Article of Association image file",
+        required: false,
+    })
+    articleOfAssociationImage?: any;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Board resolution image file",
+        required: false,
+    })
+    boardResolutionAuthorizedAcctOpeningImage?: any;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Proof of address for beneficial owner",
+        required: false,
+    })
+    proofOfAddressForBeneficialOwner?: any;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Means of identification for beneficial owner",
+        required: false,
+    })
+    meansOfIdentificationForBeneficialOwner?: any;
 }
 
 export class SubmitBusinessRecordDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
     @ApiProperty()
     @IsNotEmpty()
     @IsString()

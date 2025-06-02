@@ -210,19 +210,19 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         switch (true) {
             case eventData.status === OrderStatus.completed:
                 await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
+                    orderId: eventData.id,
                     status: OrderStatus.completed,
                 });
                 break;
             case eventData.status === OrderStatus.failed:
                 await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
+                    orderId: eventData.id,
                     status: OrderStatus.failed,
                 });
                 break;
             case eventData.status === OrderStatus.reversed:
                 await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
+                    orderId: eventData.id,
                     status: OrderStatus.reversed,
                 });
                 break;
@@ -235,14 +235,14 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     async withdrawerTransactionHandler(eventData: WithdrawerEventData) {
         switch (true) {
             case eventData.status.toLowerCase() === OrderStatus.done:
-                await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
-                    status: OrderStatus.completed,
+                await this.tradingService.withdrawerTransactionHandler({
+                    orderReference: eventData.reference,
+                    status: OrderStatus.done,
                 });
                 break;
             case eventData.status.toLowerCase() === OrderStatus.rejected:
-                await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
+                await this.tradingService.withdrawerTransactionHandler({
+                    orderReference: eventData.reference,
                     status: OrderStatus.failed,
                 });
                 break;

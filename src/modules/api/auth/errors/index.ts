@@ -174,3 +174,13 @@ export class InvalidResetRequestException extends HttpException {
 export class InvalidRefreshToken extends HttpException {
     name = "InvalidRefreshToken";
 }
+
+export class RequiredFilesMissing extends HttpException {
+    name = "RequiredFilesMissing";
+    constructor(
+        message = "Required file(s) missing",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
+}

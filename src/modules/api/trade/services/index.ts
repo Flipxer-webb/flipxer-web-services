@@ -24,6 +24,7 @@ import {
     CryptoWalletStatus,
     NetworkTypes,
     OrderCategory,
+    OrderSide,
     OrderStatus,
     User,
 } from "@prisma/client";
@@ -233,7 +234,10 @@ export class TradingService {
         if (order.data) {
             await this.prisma.order.create({
                 data: {
-                    orderCategory: OrderCategory.TRADE,
+                    orderCategory:
+                        dto.order_side === OrderSide.buy
+                            ? OrderCategory.BUY
+                            : OrderCategory.SELL,
                     orderType: dto.order_type,
                     market: dto.market,
                     orderSide: dto.order_side,
@@ -266,8 +270,10 @@ export class TradingService {
             {
                 from_currency: dto.from_currency,
                 to_currency: dto.to_currency,
-                from_amount: dto.from_amount.toString(),
-                to_amount: dto.to_amount.toString(),
+                ...(dto.from_amount && {
+                    from_amount: dto.from_amount.toString(),
+                }),
+                ...(dto.to_amount && { to_amount: dto.to_amount?.toString() }),
             }
         );
 
@@ -291,8 +297,10 @@ export class TradingService {
             {
                 from_currency: dto.from_currency,
                 to_currency: dto.to_currency,
-                from_amount: dto.from_amount.toString(),
-                to_amount: dto.to_amount.toString(),
+                ...(dto.from_amount && {
+                    from_amount: dto.from_amount.toString(),
+                }),
+                ...(dto.to_amount && { to_amount: dto.to_amount?.toString() }),
             }
         );
 
@@ -317,13 +325,14 @@ export class TradingService {
             narration: dto.narration,
             transaction_note: dto.transaction_note,
             user_id: user.cryptoSubAccountId,
-            fund_uid: dto.fund_uid, //receiving wallet address
+            fund_uid: dto.recipientWalletAddress, //receiving wallet address
+            fund_uid2: dto.destinationTag, // destination tag
             reference: reference,
         });
 
         await this.prisma.order.create({
             data: {
-                orderCategory: OrderCategory.WITHDRAWER,
+                orderCategory: OrderCategory.SEND,
                 status: OrderStatus.processing,
                 orderReference: reference,
                 providerOrderId: requestRes.data.id,
@@ -378,24 +387,33 @@ export class TradingService {
         });
 
         if (swapInfo.data) {
-            await this.prisma.order.create({
-                data: {
-                    orderCategory: OrderCategory.SWAP,
-                    status: swapInfo.data.status,
-                    providerOrderId: swapInfo.data.id,
-                    orderReference: swapInfo.data.id,
-                    userId: user.id,
-                    fromCurrency: swapInfo.data.from_currency.toUpperCase(),
-                    toCurrency: swapInfo.data.to_currency.toUpperCase(),
-                    fromAmount: +swapInfo.data.from_amount,
-                    toAmount: +swapInfo.data.received_amount,
-                    quotationId: swapInfo.data.swap_quotation.id,
-                    quoted_currency:
-                        swapInfo.data.swap_quotation.quoted_currency,
-                    quoted_price: +swapInfo.data.swap_quotation.quoted_price,
-                    executionPrice: +swapInfo.data.execution_price,
+            this.prisma.$transaction(
+                async (tx) => {
+                    await tx.order.create({
+                        data: {
+                            orderCategory: OrderCategory.SWAP,
+                            status: swapInfo.data.status,
+                            providerOrderId: swapInfo.data.id,
+                            orderReference: generateId({
+                                type: "reference",
+                            }),
+                            userId: user.id,
+                            fromCurrency:
+                                swapInfo.data.from_currency.toUpperCase(),
+                            toCurrency: swapInfo.data.to_currency.toUpperCase(),
+                            fromAmount: +swapInfo.data?.from_amount,
+                            toAmount: +swapInfo.data?.received_amount,
+                            quotationId: swapInfo.data.swap_quotation.id,
+                            quoted_currency:
+                                swapInfo.data.swap_quotation.quoted_currency,
+                            quoted_price:
+                                +swapInfo.data.swap_quotation.quoted_price,
+                            executionPrice: +swapInfo.data.execution_price,
+                        },
+                    });
                 },
-            });
+                { maxWait: 5000, timeout: 20000 }
+            );
         }
 
         return buildResponse({
@@ -570,7 +588,7 @@ export class TradingService {
             if (!transaction) {
                 await this.prisma.order.create({
                     data: {
-                        orderCategory: OrderCategory.DEPOSIT,
+                        orderCategory: OrderCategory.RECEIVE,
                         status: options.status,
                         providerOrderId: options.referenceId,
                         blockchain_txid: options.txid,
@@ -598,7 +616,7 @@ export class TradingService {
 
     async swapTransactionHandler(options: SwapTransactionHandlerOptions) {
         const transaction = await this.prisma.order.findUnique({
-            where: { providerOrderId: options.orderReference },
+            where: { providerOrderId: options.orderId },
         });
 
         if (!transaction) {

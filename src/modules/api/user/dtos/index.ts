@@ -6,6 +6,7 @@ import {
     IsNotEmpty,
     IsBooleanString,
     IsEnum,
+    Matches,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -16,8 +17,9 @@ export enum Sort {
 }
 export class PaginationQueryDto {
     @ApiProperty({
-        description: "Whether it should be paginated or not : defaults to true",
-        example: "'true' or 'false'",
+        description:
+            "Whether it should be paginated or not : defaults to true - optional",
+        example: "true",
         required: false,
     })
     @IsOptional()
@@ -25,7 +27,7 @@ export class PaginationQueryDto {
     paginated?: string = "true";
 
     @ApiProperty({
-        description: "Page number desired : defaults to 1",
+        description: "Page number desired : defaults to 1 - optional",
         example: "1",
         required: false,
     })
@@ -34,7 +36,7 @@ export class PaginationQueryDto {
     pageNumber?: number;
 
     @ApiProperty({
-        description: "Document size per page : default to 10",
+        description: "Document size per page : default to 10 - optional",
         example: "10",
         required: false,
     })
@@ -43,8 +45,8 @@ export class PaginationQueryDto {
     pageSize?: number;
 
     @ApiProperty({
-        description: "Sort enum (asc or desc) : default to desc",
-        example: "10",
+        description: "Sort enum (asc or desc) : default to desc - optional",
+        example: "desc",
         required: false,
     })
     @IsEnum(Sort)
@@ -96,4 +98,24 @@ export class GetUserAssetsDto extends PaginationQueryDto {
     @IsOptional()
     @IsString()
     searchText?: string;
+}
+
+export class UpdateProfilePasswordDto {
+    @ApiProperty({
+        description: "your current password",
+        example: "current password",
+    })
+    @IsString()
+    oldPassword: string;
+
+    @ApiProperty({
+        description: "Your new desired password",
+        example: "NewPassw0rd!",
+    })
+    @IsString()
+    @Matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$&%])[A-Za-z\d!@#$&%]{10,100}$/, {
+        message:
+            "Password must be 10-100 characters long, contain at least one uppercase letter, one number, and one special character (!@#$&%)",
+    })
+    newPassword: string;
 }

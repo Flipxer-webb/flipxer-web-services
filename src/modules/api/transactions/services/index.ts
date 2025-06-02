@@ -3,7 +3,12 @@ import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { Order, Prisma, User } from "@prisma/client";
 import { GetUserTransactionListDto } from "../dtos";
-import { buildPaginationMeta, defaultPagination } from "@/utils";
+import {
+    buildPaginationMeta,
+    defaultPagination,
+    groupTransactionsByDate,
+} from "@/utils";
+import { shapeTransaction, TransactionIncludeOptions } from "../types";
 
 @Injectable()
 export class TransactionService {
@@ -11,8 +16,8 @@ export class TransactionService {
     constructor(private prisma: PrismaService) {}
 
     async getUserTransactionHistory(
-        user: User,
-        query: GetUserTransactionListDto
+        query: GetUserTransactionListDto,
+        user: User
     ) {
         const { pageNumber, pageSize, sortBy } = query;
 
@@ -29,13 +34,45 @@ export class TransactionService {
         const dbQuery: Prisma.OrderFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
-                userId: user.id,
-                // ...(query.searchText && {
-                //     OR: [
-                //         { assetName: { contains: query.searchText } },
-                //         { assetCurrency: { contains: query.searchText } },
-                //     ],
-                // }),
+                ...(user && { userId: user.id }),
+                ...(query.type && { orderCategory: query.type }),
+                ...(query.asset && {
+                    OR: [
+                        {
+                            currency: {
+                                contains: query.asset,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            fromCurrency: {
+                                contains: query.asset,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            toCurrency: {
+                                contains: query.asset,
+                                mode: "insensitive",
+                            },
+                        },
+                    ],
+                }),
+                ...(query.startDate || query.endDate
+                    ? {
+                          createdAt: {
+                              ...(query.startDate && {
+                                  gte: new Date(query.startDate),
+                              }),
+                              ...(query.endDate && {
+                                  lte: new Date(query.endDate),
+                              }),
+                          },
+                      }
+                    : {}),
+            },
+            include: {
+                user: { select: { firstName: true, lastName: true } },
             },
         };
 
@@ -50,7 +87,7 @@ export class TransactionService {
             this.prisma.order.count({ where: dbQuery.where }),
         ]);
 
-        const responseData: DataWithPagination<Order> = {
+        const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
@@ -59,7 +96,11 @@ export class TransactionService {
                     transactions.length
                 ),
             }),
-            records: transactions,
+            records: user
+                ? groupTransactionsByDate(transactions)
+                : transactions.map((t) =>
+                      shapeTransaction(t as TransactionIncludeOptions)
+                  ),
         };
 
         return buildResponse({
