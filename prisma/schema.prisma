@@ -89,7 +89,7 @@ model User {
   businessDocument                   BusinessDocument?
   accountLimit                       AccountLimit?
   bankDetails                        BankDetail[]
-  recoveryEmail                      RecoveryEmail?
+  recoveryEmail                      String?
   order                              Order[]
   cryptoWalletAddressList            CryptoWalletAddress[]
   assetWallets                        AssetWallet[]
@@ -98,18 +98,6 @@ model User {
   @@map("Users")
 }
 
-// RecoveryPassword model
-model RecoveryEmail {
-  id                 Int       @id @default(autoincrement())
-  userId             Int       @unique
-  recoveryEmail      String? // The recovery email address
-  recoveryPin        String? // 6-digit PIN
-  lastPinGeneratedAt DateTime? // When the last PIN was generated
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("RecoveryEmails")
-}
 
 // AccountLimit Model
 model AccountLimit {
