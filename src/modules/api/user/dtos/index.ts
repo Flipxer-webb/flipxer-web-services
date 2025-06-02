@@ -2,11 +2,10 @@ import {
     IsOptional,
     IsString,
     IsEmail,
-    Length,
-    IsNotEmpty,
     IsBooleanString,
     IsEnum,
     Matches,
+    IsNotEmpty
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -73,40 +72,18 @@ export class UpdateProfileDto {
     lastName: string;
 }
 
-export class SendRecoveryPinDto {
-    @ApiProperty({
-        description: "The registered email address of the user",
-        example: "user@example.com",
-    })
-    @IsEmail()
-    email: string;
-}
 
-export class VerifyRecoveryPinDto {
-    @ApiProperty({
-        description: "The registered email address of the user",
-        example: "user@example.com",
-    })
+export class RecoveryEmailDto {
+    @ApiProperty({ example: 'user@example.com' })
     @IsEmail()
+    @IsNotEmpty()
     email: string;
-
-    @ApiProperty({
-        description: "The recovery email address to be updated for the user",
-        example: "recovery@example.com",
-    })
+  
+    @ApiProperty({ example: 'recovery@example.com' })
     @IsEmail()
+    @IsNotEmpty()
     recoveryEmail: string;
-
-    @ApiProperty({
-        description: "The 6-digit PIN sent to the user for verification",
-        example: "123456",
-        minLength: 6,
-        maxLength: 6,
-    })
-    @IsString()
-    @Length(6, 6)
-    pin: string;
-}
+  }
 
 export class GetUserAssetsDto extends PaginationQueryDto {
     @ApiProperty({
