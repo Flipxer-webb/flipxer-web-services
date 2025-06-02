@@ -327,9 +327,7 @@ export class UserService {
             });
 
             if (!user) {
-                throw new UserNotFoundException(
-                    "User not found"
-                );
+                throw new UserNotFoundException("User not found");
             }
 
             const recoveryEmail = user.recoveryEmail;
