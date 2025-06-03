@@ -61,10 +61,10 @@ export class CreatePasswordDto {
     @IsString()
     @MinLength(8, { message: "Password must be at least 8 characters long" })
     @MaxLength(100, { message: "Password must not exceed 100 characters" })
-    @Matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/, {
+    @Matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9])[A-Za-z\d\S]+$/, {
         message:
-            "Password must contain at least one uppercase letter, one number, and one special character",
-    })
+          "Password must contain at least one uppercase letter, one number, and one special character",
+      })
     password: string;
 }
 
