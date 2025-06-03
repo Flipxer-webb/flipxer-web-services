@@ -13,9 +13,8 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
-    SendRecoveryPinDto,
+    RecoveryEmailDto,
     UpdateProfilePasswordDto,
-    VerifyRecoveryPinDto,
 } from "../../dtos";
 import { User } from "../../decorators";
 import { User as UserModel } from "@prisma/client";
@@ -66,23 +65,13 @@ export class UserController {
         return await this.userService.getUserWallets(user, query);
     }
 
-    @Post("recovery-email/send-pin")
+    @Post("recovery-email")
     @UsePipes(new ValidationPipe())
     @ApiOperation({
-        summary: "Send a 6-digit recovery PIN to the specified email",
+        summary: "add user's email and the actual recovery email",
     })
     @ApiBearerAuth("access-token")
-    async sendRecoveryPin(@Body() dto: SendRecoveryPinDto) {
-        return this.userService.sendRecoveryPin(dto);
-    }
-
-    @Post("recovery-email/verify-pin")
-    @UsePipes(new ValidationPipe())
-    @ApiOperation({
-        summary: "Verify the 6-digit PIN and update the recovery email",
-    })
-    @ApiBearerAuth("access-token")
-    async verifyRecoveryPin(@Body() dto: VerifyRecoveryPinDto) {
-        return this.userService.verifyRecoveryPin(dto);
+    async verifyRecoveryPin(@Body() dto: RecoveryEmailDto) {
+        return this.userService.RecoveryEmail(dto);
     }
 }

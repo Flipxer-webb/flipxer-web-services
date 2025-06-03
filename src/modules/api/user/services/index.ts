@@ -16,17 +16,11 @@ import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import {
     GetUserAssetsDto,
-    SendRecoveryPinDto,
+    RecoveryEmailDto,
     UpdateProfilePasswordDto,
-    VerifyRecoveryPinDto,
 } from "../dtos";
 import { Logger } from "moment-logger";
-import {
-    UserNotFoundException,
-    InvalidVerificationCodeException,
-    VerificationCodeExpiredException,
-    AuthGenericException,
-} from "../../auth/errors";
+import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
 import { COMPANY_NAME } from "@/config";
 import { AssetWallet, Prisma, User } from "@prisma/client";
 import { IncorrectPasswordException } from "../errors";
@@ -224,158 +218,42 @@ export class UserService {
         });
     }
 
-    // Send recovery PIN email using sendMailWithTemplate
-    async sendRecoveryPinEmail(
-        userId: number,
-        email: string,
-        name: string,
-        pin: string
-    ) {
-        try {
-            // Prepare email data for the template
-            const mergeInfo = {
-                name,
-                code: pin, // Assuming the template uses 'code' for the PIN
-                team: COMPANY_NAME,
-                notice: "This PIN expires in 1 hour.",
-            };
-
-            // Send email using the template-based approach from AuthService
-            await this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: email } }],
-                template_key: emailTemplateConfig.recovery_pin, // Define this in your emailTemplateConfig
-                merge_info: mergeInfo,
-            });
-
-            logger.info(`Recovery PIN email sent successfully to ${email}`);
-        } catch (error) {
-            logger.error(`Error sending recovery PIN email: ${error.message}`, {
-                userId,
-                email,
-            });
-            logger.error(`Full error details: ${JSON.stringify(error)}`);
-            throw new AuthGenericException(
-                "Failed to send recovery PIN email. Please try again later."
-            );
-        }
-    }
-
-    // Generate and send 6-digit PIN
-    async sendRecoveryPin(dto: SendRecoveryPinDto): Promise<ApiResponse> {
+    async RecoveryEmail(dto: RecoveryEmailDto): Promise<ApiResponse> {
         try {
             const user = await this.prisma.user.findUnique({
                 where: { email: dto.email },
-                include: { recoveryEmail: true },
-            });
-
-            if (!user) {
-                logger.warn(`User not found for email: ${dto.email}`);
-                throw new UserNotFoundException();
-            }
-
-            const pin = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit PIN
-
-            // Update or create recovery email record
-            await this.prisma.recoveryEmail.upsert({
-                where: { userId: user.id },
-                update: {
-                    recoveryPin: pin,
-                    lastPinGeneratedAt: new Date(),
-                },
-                create: {
-                    userId: user.id,
-                    recoveryPin: pin,
-                    lastPinGeneratedAt: new Date(),
-                },
-            });
-
-            // Send recovery PIN email to dto.email (primary email)
-            await this.sendRecoveryPinEmail(
-                user.id,
-                dto.email,
-                `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-                    "User",
-                pin
-            );
-
-            logger.info(`Recovery PIN request created for user: ${user.email}`);
-            return buildResponse({ message: "Recovery PIN sent successfully" });
-        } catch (error) {
-            if (
-                error instanceof UserNotFoundException ||
-                error instanceof AuthGenericException
-            ) {
-                throw error;
-            }
-            logger.error(
-                `Error in sendRecoveryPin for email ${dto.email}: ${error.message}`,
-                { stack: error.stack }
-            );
-            throw new AuthGenericException(
-                "An error occurred while sending the recovery PIN"
-            );
-        }
-    }
-
-    // Verify PIN and update recovery email
-    async verifyRecoveryPin(dto: VerifyRecoveryPinDto): Promise<ApiResponse> {
-        try {
-            const user = await this.prisma.user.findUnique({
-                where: { email: dto.email },
-                include: { recoveryEmail: true },
             });
 
             if (!user) {
                 throw new UserNotFoundException("User not found");
             }
 
-            const recoveryEmail = user.recoveryEmail;
-
-            if (recoveryEmail.recoveryPin !== dto.pin) {
-                throw new InvalidVerificationCodeException("Invalid PIN");
-            }
-
-            const currentTime = new Date();
-            const pinGeneratedAt = recoveryEmail.lastPinGeneratedAt;
-            if (
-                !pinGeneratedAt ||
-                currentTime.getTime() - pinGeneratedAt.getTime() > 3600000
-            ) {
-                logger.warn(`PIN has expired for user ID: ${user.id}`);
-                throw new VerificationCodeExpiredException("PIN has expired");
-            }
-
-            // Update recovery email with dto.recoveryEmail upon verification
-            await this.prisma.recoveryEmail.update({
-                where: { userId: user.id },
+            await this.prisma.user.update({
+                where: { email: dto.email },
                 data: {
-                    recoveryEmail: dto.recoveryEmail,
-                    recoveryPin: null,
-                    lastPinGeneratedAt: new Date(),
+                    recoveryEmail: dto.recoveryEmail, // simple string field update
                 },
             });
+
             logger.info(
-                `Recovery email updated successfully for user ID: ${user.id}`
+                `Recovery email updated successfully for user: ${dto.email}`
             );
 
             return buildResponse({
                 message: "Recovery email updated successfully",
             });
         } catch (error) {
-            if (
-                error instanceof UserNotFoundException ||
-                error instanceof InvalidVerificationCodeException ||
-                error instanceof VerificationCodeExpiredException
-            ) {
+            if (error instanceof UserNotFoundException) {
                 throw error;
             }
+
             logger.error(
-                `Error in verifyRecoveryPin for email ${dto.email}: ${error.message}`,
+                `Error in RecoveryEmail for user ${dto.email}: ${error.message}`,
                 { stack: error.stack }
             );
+
             throw new AuthGenericException(
-                "An error occurred while verifying the recovery PIN"
+                "An error occurred while updating the recovery email"
             );
         }
     }
