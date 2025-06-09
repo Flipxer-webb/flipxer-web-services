@@ -21,13 +21,13 @@ async function main() {
     //             where: {
     //                 category_currency: {
     //                     category,
-    //                     currency:currency.toUpperCase(),
+    //                     currency: currency.toUpperCase(),
     //                 },
     //             },
     //             update: {},
     //             create: {
     //                 category,
-    //                 currency:currency:currency.toUpperCase(),,
+    //                 currency: currency.toUpperCase(),
     //                 fee: 0.5, // default fee
     //             },
     //         });
@@ -39,8 +39,8 @@ async function main() {
     //         update: {},
     //         create: {
     //             currency,
-    //             buyRate: 0.0, // default buy rate
-    //             sellRate: 0.0, // default sell rate
+    //             buyRate: 1500, // default buy rate
+    //             sellRate: 1500, // default sell rate
     //         },
     //     });
     // }
