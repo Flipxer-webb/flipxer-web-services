@@ -4,8 +4,9 @@ import {
     IsEmail,
     IsBooleanString,
     IsEnum,
+    IsDateString,
     Matches,
-    IsNotEmpty
+    IsNotEmpty,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -72,18 +73,17 @@ export class UpdateProfileDto {
     lastName: string;
 }
 
-
 export class RecoveryEmailDto {
-    @ApiProperty({ example: 'user@example.com' })
+    @ApiProperty({ example: "user@example.com" })
     @IsEmail()
     @IsNotEmpty()
     email: string;
-  
-    @ApiProperty({ example: 'recovery@example.com' })
+
+    @ApiProperty({ example: "recovery@example.com" })
     @IsEmail()
     @IsNotEmpty()
     recoveryEmail: string;
-  }
+}
 
 export class GetUserAssetsDto extends PaginationQueryDto {
     @ApiProperty({
@@ -95,6 +95,31 @@ export class GetUserAssetsDto extends PaginationQueryDto {
     searchText?: string;
 }
 
+export class GetUserListDto extends PaginationQueryDto {
+    @ApiProperty({
+        description: "filter by start date",
+        required: false,
+    })
+    @IsOptional()
+    @IsDateString()
+    startDate?: string;
+
+    @ApiProperty({
+        description: "filter by end date",
+        required: false,
+    })
+    @IsOptional()
+    @IsDateString()
+    endDate?: string;
+
+    @ApiProperty({
+        description: "search user by name, phone or email",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    searchText?: string;
+}
 export class UpdateProfilePasswordDto {
     @ApiProperty({
         description: "your current password",

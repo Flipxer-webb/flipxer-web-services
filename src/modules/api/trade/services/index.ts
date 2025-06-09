@@ -6,15 +6,21 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import {
     AccountCreationException,
+    AssetNotFoundException,
+    GeneralTransactionException,
     IncompleteAccountSetupException,
+    OutOfRangeException,
     TransactionCompletedException,
     TransactionNotFoundException,
+    UnknownFeeStructureException,
     WalletAddressNotFoundException,
 } from "../errors";
 import {
+    BuyQuoteResponse,
     DepositTransaction,
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
+    OrderType,
     SupportedAssets,
     SwapTransactionHandlerOptions,
     TradingPair,
@@ -26,6 +32,9 @@ import {
     OrderCategory,
     OrderSide,
     OrderStatus,
+    PaymentMethod,
+    TransactionStatus,
+    TransactionType,
     User,
 } from "@prisma/client";
 import {
@@ -33,8 +42,8 @@ import {
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
+    InitiateBuyOrderDto,
     InitiateWalletCreationDto,
-    PlaceBuyOrSellOrderDto,
     PlaceInstantSwapRequestDto,
     PurchaseLimitBuyDto,
     RefreshInstantSwapRequestDto,
@@ -46,6 +55,10 @@ import { UserNotFoundException } from "../../user";
 import { CryptoAccountQueueProducer } from "../queues/producers/producer.service";
 import { GetPaymentAddressByIdOptions } from "@/libs/quidax";
 import { generateId } from "@/utils";
+import { BankInjectionToken } from "@/modules/factory/bank/types";
+import { PaystackBank } from "@/modules/factory/bank/providers/paystack.provider";
+import { PastackInitiationResponseResultType } from "@/modules/factory/bank/types/paystack";
+import { COMPANY_NAME } from "@/config";
 
 @Injectable()
 export class TradingService {
@@ -54,7 +67,9 @@ export class TradingService {
         private prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
-        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer
+        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
+        @Inject(BankInjectionToken.PAYSTACK)
+        private readonly paystackService: PaystackBank
     ) {}
 
     getSupportedAssets() {
@@ -138,7 +153,7 @@ export class TradingService {
 
         return buildResponse({
             message: "withdrawer fee info retrieved",
-            data: info.data,
+            data: await this.getFee(dto.amount, info.data),
         });
     }
 
@@ -211,7 +226,90 @@ export class TradingService {
         });
     }
 
-    async buyOrSellCrypto(user: User, dto: PlaceBuyOrSellOrderDto) {
+    async buyCryptoQuoteRequest(user: User, dto: InitiateBuyOrderDto) {
+        const responseData = await this.calculateBuyQuote(user, dto);
+
+        return buildResponse({
+            message: "Quotation for order retrieved successfully",
+            data: responseData,
+        });
+    }
+
+    async buyCryptoOrder(user: User, dto: InitiateBuyOrderDto) {
+        const responseData = await this.calculateBuyQuote(user, dto);
+
+        const userData = {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+        };
+
+        const amount = +responseData.totalToChargeViaPaymentGateway;
+        const { data } = await this.paystackService.initializePaystackPayment(
+            userData,
+            amount
+        );
+
+        const result = data as unknown as PastackInitiationResponseResultType;
+
+        const order = await this.prisma.$transaction(
+            async (tx) => {
+                const order = await tx.order.create({
+                    data: {
+                        orderCategory: OrderCategory.BUY,
+                        amount: responseData.cryptoBuyAmount,
+                        fee: responseData.transactionFeeInCrypto,
+                        total: responseData.totalToChargeInCrypto,
+                        status: OrderStatus.pending,
+                        paymentStatus: TransactionStatus.PENDING,
+                        currency: dto.asset.toUpperCase(),
+                        recipient: responseData.depositAddress,
+                        destinationTag: responseData.destinationTag,
+                        userId: user.id,
+                    },
+                });
+                await tx.payment.create({
+                    data: {
+                        reference: result.reference,
+                        userId: user.id,
+                        amount:
+                            responseData.buyRate * responseData.cryptoBuyAmount,
+                        chargeFee:
+                            responseData.buyRate *
+                            responseData.transactionFeeInCrypto,
+                        totalAmount:
+                            responseData.totalToChargeViaPaymentGateway,
+                        type: TransactionType.P2P_PAYMENT,
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                        paymentMethod: PaymentMethod.PAYSTACK,
+                        sessionId: generateId({ type: "sessionId" }),
+                        transactionId: generateId({ type: "transaction" }),
+                        title: `${COMPANY_NAME} p2p buy order payment`,
+                        narration: `Buy order payment for order with id ${order.id}`,
+                        orderId: order.id,
+                        isDebit: false,
+                        expectedCurrency: responseData.currency,
+                    },
+                });
+
+                return order;
+            },
+            { maxWait: 5000, timeout: 40000 }
+        );
+
+        return buildResponse({
+            message:
+                "Order placed successfully, Please proceed to make payment",
+            data: { orderId: order.id, paymentInfo: data },
+        });
+    }
+
+    async calculateBuyQuote(
+        user: User,
+        dto: InitiateBuyOrderDto
+    ): Promise<BuyQuoteResponse> {
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
                 "Please complete your account setup or contact admin for support",
@@ -219,42 +317,58 @@ export class TradingService {
             );
         }
 
-        //make api calll for buy or sell
-        const order = await this.quidaxService.buyOrSellOrderRequest(
-            user.cryptoSubAccountId,
-            {
-                market: dto.market,
-                ord_type: dto.order_type,
-                side: dto.order_side,
-                volume: dto.volume,
-                price: dto.price,
-            }
-        );
+        const assetExist = await this.prisma.assetWallet.findFirst({
+            where: { userId: user.id, assetCurrency: dto.asset.toUpperCase() },
+        });
 
-        if (order.data) {
-            await this.prisma.order.create({
-                data: {
-                    orderCategory:
-                        dto.order_side === OrderSide.buy
-                            ? OrderCategory.BUY
-                            : OrderCategory.SELL,
-                    orderType: dto.order_type,
-                    market: dto.market,
-                    orderSide: dto.order_side,
-                    volume: dto.volume,
-                    price: dto.price,
-                    status: OrderStatus.pending,
-                    providerOrderId: order.data.id,
-                    orderReference: order.data.reference,
-                    userId: user.id,
-                },
-            });
+        if (!assetExist) {
+            throw new AssetNotFoundException(
+                `Asset ${dto.asset} not found for the user`,
+                HttpStatus.NOT_FOUND
+            );
         }
 
-        return buildResponse({
-            message: "order placed successfully",
-            data: {},
+        if (!assetExist.depositAddress || !assetExist.defaultNetwork) {
+            throw new WalletAddressNotFoundException(
+                `No wallet address found for asset ${dto.asset}`,
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        // TODO: Fetch these from admin settings
+        const buyRate = 1750; // 1 crypto = NGN
+        const adminFeeInCrypto = 0.5; // flat crypto fee
+
+        const quidaxFeeRes = await this.quidaxService.getWithdrawerFees({
+            currency: assetExist.assetCurrency.toLowerCase(),
+            network: assetExist.defaultNetwork,
         });
+
+        const quidaxFeeInCrypto = await this.getFee(
+            dto.amount,
+            quidaxFeeRes.data
+        );
+
+        const assetValueInNaira = dto.amount * buyRate;
+        const quidaxFeeInNaira = quidaxFeeInCrypto.fee * buyRate;
+        const adminFeeInNaira = adminFeeInCrypto * buyRate;
+
+        const totalToChargeInCrypto =
+            dto.amount + quidaxFeeInCrypto.fee + adminFeeInCrypto;
+        const totalToChargeViaPaymentGateway =
+            assetValueInNaira + quidaxFeeInNaira + adminFeeInNaira;
+
+        return {
+            buyRate,
+            cryptoBuyAmount: dto.amount,
+            transactionFeeInCrypto: quidaxFeeInCrypto.fee + adminFeeInCrypto,
+            totalToChargeInCrypto,
+            totalToChargeViaPaymentGateway,
+            currency: "NGN",
+            paymentGateway: PaymentMethod.PAYSTACK,
+            depositAddress: assetExist.depositAddress,
+            destinationTag: assetExist.destinationTag,
+        };
     }
 
     async createInstantSwap(user: User, dto: PlaceInstantSwapRequestDto) {
@@ -674,5 +788,38 @@ export class TradingService {
                 status: options.status,
             },
         });
+    }
+
+    async getFee(
+        amount: number,
+        data: any
+    ): Promise<{ fee: number; type: string }> {
+        if (data.type === "flat" && typeof data.fee === "number") {
+            return {
+                fee: data.fee,
+                type: "flat",
+            };
+        }
+
+        if (data.type === "range" && Array.isArray(data.fee)) {
+            for (const range of data.fee) {
+                if (amount >= range.min && amount < range.max) {
+                    return {
+                        fee: range.value,
+                        type: "flat", // all ranges from Quidax return "flat"
+                    };
+                }
+            }
+
+            throw new OutOfRangeException(
+                "Amount is out of range.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        throw new UnknownFeeStructureException(
+            "Unknown fee type or structure.",
+            HttpStatus.INTERNAL_SERVER_ERROR
+        );
     }
 }

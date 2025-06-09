@@ -1,4 +1,9 @@
-import { Prisma, PrismaClient, UserType } from "@prisma/client";
+import {
+    Prisma,
+    PrismaClient,
+    TransactionFeeCategory,
+    UserType,
+} from "@prisma/client";
 import logger from "moment-logger"; // Assuming this is your custom logger
 import { roles } from "./role"; // Assumed roles array file
 import * as bcrypt from "bcryptjs";
@@ -8,14 +13,44 @@ const prisma = new PrismaClient();
 const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
 
 async function main() {
-    for (let bank of banks) {
-        await prisma.bank.upsert({
-            where: { slug: bank.slug },
-            update: {},
-            create: bank,
-        });
-    }
-
+    // const currencies = ["BTC", "USDT", "USDC"];
+    // const feeCategories = Object.values(TransactionFeeCategory);
+    // for (const category of feeCategories) {
+    //     for (const currency of currencies) {
+    //         await prisma.transactionFee.upsert({
+    //             where: {
+    //                 category_currency: {
+    //                     category,
+    //                     currency: currency.toUpperCase(),
+    //                 },
+    //             },
+    //             update: {},
+    //             create: {
+    //                 category,
+    //                 currency: currency.toUpperCase(),
+    //                 fee: 0.5, // default fee
+    //             },
+    //         });
+    //     }
+    // }
+    // for (const currency of currencies) {
+    //     await prisma.cryptoRate.upsert({
+    //         where: { currency },
+    //         update: {},
+    //         create: {
+    //             currency,
+    //             buyRate: 1500, // default buy rate
+    //             sellRate: 1500, // default sell rate
+    //         },
+    //     });
+    // }
+    // for (let bank of banks) {
+    //     await prisma.bank.upsert({
+    //         where: { slug: bank.slug },
+    //         update: {},
+    //         create: bank,
+    //     });
+    // }
     // // Seed roles
     // for (let role of roles) {
     //     await prisma.role.upsert({
@@ -24,7 +59,6 @@ async function main() {
     //         create: role,
     //     });
     // }
-
     // // Seed ADMIN user with recoveryEmail
     // const adminRole = await prisma.role.findUnique({
     //     where: { slug: "super-admin" },
@@ -35,7 +69,6 @@ async function main() {
     //         plainAdminPassword,
     //         SALT_ROUNDS
     //     );
-
     //     const createAdminOptions: Prisma.UserUncheckedCreateInput = {
     //         email: "admin@resolve.com",
     //         phone: "09010000000",
@@ -53,14 +86,12 @@ async function main() {
     //             },
     //         },
     //     };
-
     //     await prisma.user.upsert({
     //         where: { email: createAdminOptions.email },
     //         update: {},
     //         create: createAdminOptions,
     //     });
     // }
-
     // // Seed an INDIVIDUAL user with accountLimit, bankDetails, and recoveryEmail
     // const individualRole = await prisma.role.findUnique({
     //     where: { slug: "individual" },
@@ -71,7 +102,6 @@ async function main() {
     //         plainIndividualPassword,
     //         SALT_ROUNDS
     //     );
-
     //     const createIndividualOptions: Prisma.UserUncheckedCreateInput = {
     //         email: "john.doe@example.com",
     //         phone: "09032000001",
@@ -107,14 +137,12 @@ async function main() {
     //             ],
     //         },
     //     };
-
     //     await prisma.user.upsert({
     //         where: { email: createIndividualOptions.email },
     //         update: {},
     //         create: createIndividualOptions,
     //     });
     // }
-
     // // Seed a BUSINESS user with accountLimit, bankDetails, and recoveryEmail
     // const businessRole = await prisma.role.findUnique({
     //     where: { slug: "business" },
@@ -125,7 +153,6 @@ async function main() {
     //         plainBusinessPassword,
     //         SALT_ROUNDS
     //     );
-
     //     const createBusinessOptions: Prisma.UserUncheckedCreateInput = {
     //         email: "acme.corp@example.com",
     //         phone: "09033000002",
@@ -166,7 +193,6 @@ async function main() {
     //             ],
     //         },
     //     };
-
     //     await prisma.user.upsert({
     //         where: { email: createBusinessOptions.email },
     //         update: {},

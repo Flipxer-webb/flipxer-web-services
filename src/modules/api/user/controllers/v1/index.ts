@@ -14,7 +14,7 @@ import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
     RecoveryEmailDto,
-    UpdateProfilePasswordDto
+    UpdateProfilePasswordDto,
 } from "../../dtos";
 import { User } from "../../decorators";
 import { User as UserModel } from "@prisma/client";

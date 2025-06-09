@@ -25,12 +25,13 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import {
+    BuyCryptoOrderDto,
     CancelWithdrawerRequestDto,
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
+    InitiateBuyOrderDto,
     InitiateWalletCreationDto,
-    PlaceBuyOrSellOrderDto,
     PlaceInstantSwapRequestDto,
     PurchaseLimitBuyDto,
     RefreshInstantSwapRequestDto,
@@ -138,16 +139,27 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "place buy or sell order",
+        summary: "initiate a buy order request",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
-    @Post("buy-or-Sell")
-    async buyOrSellCrypto(
-        @Body() dto: PlaceBuyOrSellOrderDto,
+    @Post("buy/quote")
+    async buyCrypto(@Body() dto: InitiateBuyOrderDto, @User() user: UserModel) {
+        return await this.tradingService.buyCryptoQuoteRequest(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "initiate a buy order request",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("buy/order")
+    async buyCryptoOrder(
+        @Body() dto: BuyCryptoOrderDto,
         @User() user: UserModel
     ) {
-        return await this.tradingService.buyOrSellCrypto(user, dto);
+        return await this.tradingService.buyCryptoOrder(user, dto);
     }
 
     @HttpCode(HttpStatus.OK)

@@ -37,3 +37,9 @@ export interface DocumentVerificationFileInterface {
     documentImage1?: Express.Multer.File[];
     documentImage2?: Express.Multer.File[];
 }
+
+interface PaystackHeader {
+    ["x-paystack-signature"]: string;
+}
+
+export type RequestFromPaystack = Request & { headers: PaystackHeader };

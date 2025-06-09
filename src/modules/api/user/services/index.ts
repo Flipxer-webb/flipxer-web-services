@@ -20,10 +20,7 @@ import {
     UpdateProfilePasswordDto,
 } from "../dtos";
 import { Logger } from "moment-logger";
-import {
-    UserNotFoundException,
-    AuthGenericException,
-} from "../../auth/errors";
+import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
 import { COMPANY_NAME } from "@/config";
 import { AssetWallet, Prisma, User } from "@prisma/client";
 import { IncorrectPasswordException } from "../errors";
@@ -223,42 +220,43 @@ export class UserService {
 
     async RecoveryEmail(dto: RecoveryEmailDto): Promise<ApiResponse> {
         try {
-          const user = await this.prisma.user.findUnique({
-            where: { email: dto.email },
-          });
-      
-          if (!user) {
-            throw new UserNotFoundException('User not found');
-          }
-      
-          await this.prisma.user.update({
-            where: { email: dto.email },
-            data: {
-              recoveryEmail: dto.recoveryEmail,  // simple string field update
-            },
-          });
-      
-          logger.info(`Recovery email updated successfully for user: ${dto.email}`);
-      
-          return buildResponse({
-            message: 'Recovery email updated successfully',
-          });
+            const user = await this.prisma.user.findUnique({
+                where: { email: dto.email },
+            });
+
+            if (!user) {
+                throw new UserNotFoundException("User not found");
+            }
+
+            await this.prisma.user.update({
+                where: { email: dto.email },
+                data: {
+                    recoveryEmail: dto.recoveryEmail, // simple string field update
+                },
+            });
+
+            logger.info(
+                `Recovery email updated successfully for user: ${dto.email}`
+            );
+
+            return buildResponse({
+                message: "Recovery email updated successfully",
+            });
         } catch (error) {
-          if (error instanceof UserNotFoundException) {
-            throw error;
-          }
-      
-          logger.error(
-            `Error in RecoveryEmail for user ${dto.email}: ${error.message}`,
-            { stack: error.stack }
-          );
-      
-          throw new AuthGenericException(
-            'An error occurred while updating the recovery email'
-          );
+            if (error instanceof UserNotFoundException) {
+                throw error;
+            }
+
+            logger.error(
+                `Error in RecoveryEmail for user ${dto.email}: ${error.message}`,
+                { stack: error.stack }
+            );
+
+            throw new AuthGenericException(
+                "An error occurred while updating the recovery email"
+            );
         }
-      }
-      
+    }
 
     async updateProfilePassword(
         options: UpdateProfilePasswordDto,
