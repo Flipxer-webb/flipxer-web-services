@@ -29,8 +29,8 @@ import {
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
+    InitiateBuyOrderDto,
     InitiateWalletCreationDto,
-    PlaceBuyOrSellOrderDto,
     PlaceInstantSwapRequestDto,
     PurchaseLimitBuyDto,
     RefreshInstantSwapRequestDto,
@@ -138,16 +138,13 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "place buy or sell order",
+        summary: "initiate a buy order request",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
-    @Post("buy-or-Sell")
-    async buyOrSellCrypto(
-        @Body() dto: PlaceBuyOrSellOrderDto,
-        @User() user: UserModel
-    ) {
-        return await this.tradingService.buyOrSellCrypto(user, dto);
+    @Post("buy")
+    async buyCrypto(@Body() dto: InitiateBuyOrderDto, @User() user: UserModel) {
+        return await this.tradingService.buyCrypto(user, dto);
     }
 
     @HttpCode(HttpStatus.OK)

@@ -260,7 +260,7 @@ export interface WithdrawerRecordByReferenceOptions {
 
 export type WithdrawerRecordByReferenceResponse = IQuidaxTransaction;
 
-export type NetworkTypes = "trc20" | "erc20" | "bep20";
+export type NetworkTypes = "trc20" | "erc20" | "bep20" | string;
 export interface WithdrawerFeesOptions {
     currency: string;
     network?: NetworkTypes;
