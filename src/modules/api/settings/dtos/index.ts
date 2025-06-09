@@ -38,7 +38,7 @@ export class CreateOrUpdateCryptoTransactionFeeDto {
     @IsNotEmpty()
     @IsString()
     currency: string;
- 
+
     @ApiProperty({ description: "crypto transaction fee", required: false })
     @IsOptional()
     @IsNumber()
