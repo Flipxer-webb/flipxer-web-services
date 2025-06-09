@@ -2,11 +2,11 @@ import {
     IsOptional,
     IsString,
     IsEmail,
-    Length,
-    IsNotEmpty,
     IsBooleanString,
     IsEnum,
     IsDateString,
+    Matches,
+    IsNotEmpty,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -73,39 +73,16 @@ export class UpdateProfileDto {
     lastName: string;
 }
 
-export class SendRecoveryPinDto {
-    @ApiProperty({
-        description: "The registered email address of the user",
-        example: "user@example.com",
-    })
+export class RecoveryEmailDto {
+    @ApiProperty({ example: "user@example.com" })
     @IsEmail()
-    email: string;
-}
-
-export class VerifyRecoveryPinDto {
-    @ApiProperty({
-        description: "The registered email address of the user",
-        example: "user@example.com",
-    })
-    @IsEmail()
+    @IsNotEmpty()
     email: string;
 
-    @ApiProperty({
-        description: "The recovery email address to be updated for the user",
-        example: "recovery@example.com",
-    })
+    @ApiProperty({ example: "recovery@example.com" })
     @IsEmail()
+    @IsNotEmpty()
     recoveryEmail: string;
-
-    @ApiProperty({
-        description: "The 6-digit PIN sent to the user for verification",
-        example: "123456",
-        minLength: 6,
-        maxLength: 6,
-    })
-    @IsString()
-    @Length(6, 6)
-    pin: string;
 }
 
 export class GetUserAssetsDto extends PaginationQueryDto {
@@ -142,4 +119,23 @@ export class GetUserListDto extends PaginationQueryDto {
     @IsOptional()
     @IsString()
     searchText?: string;
+}
+export class UpdateProfilePasswordDto {
+    @ApiProperty({
+        description: "your current password",
+        example: "current password",
+    })
+    @IsString()
+    oldPassword: string;
+
+    @ApiProperty({
+        description: "Your new desired password",
+        example: "NewPassw0rd!",
+    })
+    @IsString()
+    @Matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$&%])[A-Za-z\d!@#$&%]{10,100}$/, {
+        message:
+            "Password must be 10-100 characters long, contain at least one uppercase letter, one number, and one special character (!@#$&%)",
+    })
+    newPassword: string;
 }

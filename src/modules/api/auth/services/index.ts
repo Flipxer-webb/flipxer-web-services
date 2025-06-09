@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -309,9 +309,9 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            throw new AuthGenericException(
-                "Failed to send account verification email"
-            );
+            //do not throw error here, only log
+            console.log(error, "errors");
+            Logger.error(`Failed to send account verification email${error}`);
         }
 
         return buildResponse({
@@ -746,6 +746,10 @@ export class AuthService {
             );
         }
 
+        // Helper to upload only if file exists
+        const safeUpload = async (file?: Express.Multer.File[]) =>
+            file ? this.uploadAsFile(file) : null;
+
         // Upload all images concurrently
         const [
             cacImage,
@@ -754,13 +758,12 @@ export class AuthService {
             proofOfAddressImage,
             meansOfIdImage,
         ] = await Promise.all([
-            this.uploadAsFile(files.cacImage),
-            this.uploadAsFile(files.articleOfAssociationImage),
-            this.uploadAsFile(files.boardResolutionAuthorizedAcctOpeningImage),
-            this.uploadAsFile(files.proofOfAddressForBeneficialOwner),
-            this.uploadAsFile(files.meansOfIdentificationForBeneficialOwner),
+            safeUpload(files.cacImage),
+            safeUpload(files.articleOfAssociationImage),
+            safeUpload(files.boardResolutionAuthorizedAcctOpeningImage),
+            safeUpload(files.proofOfAddressForBeneficialOwner),
+            safeUpload(files.meansOfIdentificationForBeneficialOwner),
         ]);
-
         await this.prisma.$transaction(
             async (tx) => {
                 await tx.businessDocument.upsert({
@@ -769,25 +772,25 @@ export class AuthService {
                     create: {
                         userId: user.id,
                         cacDocumentNumber: dto.cacDocumentNumber,
-                        cacImageUrl: cacImage.url,
-                        cacImageUrlFieldId: cacImage.fileId,
+                        cacImageUrl: cacImage?.url || null,
+                        cacImageUrlFieldId: cacImage?.fileId || null,
                         articleOfAssociationNumber:
-                            dto.articleOfAssociationNumber,
-                        articleOfAssociationImageUrl: articleImage.url,
+                            dto.articleOfAssociationNumber || null,
+                        articleOfAssociationImageUrl: articleImage?.url || null,
                         articleOfAssociationImageUrlFieldId:
-                            articleImage.fileId,
+                            articleImage?.fileId || null,
                         boardResolutionAuthorizedAcctOpeningImageUrl:
-                            boardResolutionImage.url,
+                            boardResolutionImage?.url || null,
                         boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
-                            boardResolutionImage.fileId,
+                            boardResolutionImage?.fileId || null,
                         meansOfIdentificationForBeneficialOwner:
-                            meansOfIdImage.url,
+                            meansOfIdImage?.url || null,
                         meansOfIdentificationForBeneficialOwnerImageFieldId:
-                            meansOfIdImage.fileId,
+                            meansOfIdImage?.fileId || null,
                         proofOfAddressForBeneficialOwner:
-                            proofOfAddressImage.url,
+                            proofOfAddressImage?.url || null,
                         proofOfAddressForBeneficialOwnerImageFieldId:
-                            proofOfAddressImage.fileId,
+                            proofOfAddressImage?.fileId || null,
                     },
                 });
 
@@ -810,29 +813,46 @@ export class AuthService {
 
     async submitBusinessRecord(user: User, dto: SubmitBusinessRecordDto) {
         //todo: taxid verification
-        const record = await this.prisma.businessRecord.upsert({
-            where: { id: user.id },
-            update: {
-                businessName: dto.businessName,
-                natureOfBusiness: dto.natureOfBusiness,
-                expectedTransactionFrequency: dto.expectedTransactionFrequency,
-                expectedTransactionVolume: dto.expectedTransactionVolumes,
-                taxIdentificationNumber: dto.taxIdentificationNumber,
-            },
-            create: {
-                userId: user.id,
-                businessName: dto.businessName,
-                natureOfBusiness: dto.natureOfBusiness,
-                expectedTransactionFrequency: dto.expectedTransactionFrequency,
-                expectedTransactionVolume: dto.expectedTransactionVolumes,
-                taxIdentificationNumber: dto.taxIdentificationNumber,
-            },
-        });
+        const record = await this.prisma.$transaction(
+            async (tx) => {
+                const record = await tx.businessRecord.upsert({
+                    where: { userId: user.id },
+                    update: {
+                        businessName: dto.businessName,
+                        natureOfBusiness: dto.natureOfBusiness,
+                        expectedTransactionFrequency:
+                            dto.expectedTransactionFrequency,
+                        expectedTransactionVolume:
+                            dto.expectedTransactionVolumes,
+                        taxIdentificationNumber: dto.taxIdentificationNumber,
+                    },
+                    create: {
+                        userId: user.id,
+                        businessName: dto.businessName,
+                        natureOfBusiness: dto.natureOfBusiness,
+                        expectedTransactionFrequency:
+                            dto.expectedTransactionFrequency,
+                        expectedTransactionVolume:
+                            dto.expectedTransactionVolumes,
+                        taxIdentificationNumber: dto.taxIdentificationNumber,
+                    },
+                });
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: { businessRecordCompleted: true },
-        });
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        businessRecordCompleted: true,
+                        firstName: dto.firstName,
+                        lastName: dto.lastName,
+                    },
+                });
+                return record;
+            },
+            { maxWait: 10000, timeout: 30000 }
+        );
+
+        //create user quidax account and default wallet address once email is verified
+        await this.cryptoAccountQueueProducer.enqueue(user.id);
 
         return buildResponse({
             message: "Business record submitted successfully",

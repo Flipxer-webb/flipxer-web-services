@@ -1,4 +1,4 @@
-import { jwtSecret, quidaxConfig } from "@/config";
+import { jwtSecret, paystackSecretKey, quidaxConfig } from "@/config";
 import {
     CanActivate,
     ExecutionContext,
@@ -20,6 +20,7 @@ import {
 } from "../errors";
 import {
     DataStoredInToken,
+    RequestFromPaystack,
     RequestFromQuidax,
     RequestWithUser,
 } from "../interfaces";
@@ -28,6 +29,7 @@ import { Status } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { Observable } from "rxjs";
 import * as crypto from "crypto";
+import { createHmac } from "crypto";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -149,6 +151,27 @@ export class QuidaxWebhookGuard implements CanActivate {
             .toString("hex");
 
         if (signature === created_signature) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+}
+
+@Injectable()
+export class PaystackWebhookGuard implements CanActivate {
+    canActivate(
+        context: ExecutionContext
+    ): boolean | Promise<boolean> | Observable<boolean> {
+        const request = context
+            .switchToHttp()
+            .getRequest() as RequestFromPaystack;
+
+        const hash = createHmac("sha512", paystackSecretKey)
+            .update(JSON.stringify(request.body))
+            .digest("hex");
+
+        if (hash == request.headers["x-paystack-signature"]) {
             return true;
         } else {
             return false;

@@ -15,6 +15,7 @@ import {
     TradingPair,
 } from "../interfaces/trade";
 import { NetworkTypes } from "@prisma/client";
+import { Transform } from "class-transformer";
 
 export class GetWalletDto {
     @ApiProperty({ enum: SupportedAssets })
@@ -40,38 +41,66 @@ export class InitiateWalletCreationDto {
     network?: NetworkTypes;
 }
 
-export class PlaceBuyOrSellOrderDto {
-    @ApiProperty({ enum: TradingPair })
+export class InitiateBuyOrderDto {
+    @ApiProperty({ example: "BTC, USDT, USDC" })
     @IsNotEmpty()
-    @IsEnum(TradingPair)
-    market: TradingPair;
-
-    @ApiProperty({ enum: OrderType })
-    @IsNotEmpty()
-    @IsEnum(OrderType)
-    order_type: OrderType;
-
-    @ApiProperty({ enum: OrderSide })
-    @IsNotEmpty()
-    @IsEnum(OrderSide)
-    order_side: OrderSide;
-
-    @ApiProperty()
-    @IsNotEmpty()
-    @IsNumber()
-    @IsPositive()
-    volume: number;
+    asset: string;
 
     @ApiProperty({
-        required: false,
-        description:
-            "Required if order_type is LIMIT. Not required for MARKET orders.",
+        example: 0.01,
+        description: "Amount of crypto the user wants to buy",
     })
-    @ValidateIf((o) => o.order_type === OrderType.LIMIT)
+    @Transform(({ value }) => +value)
     @IsNotEmpty()
-    @IsNumber()
     @IsPositive()
-    price: number;
+    @IsNumber()
+    amount: number;
+}
+
+export class BuyCryptoOrderDto {
+    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @IsNotEmpty()
+    asset: string;
+
+    @ApiProperty({
+        example: 0.01,
+        description: "Amount of crypto the user wants to buy",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    amount: number;
+
+    @ApiProperty({
+        example: 1750,
+        description: "Buy rate of crypto the user wants to buy",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    buyRate: number;
+
+    @ApiProperty({
+        example: 750,
+        description: "Charge for the transaction in fiat (Naira)",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    transactionFeeInFiat: number;
+
+    @ApiProperty({
+        example: 1950,
+        description: "Total amount to pay for the transaction in fiat (Naira)",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    totalAmountToPayInFiat: number;
 }
 
 export class VerifyWalletAddressDto {
@@ -91,6 +120,16 @@ export class GetCryptoWithdrawerFeeDto {
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
+
+    @ApiProperty({
+        example: 0.01,
+        description: "Amount of crypto the user wants to buy",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    amount!: number;
 }
 
 export class PlaceInstantSwapRequestDto {

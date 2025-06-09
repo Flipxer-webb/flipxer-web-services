@@ -1,4 +1,4 @@
-import { OrderStatus } from "@prisma/client";
+import { OrderStatus, PaymentMethod } from "@prisma/client";
 
 interface FundingFailure {
     transactionId: number;
@@ -122,7 +122,7 @@ export enum OrderSide {
 }
 
 export interface SwapTransactionHandlerOptions {
-    orderReference: string;
+    orderId: string;
     status: OrderStatus;
 }
 
@@ -142,4 +142,16 @@ export interface DepositTransaction {
     quidaxUserId: string;
     currency: string;
     reason: string;
+}
+
+export interface BuyQuoteResponse {
+    buyRate: number;
+    cryptoBuyAmount: number;
+    transactionFeeInCrypto: number;
+    totalToChargeInCrypto: number;
+    totalToChargeViaPaymentGateway: number;
+    currency: string;
+    paymentGateway: PaymentMethod;
+    depositAddress: string;
+    destinationTag: string;
 }

@@ -61,7 +61,7 @@ export class CreatePasswordDto {
     @IsString()
     @MinLength(8, { message: "Password must be at least 8 characters long" })
     @MaxLength(100, { message: "Password must not exceed 100 characters" })
-    @Matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/, {
+    @Matches(/^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9])[A-Za-z\d\S]+$/, {
         message:
             "Password must contain at least one uppercase letter, one number, and one special character",
     })
@@ -250,32 +250,46 @@ export class BusinessDocumentUploadFormDto {
         type: "string",
         format: "binary",
         description: "Article of Association image file",
+        required: false,
     })
-    articleOfAssociationImage: any;
+    articleOfAssociationImage?: any;
 
     @ApiProperty({
         type: "string",
         format: "binary",
         description: "Board resolution image file",
+        required: false,
     })
-    boardResolutionAuthorizedAcctOpeningImage: any;
+    boardResolutionAuthorizedAcctOpeningImage?: any;
 
     @ApiProperty({
         type: "string",
         format: "binary",
         description: "Proof of address for beneficial owner",
+        required: false,
     })
-    proofOfAddressForBeneficialOwner: any;
+    proofOfAddressForBeneficialOwner?: any;
 
     @ApiProperty({
         type: "string",
         format: "binary",
         description: "Means of identification for beneficial owner",
+        required: false,
     })
-    meansOfIdentificationForBeneficialOwner: any;
+    meansOfIdentificationForBeneficialOwner?: any;
 }
 
 export class SubmitBusinessRecordDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
     @ApiProperty()
     @IsNotEmpty()
     @IsString()

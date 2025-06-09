@@ -210,19 +210,19 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         switch (true) {
             case eventData.status === OrderStatus.completed:
                 await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
+                    orderId: eventData.id,
                     status: OrderStatus.completed,
                 });
                 break;
             case eventData.status === OrderStatus.failed:
                 await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
+                    orderId: eventData.id,
                     status: OrderStatus.failed,
                 });
                 break;
             case eventData.status === OrderStatus.reversed:
                 await this.tradingService.swapTransactionHandler({
-                    orderReference: eventData.id,
+                    orderId: eventData.id,
                     status: OrderStatus.reversed,
                 });
                 break;

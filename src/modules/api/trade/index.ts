@@ -11,12 +11,14 @@ import { quidaxBoardQueueConfig, quidaxQueueConfig } from "./queues";
 import { CryptoAccountQueueProducer } from "./queues/producers/producer.service";
 import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processors/account_init_processor";
 import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
+import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
 
 @Module({
     imports: [
         BullModule.registerQueue(...quidaxQueueConfig),
         BullBoardModule.forFeature(...quidaxBoardQueueConfig),
         TradingFactoryModule,
+        BankFactoryModule,
     ],
     controllers: [TradingController],
     providers: [

@@ -19,3 +19,19 @@ export class TransactionNotFoundException extends HttpException {
 export class TransactionCompletedException extends HttpException {
     name = "TransactionCompletedException";
 }
+
+export class AssetNotFoundException extends HttpException {
+    name = "AssetNotFoundException";
+}
+
+export class OutOfRangeException extends HttpException {
+    name = "OutOfRangeException";
+}
+
+export class UnknownFeeStructureException extends HttpException {
+    name = "UnknownFeeStructureException";
+}
+
+export class GeneralTransactionException extends HttpException {
+    name = "GeneralTransactionException";
+}

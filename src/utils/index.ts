@@ -39,6 +39,9 @@ export const generateId = (options: TransactionIdOption): string => {
         case "identifier": {
             return customAlphabet(urlAlphabet, 16)();
         }
+        case "sessionId": {
+            return customAlphabet(numeric, 15)();
+        }
 
         default:
             break;
