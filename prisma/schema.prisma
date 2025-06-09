@@ -393,6 +393,7 @@ model Order {
   volume    Float?
   price     Float? // optional for market orders
   status    OrderStatus
+  paymentStatus TransactionStatus?
 
   //swap related
   quotationId     String?
@@ -416,6 +417,8 @@ model Order {
   total            Float?
   sourceType       String?
   blockchain_txid  String?
+
+  destinationTag   String?
 
   providerOrderId String?  @unique // Quidax reference ID
   orderReference  String?  @unique //Quidax order ref
@@ -464,8 +467,9 @@ model Payment {
   userId            Int
   orderId           Int?
   amount            Decimal           @db.Decimal(10, 2)
+  chargeFee         Decimal           @db.Decimal(10, 2) @default(0.0)
   totalAmount       Decimal?          @db.Decimal(10, 2)
-  expectedCurrency  String
+  expectedCurrency  String?
   status            TransactionStatus
   type              TransactionType?
   paymentStatus     TransactionStatus @default(PENDING)

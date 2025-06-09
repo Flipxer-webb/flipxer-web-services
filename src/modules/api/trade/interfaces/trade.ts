@@ -152,4 +152,6 @@ export interface BuyQuoteResponse {
     totalToChargeViaPaymentGateway: number;
     currency: string;
     paymentGateway: PaymentMethod;
+    depositAddress: string;
+    destinationTag: string;
 }

@@ -6,7 +6,8 @@ export interface TransactionIdOption {
         | "custom_upper_case"
         | "custom_lower_case"
         | "numeric"
-        | "identifier";
+        | "identifier"
+        | "sessionId";
     length?: number;
 }
 

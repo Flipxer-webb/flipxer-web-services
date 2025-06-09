@@ -32,6 +32,8 @@ import {
     OrderSide,
     OrderStatus,
     PaymentMethod,
+    TransactionStatus,
+    TransactionType,
     User,
 } from "@prisma/client";
 import {
@@ -52,6 +54,10 @@ import { UserNotFoundException } from "../../user";
 import { CryptoAccountQueueProducer } from "../queues/producers/producer.service";
 import { GetPaymentAddressByIdOptions } from "@/libs/quidax";
 import { generateId } from "@/utils";
+import { BankInjectionToken } from "@/modules/factory/bank/types";
+import { PaystackBank } from "@/modules/factory/bank/providers/paystack.provider";
+import { PastackInitiationResponseResultType } from "@/modules/factory/bank/types/paystack";
+import { COMPANY_NAME } from "@/config";
 
 @Injectable()
 export class TradingService {
@@ -60,7 +66,9 @@ export class TradingService {
         private prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
-        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer
+        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
+        @Inject(BankInjectionToken.PAYSTACK)
+        private readonly paystackService: PaystackBank
     ) {}
 
     getSupportedAssets() {
@@ -217,12 +225,83 @@ export class TradingService {
         });
     }
 
-    async buyCrypto(user: User, dto: InitiateBuyOrderDto) {
+    async buyCryptoQuoteRequest(user: User, dto: InitiateBuyOrderDto) {
         const responseData = await this.calculateBuyQuote(user, dto);
 
         return buildResponse({
             message: "Quotation for order retrieved successfully",
             data: responseData,
+        });
+    }
+
+    async buyCryptoOrder(user: User, dto: InitiateBuyOrderDto) {
+        const responseData = await this.calculateBuyQuote(user, dto);
+
+        const userData = {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+        };
+
+        const amount = +responseData.totalToChargeViaPaymentGateway;
+        const { data } = await this.paystackService.initializePaystackPayment(
+            userData,
+            amount
+        );
+
+        const result = data as unknown as PastackInitiationResponseResultType;
+
+        const order = await this.prisma.$transaction(
+            async (tx) => {
+                const order = await tx.order.create({
+                    data: {
+                        orderCategory: OrderCategory.BUY,
+                        amount: responseData.cryptoBuyAmount,
+                        fee: responseData.transactionFeeInCrypto,
+                        total: responseData.totalToChargeInCrypto,
+                        status: OrderStatus.pending,
+                        paymentStatus: TransactionStatus.PENDING,
+                        currency: dto.asset.toUpperCase(),
+                        recipient: responseData.depositAddress,
+                        destinationTag: responseData.destinationTag,
+                        userId: user.id,
+                    },
+                });
+                await tx.payment.create({
+                    data: {
+                        reference: result.reference,
+                        userId: user.id,
+                        amount:
+                            responseData.buyRate * responseData.cryptoBuyAmount,
+                        chargeFee:
+                            responseData.buyRate *
+                            responseData.transactionFeeInCrypto,
+                        totalAmount:
+                            responseData.totalToChargeViaPaymentGateway,
+                        type: TransactionType.P2P_PAYMENT,
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                        paymentMethod: PaymentMethod.PAYSTACK,
+                        sessionId: generateId({ type: "sessionId" }),
+                        transactionId: generateId({ type: "transaction" }),
+                        title: `${COMPANY_NAME} p2p buy order payment`,
+                        narration: `Buy order payment for order with id ${order.id}`,
+                        orderId: order.id,
+                        isDebit: false,
+                        expectedCurrency: responseData.currency,
+                    },
+                });
+
+                return order;
+            },
+            { maxWait: 5000, timeout: 40000 }
+        );
+
+        return buildResponse({
+            message:
+                "Order placed successfully, Please proceed to make payment",
+            data: { orderId: order.id, paymentInfo: data },
         });
     }
 
@@ -257,7 +336,7 @@ export class TradingService {
 
         // TODO: Fetch these from admin settings
         const buyRate = 1750; // 1 crypto = NGN
-        const adminFeeInCrypto = 0.1; // flat crypto fee
+        const adminFeeInCrypto = 0.5; // flat crypto fee
 
         const quidaxFeeRes = await this.quidaxService.getWithdrawerFees({
             currency: assetExist.assetCurrency.toLowerCase(),
@@ -286,6 +365,8 @@ export class TradingService {
             totalToChargeViaPaymentGateway,
             currency: "NGN",
             paymentGateway: PaymentMethod.PAYSTACK,
+            depositAddress: assetExist.depositAddress,
+            destinationTag: assetExist.destinationTag,
         };
     }
 

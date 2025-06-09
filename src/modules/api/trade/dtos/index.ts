@@ -57,6 +57,52 @@ export class InitiateBuyOrderDto {
     amount: number;
 }
 
+export class BuyCryptoOrderDto {
+    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @IsNotEmpty()
+    asset: string;
+
+    @ApiProperty({
+        example: 0.01,
+        description: "Amount of crypto the user wants to buy",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    amount: number;
+
+    @ApiProperty({
+        example: 1750,
+        description: "Buy rate of crypto the user wants to buy",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    buyRate: number;
+
+    @ApiProperty({
+        example: 750,
+        description: "Charge for the transaction in fiat (Naira)",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    transactionFeeInFiat: number;
+
+    @ApiProperty({
+        example: 1950,
+        description: "Total amount to pay for the transaction in fiat (Naira)",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    totalAmountToPayInFiat: number;
+}
+
 export class VerifyWalletAddressDto {
     @ApiProperty()
     @IsNotEmpty()
