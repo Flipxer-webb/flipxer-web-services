@@ -128,7 +128,9 @@ model BankDetail {
   updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  
+  @@unique([userId, accountNumber])
+  @@index(userId)
   @@map("BankDetails")
 }
 
@@ -289,7 +291,7 @@ model AssetWallet {
   blockchainEnabled Boolean
   depositAddress    String?
   destinationTag    String?
-  isActive          Boolean @default(false)
+  isActive          Boolean @default(false) 
   addressSynced     Boolean @default(false)
 
   networks  Json

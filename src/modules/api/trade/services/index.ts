@@ -21,6 +21,7 @@ import {
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
     OrderType,
+    SellQuoteResponse,
     SupportedAssets,
     SwapTransactionHandlerOptions,
     TradingPair,
@@ -33,6 +34,7 @@ import {
     OrderSide,
     OrderStatus,
     PaymentMethod,
+    TransactionFeeCategory,
     TransactionStatus,
     TransactionType,
     User,
@@ -43,10 +45,12 @@ import {
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
     InitiateBuyOrderDto,
+    InitiateSellOrderDto,
     InitiateWalletCreationDto,
     PlaceInstantSwapRequestDto,
     PurchaseLimitBuyDto,
     RefreshInstantSwapRequestDto,
+    SellCryptoOrderDto,
     SupportedPaymentMethodDto,
     VerifyWalletAddressDto,
     WithdrawerRequestDto,
@@ -59,6 +63,11 @@ import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { PaystackBank } from "@/modules/factory/bank/providers/paystack.provider";
 import { PastackInitiationResponseResultType } from "@/modules/factory/bank/types/paystack";
 import { COMPANY_NAME } from "@/config";
+import {
+    CryptoRateNotFoundException,
+    CryptoTransactionFeeNotFoundException,
+} from "../../settings/errors";
+import { BankDetailNotFoundException } from "../../banks/errors";
 
 @Injectable()
 export class TradingService {
@@ -230,7 +239,16 @@ export class TradingService {
         const responseData = await this.calculateBuyQuote(user, dto);
 
         return buildResponse({
-            message: "Quotation for order retrieved successfully",
+            message: "Quotation for buy order retrieved successfully",
+            data: responseData,
+        });
+    }
+
+    async sellCryptoQuoteRequest(user: User, dto: InitiateSellOrderDto) {
+        const responseData = await this.calculateSellQuote(user, dto);
+
+        return buildResponse({
+            message: "Quotation for sell order retrieved successfully",
             data: responseData,
         });
     }
@@ -306,6 +324,45 @@ export class TradingService {
         });
     }
 
+    async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {
+        const responseData = await this.calculateSellQuote(user, dto, true);
+
+        const sendAmountToSeller = +responseData.totalToReceiveInFiat;
+        const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
+
+        console.log(totalCryptoToAdmin, sendAmountToSeller);
+
+        //step 1: send crypto to admin quidax account
+
+        //step 2: once step 1 is successfully completed, send fund to user bank account from paystack main account
+
+        // const order = await this.prisma.$transaction(
+        //     async (tx) => {
+        //         const order = await tx.order.create({
+        //             data: {
+        //                 orderCategory: OrderCategory.BUY,
+        //                 amount: responseData.cryptoBuyAmount,
+        //                 fee: responseData.transactionFeeInCrypto,
+        //                 total: responseData.totalToChargeInCrypto,
+        //                 status: OrderStatus.pending,
+        //                 paymentStatus: TransactionStatus.PENDING,
+        //                 currency: dto.asset.toUpperCase(),
+        //                 recipient: responseData.depositAddress,
+        //                 destinationTag: responseData.destinationTag,
+        //                 userId: user.id,
+        //             },
+        //         });
+
+        //         return order;
+        //     },
+        //     { maxWait: 5000, timeout: 40000 }
+        // );
+
+        return buildResponse({
+            message: "Order placed successfully, Payment is processing",
+        });
+    }
+
     async calculateBuyQuote(
         user: User,
         dto: InitiateBuyOrderDto
@@ -335,9 +392,31 @@ export class TradingService {
             );
         }
 
-        // TODO: Fetch these from admin settings
-        const buyRate = 1750; // 1 crypto = NGN
-        const adminFeeInCrypto = 0.5; // flat crypto fee
+        const currency = dto.asset.toUpperCase();
+        // sell rate is used when user is buying.
+        const [rate, adminFeeInCrypto] = await Promise.all([
+            this.prisma.cryptoRate.findUnique({ where: { currency } }),
+            this.prisma.transactionFee.findUnique({
+                where: {
+                    category_currency: {
+                        category: TransactionFeeCategory.SELL,
+                        currency,
+                    },
+                },
+            }),
+        ]);
+
+        if (!rate) {
+            throw new CryptoRateNotFoundException(
+                `No rate found for asset ${dto.asset}`
+            );
+        }
+
+        if (!adminFeeInCrypto) {
+            throw new CryptoTransactionFeeNotFoundException(
+                `No transaction fee record found for asset ${dto.asset}`
+            );
+        }
 
         const quidaxFeeRes = await this.quidaxService.getWithdrawerFees({
             currency: assetExist.assetCurrency.toLowerCase(),
@@ -349,25 +428,146 @@ export class TradingService {
             quidaxFeeRes.data
         );
 
-        const assetValueInNaira = dto.amount * buyRate;
-        const quidaxFeeInNaira = quidaxFeeInCrypto.fee * buyRate;
-        const adminFeeInNaira = adminFeeInCrypto * buyRate;
+        const assetValueInNaira = dto.amount * rate.sellRate;
+        const quidaxFeeInNaira = quidaxFeeInCrypto.fee * rate.sellRate;
+        const adminFeeInNaira = adminFeeInCrypto.fee * rate.sellRate;
 
         const totalToChargeInCrypto =
-            dto.amount + quidaxFeeInCrypto.fee + adminFeeInCrypto;
+            dto.amount + quidaxFeeInCrypto.fee + adminFeeInCrypto.fee;
         const totalToChargeViaPaymentGateway =
             assetValueInNaira + quidaxFeeInNaira + adminFeeInNaira;
 
         return {
-            buyRate,
+            buyRate: rate.sellRate,
             cryptoBuyAmount: dto.amount,
-            transactionFeeInCrypto: quidaxFeeInCrypto.fee + adminFeeInCrypto,
+            transactionFeeInCrypto:
+                quidaxFeeInCrypto.fee + adminFeeInCrypto.fee,
             totalToChargeInCrypto,
             totalToChargeViaPaymentGateway,
             currency: "NGN",
             paymentGateway: PaymentMethod.PAYSTACK,
             depositAddress: assetExist.depositAddress,
             destinationTag: assetExist.destinationTag,
+        };
+    }
+
+    async calculateSellQuote(
+        user: User,
+        dto: InitiateSellOrderDto,
+        internal = false
+    ): Promise<SellQuoteResponse> {
+        // 1. Ensure crypto account is set up
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const currency = dto.asset.toUpperCase();
+
+        // 2. Fetch bank detail, asset wallet, rate, and admin fee concurrently
+        const [bankDetail, assetWallet, rate, adminFee] = await Promise.all([
+            this.prisma.bankDetail.findFirst({
+                where: { userId: user.id },
+                select: {
+                    accountName: true,
+                    accountNumber: true,
+                    bankName: true,
+                },
+            }),
+            this.prisma.assetWallet.findFirst({
+                where: {
+                    userId: user.id,
+                    assetCurrency: currency,
+                },
+            }),
+            this.prisma.cryptoRate.findUnique({
+                where: { currency },
+            }),
+            this.prisma.transactionFee.findUnique({
+                where: {
+                    category_currency: {
+                        category: TransactionFeeCategory.BUY,
+                        currency,
+                    },
+                },
+            }),
+        ]);
+
+        // 3. Validate fetched records
+        if (!bankDetail) {
+            throw new BankDetailNotFoundException(
+                "No bank detail found. Please setup your bank detail",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        if (!assetWallet) {
+            throw new AssetNotFoundException(
+                `Asset ${dto.asset} not found for the user`,
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        const { depositAddress, defaultNetwork, assetCurrency } = assetWallet;
+
+        if (!depositAddress || !defaultNetwork) {
+            throw new WalletAddressNotFoundException(
+                `No wallet address found for asset ${dto.asset}`,
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        if (!rate) {
+            throw new CryptoRateNotFoundException(
+                `No rate found for asset ${dto.asset}`
+            );
+        }
+
+        if (!adminFee) {
+            throw new CryptoTransactionFeeNotFoundException(
+                `No transaction fee record found for asset ${dto.asset}`
+            );
+        }
+
+        // 4. Fetch Quidax withdrawal fee and compute in crypto
+        const { data: quidaxFeeData } =
+            await this.quidaxService.getWithdrawerFees({
+                currency: assetCurrency.toLowerCase(),
+                network: defaultNetwork,
+            });
+
+        const { fee: quidaxFeeCrypto } = await this.getFee(
+            dto.amount,
+            quidaxFeeData
+        );
+
+        // 5. Calculations
+        const buyRate = rate.buyRate;
+        const adminFeeCrypto = adminFee.fee;
+
+        const assetValueInNaira = dto.amount * buyRate;
+        const quidaxFeeInNaira = quidaxFeeCrypto * buyRate;
+        const adminFeeInNaira = adminFeeCrypto * buyRate;
+
+        const totalCostInCrypto = dto.amount + quidaxFeeCrypto + adminFeeCrypto;
+        const totalCostInFiat =
+            assetValueInNaira + quidaxFeeInNaira + adminFeeInNaira;
+        const totalCryptoToAdmin = dto.amount + adminFeeCrypto;
+
+        // 6. Build response
+        return {
+            sellRate: buyRate,
+            cryptoSellAmount: dto.amount,
+            transactionFeeInCrypto: quidaxFeeCrypto + adminFeeCrypto,
+            transactionFeeInFiat: quidaxFeeInNaira + adminFeeInNaira,
+            totalCostInCrypto,
+            totalCostInFiat,
+            totalToReceiveInFiat: assetValueInNaira,
+            currency: "NGN",
+            bankDetail,
+            ...(internal && { totalCryptoToAdmin }),
         };
     }
 

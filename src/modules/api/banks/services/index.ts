@@ -25,6 +25,7 @@ import logger from "moment-logger";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { UserNotFoundException } from "../../auth";
+import { BankDetailNotFoundException } from "../errors";
 
 @Injectable()
 export class BankService {
@@ -97,7 +98,7 @@ export class BankService {
             where: { id: userId },
         });
         if (!user) {
-            throw new NotFoundException("User not found");
+            throw new UserNotFoundException("User not found");
         }
 
         const data = await this.prisma.bankDetail.findMany({
@@ -134,8 +135,9 @@ export class BankService {
         });
 
         if (!bankDetail || bankDetail.userId !== userId) {
-            throw new NotFoundException(
-                "Bank detail not found or does not belong to this user"
+            throw new BankDetailNotFoundException(
+                "Bank detail not found or does not belong to this user",
+                HttpStatus.NOT_FOUND
             );
         }
 
@@ -163,8 +165,9 @@ export class BankService {
         });
 
         if (!bankDetail || bankDetail.userId !== userId) {
-            throw new NotFoundException(
-                "Bank detail not found or does not belong to this user"
+            throw new BankDetailNotFoundException(
+                "Bank detail not found or does not belong to this user",
+                HttpStatus.NOT_FOUND
             );
         }
 
