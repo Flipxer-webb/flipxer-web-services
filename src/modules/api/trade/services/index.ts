@@ -1026,7 +1026,7 @@ export class TradingService {
             await this.paystackService.initializeTransfer({
                 accountName: transaction.destinationBankAccountName,
                 accountNumber: transaction.destinationBankAccountNumber,
-                amount: transaction.totalToReceiveInFiat, //convert to kobo
+                amount: transaction.totalToReceiveInFiat,
                 bankCode: transaction.destinationBankCode,
                 bankName: transaction.destinationBankName,
                 serviceCharge: 0,

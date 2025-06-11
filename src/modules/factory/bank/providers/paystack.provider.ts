@@ -114,9 +114,9 @@ export class PaystackBank implements TBankFactory<"paystack"> {
             const options: IPaystackInitializePaymentDetail = {
                 amount: amount * 100,
                 email: user.email,
-                // ...(Config.paystackOptions.callback_url && {
-                //     callback_url: Config.paystackOptions.callback_url,
-                // }),
+                ...(Config.paystackOptions.callback_url && {
+                    callback_url: Config.paystackOptions.callback_url,
+                }),
                 metadata: metadata,
             };
             const result = await this.paystackBank.initializePaymentTransaction(
