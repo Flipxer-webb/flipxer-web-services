@@ -22,6 +22,8 @@ import {
 import {
     InitiateTransferOptions,
     InitiateTransferResponseData,
+    TransferRecipientOptions,
+    TransferRecipientResponseData,
 } from "./interfaces/transfer";
 
 export * from "./errors";
@@ -108,6 +110,33 @@ export class PaystackLib {
             };
             const { data } = await this.axios<
                 PaystackResponse<ResolveBankAccountResponse>
+            >(requestOptions);
+            return data;
+        } catch (error) {
+            if (!Axios.isAxiosError(error)) {
+                throw error;
+            }
+            this.handlePaystackError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options request body options
+     * @returns Created Recipient details
+     * @description Creates a transfer recipient data
+     *  Read more in the [docs](https://paystack.com/docs/transfers/single-transfers).
+     */
+    async createTransferRecipient(options: TransferRecipientOptions) {
+        try {
+            const requestOptions: AxiosRequestConfig<TransferRecipientOptions> =
+                {
+                    method: "POST",
+                    url: "/transferrecipient",
+                    data: options,
+                };
+            const { data } = await this.axios<
+                PaystackResponse<TransferRecipientResponseData>
             >(requestOptions);
             return data;
         } catch (error) {

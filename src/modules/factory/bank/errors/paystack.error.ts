@@ -12,3 +12,7 @@ export class PaystackWorkflowException extends HttpException {
 export class PaystackVerifyTransactionException extends HttpException {
     name = "PaystackVerifyTransactionException";
 }
+
+export class PaystackTransferException extends HttpException {
+    name = "PaystackTransferException";
+}

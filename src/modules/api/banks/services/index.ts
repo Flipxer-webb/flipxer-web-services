@@ -82,6 +82,7 @@ export class BankService {
                 bankName: dto.bankName,
                 accountName: dto.accountName,
                 accountNumber: dto.accountNumber,
+                bankCode: dto.bankCode,
             },
         });
 
@@ -349,12 +350,12 @@ export class BankService {
 
                     await this.prisma.order.create({
                         data: {
-                            orderCategory: OrderCategory.SEND,
+                            orderCategory: OrderCategory.SELL,
                             status: OrderStatus.processing,
                             orderReference: reference,
                             providerOrderId: requestRes.data.id,
                             userId: admin.id,
-                            currency: requestRes.data.currency,
+                            currency: requestRes.data.currency.toUpperCase(),
                             narration: requestRes.data.narration,
                             transaction_note: requestRes.data.transaction_note,
                             recipient:

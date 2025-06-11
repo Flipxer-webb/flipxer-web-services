@@ -330,33 +330,60 @@ export class TradingService {
         const sendAmountToSeller = +responseData.totalToReceiveInFiat;
         const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
 
-        console.log(totalCryptoToAdmin, sendAmountToSeller);
-
         //step 1: send crypto to admin quidax account
+        const reference = generateId({ type: "reference" });
+        const adminAssetWallet = await this.quidaxService.getUserWallet({
+            user_id: "me",
+            currency: dto.asset.toLowerCase(),
+        });
 
-        //step 2: once step 1 is successfully completed, send fund to user bank account from paystack main account
+        if (!adminAssetWallet.data.deposit_address) {
+            await this.quidaxService.createPaymentAddress({
+                user_id: "me",
+                currency: dto.asset.toLowerCase(),
+            });
 
-        // const order = await this.prisma.$transaction(
-        //     async (tx) => {
-        //         const order = await tx.order.create({
-        //             data: {
-        //                 orderCategory: OrderCategory.BUY,
-        //                 amount: responseData.cryptoBuyAmount,
-        //                 fee: responseData.transactionFeeInCrypto,
-        //                 total: responseData.totalToChargeInCrypto,
-        //                 status: OrderStatus.pending,
-        //                 paymentStatus: TransactionStatus.PENDING,
-        //                 currency: dto.asset.toUpperCase(),
-        //                 recipient: responseData.depositAddress,
-        //                 destinationTag: responseData.destinationTag,
-        //                 userId: user.id,
-        //             },
-        //         });
+            throw new GeneralTransactionException(
+                "Destination crypto address is being set, Please try again",
+                HttpStatus.BAD_REQUEST
+            );
+        }
 
-        //         return order;
-        //     },
-        //     { maxWait: 5000, timeout: 40000 }
-        // );
+        const requestRes = await this.quidaxService.createWithdrawerRequest({
+            amount: totalCryptoToAdmin.toString(),
+            currency: dto.asset.toLowerCase(),
+            narration: "resolve sell order transaction",
+            transaction_note: "resolve sell order transaction",
+            user_id: user.cryptoSubAccountId,
+            fund_uid: adminAssetWallet.data.deposit_address, //receiving wallet address //main account on quidax
+            fund_uid2: adminAssetWallet.data.destination_tag, // destination tag
+            reference: reference,
+        });
+
+        await this.prisma.order.create({
+            data: {
+                orderCategory: OrderCategory.SELL,
+                status: OrderStatus.processing,
+                orderReference: reference,
+                providerOrderId: requestRes.data.id,
+                userId: user.id,
+                currency: requestRes.data.currency.toUpperCase(),
+                narration: requestRes.data.narration,
+                transaction_note: requestRes.data.transaction_note,
+                recipient: requestRes.data.recipient.details.address,
+                amount: +requestRes.data.amount,
+                fee: +responseData.transactionFeeInCrypto,
+                total: +responseData.totalCostInFiat,
+                totalToReceiveInFiat: sendAmountToSeller,
+                sourceType: requestRes.data.type,
+                destinationBankName: dto.bankDetail.bankName,
+                destinationBankAccountNumber: dto.bankDetail.accountNumber,
+                destinationBankAccountName: dto.bankDetail.accountName,
+                destinationBankCode: dto.bankDetail.bankCode,
+            },
+        });
+
+        //step 2: once step 1 is successfully completed (webhook listener), send fund to user bank account from paystack main account
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
@@ -963,6 +990,7 @@ export class TradingService {
     ) {
         const transaction = await this.prisma.order.findUnique({
             where: { orderReference: options.orderReference },
+            include: { user: { select: { userType: true } } },
         });
 
         if (!transaction) {
@@ -982,12 +1010,34 @@ export class TradingService {
         if (transaction.status === options.status) {
             return;
         }
+
         await this.prisma.order.update({
             where: { id: transaction.id },
             data: {
                 status: options.status,
             },
         });
+
+        //asset has been moved to admin wallet for a buy and seller needs to be paid
+        if (
+            options.status === OrderStatus.done &&
+            transaction.orderCategory === OrderCategory.SELL
+        ) {
+            await this.paystackService.initializeTransfer({
+                accountName: transaction.destinationBankAccountName,
+                accountNumber: transaction.destinationBankAccountNumber,
+                amount: transaction.totalToReceiveInFiat, //convert to kobo
+                bankCode: transaction.destinationBankCode,
+                bankName: transaction.destinationBankName,
+                serviceCharge: 0,
+                userType: transaction.user.userType,
+                userId: transaction.userId,
+                orderId: transaction.id,
+                reference: generateId({ type: "reference" }),
+            });
+
+            //todo: listen to the transfer even and update transaction record accordingly
+        }
     }
 
     async getFee(

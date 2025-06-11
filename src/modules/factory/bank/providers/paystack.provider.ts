@@ -15,11 +15,24 @@ import logger from "moment-logger";
 import * as e from "../errors/paystack.error";
 import { HttpStatus } from "@nestjs/common";
 import * as Config from "../../../../config";
-import { UserRecord } from "../types/paystack";
+import { InitializeTransferOptions, UserRecord } from "../types/paystack";
+import { generateId } from "@/utils";
+import { PrismaService } from "@/modules/core/prisma/services";
+import {
+    PaymentMethod,
+    TransactionFlow,
+    TransactionStatus,
+    TransactionType,
+    UserType,
+} from "@prisma/client";
+import { TransactionShortDescription } from "@/modules/api/transactions/types";
 
 export class PaystackBank implements TBankFactory<"paystack"> {
     name?: string;
-    constructor(private paystackBank: PaystackLib) {}
+    constructor(
+        private paystackBank: PaystackLib,
+        private prisma: PrismaService
+    ) {}
 
     async getBanks(): Promise<PaystackResponse<BankListResponseData[]>> {
         try {
@@ -93,7 +106,7 @@ export class PaystackBank implements TBankFactory<"paystack"> {
                     {
                         display_name: "Reason",
                         variable_name: "reason",
-                        value: "Resolve Payout payment",
+                        value: "Resolve payment",
                     },
                 ],
             };
@@ -185,6 +198,101 @@ export class PaystackBank implements TBankFactory<"paystack"> {
                 default: {
                     throw new e.PaystackWorkflowException(
                         "Failed to verify transfer",
+                        HttpStatus.NOT_IMPLEMENTED
+                    );
+                }
+            }
+        }
+    }
+
+    async initializeTransfer(options: InitializeTransferOptions) {
+        try {
+            //reconfirm account details
+            await this.resolveBankAccount({
+                account_number: options.accountNumber,
+                bank_code: options.bankCode,
+            });
+
+            const generateRecipient =
+                await this.paystackBank.createTransferRecipient({
+                    account_number: options.accountNumber,
+                    bank_code: options.bankCode,
+                    currency: "NGN",
+                    type: "nuban",
+                    name: options.accountName,
+                });
+            if (!generateRecipient || !generateRecipient.status) {
+                throw new e.PaystackTransferException(
+                    "Failed to generate recipient code.",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
+
+            //initiate transfer
+            const transactionId = generateId({
+                type: "transaction",
+            });
+            const totalAmount = options.amount + options.serviceCharge;
+
+            await this.prisma.$transaction(async (tx) => {
+                await tx.payment.create({
+                    data: {
+                        amount: options.amount,
+                        flow: TransactionFlow.OUT,
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.SUCCESS,
+                        totalAmount: totalAmount,
+                        type: TransactionType.TRANSFER_FUND,
+                        userId: options.userId,
+                        transactionId: transactionId,
+                        orderId: options.orderId,
+                        chargeFee: options.serviceCharge,
+                        destinationBankAccountName: options.accountName,
+                        destinationBankName: options.bankName,
+                        destinationBankAccountNumber: options.accountNumber,
+                        reference: options.reference,
+                        title: TransactionShortDescription.TRANSFER_FUND,
+                        narration: TransactionShortDescription.TRANSFER_FUND,
+                        sessionId: generateId({ type: "sessionId" }),
+                        shortDescription:
+                            TransactionShortDescription.TRANSFER_FUND,
+                        paymentMethod: PaymentMethod.PAYSTACK,
+                    },
+                });
+
+                await this.paystackBank.initiateTransfer({
+                    amount: options.amount * 100,
+                    recipient: generateRecipient.data.recipient_code,
+                    source: "balance",
+                    reference: options.reference,
+                    reason: "Wallet withdrawal",
+                });
+            });
+        } catch (error) {
+            logger.error(error);
+            switch (true) {
+                case error instanceof e.PAYSTACKBankException: {
+                    throw error;
+                }
+
+                case error instanceof e.PaystackWorkflowException: {
+                    throw error;
+                }
+
+                case error instanceof e.PaystackTransferException: {
+                    throw error;
+                }
+
+                case error instanceof PaystackError: {
+                    throw new e.PaystackTransferException(
+                        "operation failed",
+                        HttpStatus.NOT_IMPLEMENTED
+                    );
+                }
+
+                default: {
+                    throw new e.PaystackWorkflowException(
+                        "Failed to initialize transfer",
                         HttpStatus.NOT_IMPLEMENTED
                     );
                 }

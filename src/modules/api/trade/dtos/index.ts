@@ -139,6 +139,11 @@ export class BankDetailDto {
     @IsNotEmpty()
     @IsString()
     bankName: string;
+
+    @ApiProperty({ example: "095" })
+    @IsNotEmpty()
+    @IsString()
+    bankCode: string;
 }
 
 export class SellCryptoOrderDto {
