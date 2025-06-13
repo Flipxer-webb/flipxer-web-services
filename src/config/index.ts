@@ -187,6 +187,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "PAYSTACK_CANCEL_ACTION",
         type: RequiredEnvironmentTypes.String,
     },
+    {
+        name: "PAYSTACK_CALLBACK_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
 ];
 
 validate(runtimeEnvironment);
@@ -348,6 +352,7 @@ export const paystackOptions: PaystackOptions = {
     baseUrl: process.env.PAYSTACK_BASE_URL,
     secretKey: process.env.PAYSTACK_SECRET_KEY,
     cancel_action: process.env.PAYSTACK_CANCEL_ACTION,
+    callback_url: process.env.PAYSTACK_CALLBACK_URL,
 };
 
 export interface Configuration {

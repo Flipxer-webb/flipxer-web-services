@@ -8,7 +8,9 @@ import {
 import {
     CreateOrUpdateCryptoRateDto,
     CreateOrUpdateCryptoTransactionFeeDto,
+    GetCryptoTransactionFeePerAssetDto,
 } from "../dtos";
+import { TransactionFeeCategory } from "@prisma/client";
 
 @Injectable()
 export class SettingService {
@@ -31,6 +33,36 @@ export class SettingService {
         });
     }
 
+    async getCryptoRatePerAsset(asset_name: string) {
+        const rate = await this.prisma.cryptoRate.findUnique({
+            where: { currency: asset_name.toUpperCase() },
+            select: {
+                id: true,
+                buyRate: true,
+                sellRate: true,
+                currency: true,
+                createdAt: true,
+            },
+        });
+        if (!rate) {
+            throw new CryptoRateNotFoundException(
+                `No rate found for asset ${asset_name}`
+            );
+        }
+        return buildResponse({
+            message: "Crypto rate retrieved",
+            data: rate,
+        });
+    }
+
+    async getCryptoTransactionFeesCategories() {
+        const categories = Object.keys(TransactionFeeCategory);
+        return buildResponse({
+            message: "Crypto transaction fee categories retrieved",
+            data: categories,
+        });
+    }
+
     async getCryptoTransactionFeeList() {
         const rates = await this.prisma.transactionFee.findMany({
             select: {
@@ -44,6 +76,36 @@ export class SettingService {
         return buildResponse({
             message: "Crypto transaction fee list retrieved",
             data: rates,
+        });
+    }
+
+    async getCryptoTransactionFeePerAsset(
+        query: GetCryptoTransactionFeePerAssetDto,
+        asset_name: string
+    ) {
+        const rate = await this.prisma.transactionFee.findUnique({
+            where: {
+                category_currency: {
+                    category: query.category,
+                    currency: asset_name.toUpperCase(),
+                },
+            },
+            select: {
+                id: true,
+                category: true,
+                fee: true,
+                currency: true,
+                createdAt: true,
+            },
+        });
+        if (!rate) {
+            throw new CryptoTransactionFeeNotFoundException(
+                `No transaction fee record found for asset ${query.category} : ${asset_name}`
+            );
+        }
+        return buildResponse({
+            message: "Crypto transaction fee retrieved",
+            data: rate,
         });
     }
 

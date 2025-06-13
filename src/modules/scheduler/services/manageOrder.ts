@@ -24,7 +24,7 @@ export class ManageOrdersSchedulerService {
         const release = await this.mutex.acquire();
         try {
             const cutoffTime = new Date();
-            cutoffTime.setHours(cutoffTime.getHours() - 2); //2hrs
+            cutoffTime.setHours(cutoffTime.getHours() - 24); //2hrs
 
             // Fetch all pending swap transactions
             const pendingSwapTransactions = await this.prisma.order.findMany({
@@ -124,13 +124,15 @@ export class ManageOrdersSchedulerService {
         const release = await this.mutex.acquire();
         try {
             const cutoffTime = new Date();
-            cutoffTime.setHours(cutoffTime.getHours() - 2); //2hrs
+            cutoffTime.setHours(cutoffTime.getHours() - 24); //2hrs
 
             // Fetch all pending withdrawer transactions
             const pendingWithdrawerTransactions =
                 await this.prisma.order.findMany({
                     where: {
-                        orderCategory: OrderCategory.SEND,
+                        orderCategory: {
+                            in: [OrderCategory.SEND, OrderCategory.SELL],
+                        },
                         status: OrderStatus.processing,
                         createdAt: { gte: cutoffTime },
                     },

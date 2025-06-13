@@ -37,3 +37,9 @@ export const shapeTransaction = (t: TransactionIncludeOptions) => {
         total: t?.total,
     };
 };
+
+export enum TransactionShortDescription {
+    WALLET_FUNDED = "Wallet Funded",
+    TRANSFER_FUND = "Transferred Fund",
+    BANK_TRANSFER_REFUND = "Failed Bank Transfer Refund",
+}

@@ -3,6 +3,7 @@ import { AccountSchedulerService } from "./services/manageAccounts";
 import { AssetBalanceSchedulerService } from "./services/manageBalance";
 import { TradingModule } from "../api/trade";
 import { ManageOrdersSchedulerService } from "./services/manageOrder";
+import { PaystackSchedulerService } from "./services/paystack";
 import { BankModule } from "../api/banks";
 
 @Module({
@@ -11,11 +12,13 @@ import { BankModule } from "../api/banks";
         AccountSchedulerService,
         AssetBalanceSchedulerService,
         ManageOrdersSchedulerService,
+        PaystackSchedulerService,
     ],
     exports: [
         AccountSchedulerService,
         AssetBalanceSchedulerService,
         ManageOrdersSchedulerService,
+        PaystackSchedulerService,
     ],
 })
 export class SchedulerModule {}

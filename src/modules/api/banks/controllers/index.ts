@@ -46,7 +46,7 @@ export class BankController {
     }
 
     @UseGuards(AuthGuard)
-    @ApiBearerAuth()
+    @ApiBearerAuth("access-token")
     @Post()
     @ApiOperation({
         summary: "Add a new bank detail for the authenticated user",
@@ -60,7 +60,7 @@ export class BankController {
     }
 
     @UseGuards(AuthGuard)
-    @ApiBearerAuth()
+    @ApiBearerAuth("access-token")
     @Get()
     @ApiOperation({
         summary: "Get all bank details for the authenticated user",
@@ -82,7 +82,7 @@ export class BankController {
         example: 1,
     })
     @UseGuards(AuthGuard)
-    @ApiBearerAuth()
+    @ApiBearerAuth("access-token")
     async findOne(
         @User() user: UserModel,
         @Param("id") id: string
@@ -102,7 +102,7 @@ export class BankController {
         example: 1,
     })
     @UseGuards(AuthGuard)
-    @ApiBearerAuth()
+    @ApiBearerAuth("access-token")
     async update(
         @User() user: UserModel,
         @Param("id") id: string,
@@ -127,7 +127,7 @@ export class BankController {
         example: 1,
     })
     @UseGuards(AuthGuard)
-    @ApiBearerAuth()
+    @ApiBearerAuth("access-token")
     async remove(
         @User() user: UserModel,
         @Param("id") id: string

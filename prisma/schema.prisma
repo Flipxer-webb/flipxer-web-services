@@ -124,11 +124,14 @@ model BankDetail {
   bankName      String
   accountName   String
   accountNumber String
+  bankCode      String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  
+  @@unique([userId, accountNumber])
+  @@index(userId)
   @@map("BankDetails")
 }
 
@@ -289,7 +292,7 @@ model AssetWallet {
   blockchainEnabled Boolean
   depositAddress    String?
   destinationTag    String?
-  isActive          Boolean @default(false)
+  isActive          Boolean @default(false) 
   addressSynced     Boolean @default(false)
 
   networks  Json
@@ -422,6 +425,14 @@ model Order {
 
   providerOrderId String?  @unique // Quidax reference ID
   orderReference  String?  @unique //Quidax order ref
+ 
+ //sell
+  destinationBankName  String?
+  destinationBankAccountNumber String?
+  destinationBankAccountName String?
+  destinationBankCode        String?
+  totalToReceiveInFiat   Float?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -492,6 +503,12 @@ enum TransactionStatus {
 
 enum TransactionType {
   P2P_PAYMENT
+  TRANSFER_FUND
+}
+
+enum TransactionFlow {
+   IN
+   OUT
 }
 
 model Payment {
@@ -504,6 +521,7 @@ model Payment {
   expectedCurrency  String?
   status            TransactionStatus
   type              TransactionType?
+  flow              TransactionFlow?
   paymentStatus     TransactionStatus @default(PENDING)
   transactionId     String?           @unique
   paymentMethod     PaymentMethod
@@ -512,6 +530,10 @@ model Payment {
   narration         String            @db.Text
   reference         String            @unique
   externalReference String?
+  destinationBankAccountName String?
+  destinationBankName String?
+  destinationBankAccountNumber String?
+  shortDescription   String?
   isDebit           Boolean           @default(true)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt

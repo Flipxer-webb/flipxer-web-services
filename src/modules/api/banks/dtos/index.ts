@@ -20,6 +20,14 @@ export class CreateBankDetailDto {
     bankName: string;
 
     @ApiProperty({
+        description: "Bank Code (e.g., 075)",
+        example: "095",
+    })
+    @IsNotEmpty({ message: "Bank code is required" })
+    @IsString({ message: "Bank code must be a string" })
+    bankCode: string;
+
+    @ApiProperty({
         description: "Name of the account holder",
         example: "John Doe",
     })

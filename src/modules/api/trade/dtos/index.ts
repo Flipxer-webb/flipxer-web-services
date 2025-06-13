@@ -6,7 +6,10 @@ import {
     IsOptional,
     IsPositive,
     IsString,
+    Length,
+    Matches,
     ValidateIf,
+    ValidateNested,
 } from "class-validator";
 import {
     OrderSide,
@@ -15,7 +18,7 @@ import {
     TradingPair,
 } from "../interfaces/trade";
 import { NetworkTypes } from "@prisma/client";
-import { Transform } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 
 export class GetWalletDto {
     @ApiProperty({ enum: SupportedAssets })
@@ -42,6 +45,22 @@ export class InitiateWalletCreationDto {
 }
 
 export class InitiateBuyOrderDto {
+    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @IsNotEmpty()
+    asset: string;
+
+    @ApiProperty({
+        example: 0.01,
+        description: "Amount of crypto the user wants to buy",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    amount: number;
+}
+
+export class InitiateSellOrderDto {
     @ApiProperty({ example: "BTC, USDT, USDC" })
     @IsNotEmpty()
     asset: string;
@@ -101,6 +120,83 @@ export class BuyCryptoOrderDto {
     @IsPositive()
     @IsNumber()
     totalAmountToPayInFiat: number;
+}
+
+export class BankDetailDto {
+    @ApiProperty({ example: "John Doe" })
+    @IsNotEmpty()
+    @IsString()
+    accountName: string;
+
+    @ApiProperty({ example: "0239399493" })
+    @IsNotEmpty()
+    @IsString()
+    @Length(10, 10, { message: "Account number must be 10 digits" })
+    @Matches(/^\d+$/, { message: "Account number must contain only digits" })
+    accountNumber: string;
+
+    @ApiProperty({ example: "Opay" })
+    @IsNotEmpty()
+    @IsString()
+    bankName: string;
+
+    @ApiProperty({ example: "095" })
+    @IsNotEmpty()
+    @IsString()
+    bankCode: string;
+}
+
+export class SellCryptoOrderDto {
+    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @IsNotEmpty()
+    asset: string;
+
+    @ApiProperty({
+        example: 0.01,
+        description: "Amount of crypto the user wants to sell",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    amount: number;
+
+    @ApiProperty({
+        example: 1750,
+        description: "Sell rate of crypto the user wants to sell",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    sellRate: number;
+
+    @ApiProperty({
+        example: 750,
+        description: "Charge for the transaction in fiat (Naira)",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    transactionFeeInFiat: number;
+
+    @ApiProperty({
+        example: 1950,
+        description:
+            "Total amount to receive for the transaction in fiat (Naira)",
+    })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsPositive()
+    @IsNumber()
+    totalToReceiveInFiat: number;
+
+    @ApiProperty({ type: BankDetailDto })
+    @IsNotEmpty()
+    @ValidateNested()
+    @Type(() => BankDetailDto)
+    bankDetail: BankDetailDto;
 }
 
 export class VerifyWalletAddressDto {

@@ -31,10 +31,12 @@ import {
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
     InitiateBuyOrderDto,
+    InitiateSellOrderDto,
     InitiateWalletCreationDto,
     PlaceInstantSwapRequestDto,
     PurchaseLimitBuyDto,
     RefreshInstantSwapRequestDto,
+    SellCryptoOrderDto,
     SupportedPaymentMethodDto,
     VerifyWalletAddressDto,
     WithdrawerRequestDto,
@@ -150,7 +152,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "initiate a buy order request",
+        summary: "confirm buy order",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -160,6 +162,34 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.buyCryptoOrder(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "initiate a sell order request",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("sell/quote")
+    async sellCryptoRequest(
+        @Body() dto: InitiateSellOrderDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.sellCryptoQuoteRequest(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "confirm sell order",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("sell/order")
+    async sellCryptoOrder(
+        @Body() dto: SellCryptoOrderDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.sellCryptoOrder(user, dto);
     }
 
     @HttpCode(HttpStatus.OK)

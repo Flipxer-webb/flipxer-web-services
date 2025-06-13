@@ -52,8 +52,9 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
 
             const currencies = [
                 "btc",
-                "eth",
                 "usdt",
+                "usdc",
+                "eth",
                 "bnb",
                 "xrp",
                 "ada",

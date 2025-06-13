@@ -155,3 +155,20 @@ export interface BuyQuoteResponse {
     depositAddress: string;
     destinationTag: string;
 }
+
+export interface SellQuoteResponse {
+    sellRate: number;
+    cryptoSellAmount: number;
+    transactionFeeInCrypto: number;
+    transactionFeeInFiat: number;
+    totalCostInCrypto: number;
+    totalCostInFiat: number;
+    totalToReceiveInFiat: number;
+    currency: string;
+    bankDetail: {
+        accountName: string;
+        accountNumber: string;
+        bankName: string;
+    };
+    totalCryptoToAdmin?: number;
+}

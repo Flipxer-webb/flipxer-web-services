@@ -28,7 +28,7 @@ export class PaystackSchedulerService {
             );
 
             const cutoffTime = new Date();
-            cutoffTime.setHours(cutoffTime.getHours() - 300); //2hr
+            cutoffTime.setHours(cutoffTime.getHours() - 72); //2hr
 
             // Fetch all pending transactions
             const pendingTransactions = await this.prisma.payment.findMany({

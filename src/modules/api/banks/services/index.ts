@@ -25,6 +25,8 @@ import logger from "moment-logger";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { UserNotFoundException } from "../../auth";
+import { BankDetailNotFoundException } from "../errors";
+import { TransferFailedHandlerOptions } from "../interfaces";
 
 @Injectable()
 export class BankService {
@@ -81,6 +83,7 @@ export class BankService {
                 bankName: dto.bankName,
                 accountName: dto.accountName,
                 accountNumber: dto.accountNumber,
+                bankCode: dto.bankCode,
             },
         });
 
@@ -97,7 +100,7 @@ export class BankService {
             where: { id: userId },
         });
         if (!user) {
-            throw new NotFoundException("User not found");
+            throw new UserNotFoundException("User not found");
         }
 
         const data = await this.prisma.bankDetail.findMany({
@@ -134,8 +137,9 @@ export class BankService {
         });
 
         if (!bankDetail || bankDetail.userId !== userId) {
-            throw new NotFoundException(
-                "Bank detail not found or does not belong to this user"
+            throw new BankDetailNotFoundException(
+                "Bank detail not found or does not belong to this user",
+                HttpStatus.NOT_FOUND
             );
         }
 
@@ -163,8 +167,9 @@ export class BankService {
         });
 
         if (!bankDetail || bankDetail.userId !== userId) {
-            throw new NotFoundException(
-                "Bank detail not found or does not belong to this user"
+            throw new BankDetailNotFoundException(
+                "Bank detail not found or does not belong to this user",
+                HttpStatus.NOT_FOUND
             );
         }
 
@@ -346,12 +351,12 @@ export class BankService {
 
                     await this.prisma.order.create({
                         data: {
-                            orderCategory: OrderCategory.SEND,
+                            orderCategory: OrderCategory.SELL,
                             status: OrderStatus.processing,
                             orderReference: reference,
                             providerOrderId: requestRes.data.id,
                             userId: admin.id,
-                            currency: requestRes.data.currency,
+                            currency: requestRes.data.currency.toUpperCase(),
                             narration: requestRes.data.narration,
                             transaction_note: requestRes.data.transaction_note,
                             recipient:
@@ -364,6 +369,41 @@ export class BankService {
                     });
                 }
             }
+        } catch (error) {
+            logger.error(error);
+        }
+    }
+
+    async processAssetValueTransferToBankHandler(
+        options: TransferFailedHandlerOptions
+    ) {
+        try {
+            const transaction = await this.prisma.payment.findUnique({
+                where: { reference: options.paymentReference },
+            });
+            if (!transaction) {
+                throw new TransactionNotFoundException(
+                    "transaction payment reference not found",
+                    HttpStatus.NOT_FOUND
+                );
+            }
+
+            if (transaction.paymentStatus === TransactionStatus.SUCCESS) {
+                throw new DuplicateTransactionException(
+                    "Duplicate transaction. Transaction already successful",
+                    HttpStatus.CONFLICT
+                );
+            }
+
+            await this.prisma.payment.update({
+                where: {
+                    reference: transaction.reference,
+                },
+                data: {
+                    status: options.transferToBankStatus,
+                    paymentStatus: options.transferToBankStatus,
+                },
+            });
         } catch (error) {
             logger.error(error);
         }

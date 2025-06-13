@@ -45,3 +45,13 @@ export class CreateOrUpdateCryptoTransactionFeeDto {
     @Min(0)
     fee?: number;
 }
+
+export class GetCryptoTransactionFeePerAssetDto {
+    @ApiProperty({
+        description: "crypto transaction fee category",
+        enum: TransactionFeeCategory,
+    })
+    @IsNotEmpty()
+    @IsEnum(TransactionFeeCategory)
+    category: TransactionFeeCategory;
+}
