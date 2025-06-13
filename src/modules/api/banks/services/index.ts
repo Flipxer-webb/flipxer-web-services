@@ -26,6 +26,7 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { UserNotFoundException } from "../../auth";
 import { BankDetailNotFoundException } from "../errors";
+import { TransferFailedHandlerOptions } from "../interfaces";
 
 @Injectable()
 export class BankService {
@@ -368,6 +369,41 @@ export class BankService {
                     });
                 }
             }
+        } catch (error) {
+            logger.error(error);
+        }
+    }
+
+    async processAssetValueTransferToBankHandler(
+        options: TransferFailedHandlerOptions
+    ) {
+        try {
+            const transaction = await this.prisma.payment.findUnique({
+                where: { reference: options.paymentReference },
+            });
+            if (!transaction) {
+                throw new TransactionNotFoundException(
+                    "transaction payment reference not found",
+                    HttpStatus.NOT_FOUND
+                );
+            }
+
+            if (transaction.paymentStatus === TransactionStatus.SUCCESS) {
+                throw new DuplicateTransactionException(
+                    "Duplicate transaction. Transaction already successful",
+                    HttpStatus.CONFLICT
+                );
+            }
+
+            await this.prisma.payment.update({
+                where: {
+                    reference: transaction.reference,
+                },
+                data: {
+                    status: options.transferToBankStatus,
+                    paymentStatus: options.transferToBankStatus,
+                },
+            });
         } catch (error) {
             logger.error(error);
         }

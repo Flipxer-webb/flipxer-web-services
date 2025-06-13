@@ -371,9 +371,9 @@ export class TradingService {
                 narration: requestRes.data.narration,
                 transaction_note: requestRes.data.transaction_note,
                 recipient: requestRes.data.recipient.details.address,
-                amount: +requestRes.data.amount,
+                amount: +responseData.cryptoSellAmount,
                 fee: +responseData.transactionFeeInCrypto,
-                total: +responseData.totalCostInFiat,
+                total: +responseData.totalCostInCrypto,
                 totalToReceiveInFiat: sendAmountToSeller,
                 sourceType: requestRes.data.type,
                 destinationBankName: dto.bankDetail.bankName,
@@ -1036,7 +1036,7 @@ export class TradingService {
                 reference: generateId({ type: "reference" }),
             });
 
-            //todo: listen to the transfer even and update transaction record accordingly
+            //follow up: listen to the transfer event and update transaction record accordingly
         }
     }
 
