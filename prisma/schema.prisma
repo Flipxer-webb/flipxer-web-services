@@ -59,7 +59,8 @@ model User {
   phone                              String?                     @unique
   password                           String?
   userType                           UserType
-  photo                              String?
+  photo                              String?                     
+  photoFileId                        String?                     
   gender                             Gender?
   dateOfBirth                        DateTime?
   bvn                                String?
@@ -455,7 +456,6 @@ model Bank {
   @@map("Banks")
 }
 
-
 model CryptoRate {
   id        Int      @id @default(autoincrement())
   currency  String   // 'BTC', 'USDT', 'USDC'
@@ -468,7 +468,6 @@ model CryptoRate {
   @@map("CryptoRates")
 }
 
-
 enum TransactionFeeCategory {
   BUY
   SELL
@@ -480,13 +479,14 @@ model TransactionFee {
   id        Int      @id @default(autoincrement())
   category  TransactionFeeCategory
   currency  String   // 'BTC', 'USDT', 'USDC'
-  fee   Float  @default(0)
+  fee       Float  @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([category,currency])
+  @@unique([category, currency])
   @@map("TransactionFees")
 }
+
 enum PaymentMethod {
   PAYSTACK
 }
@@ -507,38 +507,38 @@ enum TransactionType {
 }
 
 enum TransactionFlow {
-   IN
-   OUT
+  IN
+  OUT
 }
 
 model Payment {
-  id                Int               @id @default(autoincrement())
-  userId            Int
-  orderId           Int?
-  amount            Decimal           @db.Decimal(10, 2)
-  chargeFee         Decimal           @db.Decimal(10, 2) @default(0.0)
-  totalAmount       Decimal?          @db.Decimal(10, 2)
-  expectedCurrency  String?
-  status            TransactionStatus
-  type              TransactionType?
-  flow              TransactionFlow?
-  paymentStatus     TransactionStatus @default(PENDING)
-  transactionId     String?           @unique
-  paymentMethod     PaymentMethod
-  sessionId         String
-  title             String
-  narration         String            @db.Text
-  reference         String            @unique
-  externalReference String?
+  id                         Int               @id @default(autoincrement())
+  userId                     Int
+  orderId                    Int?
+  amount                     Decimal           @db.Decimal(10, 2)
+  chargeFee                  Decimal           @db.Decimal(10, 2) @default(0.0)
+  totalAmount                Decimal?          @db.Decimal(10, 2)
+  expectedCurrency           String?
+  status                     TransactionStatus
+  type                       TransactionType?
+  flow                       TransactionFlow?
+  paymentStatus              TransactionStatus @default(PENDING)
+  transactionId              String?           @unique
+  paymentMethod              PaymentMethod
+  sessionId                  String
+  title                      String
+  narration                  String            @db.Text
+  reference                  String            @unique
+  externalReference          String?
   destinationBankAccountName String?
-  destinationBankName String?
+  destinationBankName        String?
   destinationBankAccountNumber String?
-  shortDescription   String?
-  isDebit           Boolean           @default(true)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  user              User              @relation(fields: [userId], references: [id])
-  order             Order?            @relation(fields: [orderId], references: [id])
+  shortDescription           String?
+  isDebit                    Boolean           @default(true)
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+  user                       User              @relation(fields: [userId], references: [id])
+  order                      Order?            @relation(fields: [orderId], references: [id])
 
   @@index(sessionId)
   @@map("Payments")

@@ -1,4 +1,5 @@
-import { storageDirConfig, mailConfig, emailTemplateConfig } from "@/config";
+// src/modules/api/user/services/user.service.ts
+import { storageDirConfig } from "@/config";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
@@ -6,7 +7,6 @@ import {
     defaultPagination,
     generateRandomNum,
 } from "@/utils";
-import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { Injectable, forwardRef, Inject, HttpStatus } from "@nestjs/common";
 import { AuthService } from "../../auth/services";
 import { UploadFactory } from "@/modules/core/upload/services";
@@ -18,14 +18,11 @@ import {
     GetUserAssetsDto,
     RecoveryEmailDto,
     UpdateProfilePasswordDto,
+    UpdateUserDetailsDto,
 } from "../dtos";
-import { Logger } from "moment-logger";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
-import { COMPANY_NAME } from "@/config";
 import { AssetWallet, Prisma, User } from "@prisma/client";
 import { IncorrectPasswordException } from "../errors";
-
-const logger = new Logger();
 
 @Injectable()
 export class UserService {
@@ -43,7 +40,7 @@ export class UserService {
         });
     }
 
-    async getProfile(user: User): Promise<ApiResponse> {
+    async getProfile(user: User) {
         const profile = await this.prisma.user.findUnique({
             where: { id: user.id },
             select: {
@@ -96,13 +93,13 @@ export class UserService {
             },
         });
 
-        return buildResponse({
+        return {
             message: "Profile successfully retrieved",
             data: {
                 ...profile,
                 assetWallet: defaultWallet,
             },
-        });
+        };
     }
 
     async getUserAggregatedWalletBalance(user: User) {
@@ -113,13 +110,13 @@ export class UserService {
             },
         });
 
-        return buildResponse({
+        return {
             message: "Aggregated wallet balance retrieved",
             data: {
                 total: result._sum.convertedBalance ?? 0,
                 referenceCurrency: "ngn",
             },
-        });
+        };
     }
 
     async getUserWallets(user: User, query: GetUserAssetsDto) {
@@ -169,7 +166,7 @@ export class UserService {
             this.prisma.assetWallet.count({ where: dbQuery.where }),
         ]);
 
-        //buy and sell rate to come from admin settings
+        // Buy and sell rate to come from admin settings
         const buyRate = 0.0;
         const sellRate = 0.0;
 
@@ -195,88 +192,119 @@ export class UserService {
             })),
         };
 
-        return buildResponse({
+        return {
             message: "Assets successfully retrieved",
             data: responseData,
-        });
+        };
     }
 
-    private async uploadProfileImage(
-        file: string
-    ): Promise<UploadApiResponse | UploadResponse> {
+    private async uploadProfileImage(file: Express.Multer.File): Promise<UploadApiResponse | UploadResponse> {
         const date = Date.now();
-        const body = Buffer.from(file, "base64");
-
         return await this.uploadService.uploadCompressedImage({
-            dir: storageDirConfig.profile,
-            name: `profile-image-${date}-${generateRandomNum(5)}`,
-            format: "webp",
-            body: body,
-            quality: 100,
-            width: 320,
-            type: "image",
+          dir: storageDirConfig.profile,
+          name: `profile-image-${date}-${generateRandomNum(5)}`,
+          format: "webp",
+          body: file.buffer, // Use file buffer directly
+          quality: 100,
+          width: 320,
+          type: "image",
         });
-    }
-
-    async RecoveryEmail(dto: RecoveryEmailDto): Promise<ApiResponse> {
-        try {
-            const user = await this.prisma.user.findUnique({
-                where: { email: dto.email },
-            });
-
-            if (!user) {
-                throw new UserNotFoundException("User not found");
+      }
+    
+      async updateUserDetails(dto: UpdateUserDetailsDto, user: User, photo?: Express.Multer.File) {
+        const currentUser = await this.prisma.user.findUnique({
+          where: { id: user.id },
+          select: { photo: true, photoFileId: true },
+        });
+    
+        let photoUrl: string | null = null;
+        let photoFileId: string | null = null;
+    
+        if (photo) {
+          const uploadResponse = await this.uploadProfileImage(photo);
+    
+          if ("url" in uploadResponse && "fileId" in uploadResponse) {
+            photoUrl = uploadResponse.url;
+            photoFileId = uploadResponse.fileId;
+    
+            if (currentUser?.photoFileId) {
+              if (!process.env.IMAGEKIT_PRIVATE_KEY) {
+                throw new Error("ImageKit private key is not configured");
+              }
+              try {
+                await this.uploadService.removeImage({
+                  fileId: currentUser.photoFileId,
+                  key: process.env.IMAGEKIT_PRIVATE_KEY,
+                });
+              } catch (error) {
+                console.error(`Failed to delete image ${currentUser.photoFileId}:`, error);
+              }
             }
-
-            await this.prisma.user.update({
-                where: { email: dto.email },
-                data: {
-                    recoveryEmail: dto.recoveryEmail, // simple string field update
-                },
-            });
-
-            logger.info(
-                `Recovery email updated successfully for user: ${dto.email}`
-            );
-
-            return buildResponse({
-                message: "Recovery email updated successfully",
-            });
-        } catch (error) {
-            if (error instanceof UserNotFoundException) {
-                throw error;
-            }
-
-            logger.error(
-                `Error in RecoveryEmail for user ${dto.email}: ${error.message}`,
-                { stack: error.stack }
-            );
-
-            throw new AuthGenericException(
-                "An error occurred while updating the recovery email"
-            );
+          }
         }
+    
+        const updatedUser = await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            phone: dto.phone,
+            gender: dto.gender,
+            dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+            country: dto.country,
+            photo: photoUrl,
+            photoFileId: photoFileId,
+          },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            photo: true,
+            phone: true,
+            gender: true,
+            dateOfBirth: true,
+            country: true,
+          },
+        });
+    
+        return {
+          message: "User details updated successfully",
+          data: updatedUser,
+        };
+      }
+
+    async recoveryEmail(dto: RecoveryEmailDto) {
+        const user = await this.prisma.user.findUnique({
+            where: { email: dto.email },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
+        }
+
+        await this.prisma.user.update({
+            where: { email: dto.email },
+            data: {
+                recoveryEmail: dto.recoveryEmail,
+            },
+        });
+
+        return {
+            message: "Recovery email updated successfully",
+        };
     }
 
-    async updateProfilePassword(
-        options: UpdateProfilePasswordDto,
-        user: User
-    ): Promise<ApiResponse> {
+    async updateProfilePassword(options: UpdateProfilePasswordDto, user: User) {
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
         });
 
         if (!userData) {
-            throw new UserNotFoundException(
-                "User profile could not be found",
-                HttpStatus.NOT_FOUND
-            );
+            throw new UserNotFoundException("User profile could not be found", HttpStatus.NOT_FOUND);
         }
 
-        const isMatched = await this.authService.comparePassword(
-            options.oldPassword,
-            user.password
-        );
+        const isMatched = await this.authService.comparePassword(options.oldPassword, userData.password);
 
         if (!isMatched) {
             throw new IncorrectPasswordException(
@@ -284,17 +312,16 @@ export class UserService {
                 HttpStatus.BAD_REQUEST
             );
         }
-        const newHashedPassword = await this.authService.hashPassword(
-            options.newPassword
-        );
+
+        const newHashedPassword = await this.authService.hashPassword(options.newPassword);
 
         await this.prisma.user.update({
             where: { id: user.id },
             data: { password: newHashedPassword },
         });
 
-        return buildResponse({
+        return {
             message: "Password successfully updated",
-        });
+        };
     }
 }
