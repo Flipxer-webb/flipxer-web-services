@@ -10,6 +10,7 @@ import {
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
+import { Gender, Country } from '@prisma/client';
 
 export enum Sort {
     ASC = "asc",
@@ -53,25 +54,32 @@ export class PaginationQueryDto {
     sortBy: Sort = Sort.DSCE;
 }
 
-export class UpdateProfileDto {
-    @ApiProperty({
-        description: "The first name of the user",
-        example: "John",
-        required: false,
-    })
-    @IsOptional()
-    @IsString()
-    firstName: string;
 
-    @ApiProperty({
-        description: "The last name of the user",
-        example: "Doe",
-        required: false,
-    })
-    @IsOptional()
+export class UpdateUserDetailsDto {
     @IsString()
-    lastName: string;
-}
+    @IsOptional()
+    firstName?: string;
+  
+    @IsString()
+    @IsOptional()
+    lastName?: string;
+  
+    @IsString()
+    @IsOptional()
+    phone?: string;
+  
+    @IsEnum(Gender)
+    @IsOptional()
+    gender?: Gender;
+  
+    @IsDateString()
+    @IsOptional()
+    dateOfBirth?: string;
+  
+    @IsEnum(Country)
+    @IsOptional()
+    country?: Country;
+  }
 
 export class RecoveryEmailDto {
     @ApiProperty({ example: "user@example.com" })
