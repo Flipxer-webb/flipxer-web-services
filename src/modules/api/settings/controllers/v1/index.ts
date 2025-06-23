@@ -18,6 +18,7 @@ import {
     ApiTags,
     ApiOperation,
     ApiResponse as SwaggerApiResponse,
+    ApiBearerAuth,
 } from "@nestjs/swagger";
 import {
     AddAllowedIpDto,
@@ -36,6 +37,7 @@ export class SettingController {
     constructor(private settingService: SettingService) {}
 
     @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get user allowed ip list" })
     @Get("allowed-ips")
@@ -44,6 +46,8 @@ export class SettingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
     @ApiOperation({ summary: "Add allowed ip" })
     @Post("allowed-ips")
     async addAllowedIp(@User() user: UserModel, @Body() dto: AddAllowedIpDto) {
@@ -51,7 +55,9 @@ export class SettingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "delete allowed ip" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @ApiOperation({ summary: "update allowed ip" })
     @Post("allowed-ips/:allowedIp")
     async updateAllowedIp(
         @User() user: UserModel,
@@ -62,13 +68,15 @@ export class SettingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
     @ApiOperation({ summary: "delete allowed ip" })
-    @Delete("allowed-ips/:allowedIp")
+    @Delete("allowed-ips/:allowedIpId")
     async deleteCryptoRate(
         @User() user: UserModel,
-        @Param("allowedIp", ParseIntPipe) allowedIp: number
+        @Param("allowedIpId", ParseIntPipe) allowedIpId: number
     ) {
-        return this.settingService.deleteAllowedIp(user, allowedIp);
+        return this.settingService.deleteAllowedIp(user, allowedIpId);
     }
 
     @HttpCode(HttpStatus.OK)

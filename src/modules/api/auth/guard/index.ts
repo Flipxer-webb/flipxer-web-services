@@ -108,6 +108,10 @@ export class AuthGuard implements CanActivate {
                     throw error;
                 }
 
+                case error instanceof UserForbiddenException: {
+                    throw error;
+                }
+
                 case error.name == "PrismaClientKnownRequestError": {
                     throw new PrismaNetworkException(
                         "Unable to process request. Please try again",
