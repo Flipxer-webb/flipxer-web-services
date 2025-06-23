@@ -26,6 +26,8 @@ export default async (
         //logger: false,
     });
 
+    app.set("trust proxy", true); // Enables Express to respect X-Forwarded-For headers
+
     let whitelist = options.whitelistedDomains ?? [];
     if (!isProdEnvironment) {
         whitelist = whitelist.concat(frontendDevOrigin as any);

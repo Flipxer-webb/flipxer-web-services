@@ -11,6 +11,10 @@ export class UserUnauthorizedException extends HttpException {
     }
 }
 
+export class UserForbiddenException extends HttpException {
+    name = "UserForbiddenException";
+}
+
 export class InvalidAuthTokenException extends HttpException {
     name = "InvalidAuthTokenException";
     constructor(

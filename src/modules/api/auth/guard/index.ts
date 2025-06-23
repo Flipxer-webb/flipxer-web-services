@@ -2,6 +2,7 @@ import { jwtSecret, paystackSecretKey, quidaxConfig } from "@/config";
 import {
     CanActivate,
     ExecutionContext,
+    ForbiddenException,
     HttpStatus,
     Injectable,
 } from "@nestjs/common";
@@ -17,6 +18,7 @@ import {
     InvalidAuthTokenException,
     PrismaNetworkException,
     UserAccountDisabledException,
+    UserForbiddenException,
 } from "../errors";
 import {
     DataStoredInToken,
@@ -30,6 +32,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { Observable } from "rxjs";
 import * as crypto from "crypto";
 import { createHmac } from "crypto";
+import * as requestIp from "request-ip";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -71,6 +74,26 @@ export class AuthGuard implements CanActivate {
                     "Account not found",
                     HttpStatus.UNAUTHORIZED
                 );
+            }
+
+            // Check for allowed IPs if any are set
+            const allowedIps = await this.prisma.allowedIp.findMany({
+                where: { userId: user.id, isActive: true },
+                select: { ip: true },
+            });
+
+            if (allowedIps.length > 0) {
+                const clientIp = requestIp.getClientIp(request);
+                const allowed = allowedIps.some(
+                    (entry) => entry.ip === clientIp
+                );
+
+                if (!allowed) {
+                    throw new UserForbiddenException(
+                        `Access denied from IP: ${clientIp}`,
+                        HttpStatus.FORBIDDEN
+                    );
+                }
             }
 
             request.user = user;

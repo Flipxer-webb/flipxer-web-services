@@ -2,11 +2,15 @@ import { SwaggerResponse, ApiResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
+    Delete,
     Get,
     HttpCode,
     HttpStatus,
     Param,
+    ParseIntPipe,
+    Post,
     Query,
+    UseGuards,
 } from "@nestjs/common";
 
 import { SettingService } from "../../services";
@@ -15,7 +19,14 @@ import {
     ApiOperation,
     ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
-import { GetCryptoTransactionFeePerAssetDto } from "../../dtos";
+import {
+    AddAllowedIpDto,
+    GetCryptoTransactionFeePerAssetDto,
+    UpdateAllowedIpDto,
+} from "../../dtos";
+import { AuthGuard } from "@/modules/api/auth/guard";
+import { User } from "@/modules/api/user";
+import { User as UserModel } from "@prisma/client";
 
 @ApiTags("settings")
 @Controller({
@@ -23,6 +34,42 @@ import { GetCryptoTransactionFeePerAssetDto } from "../../dtos";
 })
 export class SettingController {
     constructor(private settingService: SettingService) {}
+
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "get user allowed ip list" })
+    @Get("allowed-ips")
+    async getAllowedList(@User() user: UserModel) {
+        return this.settingService.getAllowedList(user);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Add allowed ip" })
+    @Post("allowed-ips")
+    async addAllowedIp(@User() user: UserModel, @Body() dto: AddAllowedIpDto) {
+        return this.settingService.addAllowedIp(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "delete allowed ip" })
+    @Post("allowed-ips/:allowedIp")
+    async updateAllowedIp(
+        @User() user: UserModel,
+        @Param("allowedIp") allowedIp: string,
+        @Body() dto: UpdateAllowedIpDto
+    ) {
+        return this.settingService.updateAllowedIp(user, allowedIp, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "delete allowed ip" })
+    @Delete("allowed-ips/:allowedIp")
+    async deleteCryptoRate(
+        @User() user: UserModel,
+        @Param("allowedIp", ParseIntPipe) allowedIp: number
+    ) {
+        return this.settingService.deleteAllowedIp(user, allowedIp);
+    }
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get crypto rate list" })
