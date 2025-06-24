@@ -2,15 +2,21 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { Order, OrderCategory, Prisma, User } from "@prisma/client";
-import { GetUserTransactionListDto } from "../dtos";
+import { GeneralReportDownloadDto, GetUserTransactionListDto } from "../dtos";
 import {
     buildPaginationMeta,
     defaultPagination,
     groupTransactionsByDate,
 } from "@/utils";
-import { isToday, isYesterday, format } from "date-fns";
-import { shapeTransaction, TransactionIncludeOptions } from "../types";
+import { isToday, isYesterday, format, startOfDay, endOfDay } from "date-fns";
+import {
+    GeneralReportCSVField,
+    GeneralReportDownload,
+    shapeTransaction,
+    TransactionIncludeOptions,
+} from "../types";
 import { TransactionNotFoundException } from "../errors";
+import { createObjectCsvStringifier } from "csv-writer";
 
 @Injectable()
 export class TransactionService {
@@ -145,5 +151,171 @@ export class TransactionService {
             message: "Transaction detail retrieved",
             data: shapeTransaction(transDetail),
         });
+    }
+
+    async downloadGeneralReport(user: User, options: GeneralReportDownloadDto) {
+        const startDate = startOfDay(new Date(options.startDate));
+        const endDate = endOfDay(new Date(options.endDate));
+
+        const transactions = await this.prisma.order.findMany({
+            orderBy: { createdAt: "desc" },
+            where: {
+                userId: user.id,
+                ...(options.type && { orderCategory: options.type }),
+                updatedAt: {
+                    gte: startDate,
+                    lte: endDate,
+                },
+            },
+            select: {
+                id: true,
+                orderCategory: true,
+                orderRef: true,
+                status: true,
+                paymentStatus: true,
+                amount: true,
+                total: true,
+                fee: true,
+                fromCurrency: true,
+                toCurrency: true,
+                fromAmount: true,
+                toAmount: true,
+                quoted_currency: true,
+                currency: true,
+                narration: true,
+                recipient: true,
+                reason: true,
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        userType: true,
+                    },
+                },
+                destinationBankName: true,
+                destinationBankAccountNumber: true,
+                destinationBankAccountName: true,
+                totalToReceiveInFiat: true,
+                updatedAt: true,
+            },
+        });
+
+        const data: GeneralReportDownload[] = transactions.map((t) => {
+            const name = `${t.user?.firstName} ${t.user?.lastName}`;
+            const email = t.user?.email;
+            let fromCurrency = "N/A";
+            let toCurrency = "N/A";
+            let fromAmount = "N/A";
+            let toAmount = "N/A";
+            let quotedCurrency = "N/A";
+            let currency = "N/A";
+            let recipient = "N/A";
+            let destinationBankName = "N/A";
+            let destinationBankAccountNumber = "N/A";
+            let destinationBankAccountName = "N/A";
+            let totalReceiveInFiat = "N/A";
+            switch (t.orderCategory) {
+                case OrderCategory.SWAP: {
+                    fromCurrency = t.fromCurrency;
+                    toCurrency = t.toCurrency;
+                    fromAmount = t.fromAmount.toString();
+                    toAmount = t.toAmount.toString();
+                    quotedCurrency = t.quoted_currency;
+                    currency = t.quoted_currency;
+                    break;
+                }
+                case OrderCategory.RECEIVE: {
+                    recipient = t.recipient;
+                    currency = t.currency;
+                    break;
+                }
+                case OrderCategory.SEND: {
+                    recipient = t.recipient;
+                    currency = t.currency;
+                    break;
+                }
+                case OrderCategory.SELL: {
+                    currency = t.currency;
+                    destinationBankName = destinationBankName;
+                    destinationBankAccountNumber = destinationBankAccountNumber;
+                    destinationBankAccountName = destinationBankAccountName;
+                    totalReceiveInFiat = totalReceiveInFiat;
+                }
+
+                case OrderCategory.BUY: {
+                    currency = t.currency;
+                    break;
+                }
+                default: {
+                }
+            }
+
+            const data: GeneralReportDownload = {
+                transactionId: t.orderRef,
+                type: t.orderCategory,
+                userType: t.user.userType,
+                name: name,
+                email: email,
+                amount: t.amount ?? fromAmount,
+                currency: currency,
+                transactionStatus: t.status,
+                paymentStatus: t.paymentStatus,
+                recipient: t.recipient,
+                fee: t.fee ?? "0.0",
+                date: format(t.updatedAt, "yyyy-MM-dd HH:mm:ss"),
+                destinationBankName: destinationBankName,
+                destinationBankAccountNumber: destinationBankAccountNumber,
+                destinationBankAccountName: destinationBankAccountName,
+                totalReceiveInFiat: totalReceiveInFiat,
+                fromCurrency: fromCurrency,
+                toCurrency: toCurrency,
+                toAmount: toAmount,
+                quotedCurrency: quotedCurrency,
+            };
+            return data;
+        });
+
+        return this.buildGeneralReportCsv(data);
+    }
+
+    private buildGeneralReportCsv(dbData: GeneralReportDownload[]) {
+        const csvHeader: GeneralReportCSVField[] = [
+            { id: "userType", title: "User Type" },
+            { id: "transactionId", title: "Transaction ID" },
+            { id: "type", title: "Transaction Type" },
+            { id: "name", title: "User Name" },
+            { id: "recipient", title: "Recipient Address" },
+            { id: "email", title: "User Email" },
+            { id: "date", title: "Date" },
+            { id: "amount", title: "Amount" },
+            { id: "currency", title: "Currency" },
+            { id: "transactionStatus", title: "Transaction Status" },
+            { id: "paymentStatus", title: "Payment Status" },
+            { id: "fee", title: "Service Charge" },
+            { id: "fromCurrency", title: "From currency" },
+            { id: "toCurrency", title: "To currency" },
+            { id: "toAmount", title: "To Amount" },
+            { id: "quotedCurrency", title: "Quoted Currency" },
+            { id: "totalReceiveInFiat", title: "Fiat Amount" },
+            { id: "destinationBankName", title: "Destination BankName" },
+            {
+                id: "destinationBankAccountNumber",
+                title: "Destination BankAccount Number",
+            },
+            {
+                id: "destinationBankAccountName",
+                title: "Destination BankAccount Name",
+            },
+        ];
+
+        const csvStringifier = createObjectCsvStringifier({
+            header: csvHeader,
+        });
+
+        return (
+            csvStringifier.getHeaderString() +
+            csvStringifier.stringifyRecords(dbData)
+        );
     }
 }

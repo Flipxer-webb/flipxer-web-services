@@ -390,7 +390,8 @@ model Order {
   id            Int           @id @default(autoincrement())
   userId        Int
   orderCategory OrderCategory
-
+  orderRef String?      @unique
+ 
   //trade (buy/sell) related
   market        String? // from TradingPair enum
   orderType     OrderType?
