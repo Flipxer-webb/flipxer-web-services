@@ -21,8 +21,9 @@ import {
     UpdateUserDetailsDto,
 } from "../dtos";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
-import { AssetWallet, Prisma, User } from "@prisma/client";
+import { Prisma, User } from "@prisma/client";
 import { IncorrectPasswordException } from "../errors";
+import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
 
 @Injectable()
 export class UserService {
@@ -33,7 +34,8 @@ export class UserService {
         @Inject(forwardRef(() => AuthService))
         private authService: AuthService,
         private emailService: EmailService,
-        private uploadFactory: UploadFactory
+        private uploadFactory: UploadFactory,
+        private readonly quidaxCacheService: QuidaxCacheService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -122,15 +124,13 @@ export class UserService {
     async getUserWallets(user: User, query: GetUserAssetsDto) {
         const { pageNumber, pageSize, sortBy } = query;
 
-        const resolvedPageNumber: number =
-            !pageNumber || (pageNumber && pageNumber <= 1)
+        const resolvedPageNumber =
+            !pageNumber || pageNumber <= 1
                 ? defaultPagination.pageNumber
                 : pageNumber;
 
-        const resolvedPageSize: number =
-            !pageSize || (pageSize && pageSize <= 0)
-                ? defaultPagination.pageSize
-                : query.pageSize;
+        const resolvedPageSize =
+            !pageSize || pageSize <= 0 ? defaultPagination.pageSize : pageSize;
 
         const dbQuery: Prisma.AssetWalletFindManyArgs = {
             orderBy: { createdAt: sortBy },
@@ -155,6 +155,7 @@ export class UserService {
             },
         };
 
+        // Step 1: Fetch user assets + count
         const [assets, count] = await this.prisma.$transaction([
             this.prisma.assetWallet.findMany({
                 ...dbQuery,
@@ -166,11 +167,20 @@ export class UserService {
             this.prisma.assetWallet.count({ where: dbQuery.where }),
         ]);
 
-        // Buy and sell rate to come from admin settings
-        const buyRate = 0.0;
-        const sellRate = 0.0;
+        // Step 2: Fetch admin-defined crypto rates (e.g., BTC, USDT)
+        const adminRates = await this.prisma.cryptoRate.findMany();
+        const adminRatesMap = new Map(
+            adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
+        );
 
-        const responseData: DataWithPagination<AssetWallet> = {
+        // Step 3: Fetch live Quidax rates
+        const liveMarketData = await this.quidaxCacheService.getMarketTickers();
+        const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
+
+        console.log(liveMarketData, "liveMarketData");
+
+        // Step 4: Merge data into asset response
+        const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
@@ -179,17 +189,36 @@ export class UserService {
                     assets.length
                 ),
             }),
-            records: assets.map((asset) => ({
-                ...asset,
-                buyRate: {
-                    value: buyRate.toFixed(4),
-                    referenceCurrency: "ngn",
-                },
-                sellRate: {
-                    value: sellRate.toFixed(4),
-                    referenceCurrency: "ngn",
-                },
-            })),
+            records: assets.map((asset) => {
+                const assetCurrency = asset.assetCurrency.toLowerCase();
+
+                // Admin rate lookup
+                const adminRate = adminRatesMap.get(assetCurrency);
+                const adminBuyRate = adminRate?.buyRate ?? 0;
+                const adminSellRate = adminRate?.sellRate ?? 0;
+
+                // Live market data lookup
+                const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+                const ticker = liveMarketData?.[marketSymbol]?.ticker;
+
+                return {
+                    ...asset,
+                    buyRate: {
+                        value: adminBuyRate.toFixed(4),
+                        referenceCurrency,
+                    },
+                    sellRate: {
+                        value: adminSellRate.toFixed(4),
+                        referenceCurrency,
+                    },
+                    liveRate: {
+                        buy: ticker?.buy ?? null,
+                        sell: ticker?.sell ?? null,
+                        last: ticker?.last ?? null,
+                        referenceCurrency,
+                    },
+                };
+            }),
         };
 
         return {
