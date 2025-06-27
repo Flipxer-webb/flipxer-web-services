@@ -18,6 +18,7 @@ import {
 import {
     BuyQuoteResponse,
     DepositTransaction,
+    getStreamlinedStatus,
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
     OrderType,
@@ -931,6 +932,7 @@ export class TradingService {
                     data: {
                         orderCategory: OrderCategory.RECEIVE,
                         status: options.status,
+                        streamlinedStatus: getStreamlinedStatus(options.status),
                         providerOrderId: options.referenceId,
                         blockchain_txid: options.txid,
                         userId: user.id,
@@ -981,6 +983,7 @@ export class TradingService {
             where: { id: transaction.id },
             data: {
                 status: options.status,
+                streamlinedStatus: getStreamlinedStatus(options.status),
             },
         });
     }
@@ -1015,6 +1018,7 @@ export class TradingService {
             where: { id: transaction.id },
             data: {
                 status: options.status,
+                streamlinedStatus: getStreamlinedStatus(options.status),
             },
         });
 

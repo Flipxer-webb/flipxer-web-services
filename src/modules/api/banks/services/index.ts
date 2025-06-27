@@ -20,13 +20,19 @@ import {
     TransactionRefNotFoundException,
 } from "../../transactions/errors";
 import { TransactionNotFoundException } from "../../trade";
-import { OrderCategory, OrderStatus, TransactionStatus } from "@prisma/client";
+import {
+    OrderCategory,
+    OrderStatus,
+    OrderStreamlinedStatus,
+    TransactionStatus,
+} from "@prisma/client";
 import logger from "moment-logger";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { UserNotFoundException } from "../../auth";
 import { BankDetailNotFoundException } from "../errors";
 import { TransferFailedHandlerOptions } from "../interfaces";
+import { getStreamlinedStatus } from "../../trade/interfaces/trade";
 
 @Injectable()
 export class BankService {
@@ -236,7 +242,10 @@ export class BankService {
             if (transaction.orderId) {
                 await this.prisma.order.update({
                     where: { id: transaction.orderId },
-                    data: { paymentStatus: TransactionStatus.FAILED },
+                    data: {
+                        paymentStatus: TransactionStatus.FAILED,
+                        streamlinedStatus: OrderStreamlinedStatus.failed,
+                    },
                 });
             }
         } catch (error) {
@@ -276,7 +285,10 @@ export class BankService {
             if (transaction.orderId) {
                 await this.prisma.order.update({
                     where: { id: transaction.orderId },
-                    data: { paymentStatus: TransactionStatus.FAILED },
+                    data: {
+                        paymentStatus: TransactionStatus.FAILED,
+                        streamlinedStatus: OrderStreamlinedStatus.failed,
+                    },
                 });
             }
         } catch (error) {
@@ -331,6 +343,7 @@ export class BankService {
                     data: {
                         paymentStatus: TransactionStatus.SUCCESS,
                         status: OrderStatus.confirmed,
+                        streamlinedStatus: OrderStreamlinedStatus.completed,
                     },
                 });
 

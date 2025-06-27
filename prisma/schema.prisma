@@ -367,6 +367,13 @@ enum OrderStatus {
   accepted
 }
 
+enum OrderStreamlinedStatus {
+  pending
+  completed
+  failed
+  cancelled
+}
+
 enum OrderSide {
   buy
   sell
@@ -397,6 +404,7 @@ model Order {
   volume    Float?
   price     Float? // optional for market orders
   status    OrderStatus
+  streamlinedStatus OrderStreamlinedStatus @default(pending)
   paymentStatus TransactionStatus?
 
   //swap related

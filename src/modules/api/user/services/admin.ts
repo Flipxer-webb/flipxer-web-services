@@ -122,7 +122,6 @@ export class AdminUserService {
                           },
                       }
                     : {}),
-                ...(query.searchText && { id: Number(query.searchText) }),
             },
             select: {
                 id: true,
