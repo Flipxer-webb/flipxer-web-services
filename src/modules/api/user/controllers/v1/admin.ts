@@ -15,7 +15,7 @@ import { AdminUserService } from "../../services/admin";
 import { GetUserListDto } from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+// @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
 @UserTypes([UserType.ADMIN])
 @ApiTags("admin")
 @Controller({
@@ -32,7 +32,7 @@ export class AdminUserController {
     }
 
     @ApiOperation({ summary: "admin gets all users list" })
-    @ApiBearerAuth("access-token")
+    // @ApiBearerAuth("access-token")
     @Get("all")
     async getAllUsers(@Query() query: GetUserListDto) {
         return await this.adminService.getUserList(query);
