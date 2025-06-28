@@ -31,16 +31,20 @@ export default async (
         whitelist = whitelist.concat(allowedDomains);
     }
     if (frontendDevUrl) {
-        whitelist = whitelist.concat(frontendDevUrl); // Always include frontendDevUrl
+        whitelist = whitelist.concat(frontendDevUrl);
     }
-    whitelist = whitelist.concat(frontendDevOrigin); // Always include frontendDevOrigin (RegExp)
+    whitelist = whitelist.concat(frontendDevOrigin); // RegExp for localhost
+    // Add RegExp for https://resolve-web-app-dev.vercel.app
+    whitelist = whitelist.concat([/^https:\/\/resolve-web-app-dev\.vercel\.app$/]);
     // Remove duplicates (for strings only, RegExp objects are unique)
     whitelist = [...new Set(whitelist)];
 
     const corsOptions: CorsOptions = {
         origin: (origin, callback) => {
+            console.log(`CORS: Checking origin: ${origin}`); // Debug log
             // Allow requests with no origin (e.g., server-to-server requests)
             if (!origin) {
+                console.log("CORS: No origin, allowing request");
                 return callback(null, true);
             }
             // Check if the origin is in the whitelist or matches the regex
@@ -53,8 +57,10 @@ export default async (
                 return false;
             });
             if (isWhitelisted) {
+                console.log(`CORS: Origin ${origin} allowed`);
                 callback(null, origin);
             } else {
+                console.error(`CORS: Origin ${origin} not allowed. Whitelist: ${JSON.stringify(whitelist)}`);
                 callback(new Error(`CORS policy: Origin ${origin} not allowed`));
             }
         },
@@ -90,7 +96,7 @@ export default async (
     const httpAdapterHost = app.get(HttpAdapterHost);
     app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
 
-    await waitForRedis(redisConfig);
+    waitForRedis(redisConfig);
     await app.listen(options.port);
 
     const prismaService = app.get(PrismaService);
