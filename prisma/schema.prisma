@@ -5,8 +5,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
@@ -49,44 +49,44 @@ enum PermissionGroup {
 
 // User model
 model User {
-  id                                 Int                         @id @default(autoincrement())
-  identifier                         String                      @unique
-  cryptoSubAccountId                 String?                     @unique
+  id                                 Int                                @id @default(autoincrement())
+  identifier                         String                             @unique
+  cryptoSubAccountId                 String?                            @unique
   firstName                          String?
   lastName                           String?
   username                           String?
   middleName                         String?
-  email                              String                      @unique
-  phone                              String?                     @unique
+  email                              String                             @unique
+  phone                              String?                            @unique
   password                           String?
   userType                           UserType
-  photo                              String?                     
-  photoFileId                        String?                     
+  photo                              String?
+  photoFileId                        String?
   gender                             Gender?
   dateOfBirth                        DateTime?
   bvn                                String?
   bvnRegisteredPhone                 String?
-  country                            Country                     @default(NIGERIA)
-  status                             Status                      @default(ACTIVE)
+  country                            Country                            @default(NIGERIA)
+  status                             Status                             @default(ACTIVE)
   roleId                             Int
   ipAddress                          String?
   refreshToken                       String?
   notificationToken                  String?
-  isEmailVerified                    Boolean                     @default(false)
-  isPhoneVerified                    Boolean                     @default(false)
-  isPasswordCreated                  Boolean                     @default(false)
-  isBvnVerified                      Boolean                     @default(false)
-  isDocumentVerified                 Boolean                     @default(false)
-  businessRecordCompleted            Boolean                     @default(false)
-  businessDocumentsUploaded          Boolean                     @default(false)
+  isEmailVerified                    Boolean                            @default(false)
+  isPhoneVerified                    Boolean                            @default(false)
+  isPasswordCreated                  Boolean                            @default(false)
+  isBvnVerified                      Boolean                            @default(false)
+  isDocumentVerified                 Boolean                            @default(false)
+  businessRecordCompleted            Boolean                            @default(false)
+  businessDocumentsUploaded          Boolean                            @default(false)
   businessDocumentVerificationStatus DocumentVerificationStatus?
-  isDeleted                          Boolean                     @default(false)
-  createdAt                          DateTime                    @default(now())
-  updatedAt                          DateTime                    @updatedAt
+  isDeleted                          Boolean                            @default(false)
+  createdAt                          DateTime                           @default(now())
+  updatedAt                          DateTime                           @updatedAt
   passwordResetRequest               PasswordResetRequest?
-  role                               Role                        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role                               Role                               @relation(fields: [roleId], references: [id], onDelete: Cascade)
   lastLogin                          DateTime?
-  loginCount                         Int                         @default(0)
+  loginCount                         Int                                @default(0)
   userDocument                       UserDocument?
   businessRecord                     BusinessRecord?
   businessDocument                   BusinessDocument?
@@ -97,6 +97,7 @@ model User {
   cryptoWalletAddressList            CryptoWalletAddress[]
   assetWallets                       AssetWallet[]
   payments                           Payment[]
+  RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest[]
 
   @@index([id, bvn])
   @@map("Users")
@@ -131,7 +132,7 @@ model BankDetail {
   updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@unique([userId, accountNumber])
   @@index(userId)
   @@map("BankDetails")
@@ -294,7 +295,7 @@ model AssetWallet {
   blockchainEnabled Boolean
   depositAddress    String?
   destinationTag    String?
-  isActive          Boolean @default(false) 
+  isActive          Boolean @default(false)
   addressSynced     Boolean @default(false)
 
   networks  Json
@@ -392,12 +393,12 @@ model Order {
   orderCategory OrderCategory
 
   //trade (buy/sell) related
-  market    String? // from TradingPair enum
-  orderType OrderType?
-  orderSide OrderSide?
-  volume    Float?
-  price     Float? // optional for market orders
-  status    OrderStatus
+  market        String? // from TradingPair enum
+  orderType     OrderType?
+  orderSide     OrderSide?
+  volume        Float?
+  price         Float? // optional for market orders
+  status        OrderStatus
   paymentStatus TransactionStatus?
 
   //swap related
@@ -423,22 +424,22 @@ model Order {
   sourceType       String?
   blockchain_txid  String?
 
-  destinationTag   String?
+  destinationTag String?
 
-  providerOrderId String?  @unique // Quidax reference ID
-  orderReference  String?  @unique //Quidax order ref
- 
- //sell
-  destinationBankName  String?
+  providerOrderId String? @unique // Quidax reference ID
+  orderReference  String? @unique //Quidax order ref
+
+  //sell
+  destinationBankName          String?
   destinationBankAccountNumber String?
-  destinationBankAccountName String?
-  destinationBankCode        String?
-  totalToReceiveInFiat   Float?
+  destinationBankAccountName   String?
+  destinationBankCode          String?
+  totalToReceiveInFiat         Float?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user    User      @relation(fields: [userId], references: [id])
+  user     User      @relation(fields: [userId], references: [id])
   payments Payment[]
 
   @@map("Orders")
@@ -459,9 +460,9 @@ model Bank {
 
 model CryptoRate {
   id        Int      @id @default(autoincrement())
-  currency  String   // 'BTC', 'USDT', 'USDC'
-  buyRate   Float  @default(0)
-  sellRate  Float @default(0)
+  currency  String // 'BTC', 'USDT', 'USDC'
+  buyRate   Float    @default(0)
+  sellRate  Float    @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -477,12 +478,12 @@ enum TransactionFeeCategory {
 }
 
 model TransactionFee {
-  id        Int      @id @default(autoincrement())
+  id        Int                    @id @default(autoincrement())
   category  TransactionFeeCategory
-  currency  String   // 'BTC', 'USDT', 'USDC'
-  fee       Float  @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  currency  String // 'BTC', 'USDT', 'USDC'
+  fee       Float                  @default(0)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
 
   @@unique([category, currency])
   @@map("TransactionFees")
@@ -513,47 +514,47 @@ enum TransactionFlow {
 }
 
 model Payment {
-  id                         Int               @id @default(autoincrement())
-  userId                     Int
-  orderId                    Int?
-  amount                     Decimal           @db.Decimal(10, 2)
-  chargeFee                  Decimal           @db.Decimal(10, 2) @default(0.0)
-  totalAmount                Decimal?          @db.Decimal(10, 2)
-  expectedCurrency           String?
-  status                     TransactionStatus
-  type                       TransactionType?
-  flow                       TransactionFlow?
-  paymentStatus              TransactionStatus @default(PENDING)
-  transactionId              String?           @unique
-  paymentMethod              PaymentMethod
-  sessionId                  String
-  title                      String
-  narration                  String            @db.Text
-  reference                  String            @unique
-  externalReference          String?
-  destinationBankAccountName String?
-  destinationBankName        String?
+  id                           Int               @id @default(autoincrement())
+  userId                       Int
+  orderId                      Int?
+  amount                       Decimal           @db.Decimal(10, 2)
+  chargeFee                    Decimal           @default(0.0) @db.Decimal(10, 2)
+  totalAmount                  Decimal?          @db.Decimal(10, 2)
+  expectedCurrency             String?
+  status                       TransactionStatus
+  type                         TransactionType?
+  flow                         TransactionFlow?
+  paymentStatus                TransactionStatus @default(PENDING)
+  transactionId                String?           @unique
+  paymentMethod                PaymentMethod
+  sessionId                    String
+  title                        String
+  narration                    String            @db.Text
+  reference                    String            @unique
+  externalReference            String?
+  destinationBankAccountName   String?
+  destinationBankName          String?
   destinationBankAccountNumber String?
-  shortDescription           String?
-  isDebit                    Boolean           @default(true)
-  createdAt                  DateTime          @default(now())
-  updatedAt                  DateTime          @updatedAt
-  user                       User              @relation(fields: [userId], references: [id])
-  order                      Order?            @relation(fields: [orderId], references: [id])
+  shortDescription             String?
+  isDebit                      Boolean           @default(true)
+  createdAt                    DateTime          @default(now())
+  updatedAt                    DateTime          @updatedAt
+  user                         User              @relation(fields: [userId], references: [id])
+  order                        Order?            @relation(fields: [orderId], references: [id])
 
   @@index(sessionId)
   @@map("Payments")
 }
-
 model RecoveryEmailVerificationRequest {
-  id         Int      @id @default(autoincrement())
-  email      String   @unique
-  code       String   @unique
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  isVerified Boolean  @default(false)
-
-  @@unique([email, code])
-  @@index([email, code])
-  @@map("RecoveryEmailVerificationRequests")
+    id         Int      @id @default(autoincrement())
+    userId     Int?     
+    email      String
+    code       String   @unique
+    createdAt  DateTime @default(now())
+    updatedAt  DateTime @updatedAt
+    isVerified Boolean  @default(false)
+    user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    @@unique([userId, code])
+    @@index([userId, code])
+    @@map("RecoveryEmailVerificationRequests")
 }

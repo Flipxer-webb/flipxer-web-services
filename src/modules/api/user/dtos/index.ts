@@ -93,20 +93,13 @@ export class UpdateUserDetailsDto {
   
   export class VerifyRecoveryEmailOtpDto {
     @ApiProperty({
-      description: "The recovery email address",
-      example: "recovery@example.com",
-    })
-    @IsEmail()
-    email: string;
-  
-    @ApiProperty({
-      description: "The 6-digit OTP sent to the recovery email",
-      example: "123456",
+        description: "The OTP sent to the user's primary email",
+        example: "123456",
     })
     @IsString()
-    @Length(6, 6)
+    @IsNotEmpty()
     otp: string;
-  }
+}
 
 export class GetUserAssetsDto extends PaginationQueryDto {
     @ApiProperty({

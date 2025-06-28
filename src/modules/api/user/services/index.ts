@@ -281,109 +281,6 @@ export class UserService {
         };
     }
 
-    async sendRecoveryEmailOtp(dto: SendRecoveryEmailOtpDto, user: User): Promise<{ message: string }> {
-        const currentUser = await this.prisma.user.findUnique({
-            where: { id: user.id },
-        });
-
-        if (!currentUser) {
-            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
-        }
-
-        // Generate 6-digit OTP
-        const verificationCode = customAlphabet("1234567890", 6)();
-
-        // Store OTP with the recovery email in RecoveryEmailVerificationRequest
-        await this.prisma.recoveryEmailVerificationRequest.upsert({
-            where: { email: dto.email },
-            create: {
-                email: dto.email,
-                code: verificationCode,
-            },
-            update: {
-                code: verificationCode,
-                isVerified: false,
-                updatedAt: new Date(),
-            },
-        });
-
-        // Prepare email data
-        const name = `${currentUser.firstName || ""} ${currentUser.lastName || ""}`.trim() || "User";
-        const team = COMPANY_NAME;
-        const notice = "Please use this code to verify your recovery email. The code expires in 30 minutes.";
-
-        try {
-            await this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: currentUser.email } }], // Send to authenticated user's email
-                template_key: emailTemplateConfig.recovery_pin,
-                merge_info: {
-                    name,
-                    code: verificationCode,
-                    notice,
-                    team,
-                },
-            });
-        } catch (error) {
-            console.error(`Failed to send recovery email OTP: ${error}`);
-            throw new AuthGenericException("Failed to send recovery email OTP", HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-
-        return {
-            message: `A verification code has been sent to ${currentUser.email}`,
-        };
-    }
-
-    async verifyRecoveryEmailOtp(dto: VerifyRecoveryEmailOtpDto, user: User): Promise<{ message: string }> {
-        const currentUser = await this.prisma.user.findUnique({
-            where: { id: user.id },
-        });
-
-        if (!currentUser) {
-            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
-        }
-
-        const verificationData = await this.prisma.recoveryEmailVerificationRequest.findUnique({
-            where: {
-                email_code: { email: dto.email, code: dto.otp },
-            },
-        });
-
-        if (!verificationData) {
-            throw new InvalidVerificationCodeException("Invalid verification code", HttpStatus.BAD_REQUEST);
-        }
-
-        if (verificationData.isVerified) {
-            throw new DuplicateVerificationException("Recovery email already verified", HttpStatus.BAD_REQUEST);
-        }
-
-        const timeDifference = Date.now() - verificationData.updatedAt.getTime();
-        const timeDiffInMin = timeDifference / (1000 * 60);
-
-        if (timeDiffInMin > 30) {
-            throw new VerificationCodeExpiredException(
-                "Your verification code has expired. Kindly request a new one",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        // Update user with verified recovery email
-        await this.prisma.$transaction([
-            this.prisma.user.update({
-                where: { id: user.id },
-                data: { recoveryEmail: dto.email },
-            }),
-            this.prisma.recoveryEmailVerificationRequest.update({
-                where: { email: dto.email },
-                data: { isVerified: true },
-            }),
-        ]);
-
-        return {
-            message: "Recovery email verified successfully",
-        };
-    }
-
     async updateProfilePassword(options: UpdateProfilePasswordDto, user: User) {
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
@@ -411,6 +308,108 @@ export class UserService {
 
         return {
             message: "Password successfully updated",
+        };
+    }
+
+   async sendRecoveryEmailOtp(dto: SendRecoveryEmailOtpDto, user: User): Promise<{ message: string }> {
+    const currentUser = await this.prisma.user.findUnique({
+        where: { id: user.id },
+    });
+
+    if (!currentUser) {
+        throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
+    }
+
+    // Generate 6-digit OTP
+    const verificationCode = customAlphabet("1234567890", 6)();
+
+    // Delete any existing recovery email verification request for this user
+    await this.prisma.recoveryEmailVerificationRequest.deleteMany({
+        where: { userId: user.id },
+    });
+
+    // Create a new recovery email verification request
+    await this.prisma.recoveryEmailVerificationRequest.create({
+        data: {
+            userId: user.id,
+            email: dto.email,
+            code: verificationCode,
+        },
+    });
+
+    // Prepare email data
+    const name = `${currentUser.firstName || ""} ${currentUser.lastName || ""}`.trim() || "User";
+    const team = COMPANY_NAME;
+    const notice = "Please use this code to verify your recovery email. The code expires in 30 minutes.";
+
+    try {
+        await this.emailService.sendMailWithTemplate({
+            from: { address: mailConfig.senderMail },
+            to: [{ email_address: { address: currentUser.email } }],
+            template_key: emailTemplateConfig.recovery_pin,
+            merge_info: {
+                name,
+                code: verificationCode,
+                notice,
+                team,
+            },
+        });
+    } catch (error) {
+        console.error(`Failed to send recovery email OTP: ${error}`);
+        throw new AuthGenericException("Failed to send recovery email OTP", HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    return {
+        message: `A verification code has been sent to ${currentUser.email}`,
+    };
+}
+
+    async verifyRecoveryEmailOtp(dto: VerifyRecoveryEmailOtpDto, user: User): Promise<{ message: string }> {
+        const currentUser = await this.prisma.user.findUnique({
+            where: { id: user.id },
+        });
+
+        if (!currentUser) {
+            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
+        }
+
+        const verificationData = await this.prisma.recoveryEmailVerificationRequest.findUnique({
+            where: {
+                userId_code: { userId: user.id, code: dto.otp },
+            },
+        });
+
+        if (!verificationData) {
+            throw new InvalidVerificationCodeException("Invalid verification code", HttpStatus.BAD_REQUEST);
+        }
+
+        if (verificationData.isVerified) {
+            throw new DuplicateVerificationException("Recovery email already verified", HttpStatus.BAD_REQUEST);
+        }
+
+        const timeDifference = Date.now() - verificationData.updatedAt.getTime();
+        const timeDiffInMin = timeDifference / (1000 * 60);
+
+        if (timeDiffInMin > 30) {
+            throw new VerificationCodeExpiredException(
+                "Your verification code has expired. Kindly request a new one",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Update user with verified recovery email and delete the verification request
+        await this.prisma.$transaction([
+            this.prisma.user.update({
+                where: { id: user.id },
+                data: { recoveryEmail: verificationData.email },
+            }),
+            this.prisma.recoveryEmailVerificationRequest.delete({
+                where: { userId_code: { userId: user.id, code: dto.otp } },
+            }),
+        ]);
+
+        return {
+            message: "Recovery email verified successfully",
         };
     }
 }
