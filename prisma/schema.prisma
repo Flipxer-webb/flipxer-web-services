@@ -544,3 +544,16 @@ model Payment {
   @@index(sessionId)
   @@map("Payments")
 }
+
+model RecoveryEmailVerificationRequest {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  code       String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isVerified Boolean  @default(false)
+
+  @@unique([email, code])
+  @@index([email, code])
+  @@map("RecoveryEmailVerificationRequests")
+}

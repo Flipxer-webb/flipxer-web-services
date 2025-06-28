@@ -7,6 +7,7 @@ import {
     IsDateString,
     Matches,
     IsNotEmpty,
+    Length
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -81,17 +82,31 @@ export class UpdateUserDetailsDto {
     country?: Country;
   }
 
-export class RecoveryEmailDto {
-    @ApiProperty({ example: "user@example.com" })
+  export class SendRecoveryEmailOtpDto {
+    @ApiProperty({
+      description: "The recovery email address to send the OTP to",
+      example: "recovery@example.com",
+    })
     @IsEmail()
-    @IsNotEmpty()
     email: string;
-
-    @ApiProperty({ example: "recovery@example.com" })
+  }
+  
+  export class VerifyRecoveryEmailOtpDto {
+    @ApiProperty({
+      description: "The recovery email address",
+      example: "recovery@example.com",
+    })
     @IsEmail()
-    @IsNotEmpty()
-    recoveryEmail: string;
-}
+    email: string;
+  
+    @ApiProperty({
+      description: "The 6-digit OTP sent to the recovery email",
+      example: "123456",
+    })
+    @IsString()
+    @Length(6, 6)
+    otp: string;
+  }
 
 export class GetUserAssetsDto extends PaginationQueryDto {
     @ApiProperty({
