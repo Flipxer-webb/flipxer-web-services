@@ -7,10 +7,9 @@ import { AllExceptionsFilter } from "@/core/exception/http";
 import { classValidatorPipeInstance } from "@/core/pipe";
 import { PrismaService } from "@/modules/core/prisma/services";
 import morgan from "morgan";
-import { frontendDevOrigin, isProdEnvironment, redisConfig } from "@/config";
+import { allowedDomains, frontendDevUrl, frontendDevOrigin, isProdEnvironment, redisConfig } from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
-import { Request, Response, NextFunction } from "express";
 import { waitForRedis } from "@/utils";
 
 export interface CreateServerOptions {
@@ -26,37 +25,43 @@ export default async (
         //logger: false,
     });
 
-    let whitelist = options.whitelistedDomains ?? [];
-    if (!isProdEnvironment) {
-        whitelist = whitelist.concat(frontendDevOrigin as any);
+    // Define whitelist with explicit type to include strings and RegExp
+    let whitelist: (string | RegExp)[] = options.whitelistedDomains ?? [];
+    if (allowedDomains) {
+        whitelist = whitelist.concat(allowedDomains);
     }
+    if (frontendDevUrl) {
+        whitelist = whitelist.concat(frontendDevUrl); // Always include frontendDevUrl
+    }
+    whitelist = whitelist.concat(frontendDevOrigin); // Always include frontendDevOrigin (RegExp)
+    // Remove duplicates (for strings only, RegExp objects are unique)
+    whitelist = [...new Set(whitelist)];
 
     const corsOptions: CorsOptions = {
-        origin: whitelist,
+        origin: (origin, callback) => {
+            // Allow requests with no origin (e.g., server-to-server requests)
+            if (!origin) {
+                return callback(null, true);
+            }
+            // Check if the origin is in the whitelist or matches the regex
+            const isWhitelisted = whitelist.some((allowedOrigin) => {
+                if (typeof allowedOrigin === "string") {
+                    return allowedOrigin === origin;
+                } else if (allowedOrigin instanceof RegExp) {
+                    return allowedOrigin.test(origin);
+                }
+                return false;
+            });
+            if (isWhitelisted) {
+                callback(null, origin);
+            } else {
+                callback(new Error(`CORS policy: Origin ${origin} not allowed`));
+            }
+        },
         allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type"],
         methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         credentials: true,
     };
-
-    //hanlde prflight request
-    app.use((req: Request, res: Response, next: NextFunction) => {
-        if (req.method === "OPTIONS") {
-            res.header(
-                "Access-Control-Allow-Origin",
-                req.headers.origin || "*"
-            );
-            res.header(
-                "Access-Control-Allow-Methods",
-                "GET, PUT, POST, PATCH, DELETE, OPTIONS"
-            );
-            res.header(
-                "Access-Control-Allow-Headers",
-                "Authorization, X-Requested-With, Content-Type"
-            );
-            return res.sendStatus(204);
-        }
-        next();
-    });
 
     app.use(helmet());
     app.enableCors(corsOptions);
@@ -74,8 +79,8 @@ export default async (
         .setDescription("API service that powers resolve web app")
         .setVersion("1.0")
         .addBearerAuth(
-            { type: "http", scheme: "bearer", bearerFormat: "JWT" }, // Bearer config
-            "access-token" // Name of the security schema
+            { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+            "access-token"
         )
         .build();
     const document = SwaggerModule.createDocument(app, config);
@@ -85,10 +90,9 @@ export default async (
     const httpAdapterHost = app.get(HttpAdapterHost);
     app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
 
-    waitForRedis(redisConfig);
-    app.listen(options.port);
+    await waitForRedis(redisConfig);
+    await app.listen(options.port);
 
-    //handle prisma enableShutDownHook interference with nest app enableShutdownHooks
     const prismaService = app.get(PrismaService);
     await prismaService.enableShutdownHooks(app);
 
