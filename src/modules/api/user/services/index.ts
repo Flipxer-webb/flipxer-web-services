@@ -198,81 +198,94 @@ export class UserService {
         };
     }
 
-    private async uploadProfileImage(file: Express.Multer.File): Promise<UploadApiResponse | UploadResponse> {
+    private async uploadProfileImage(
+        file: Express.Multer.File
+    ): Promise<UploadApiResponse | UploadResponse> {
         const date = Date.now();
         return await this.uploadService.uploadCompressedImage({
-          dir: storageDirConfig.profile,
-          name: `profile-image-${date}-${generateRandomNum(5)}`,
-          format: "webp",
-          body: file.buffer, // Use file buffer directly
-          quality: 100,
-          width: 320,
-          type: "image",
+            dir: storageDirConfig.profile,
+            name: `profile-image-${date}-${generateRandomNum(5)}`,
+            format: "webp",
+            body: file.buffer, // Use file buffer directly
+            quality: 100,
+            width: 320,
+            type: "image",
         });
-      }
-    
-      async updateUserDetails(dto: UpdateUserDetailsDto, user: User, photo?: Express.Multer.File) {
+    }
+
+    async updateUserDetails(
+        dto: UpdateUserDetailsDto,
+        user: User,
+        photo?: Express.Multer.File
+    ) {
         const currentUser = await this.prisma.user.findUnique({
-          where: { id: user.id },
-          select: { photo: true, photoFileId: true },
+            where: { id: user.id },
+            select: { photo: true, photoFileId: true },
         });
-    
+
         let photoUrl: string | null = null;
         let photoFileId: string | null = null;
-    
+
         if (photo) {
-          const uploadResponse = await this.uploadProfileImage(photo);
-    
-          if ("url" in uploadResponse && "fileId" in uploadResponse) {
-            photoUrl = uploadResponse.url;
-            photoFileId = uploadResponse.fileId;
-    
-            if (currentUser?.photoFileId) {
-              if (!process.env.IMAGEKIT_PRIVATE_KEY) {
-                throw new Error("ImageKit private key is not configured");
-              }
-              try {
-                await this.uploadService.removeImage({
-                  fileId: currentUser.photoFileId,
-                  key: process.env.IMAGEKIT_PRIVATE_KEY,
-                });
-              } catch (error) {
-                console.error(`Failed to delete image ${currentUser.photoFileId}:`, error);
-              }
+            const uploadResponse = await this.uploadProfileImage(photo);
+
+            if ("url" in uploadResponse && "fileId" in uploadResponse) {
+                photoUrl = uploadResponse.url;
+                photoFileId = uploadResponse.fileId;
+
+                if (currentUser?.photoFileId) {
+                    if (!process.env.IMAGEKIT_PRIVATE_KEY) {
+                        throw new Error(
+                            "ImageKit private key is not configured"
+                        );
+                    }
+                    try {
+                        await this.uploadService.removeImage({
+                            fileId: currentUser.photoFileId,
+                            key: process.env.IMAGEKIT_PRIVATE_KEY,
+                        });
+                    } catch (error) {
+                        console.error(
+                            `Failed to delete image ${currentUser.photoFileId}:`,
+                            error
+                        );
+                    }
+                }
             }
-          }
         }
-    
+
         const updatedUser = await this.prisma.user.update({
-          where: { id: user.id },
-          data: {
-            firstName: dto.firstName,
-            lastName: dto.lastName,
-            phone: dto.phone,
-            gender: dto.gender,
-            dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
-            country: dto.country,
-            photo: photoUrl,
-            photoFileId: photoFileId,
-          },
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            photo: true,
-            phone: true,
-            gender: true,
-            dateOfBirth: true,
-            country: true,
-          },
+            where: { id: user.id },
+            data: {
+                firstName: dto.firstName,
+                lastName: dto.lastName,
+                phone: dto.phone,
+                gender: dto.gender,
+                dateOfBirth: dto.dateOfBirth
+                    ? new Date(dto.dateOfBirth)
+                    : undefined,
+                country: dto.country,
+                photo: photoUrl,
+                photoFileId: photoFileId,
+            },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                photo: true,
+                phone: true,
+                gender: true,
+                dateOfBirth: true,
+                country: true,
+            },
         });
-    
+
         return {
-          message: "User details updated successfully",
-          data: updatedUser,
+            message: "User details updated successfully",
+            data: updatedUser,
         };
-      }
+    }
 
     async recoveryEmail(dto: RecoveryEmailDto) {
         const user = await this.prisma.user.findUnique({
@@ -280,7 +293,10 @@ export class UserService {
         });
 
         if (!user) {
-            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
+            throw new UserNotFoundException(
+                "User not found",
+                HttpStatus.NOT_FOUND
+            );
         }
 
         await this.prisma.user.update({
@@ -301,10 +317,16 @@ export class UserService {
         });
 
         if (!userData) {
-            throw new UserNotFoundException("User profile could not be found", HttpStatus.NOT_FOUND);
+            throw new UserNotFoundException(
+                "User profile could not be found",
+                HttpStatus.NOT_FOUND
+            );
         }
 
-        const isMatched = await this.authService.comparePassword(options.oldPassword, userData.password);
+        const isMatched = await this.authService.comparePassword(
+            options.oldPassword,
+            userData.password
+        );
 
         if (!isMatched) {
             throw new IncorrectPasswordException(
@@ -313,7 +335,9 @@ export class UserService {
             );
         }
 
-        const newHashedPassword = await this.authService.hashPassword(options.newPassword);
+        const newHashedPassword = await this.authService.hashPassword(
+            options.newPassword
+        );
 
         await this.prisma.user.update({
             where: { id: user.id },
