@@ -20,7 +20,12 @@ import {
     TransactionRefNotFoundException,
 } from "../../transactions/errors";
 import { TransactionNotFoundException } from "../../trade";
-import { OrderCategory, OrderStatus, TransactionStatus } from "@prisma/client";
+import {
+    OrderCategory,
+    OrderStatus,
+    OrderStreamlinedStatus,
+    TransactionStatus,
+} from "@prisma/client";
 import logger from "moment-logger";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
@@ -236,7 +241,10 @@ export class BankService {
             if (transaction.orderId) {
                 await this.prisma.order.update({
                     where: { id: transaction.orderId },
-                    data: { paymentStatus: TransactionStatus.FAILED },
+                    data: {
+                        paymentStatus: TransactionStatus.FAILED,
+                        streamlinedStatus: OrderStreamlinedStatus.failed,
+                    },
                 });
             }
         } catch (error) {
@@ -276,7 +284,10 @@ export class BankService {
             if (transaction.orderId) {
                 await this.prisma.order.update({
                     where: { id: transaction.orderId },
-                    data: { paymentStatus: TransactionStatus.FAILED },
+                    data: {
+                        paymentStatus: TransactionStatus.FAILED,
+                        streamlinedStatus: OrderStreamlinedStatus.failed,
+                    },
                 });
             }
         } catch (error) {
@@ -331,6 +342,7 @@ export class BankService {
                     data: {
                         paymentStatus: TransactionStatus.SUCCESS,
                         status: OrderStatus.confirmed,
+                        streamlinedStatus: OrderStreamlinedStatus.completed,
                     },
                 });
 
@@ -349,6 +361,11 @@ export class BankService {
                             reference: reference,
                         });
 
+                    const amtFiat = await this.getAmountInNaira(
+                        requestRes.data.currency,
+                        Number(requestRes.data.amount)
+                    );
+
                     await this.prisma.order.create({
                         data: {
                             orderCategory: OrderCategory.SELL,
@@ -365,6 +382,8 @@ export class BankService {
                             fee: +requestRes.data.fee,
                             total: +requestRes.data.total,
                             sourceType: requestRes.data.type,
+                            amountInFiat: amtFiat?.amount,
+                            rateAtConversion: amtFiat?.rate,
                         },
                     });
                 }
@@ -407,5 +426,29 @@ export class BankService {
         } catch (error) {
             logger.error(error);
         }
+    }
+
+    async getAmountInNaira(
+        asset: string,
+        amount: number,
+        rateType: "buy" | "sell" | "last" = "buy"
+    ): Promise<{ amount?: number; rate?: number } | null> {
+        const referenceCurrency = "ngn";
+        const assetCurrency = asset.toLowerCase();
+        const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+        const marketData = await this.quidaxService.getSingleMarketTicker(
+            marketSymbol
+        );
+
+        const ticker = marketData.data?.ticker;
+        if (!ticker) return null;
+
+        const rate = parseFloat(ticker[rateType]);
+        if (isNaN(rate)) return null;
+
+        return {
+            amount: amount * rate,
+            rate: rate,
+        };
     }
 }

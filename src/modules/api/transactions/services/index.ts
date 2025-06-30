@@ -8,7 +8,7 @@ import {
     defaultPagination,
     groupTransactionsByDate,
 } from "@/utils";
-import { isToday, isYesterday, format } from "date-fns";
+import { isToday, isYesterday, format, endOfDay } from "date-fns";
 import { shapeTransaction, TransactionIncludeOptions } from "../types";
 import { TransactionNotFoundException } from "../errors";
 
@@ -53,6 +53,7 @@ export class TransactionService {
             where: {
                 ...(user && { userId: user.id }),
                 ...(query.type && { orderCategory: query.type }),
+                ...(query.status && { streamlinedStatus: query.status }),
                 ...(query.asset && {
                     OR: [
                         {
@@ -82,7 +83,7 @@ export class TransactionService {
                                   gte: new Date(query.startDate),
                               }),
                               ...(query.endDate && {
-                                  lte: new Date(query.endDate),
+                                  lte: endOfDay(new Date(query.endDate)),
                               }),
                           },
                       }

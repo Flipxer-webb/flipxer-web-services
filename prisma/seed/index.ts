@@ -1,7 +1,8 @@
-import { PrismaClient, UserType } from "@prisma/client";
+import { PrismaClient, UserType, TransactionFeeCategory } from "@prisma/client";
 import logger from "moment-logger"; // Assuming this is your custom logger
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
+import { roles } from "./role"; // Assumed roles array file
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
@@ -11,21 +12,46 @@ async function main() {
 
     // Seed roles
     logger.info("Seeding roles...");
-    await prisma.role.upsert({
-        where: { slug: "super-admin" },
-        update: {},
-        create: { name: "Super Admin", slug: "super-admin", isAdmin: true },
-    });
-    await prisma.role.upsert({
-        where: { slug: "individual" },
-        update: {},
-        create: { name: "Individual", slug: "individual", isAdmin: false },
-    });
-    await prisma.role.upsert({
-        where: { slug: "business" },
-        update: {},
-        create: { name: "Business", slug: "business", isAdmin: false },
-    });
+    const currencies = ["BTC", "USDT", "USDC"];
+    const feeCategories = Object.values(TransactionFeeCategory);
+    for (const category of feeCategories) {
+        for (const currency of currencies) {
+            await prisma.transactionFee.upsert({
+                where: {
+                    category_currency: {
+                        category,
+                        currency: currency.toUpperCase(),
+                    },
+                },
+                update: {},
+                create: {
+                    category,
+                    currency: currency.toUpperCase(),
+                    fee: 0.5, // default fee
+                },
+            });
+        }
+    }
+    for (const currency of currencies) {
+        await prisma.cryptoRate.upsert({
+            where: { currency },
+            update: {},
+            create: {
+                currency,
+                buyRate: 0.0, // default buy rate
+                sellRate: 0.0, // default sell rate
+            },
+        });
+    }
+
+    // Seed roles
+    for (let role of roles) {
+        await prisma.role.upsert({
+            where: { slug: role.slug },
+            update: {},
+            create: role,
+        });
+    }
 
     // Generate a 6-digit OTP for recovery email verification
     const generateVerificationCode = customAlphabet("1234567890", 6);
@@ -37,7 +63,10 @@ async function main() {
     });
     if (adminRole) {
         const plainAdminPassword = "pass123";
-        const hashedAdminPassword = await bcrypt.hash(plainAdminPassword, SALT_ROUNDS);
+        const hashedAdminPassword = await bcrypt.hash(
+            plainAdminPassword,
+            SALT_ROUNDS
+        );
         const admin = await prisma.user.upsert({
             where: { email: "admin@resolve.com" },
             update: {},
@@ -74,12 +103,11 @@ async function main() {
 
         await prisma.recoveryEmailVerificationRequest.upsert({
             where: {
-                userId_code: {
-                    userId: admin.id,
-                    code: generateVerificationCode(),
-                },
+                userId: admin.id,
             },
-            update: {},
+            update: {
+                code: generateVerificationCode(),
+            },
             create: {
                 userId: admin.id,
                 email: "admin.recovery@resolve.com",
@@ -98,7 +126,10 @@ async function main() {
     });
     if (individualRole) {
         const plainIndividualPassword = "pass123";
-        const hashedIndividualPassword = await bcrypt.hash(plainIndividualPassword, SALT_ROUNDS);
+        const hashedIndividualPassword = await bcrypt.hash(
+            plainIndividualPassword,
+            SALT_ROUNDS
+        );
         const individual = await prisma.user.upsert({
             where: { email: "john.doe@example.com" },
             update: {},
@@ -135,12 +166,9 @@ async function main() {
 
         await prisma.recoveryEmailVerificationRequest.upsert({
             where: {
-                userId_code: {
-                    userId: individual.id,
-                    code: generateVerificationCode(),
-                },
+                userId: individual.id,
             },
-            update: {},
+            update: { code: generateVerificationCode() },
             create: {
                 userId: individual.id,
                 email: "john.recovery@example.com",
@@ -156,7 +184,10 @@ async function main() {
     logger.info("Seeding Chidi Nwabeke user...");
     if (individualRole) {
         const plainChidiPassword = "pass123";
-        const hashedChidiPassword = await bcrypt.hash(plainChidiPassword, SALT_ROUNDS);
+        const hashedChidiPassword = await bcrypt.hash(
+            plainChidiPassword,
+            SALT_ROUNDS
+        );
         const chidi = await prisma.user.upsert({
             where: { email: "chidi90simeon@gmail.com" },
             update: {},
@@ -193,12 +224,9 @@ async function main() {
 
         await prisma.recoveryEmailVerificationRequest.upsert({
             where: {
-                userId_code: {
-                    userId: chidi.id,
-                    code: generateVerificationCode(),
-                },
+                userId: chidi.id,
             },
-            update: {},
+            update: { code: generateVerificationCode() },
             create: {
                 userId: chidi.id,
                 email: "chidi.recovery@example.com",
@@ -217,7 +245,10 @@ async function main() {
     });
     if (businessRole) {
         const plainBusinessPassword = "pass123";
-        const hashedBusinessPassword = await bcrypt.hash(plainBusinessPassword, SALT_ROUNDS);
+        const hashedBusinessPassword = await bcrypt.hash(
+            plainBusinessPassword,
+            SALT_ROUNDS
+        );
         const business = await prisma.user.upsert({
             where: { email: "acme.corp@example.com" },
             update: {},
@@ -259,12 +290,9 @@ async function main() {
 
         await prisma.recoveryEmailVerificationRequest.upsert({
             where: {
-                userId_code: {
-                    userId: business.id,
-                    code: generateVerificationCode(),
-                },
+                userId: business.id,
             },
-            update: {},
+            update: { code: generateVerificationCode() },
             create: {
                 userId: business.id,
                 email: "acme.recovery@example.com",

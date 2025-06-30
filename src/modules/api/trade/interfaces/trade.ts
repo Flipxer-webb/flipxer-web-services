@@ -172,3 +172,44 @@ export interface SellQuoteResponse {
     };
     totalCryptoToAdmin?: number;
 }
+
+enum OrderStreamlinedStatus {
+    pending = "pending",
+    completed = "completed",
+    failed = "failed",
+    cancelled = "cancelled",
+}
+
+const orderStatusToStreamlinedStatusMap: Record<
+    string,
+    OrderStreamlinedStatus
+> = {
+    // Pending group
+    pending: OrderStreamlinedStatus.pending,
+    initiated: OrderStreamlinedStatus.pending,
+    submitted: OrderStreamlinedStatus.pending,
+    processing: OrderStreamlinedStatus.pending,
+    on_hold: OrderStreamlinedStatus.pending,
+
+    // Completed group
+    filled: OrderStreamlinedStatus.completed,
+    completed: OrderStreamlinedStatus.completed,
+    confirmed: OrderStreamlinedStatus.completed,
+    done: OrderStreamlinedStatus.completed,
+    accepted: OrderStreamlinedStatus.completed, // received type
+
+    // Failed group
+    failed: OrderStreamlinedStatus.failed,
+    rejected: OrderStreamlinedStatus.failed,
+
+    // Cancelled group
+    cancelled: OrderStreamlinedStatus.cancelled,
+    reversed: OrderStreamlinedStatus.cancelled,
+};
+
+export function getStreamlinedStatus(status: string): OrderStreamlinedStatus {
+    return (
+        orderStatusToStreamlinedStatusMap[status] ??
+        OrderStreamlinedStatus.pending
+    ); // default fallback
+}

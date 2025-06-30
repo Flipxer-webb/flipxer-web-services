@@ -369,6 +369,13 @@ enum OrderStatus {
   accepted
 }
 
+enum OrderStreamlinedStatus {
+  pending
+  completed
+  failed
+  cancelled
+}
+
 enum OrderSide {
   buy
   sell
@@ -387,18 +394,23 @@ enum OrderCategory {
   RECEIVE
 }
 
+enum ReferenceFiatCurrency {
+  NGN
+}
+
 model Order {
   id            Int           @id @default(autoincrement())
   userId        Int
   orderCategory OrderCategory
 
   //trade (buy/sell) related
-  market        String? // from TradingPair enum
-  orderType     OrderType?
-  orderSide     OrderSide?
-  volume        Float?
-  price         Float? // optional for market orders
-  status        OrderStatus
+  market    String? // from TradingPair enum
+  orderType OrderType?
+  orderSide OrderSide?
+  volume    Float?
+  price     Float? // optional for market orders
+  status    OrderStatus
+  streamlinedStatus OrderStreamlinedStatus @default(pending)
   paymentStatus TransactionStatus?
 
   //swap related
@@ -425,6 +437,10 @@ model Order {
   blockchain_txid  String?
 
   destinationTag String?
+
+  amountInFiat    Float?  
+  referenceFiatCurrency ReferenceFiatCurrency @default(NGN)
+  rateAtConversion Float? 
 
   providerOrderId String? @unique // Quidax reference ID
   orderReference  String? @unique //Quidax order ref
@@ -545,16 +561,17 @@ model Payment {
   @@index(sessionId)
   @@map("Payments")
 }
+
+
 model RecoveryEmailVerificationRequest {
-    id         Int      @id @default(autoincrement())
-    userId     Int?     
-    email      String
-    code       String   @unique
-    createdAt  DateTime @default(now())
-    updatedAt  DateTime @updatedAt
-    isVerified Boolean  @default(false)
-    user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-    @@unique([userId, code])
-    @@index([userId, code])
-    @@map("RecoveryEmailVerificationRequests")
+  id         Int      @id @default(autoincrement())
+  userId     Int      @unique
+  email      String
+  code       String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isVerified Boolean  @default(false)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("RecoveryEmailVerificationRequests")
 }

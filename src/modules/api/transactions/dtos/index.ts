@@ -7,7 +7,7 @@ import {
     IsOptional,
     IsString,
 } from "class-validator";
-import { OrderCategory } from "@prisma/client";
+import { OrderCategory, OrderStreamlinedStatus } from "@prisma/client";
 
 export class GetUserTransactionListDto extends PaginationQueryDto {
     @ApiProperty({
@@ -18,6 +18,15 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
     @IsOptional()
     @IsEnum(OrderCategory)
     type?: OrderCategory;
+
+    @ApiProperty({
+        enum: OrderStreamlinedStatus,
+        description: "filter by transaction status - optional",
+        required: false,
+    })
+    @IsOptional()
+    @IsEnum(OrderStreamlinedStatus)
+    status?: OrderStreamlinedStatus;
 
     @ApiProperty({
         description: "filter by asset name or asset symbol- optional",

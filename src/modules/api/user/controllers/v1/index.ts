@@ -112,7 +112,10 @@ export class UserController {
         return await this.userService.getUserWallets(user, query);
     }
 
-    @ApiOperation({ summary: "Send OTP to authenticated user's email for recovery email verification" })
+    @ApiOperation({
+        summary:
+            "Send OTP to authenticated user's email for recovery email verification",
+    })
     @ApiBearerAuth("access-token")
     @Post("recovery-email/send-otp")
     @UsePipes(new ValidationPipe())
