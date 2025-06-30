@@ -177,6 +177,7 @@ export class AdminUserService {
                 email: true,
                 phone: true,
                 photo: true,
+                bvn: true,
                 accountLimit: true,
                 businessDocument: true,
                 userDocument: true,
