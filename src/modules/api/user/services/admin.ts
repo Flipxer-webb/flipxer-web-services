@@ -45,8 +45,9 @@ export class AdminUserService {
         //todo: completed the logic
         const [totalTransactionVolume, transactionsThisMonth] =
             await Promise.all([
-                this.prisma.order.count(),
-                this.prisma.order.count({
+                this.prisma.order.aggregate({ _sum: { amountInFiat: true } }),
+                this.prisma.order.aggregate({
+                    _sum: { amountInFiat: true },
                     where: {
                         createdAt: {
                             gte: startOfCurrentMonth,
@@ -60,25 +61,27 @@ export class AdminUserService {
             data: {
                 totalUsers,
                 usersThisMonth,
-                totalTransactionVolume,
-                transactionsThisMonth,
+                totalTransactionVolume:
+                    totalTransactionVolume?._sum.amountInFiat || 0,
+                transactionsThisMonth:
+                    transactionsThisMonth?._sum.amountInFiat || 0,
             },
         });
     }
 
     async getUserList(query: GetUserListDto) {
         const { pageNumber, pageSize, sortBy } = query;
-    
+
         const resolvedPageNumber: number =
             !pageNumber || (pageNumber && pageNumber <= 1)
                 ? defaultPagination.pageNumber
                 : pageNumber;
-    
+
         const resolvedPageSize: number =
             !pageSize || (pageSize && pageSize <= 0)
                 ? defaultPagination.pageSize
                 : query.pageSize;
-    
+
         const dbQuery: Prisma.UserFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
@@ -135,7 +138,7 @@ export class AdminUserService {
                 createdAt: true,
             },
         };
-    
+
         const [users, count] = await this.prisma.$transaction([
             this.prisma.user.findMany({
                 ...dbQuery,

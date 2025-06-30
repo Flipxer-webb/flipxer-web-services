@@ -394,6 +394,10 @@ enum OrderCategory {
   RECEIVE
 }
 
+enum ReferenceFiatCurrency {
+  NGN
+}
+
 model Order {
   id            Int           @id @default(autoincrement())
   userId        Int
@@ -433,6 +437,10 @@ model Order {
   blockchain_txid  String?
 
   destinationTag String?
+
+  amountInFiat    Float?  
+  referenceFiatCurrency ReferenceFiatCurrency @default(NGN)
+  rateAtConversion Float? 
 
   providerOrderId String? @unique // Quidax reference ID
   orderReference  String? @unique //Quidax order ref

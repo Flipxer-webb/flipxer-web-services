@@ -32,7 +32,6 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { UserNotFoundException } from "../../auth";
 import { BankDetailNotFoundException } from "../errors";
 import { TransferFailedHandlerOptions } from "../interfaces";
-import { getStreamlinedStatus } from "../../trade/interfaces/trade";
 
 @Injectable()
 export class BankService {
@@ -362,6 +361,11 @@ export class BankService {
                             reference: reference,
                         });
 
+                    const amtFiat = await this.getAmountInNaira(
+                        requestRes.data.currency,
+                        Number(requestRes.data.amount)
+                    );
+
                     await this.prisma.order.create({
                         data: {
                             orderCategory: OrderCategory.SELL,
@@ -378,6 +382,8 @@ export class BankService {
                             fee: +requestRes.data.fee,
                             total: +requestRes.data.total,
                             sourceType: requestRes.data.type,
+                            amountInFiat: amtFiat?.amount,
+                            rateAtConversion: amtFiat?.rate,
                         },
                     });
                 }
@@ -420,5 +426,29 @@ export class BankService {
         } catch (error) {
             logger.error(error);
         }
+    }
+
+    async getAmountInNaira(
+        asset: string,
+        amount: number,
+        rateType: "buy" | "sell" | "last" = "buy"
+    ): Promise<{ amount?: number; rate?: number } | null> {
+        const referenceCurrency = "ngn";
+        const assetCurrency = asset.toLowerCase();
+        const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+        const marketData = await this.quidaxService.getSingleMarketTicker(
+            marketSymbol
+        );
+
+        const ticker = marketData.data?.ticker;
+        if (!ticker) return null;
+
+        const rate = parseFloat(ticker[rateType]);
+        if (isNaN(rate)) return null;
+
+        return {
+            amount: amount * rate,
+            rate: rate,
+        };
     }
 }
