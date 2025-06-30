@@ -68,17 +68,17 @@ export class AdminUserService {
 
     async getUserList(query: GetUserListDto) {
         const { pageNumber, pageSize, sortBy } = query;
-
+    
         const resolvedPageNumber: number =
             !pageNumber || (pageNumber && pageNumber <= 1)
                 ? defaultPagination.pageNumber
                 : pageNumber;
-
+    
         const resolvedPageSize: number =
             !pageSize || (pageSize && pageSize <= 0)
                 ? defaultPagination.pageSize
                 : query.pageSize;
-
+    
         const dbQuery: Prisma.UserFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
@@ -135,7 +135,7 @@ export class AdminUserService {
                 createdAt: true,
             },
         };
-
+    
         const [users, count] = await this.prisma.$transaction([
             this.prisma.user.findMany({
                 ...dbQuery,

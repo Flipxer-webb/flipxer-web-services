@@ -1,4 +1,3 @@
-// src/modules/api/user/controllers/user.controller.ts
 import {
     Controller,
     Get,
@@ -23,9 +22,10 @@ import { UserService } from "../../services";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
-    RecoveryEmailDto,
     UpdateProfilePasswordDto,
     UpdateUserDetailsDto,
+    SendRecoveryEmailOtpDto,
+    VerifyRecoveryEmailOtpDto,
 } from "../../dtos";
 import { User } from "../../decorators";
 import { User as UserModel } from "@prisma/client";
@@ -72,7 +72,7 @@ export class UserController {
     })
     @Post("profile/update-details")
     @UsePipes(new ValidationPipe())
-    @UseInterceptors(FileInterceptor("photo")) // 'photo' is the field name in the form-data
+    @UseInterceptors(FileInterceptor("photo"))
     async updateUserDetails(
         @Body() dto: UpdateUserDetailsDto,
         @UploadedFile() photo: Express.Multer.File,
@@ -113,12 +113,27 @@ export class UserController {
     }
 
     @ApiOperation({
-        summary: "Add user's email and recovery email",
+        summary:
+            "Send OTP to authenticated user's email for recovery email verification",
     })
     @ApiBearerAuth("access-token")
-    @Post("recovery-email")
+    @Post("recovery-email/send-otp")
     @UsePipes(new ValidationPipe())
-    async recoveryEmail(@Body() dto: RecoveryEmailDto) {
-        return await this.userService.recoveryEmail(dto);
+    async sendRecoveryEmailOtp(
+        @Body() dto: SendRecoveryEmailOtpDto,
+        @User() user: UserModel
+    ) {
+        return await this.userService.sendRecoveryEmailOtp(dto, user);
+    }
+
+    @ApiOperation({ summary: "Verify recovery email OTP" })
+    @ApiBearerAuth("access-token")
+    @Post("recovery-email/verify-otp")
+    @UsePipes(new ValidationPipe())
+    async verifyRecoveryEmailOtp(
+        @Body() dto: VerifyRecoveryEmailOtpDto,
+        @User() user: UserModel
+    ) {
+        return await this.userService.verifyRecoveryEmailOtp(dto, user);
     }
 }
