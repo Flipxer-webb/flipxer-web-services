@@ -741,7 +741,7 @@ export class AuthService {
     ) {
         if (user.businessDocumentsUploaded) {
             throw new VerificationGenericException(
-                `Document has already been upload and is ${user.businessDocumentVerificationStatus}`,
+                `Document has already been uploaded and is ${user.businessDocumentVerificationStatus}`,
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -774,23 +774,39 @@ export class AuthService {
                         cacDocumentNumber: dto.cacDocumentNumber,
                         cacImageUrl: cacImage?.url || null,
                         cacImageUrlFieldId: cacImage?.fileId || null,
+                        cacImageFileName: cacImage?.url ? "CAC" : null,
                         articleOfAssociationNumber:
                             dto.articleOfAssociationNumber || null,
                         articleOfAssociationImageUrl: articleImage?.url || null,
                         articleOfAssociationImageUrlFieldId:
                             articleImage?.fileId || null,
+                        articleOfAssociationFileName: articleImage.url
+                            ? "Article Of Association"
+                            : null,
                         boardResolutionAuthorizedAcctOpeningImageUrl:
                             boardResolutionImage?.url || null,
                         boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
                             boardResolutionImage?.fileId || null,
+                        boardResolutionAuthorizedAcctOpeningFileName:
+                            boardResolutionImage.url
+                                ? "Board Resolution Authorized Acct Opening"
+                                : null,
                         meansOfIdentificationForBeneficialOwner:
                             meansOfIdImage?.url || null,
                         meansOfIdentificationForBeneficialOwnerImageFieldId:
                             meansOfIdImage?.fileId || null,
+                        meansOfIdentificationForBeneficialOwnerFileName:
+                            meansOfIdImage?.url
+                                ? "Means Of Identification For Beneficial Owner"
+                                : null,
                         proofOfAddressForBeneficialOwner:
                             proofOfAddressImage?.url || null,
                         proofOfAddressForBeneficialOwnerImageFieldId:
                             proofOfAddressImage?.fileId || null,
+                        proofOfAddressForBeneficialOwnerFileName:
+                            proofOfAddressImage?.url
+                                ? "Proof Of Address For Beneficial Owner"
+                                : null,
                     },
                 });
 
