@@ -179,9 +179,12 @@ export class UserService {
             this.prisma.assetWallet.count({ where: dbQuery.where }),
         ]);
 
-        // Buy and sell rate to come from admin settings
-        const buyRate = 0.0;
-        const sellRate = 0.0;
+        const referenceCurrency = "ngn";
+        // Step 2: Fetch admin-defined crypto rates (e.g., BTC, USDT)
+        const adminRates = await this.prisma.cryptoRate.findMany();
+        const adminRatesMap = new Map(
+            adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
+        );
 
         const responseData: DataWithPagination<AssetWallet> = {
             ...(query.paginated === "true" && {
@@ -192,17 +195,26 @@ export class UserService {
                     assets.length
                 ),
             }),
-            records: assets.map((asset) => ({
-                ...asset,
-                buyRate: {
-                    value: buyRate.toFixed(4),
-                    referenceCurrency: "ngn",
-                },
-                sellRate: {
-                    value: sellRate.toFixed(4),
-                    referenceCurrency: "ngn",
-                },
-            })),
+            records: assets.map((asset) => {
+                const assetCurrency = asset.assetCurrency.toLowerCase();
+
+                // Admin rate lookup
+                const adminRate = adminRatesMap.get(assetCurrency);
+                const adminBuyRate = adminRate?.buyRate ?? 0;
+                const adminSellRate = adminRate?.sellRate ?? 0;
+
+                return {
+                    ...asset,
+                    buyRate: {
+                        value: adminBuyRate.toFixed(4),
+                        referenceCurrency,
+                    },
+                    sellRate: {
+                        value: adminSellRate.toFixed(4),
+                        referenceCurrency,
+                    },
+                };
+            }),
         };
 
         return {
