@@ -43,3 +43,13 @@ interface PaystackHeader {
 }
 
 export type RequestFromPaystack = Request & { headers: PaystackHeader };
+
+export const DocumentMetaMap = {
+    cacImage: "CAC",
+    articleOfAssociationImage: "Article Of Association",
+    boardResolutionAuthorizedAcctOpeningImage:
+        "Board Resolution Authorized Acct Opening",
+    proofOfAddressForBeneficialOwner: "Proof Of Address For Beneficial Owner",
+    meansOfIdentificationForBeneficialOwner:
+        "Means Of Identification For Beneficial Owner",
+} as const;
