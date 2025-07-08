@@ -148,3 +148,19 @@ export const groupTransactionsByDate = (transactions: Order[]) => {
 
     return groupedArray;
 };
+
+export const formatTimestamp = () =>
+    new Date()
+        .toISOString()
+        .replace(/[-:.TZ]/g, "")
+        .slice(0, 14);
+
+export const generateFileName = (
+    docType: string,
+    userId: number,
+    originalName?: string
+) => {
+    const ext = originalName?.split(".").pop()?.toLowerCase() || "pdf";
+    const sanitizedType = docType.toLowerCase().replace(/\s+/g, "_");
+    return `${sanitizedType}_${userId}_${formatTimestamp()}.${ext}`;
+};

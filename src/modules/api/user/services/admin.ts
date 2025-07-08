@@ -85,6 +85,7 @@ export class AdminUserService {
         const dbQuery: Prisma.UserFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
+                ...(query.status && { status: query.status }),
                 ...(query.searchText && {
                     OR: [
                         {

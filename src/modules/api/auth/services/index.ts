@@ -20,7 +20,7 @@ import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
-import { generateId, generateRandomNum } from "@/utils";
+import { generateFileName, generateId, generateRandomNum } from "@/utils";
 import { customAlphabet } from "nanoid";
 import { DuplicateUserException } from "../../user";
 import {
@@ -67,6 +67,7 @@ import { UploadApiResponse } from "cloudinary";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import {
+    DocumentMetaMap,
     DocumentVerificationFileInterface,
     LoginPlatform,
     SignInOptions,
@@ -741,7 +742,7 @@ export class AuthService {
     ) {
         if (user.businessDocumentsUploaded) {
             throw new VerificationGenericException(
-                `Document has already been upload and is ${user.businessDocumentVerificationStatus}`,
+                `Document has already been uploaded and is ${user.businessDocumentVerificationStatus}`,
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -774,23 +775,68 @@ export class AuthService {
                         cacDocumentNumber: dto.cacDocumentNumber,
                         cacImageUrl: cacImage?.url || null,
                         cacImageUrlFieldId: cacImage?.fileId || null,
+                        cacImageFileName: cacImage?.url
+                            ? generateFileName(
+                                  DocumentMetaMap.cacImage,
+                                  user.id,
+                                  files.cacImage?.[0]?.originalname
+                              )
+                            : null,
                         articleOfAssociationNumber:
                             dto.articleOfAssociationNumber || null,
                         articleOfAssociationImageUrl: articleImage?.url || null,
                         articleOfAssociationImageUrlFieldId:
                             articleImage?.fileId || null,
+                        articleOfAssociationFileName: articleImage.url
+                            ? generateFileName(
+                                  DocumentMetaMap.articleOfAssociationImage,
+                                  user.id,
+                                  files.articleOfAssociationImage?.[0]
+                                      ?.originalname
+                              )
+                            : null,
                         boardResolutionAuthorizedAcctOpeningImageUrl:
                             boardResolutionImage?.url || null,
                         boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
                             boardResolutionImage?.fileId || null,
+                        boardResolutionAuthorizedAcctOpeningFileName:
+                            boardResolutionImage.url
+                                ? generateFileName(
+                                      DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                                      user.id,
+                                      files
+                                          .boardResolutionAuthorizedAcctOpeningImage?.[0]
+                                          ?.originalname
+                                  )
+                                : null,
                         meansOfIdentificationForBeneficialOwner:
                             meansOfIdImage?.url || null,
                         meansOfIdentificationForBeneficialOwnerImageFieldId:
                             meansOfIdImage?.fileId || null,
+                        meansOfIdentificationForBeneficialOwnerFileName:
+                            meansOfIdImage?.url
+                                ? generateFileName(
+                                      DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                                      user.id,
+                                      files
+                                          .meansOfIdentificationForBeneficialOwner?.[0]
+                                          ?.originalname
+                                  )
+                                : null,
                         proofOfAddressForBeneficialOwner:
                             proofOfAddressImage?.url || null,
                         proofOfAddressForBeneficialOwnerImageFieldId:
                             proofOfAddressImage?.fileId || null,
+                        proofOfAddressForBeneficialOwnerFileName:
+                            proofOfAddressImage?.url
+                                ? generateFileName(
+                                      DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                                      user.id,
+                                      files
+                                          .proofOfAddressForBeneficialOwner?.[0]
+                                          ?.originalname
+                                  )
+                                : null,
                     },
                 });
 

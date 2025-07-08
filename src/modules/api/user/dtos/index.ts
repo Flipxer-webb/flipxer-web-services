@@ -7,11 +7,11 @@ import {
     IsDateString,
     Matches,
     IsNotEmpty,
-    Length
+    Length,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { Gender, Country } from "@prisma/client";
+import { Gender, Country, Status } from "@prisma/client";
 
 export enum Sort {
     ASC = "asc",
@@ -81,16 +81,16 @@ export class UpdateUserDetailsDto {
     country?: Country;
 }
 
-  export class SendRecoveryEmailOtpDto {
+export class SendRecoveryEmailOtpDto {
     @ApiProperty({
-      description: "The recovery email address to send the OTP to",
-      example: "recovery@example.com",
+        description: "The recovery email address to send the OTP to",
+        example: "recovery@example.com",
     })
     @IsEmail()
     email: string;
-  }
-  
-  export class VerifyRecoveryEmailOtpDto {
+}
+
+export class VerifyRecoveryEmailOtpDto {
     @ApiProperty({
         description: "The OTP sent to the user's primary email",
         example: "123456",
@@ -111,6 +111,16 @@ export class GetUserAssetsDto extends PaginationQueryDto {
 }
 
 export class GetUserListDto extends PaginationQueryDto {
+    @ApiProperty({
+        description: "filter users by status",
+        required: false,
+        enum: Status,
+        example: Status.ACTIVE,
+    })
+    @IsOptional()
+    @IsEnum(Status)
+    status?: Status;
+
     @ApiProperty({
         description: "filter by start date",
         required: false,

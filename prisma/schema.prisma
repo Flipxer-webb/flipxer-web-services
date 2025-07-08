@@ -179,19 +179,24 @@ model BusinessDocument {
   cacDocumentNumber  String
   cacImageUrl        String
   cacImageUrlFieldId String
+  cacImageFileName  String?
 
   articleOfAssociationNumber          String?
   articleOfAssociationImageUrl        String?
   articleOfAssociationImageUrlFieldId String?
+  articleOfAssociationFileName  String?
 
   boardResolutionAuthorizedAcctOpeningImageUrl        String?
   boardResolutionAuthorizedAcctOpeningImageUrlFieldId String?
+  boardResolutionAuthorizedAcctOpeningFileName  String?
 
   proofOfAddressForBeneficialOwner             String?
   proofOfAddressForBeneficialOwnerImageFieldId String?
+  proofOfAddressForBeneficialOwnerFileName  String?
 
   meansOfIdentificationForBeneficialOwner             String?
   meansOfIdentificationForBeneficialOwnerImageFieldId String?
+  meansOfIdentificationForBeneficialOwnerFileName  String?
 
   user User? @relation(fields: [userId], references: [id])
 
