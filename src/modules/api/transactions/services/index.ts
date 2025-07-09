@@ -105,7 +105,7 @@ export class TransactionService {
             }),
             this.prisma.order.count({ where: dbQuery.where }),
         ]);
-
+        const isStatusFilter = query.status ? true : false;
         const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
@@ -116,9 +116,12 @@ export class TransactionService {
                 ),
             }),
             records: user
-                ? groupTransactionsByDate(transactions)
+                ? groupTransactionsByDate(transactions, isStatusFilter)
                 : transactions.map((t) =>
-                      shapeTransaction(t as TransactionIncludeOptions)
+                      shapeTransaction(
+                          t as TransactionIncludeOptions,
+                          isStatusFilter
+                      )
                   ),
         };
 
