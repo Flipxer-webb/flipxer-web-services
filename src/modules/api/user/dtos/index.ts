@@ -11,7 +11,7 @@ import {
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { Gender, Country, Status } from "@prisma/client";
+import { Gender, Country, Status, UserType } from "@prisma/client";
 
 export enum Sort {
     ASC = "asc",
@@ -120,6 +120,16 @@ export class GetUserListDto extends PaginationQueryDto {
     @IsOptional()
     @IsEnum(Status)
     status?: Status;
+
+    @ApiProperty({
+        description: "filter users by user group",
+        required: false,
+        enum: UserType,
+        example: UserType.BUSINESS,
+    })
+    @IsOptional()
+    @IsEnum(UserType)
+    accountType?: UserType;
 
     @ApiProperty({
         description: "filter by start date",

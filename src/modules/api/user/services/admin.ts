@@ -86,6 +86,7 @@ export class AdminUserService {
             orderBy: { createdAt: sortBy },
             where: {
                 ...(query.status && { status: query.status }),
+                ...(query.accountType && { userType: query.accountType }),
                 ...(query.searchText && {
                     OR: [
                         {
