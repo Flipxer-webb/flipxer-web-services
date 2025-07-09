@@ -282,6 +282,7 @@ export class TradingService {
                 const order = await tx.order.create({
                     data: {
                         orderCategory: OrderCategory.BUY,
+                        transactionId: generateId({ type: "transaction" }),
                         amount: responseData.cryptoBuyAmount,
                         fee: responseData.transactionFeeInCrypto,
                         total: responseData.totalToChargeInCrypto,
@@ -379,6 +380,7 @@ export class TradingService {
                 orderCategory: OrderCategory.SELL,
                 status: OrderStatus.processing,
                 orderReference: reference,
+                transactionId: generateId({ type: "transaction" }),
                 providerOrderId: requestRes.data.id,
                 userId: user.id,
                 currency: requestRes.data.currency.toUpperCase(),
@@ -693,11 +695,12 @@ export class TradingService {
             "sell"
         );
 
-        await this.prisma.order.create({
+        const createdOrder = await this.prisma.order.create({
             data: {
                 orderCategory: OrderCategory.SEND,
                 status: OrderStatus.processing,
                 orderReference: reference,
+                transactionId: generateId({ type: "transaction" }),
                 providerOrderId: requestRes.data.id,
                 userId: user.id,
                 currency: requestRes.data.currency,
@@ -715,7 +718,10 @@ export class TradingService {
 
         return buildResponse({
             message: "Withdrawer request placed successfully",
-            data: requestRes.data,
+            data: {
+                ...requestRes.data,
+                transactionId: createdOrder.transactionId,
+            },
         });
     }
 
@@ -764,6 +770,7 @@ export class TradingService {
                         data: {
                             orderCategory: OrderCategory.SWAP,
                             status: swapInfo.data.status,
+                            transactionId: generateId({ type: "transaction" }),
                             providerOrderId: swapInfo.data.id,
                             orderReference: generateId({
                                 type: "reference",
@@ -970,6 +977,7 @@ export class TradingService {
                     data: {
                         orderCategory: OrderCategory.RECEIVE,
                         status: options.status,
+                        transactionId: generateId({ type: "transaction" }),
                         streamlinedStatus: getStreamlinedStatus(options.status),
                         providerOrderId: options.referenceId,
                         blockchain_txid: options.txid,

@@ -371,6 +371,7 @@ export class BankService {
                             orderCategory: OrderCategory.SELL,
                             status: OrderStatus.processing,
                             orderReference: reference,
+                            transactionId: generateId({ type: "transaction" }),
                             providerOrderId: requestRes.data.id,
                             userId: admin.id,
                             currency: requestRes.data.currency.toUpperCase(),
