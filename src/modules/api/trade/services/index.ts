@@ -329,7 +329,11 @@ export class TradingService {
         return buildResponse({
             message:
                 "Order placed successfully, Please proceed to make payment",
-            data: { orderId: order.id, paymentInfo: data },
+            data: {
+                orderId: order.id,
+                transactionId: order.transactionId,
+                paymentInfo: data,
+            },
         });
     }
 
@@ -375,7 +379,7 @@ export class TradingService {
             "sell"
         );
 
-        await this.prisma.order.create({
+        const order = await this.prisma.order.create({
             data: {
                 orderCategory: OrderCategory.SELL,
                 status: OrderStatus.processing,
@@ -405,6 +409,9 @@ export class TradingService {
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
+            data: {
+                transactionId: order.transactionId,
+            },
         });
     }
 
@@ -762,7 +769,7 @@ export class TradingService {
             Number(swapInfo.data?.from_amount),
             "sell"
         );
-
+        const transactionId = generateId({ type: "transaction" });
         if (swapInfo.data) {
             this.prisma.$transaction(
                 async (tx) => {
@@ -770,7 +777,7 @@ export class TradingService {
                         data: {
                             orderCategory: OrderCategory.SWAP,
                             status: swapInfo.data.status,
-                            transactionId: generateId({ type: "transaction" }),
+                            transactionId: transactionId,
                             providerOrderId: swapInfo.data.id,
                             orderReference: generateId({
                                 type: "reference",
@@ -799,7 +806,10 @@ export class TradingService {
 
         return buildResponse({
             message: "Swap request processed successfully",
-            data: swapInfo.data,
+            data: {
+                ...swapInfo.data,
+                transactionId: transactionId,
+            },
         });
     }
 
