@@ -330,8 +330,7 @@ export class TradingService {
             message:
                 "Order placed successfully, Please proceed to make payment",
             data: {
-                orderId: order.id,
-                transactionId: order.transactionId,
+                order: order,
                 paymentInfo: data,
             },
         });
@@ -409,9 +408,7 @@ export class TradingService {
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
-            data: {
-                transactionId: order.transactionId,
-            },
+            data: order,
         });
     }
 
