@@ -57,10 +57,10 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
 
     @ApiProperty({
         description: "search transaction using transaction id - optional",
-        example: "1",
+        example: "74GCHH066AE1H44",
         required: false,
     })
     @IsOptional()
-    @IsNumberString()
+    @IsString()
     searchText?: string;
 }

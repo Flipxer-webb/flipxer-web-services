@@ -49,9 +49,7 @@ export class TransactionController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "user get transaction detail" })
     @Get(":transactionId")
-    async getTransactionDetail(
-        @Param("transactionId", ParseIntPipe) transactionId: number
-    ) {
+    async getTransactionDetail(@Param("transactionId") transactionId: string) {
         return this.transactionService.getTransactionDetail(transactionId);
     }
 }

@@ -88,7 +88,7 @@ export class TransactionService {
                           },
                       }
                     : {}),
-                ...(query.searchText && { id: Number(query.searchText) }),
+                ...(query.searchText && { transactionId: query.searchText }),
             },
             include: {
                 user: { select: { firstName: true, lastName: true } },
@@ -131,9 +131,9 @@ export class TransactionService {
         });
     }
 
-    async getTransactionDetail(transactionId: number) {
+    async getTransactionDetail(transactionId: string) {
         const transDetail = await this.prisma.order.findUnique({
-            where: { id: transactionId },
+            where: { transactionId: transactionId },
             include: {
                 user: { select: { firstName: true, lastName: true } },
             },
