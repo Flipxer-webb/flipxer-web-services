@@ -10,6 +10,7 @@ import {
     TradingQueue,
 } from "../interfaces";
 
+
 @Processor(TradingQueue.QUIDAX_SYNC_BALANCE)
 export class QuidaxTradingBalanceSyncProcessor {
     constructor(
