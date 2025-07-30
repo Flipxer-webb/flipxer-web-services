@@ -322,3 +322,11 @@ export class RefreshTokenDto {
     @IsString()
     refreshToken: string;
 }
+
+
+export class UnflagUserDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsEmail({}, { message: "Invalid email address" })
+    email: string;
+}
