@@ -5,8 +5,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 // Enums
@@ -48,15 +49,15 @@ enum PermissionGroup {
 
 // User model
 model User {
-  id                                 Int                         @id @default(autoincrement())
-  identifier                         String                      @unique
-  cryptoSubAccountId                 String?                     @unique
+  id                                 Int                                @id @default(autoincrement())
+  identifier                         String                             @unique
+  cryptoSubAccountId                 String?                            @unique
   firstName                          String?
   lastName                           String?
   username                           String?
   middleName                         String?
-  email                              String                      @unique
-  phone                              String?                     @unique
+  email                              String                             @unique
+  phone                              String?                            @unique
   password                           String?
   userType                           UserType
   photo                              String?
@@ -65,27 +66,27 @@ model User {
   dateOfBirth                        DateTime?
   bvn                                String?
   bvnRegisteredPhone                 String?
-  country                            Country                     @default(NIGERIA)
-  status                             Status                      @default(ACTIVE)
+  country                            Country                            @default(NIGERIA)
+  status                             Status                             @default(ACTIVE)
   roleId                             Int
   ipAddress                          String?
   refreshToken                       String?
   notificationToken                  String?
-  isEmailVerified                    Boolean                     @default(false)
-  isPhoneVerified                    Boolean                     @default(false)
-  isPasswordCreated                  Boolean                     @default(false)
-  isBvnVerified                      Boolean                     @default(false)
-  isDocumentVerified                 Boolean                     @default(false)
-  businessRecordCompleted            Boolean                     @default(false)
-  businessDocumentsUploaded          Boolean                     @default(false)
+  isEmailVerified                    Boolean                            @default(false)
+  isPhoneVerified                    Boolean                            @default(false)
+  isPasswordCreated                  Boolean                            @default(false)
+  isBvnVerified                      Boolean                            @default(false)
+  isDocumentVerified                 Boolean                            @default(false)
+  businessRecordCompleted            Boolean                            @default(false)
+  businessDocumentsUploaded          Boolean                            @default(false)
   businessDocumentVerificationStatus DocumentVerificationStatus?
-  isDeleted                          Boolean                     @default(false)
-  createdAt                          DateTime                    @default(now())
-  updatedAt                          DateTime                    @updatedAt
+  isDeleted                          Boolean                            @default(false)
+  createdAt                          DateTime                           @default(now())
+  updatedAt                          DateTime                           @updatedAt
   passwordResetRequest               PasswordResetRequest?
-  role                               Role                        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role                               Role                               @relation(fields: [roleId], references: [id], onDelete: Cascade)
   lastLogin                          DateTime?
-  loginCount                         Int                         @default(0)
+  loginCount                         Int                                @default(0)
   userDocument                       UserDocument?
   businessRecord                     BusinessRecord?
   businessDocument                   BusinessDocument?
@@ -97,6 +98,7 @@ model User {
   assetWallets                       AssetWallet[]
   payments                           Payment[]
   allowedIps                          AllowedIp[]
+  RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest[]
 
   @@index([id, bvn])
   @@map("Users")
@@ -178,19 +180,24 @@ model BusinessDocument {
   cacDocumentNumber  String
   cacImageUrl        String
   cacImageUrlFieldId String
+  cacImageFileName  String?
 
   articleOfAssociationNumber          String?
   articleOfAssociationImageUrl        String?
   articleOfAssociationImageUrlFieldId String?
+  articleOfAssociationFileName  String?
 
   boardResolutionAuthorizedAcctOpeningImageUrl        String?
   boardResolutionAuthorizedAcctOpeningImageUrlFieldId String?
+  boardResolutionAuthorizedAcctOpeningFileName  String?
 
   proofOfAddressForBeneficialOwner             String?
   proofOfAddressForBeneficialOwnerImageFieldId String?
+  proofOfAddressForBeneficialOwnerFileName  String?
 
   meansOfIdentificationForBeneficialOwner             String?
   meansOfIdentificationForBeneficialOwnerImageFieldId String?
+  meansOfIdentificationForBeneficialOwnerFileName  String?
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -368,6 +375,13 @@ enum OrderStatus {
   accepted
 }
 
+enum OrderStreamlinedStatus {
+  pending
+  completed
+  failed
+  cancelled
+}
+
 enum OrderSide {
   buy
   sell
@@ -386,19 +400,24 @@ enum OrderCategory {
   RECEIVE
 }
 
+enum ReferenceFiatCurrency {
+  NGN
+}
+
 model Order {
   id            Int           @id @default(autoincrement())
   userId        Int
   orderCategory OrderCategory
-  orderRef String?      @unique
- 
+  transactionId String? @unique
+
   //trade (buy/sell) related
-  market        String? // from TradingPair enum
-  orderType     OrderType?
-  orderSide     OrderSide?
-  volume        Float?
-  price         Float? // optional for market orders
-  status        OrderStatus
+  market    String? // from TradingPair enum
+  orderType OrderType?
+  orderSide OrderSide?
+  volume    Float?
+  price     Float? // optional for market orders
+  status    OrderStatus
+  streamlinedStatus OrderStreamlinedStatus @default(pending)
   paymentStatus TransactionStatus?
 
   //swap related
@@ -425,6 +444,10 @@ model Order {
   blockchain_txid  String?
 
   destinationTag String?
+
+  amountInFiat    Float?  
+  referenceFiatCurrency ReferenceFiatCurrency @default(NGN)
+  rateAtConversion Float? 
 
   providerOrderId String? @unique // Quidax reference ID
   orderReference  String? @unique //Quidax order ref
@@ -560,4 +583,17 @@ model AllowedIp {
   @@unique([userId, ip])
   @@index(userId)
   @@map("AllowedIps")
+}
+
+model RecoveryEmailVerificationRequest {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @unique
+  email      String
+  code       String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isVerified Boolean  @default(false)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("RecoveryEmailVerificationRequests")
 }

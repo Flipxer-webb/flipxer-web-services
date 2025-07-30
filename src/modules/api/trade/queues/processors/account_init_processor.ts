@@ -54,13 +54,13 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
                 "btc",
                 "usdt",
                 "usdc",
-                "eth",
-                "bnb",
-                "xrp",
-                "ada",
-                "doge",
-                "link",
-                "ltc",
+                // "eth",
+                // "bnb",
+                // "xrp",
+                // "ada",
+                // "doge",
+                // "link",
+                // "ltc",
             ];
 
             // Let failed address generations throw and be caught by allSettled

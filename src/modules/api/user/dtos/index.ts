@@ -7,10 +7,11 @@ import {
     IsDateString,
     Matches,
     IsNotEmpty,
+    Length,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { Gender, Country } from "@prisma/client";
+import { Gender, Country, Status, UserType } from "@prisma/client";
 
 export enum Sort {
     ASC = "asc",
@@ -80,16 +81,23 @@ export class UpdateUserDetailsDto {
     country?: Country;
 }
 
-export class RecoveryEmailDto {
-    @ApiProperty({ example: "user@example.com" })
+export class SendRecoveryEmailOtpDto {
+    @ApiProperty({
+        description: "The recovery email address to send the OTP to",
+        example: "recovery@example.com",
+    })
     @IsEmail()
-    @IsNotEmpty()
     email: string;
+}
 
-    @ApiProperty({ example: "recovery@example.com" })
-    @IsEmail()
+export class VerifyRecoveryEmailOtpDto {
+    @ApiProperty({
+        description: "The OTP sent to the user's primary email",
+        example: "123456",
+    })
+    @IsString()
     @IsNotEmpty()
-    recoveryEmail: string;
+    otp: string;
 }
 
 export class GetUserAssetsDto extends PaginationQueryDto {
@@ -103,6 +111,26 @@ export class GetUserAssetsDto extends PaginationQueryDto {
 }
 
 export class GetUserListDto extends PaginationQueryDto {
+    @ApiProperty({
+        description: "filter users by status",
+        required: false,
+        enum: Status,
+        example: Status.ACTIVE,
+    })
+    @IsOptional()
+    @IsEnum(Status)
+    status?: Status;
+
+    @ApiProperty({
+        description: "filter users by user group",
+        required: false,
+        enum: UserType,
+        example: UserType.BUSINESS,
+    })
+    @IsOptional()
+    @IsEnum(UserType)
+    accountType?: UserType;
+
     @ApiProperty({
         description: "filter by start date",
         required: false,

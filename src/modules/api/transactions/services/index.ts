@@ -8,13 +8,13 @@ import {
     defaultPagination,
     groupTransactionsByDate,
 } from "@/utils";
-import { isToday, isYesterday, format, startOfDay, endOfDay } from "date-fns";
 import {
     GeneralReportCSVField,
     GeneralReportDownload,
     shapeTransaction,
     TransactionIncludeOptions,
 } from "../types";
+import { isToday, isYesterday, format, endOfDay, startOfDay } from "date-fns";
 import { TransactionNotFoundException } from "../errors";
 import { createObjectCsvStringifier } from "csv-writer";
 
@@ -59,6 +59,7 @@ export class TransactionService {
             where: {
                 ...(user && { userId: user.id }),
                 ...(query.type && { orderCategory: query.type }),
+                ...(query.status && { streamlinedStatus: query.status }),
                 ...(query.asset && {
                     OR: [
                         {
@@ -88,12 +89,12 @@ export class TransactionService {
                                   gte: new Date(query.startDate),
                               }),
                               ...(query.endDate && {
-                                  lte: new Date(query.endDate),
+                                  lte: endOfDay(new Date(query.endDate)),
                               }),
                           },
                       }
                     : {}),
-                ...(query.searchText && { id: Number(query.searchText) }),
+                ...(query.searchText && { transactionId: query.searchText }),
             },
             include: {
                 user: { select: { firstName: true, lastName: true } },
@@ -110,7 +111,7 @@ export class TransactionService {
             }),
             this.prisma.order.count({ where: dbQuery.where }),
         ]);
-
+        const isStatusFilter = query.status ? true : false;
         const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
@@ -121,9 +122,12 @@ export class TransactionService {
                 ),
             }),
             records: user
-                ? groupTransactionsByDate(transactions)
+                ? groupTransactionsByDate(transactions, isStatusFilter)
                 : transactions.map((t) =>
-                      shapeTransaction(t as TransactionIncludeOptions)
+                      shapeTransaction(
+                          t as TransactionIncludeOptions,
+                          isStatusFilter
+                      )
                   ),
         };
 
@@ -133,9 +137,9 @@ export class TransactionService {
         });
     }
 
-    async getTransactionDetail(transactionId: number) {
+    async getTransactionDetail(transactionId: string) {
         const transDetail = await this.prisma.order.findUnique({
-            where: { id: transactionId },
+            where: { transactionId: transactionId },
             include: {
                 user: { select: { firstName: true, lastName: true } },
             },

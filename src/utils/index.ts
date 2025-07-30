@@ -115,7 +115,10 @@ export const defaultPagination = {
     search: "",
 };
 
-export const groupTransactionsByDate = (transactions: Order[]) => {
+export const groupTransactionsByDate = (
+    transactions: Order[],
+    filter = false
+) => {
     const groupedMap: Record<string, Order[]> = {};
 
     for (const tx of transactions) {
@@ -141,10 +144,26 @@ export const groupTransactionsByDate = (transactions: Order[]) => {
         ([date, transactions]) => ({
             date,
             transactions: transactions.map((t) =>
-                shapeTransaction(t as TransactionIncludeOptions)
+                shapeTransaction(t as TransactionIncludeOptions, filter)
             ),
         })
     );
 
     return groupedArray;
+};
+
+export const formatTimestamp = () =>
+    new Date()
+        .toISOString()
+        .replace(/[-:.TZ]/g, "")
+        .slice(0, 14);
+
+export const generateFileName = (
+    docType: string,
+    userId: number,
+    originalName?: string
+) => {
+    const ext = originalName?.split(".").pop()?.toLowerCase() || "pdf";
+    const sanitizedType = docType.toLowerCase().replace(/\s+/g, "_");
+    return `${sanitizedType}_${userId}_${formatTimestamp()}.${ext}`;
 };

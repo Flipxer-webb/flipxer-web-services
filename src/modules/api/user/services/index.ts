@@ -1,4 +1,3 @@
-// src/modules/api/user/services/user.service.ts
 import { storageDirConfig } from "@/config";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -7,7 +6,13 @@ import {
     defaultPagination,
     generateRandomNum,
 } from "@/utils";
-import { Injectable, forwardRef, Inject, HttpStatus } from "@nestjs/common";
+import {
+    Injectable,
+    forwardRef,
+    Inject,
+    HttpStatus,
+    Logger,
+} from "@nestjs/common";
 import { AuthService } from "../../auth/services";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
@@ -16,14 +21,22 @@ import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import {
     GetUserAssetsDto,
-    RecoveryEmailDto,
     UpdateProfilePasswordDto,
     UpdateUserDetailsDto,
+    SendRecoveryEmailOtpDto,
+    VerifyRecoveryEmailOtpDto,
 } from "../dtos";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
-import { Prisma, User } from "@prisma/client";
-import { IncorrectPasswordException } from "../errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
+import { AssetWallet, Prisma, User } from "@prisma/client";
+import { DuplicateUserException, IncorrectPasswordException } from "../errors";
+import { customAlphabet } from "nanoid";
+import { emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
+import {
+    InvalidVerificationCodeException,
+    VerificationCodeExpiredException,
+    DuplicateVerificationException,
+} from "../../auth/errors";
 
 @Injectable()
 export class UserService {
@@ -243,60 +256,53 @@ export class UserService {
     }
 
     async updateUserDetails(
-        dto: UpdateUserDetailsDto,
+        options: UpdateUserDetailsDto,
         user: User,
         photo?: Express.Multer.File
     ) {
-        const currentUser = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            select: { photo: true, photoFileId: true },
-        });
+        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {
+            firstName: options.firstName ?? user.firstName,
+            lastName: options.lastName ?? user.lastName,
+            phone: options.phone ?? user.phone,
+            gender: options.gender ?? user.gender,
+            country: options.country ?? user.country,
+            dateOfBirth: new Date(options.dateOfBirth) ?? user.dateOfBirth,
+        };
 
-        let photoUrl: string | null = null;
-        let photoFileId: string | null = null;
+        if (options.phone) {
+            const phoneExist = await this.prisma.user.findFirst({
+                where: { id: { not: user.id }, phone: options.phone },
+            });
+            if (phoneExist) {
+                throw new DuplicateUserException(
+                    "Phone already in use by another",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+        }
 
         if (photo) {
             const uploadResponse = await this.uploadProfileImage(photo);
-
-            if ("url" in uploadResponse && "fileId" in uploadResponse) {
-                photoUrl = uploadResponse.url;
-                photoFileId = uploadResponse.fileId;
-
-                if (currentUser?.photoFileId) {
-                    if (!process.env.IMAGEKIT_PRIVATE_KEY) {
-                        throw new Error(
-                            "ImageKit private key is not configured"
-                        );
-                    }
-                    try {
-                        await this.uploadService.removeImage({
-                            fileId: currentUser.photoFileId,
-                            key: process.env.IMAGEKIT_PRIVATE_KEY,
-                        });
-                    } catch (error) {
-                        console.error(
-                            `Failed to delete image ${currentUser.photoFileId}:`,
-                            error
-                        );
-                    }
+            if (user?.photoFileId) {
+                try {
+                    await this.uploadService.removeImage({
+                        fileId: user.photoFileId,
+                        key: process.env.IMAGEKIT_PRIVATE_KEY,
+                    });
+                } catch (error) {
+                    Logger.error(
+                        `Failed to delete image ${user.photoFileId}:`,
+                        error
+                    );
                 }
             }
+            profileUpdateOptions.photo = uploadResponse.url;
+            profileUpdateOptions.photoFileId = uploadResponse.fileId;
         }
 
         const updatedUser = await this.prisma.user.update({
             where: { id: user.id },
-            data: {
-                firstName: dto.firstName,
-                lastName: dto.lastName,
-                phone: dto.phone,
-                gender: dto.gender,
-                dateOfBirth: dto.dateOfBirth
-                    ? new Date(dto.dateOfBirth)
-                    : undefined,
-                country: dto.country,
-                photo: photoUrl,
-                photoFileId: photoFileId,
-            },
+            data: profileUpdateOptions,
             select: {
                 id: true,
                 firstName: true,
@@ -316,45 +322,10 @@ export class UserService {
         };
     }
 
-    async recoveryEmail(dto: RecoveryEmailDto) {
-        const user = await this.prisma.user.findUnique({
-            where: { email: dto.email },
-        });
-
-        if (!user) {
-            throw new UserNotFoundException(
-                "User not found",
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        await this.prisma.user.update({
-            where: { email: dto.email },
-            data: {
-                recoveryEmail: dto.recoveryEmail,
-            },
-        });
-
-        return {
-            message: "Recovery email updated successfully",
-        };
-    }
-
     async updateProfilePassword(options: UpdateProfilePasswordDto, user: User) {
-        const userData = await this.prisma.user.findUnique({
-            where: { id: user.id },
-        });
-
-        if (!userData) {
-            throw new UserNotFoundException(
-                "User profile could not be found",
-                HttpStatus.NOT_FOUND
-            );
-        }
-
         const isMatched = await this.authService.comparePassword(
             options.oldPassword,
-            userData.password
+            user.password
         );
 
         if (!isMatched) {
@@ -375,6 +346,114 @@ export class UserService {
 
         return {
             message: "Password successfully updated",
+        };
+    }
+
+    async sendRecoveryEmailOtp(
+        dto: SendRecoveryEmailOtpDto,
+        user: User
+    ): Promise<{ message: string }> {
+        // Generate 6-digit OTP
+        const verificationCode = customAlphabet("1234567890", 6)();
+
+        // Upsert the recovery email verification request
+        await this.prisma.recoveryEmailVerificationRequest.upsert({
+            where: {
+                userId: user.id,
+            },
+            update: {
+                email: dto.email,
+                code: verificationCode,
+            },
+            create: {
+                userId: user.id,
+                email: dto.email,
+                code: verificationCode,
+            },
+        });
+
+        // Prepare email data
+        const name =
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
+        const team = COMPANY_NAME;
+        const notice =
+            "Please use this code to verify your recovery email. The code expires in 30 minutes.";
+
+        try {
+            await this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: user.email } }],
+                template_key: emailTemplateConfig.recovery_pin,
+                merge_info: {
+                    name,
+                    code: verificationCode,
+                    notice,
+                    team,
+                },
+            });
+        } catch (error) {
+            console.error(`Failed to send recovery email OTP: ${error}`);
+            throw new AuthGenericException(
+                "Failed to send recovery email OTP",
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        }
+
+        return {
+            message: `A verification code has been sent to ${user.email}`,
+        };
+    }
+
+    async verifyRecoveryEmailOtp(
+        dto: VerifyRecoveryEmailOtpDto,
+        user: User
+    ): Promise<{ message: string }> {
+        const verificationData =
+            await this.prisma.recoveryEmailVerificationRequest.findFirst({
+                where: {
+                    userId: user.id,
+                    code: dto.otp,
+                },
+            });
+
+        if (!verificationData) {
+            throw new InvalidVerificationCodeException(
+                "Invalid verification code",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (verificationData.isVerified) {
+            throw new DuplicateVerificationException(
+                "Recovery email already verified",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const timeDifference =
+            Date.now() - verificationData.updatedAt.getTime();
+        const timeDiffInMin = timeDifference / (1000 * 60);
+
+        if (timeDiffInMin > 30) {
+            throw new VerificationCodeExpiredException(
+                "Your verification code has expired. Kindly request a new one",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Update user with verified recovery email and delete the verification request
+        await this.prisma.$transaction([
+            this.prisma.user.update({
+                where: { id: user.id },
+                data: { recoveryEmail: verificationData.email },
+            }),
+            this.prisma.recoveryEmailVerificationRequest.delete({
+                where: { id: verificationData.id },
+            }),
+        ]);
+
+        return {
+            message: "Recovery email verified successfully",
         };
     }
 }

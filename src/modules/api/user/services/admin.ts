@@ -45,8 +45,9 @@ export class AdminUserService {
         //todo: completed the logic
         const [totalTransactionVolume, transactionsThisMonth] =
             await Promise.all([
-                this.prisma.order.count(),
-                this.prisma.order.count({
+                this.prisma.order.aggregate({ _sum: { amountInFiat: true } }),
+                this.prisma.order.aggregate({
+                    _sum: { amountInFiat: true },
                     where: {
                         createdAt: {
                             gte: startOfCurrentMonth,
@@ -60,8 +61,10 @@ export class AdminUserService {
             data: {
                 totalUsers,
                 usersThisMonth,
-                totalTransactionVolume,
-                transactionsThisMonth,
+                totalTransactionVolume:
+                    totalTransactionVolume?._sum.amountInFiat || 0,
+                transactionsThisMonth:
+                    transactionsThisMonth?._sum.amountInFiat || 0,
             },
         });
     }
@@ -82,6 +85,8 @@ export class AdminUserService {
         const dbQuery: Prisma.UserFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
+                ...(query.status && { status: query.status }),
+                ...(query.accountType && { userType: query.accountType }),
                 ...(query.searchText && {
                     OR: [
                         {
@@ -122,7 +127,6 @@ export class AdminUserService {
                           },
                       }
                     : {}),
-                ...(query.searchText && { id: Number(query.searchText) }),
             },
             select: {
                 id: true,
@@ -178,6 +182,7 @@ export class AdminUserService {
                 email: true,
                 phone: true,
                 photo: true,
+                bvn: true,
                 accountLimit: true,
                 businessDocument: true,
                 userDocument: true,

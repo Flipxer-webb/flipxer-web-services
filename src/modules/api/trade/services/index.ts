@@ -18,6 +18,7 @@ import {
 import {
     BuyQuoteResponse,
     DepositTransaction,
+    getStreamlinedStatus,
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
     OrderType,
@@ -271,11 +272,17 @@ export class TradingService {
 
         const result = data as unknown as PastackInitiationResponseResultType;
 
+        const amtFiat = await this.getAmountInNaira(
+            dto.asset,
+            responseData.cryptoBuyAmount
+        );
+
         const order = await this.prisma.$transaction(
             async (tx) => {
                 const order = await tx.order.create({
                     data: {
                         orderCategory: OrderCategory.BUY,
+                        transactionId: generateId({ type: "transaction" }),
                         amount: responseData.cryptoBuyAmount,
                         fee: responseData.transactionFeeInCrypto,
                         total: responseData.totalToChargeInCrypto,
@@ -285,6 +292,8 @@ export class TradingService {
                         recipient: responseData.depositAddress,
                         destinationTag: responseData.destinationTag,
                         userId: user.id,
+                        amountInFiat: amtFiat?.amount,
+                        rateAtConversion: amtFiat?.rate,
                     },
                 });
                 await tx.payment.create({
@@ -320,7 +329,10 @@ export class TradingService {
         return buildResponse({
             message:
                 "Order placed successfully, Please proceed to make payment",
-            data: { orderId: order.id, paymentInfo: data },
+            data: {
+                order: order,
+                paymentInfo: data,
+            },
         });
     }
 
@@ -360,11 +372,18 @@ export class TradingService {
             reference: reference,
         });
 
-        await this.prisma.order.create({
+        const amtFiat = await this.getAmountInNaira(
+            dto.asset,
+            responseData.cryptoSellAmount,
+            "sell"
+        );
+
+        const order = await this.prisma.order.create({
             data: {
                 orderCategory: OrderCategory.SELL,
                 status: OrderStatus.processing,
                 orderReference: reference,
+                transactionId: generateId({ type: "transaction" }),
                 providerOrderId: requestRes.data.id,
                 userId: user.id,
                 currency: requestRes.data.currency.toUpperCase(),
@@ -380,6 +399,8 @@ export class TradingService {
                 destinationBankAccountNumber: dto.bankDetail.accountNumber,
                 destinationBankAccountName: dto.bankDetail.accountName,
                 destinationBankCode: dto.bankDetail.bankCode,
+                amountInFiat: amtFiat?.amount,
+                rateAtConversion: amtFiat?.rate,
             },
         });
 
@@ -387,6 +408,7 @@ export class TradingService {
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
+            data: order,
         });
     }
 
@@ -671,11 +693,18 @@ export class TradingService {
             reference: reference,
         });
 
-        await this.prisma.order.create({
+        const amtFiat = await this.getAmountInNaira(
+            requestRes.data.currency,
+            Number(requestRes.data.amount),
+            "sell"
+        );
+
+        const createdOrder = await this.prisma.order.create({
             data: {
                 orderCategory: OrderCategory.SEND,
                 status: OrderStatus.processing,
                 orderReference: reference,
+                transactionId: generateId({ type: "transaction" }),
                 providerOrderId: requestRes.data.id,
                 userId: user.id,
                 currency: requestRes.data.currency,
@@ -686,12 +715,17 @@ export class TradingService {
                 fee: +requestRes.data.fee,
                 total: +requestRes.data.total,
                 sourceType: requestRes.data.type,
+                amountInFiat: amtFiat?.amount,
+                rateAtConversion: amtFiat?.rate,
             },
         });
 
         return buildResponse({
             message: "Withdrawer request placed successfully",
-            data: requestRes.data,
+            data: {
+                ...requestRes.data,
+                transactionId: createdOrder.transactionId,
+            },
         });
     }
 
@@ -727,6 +761,12 @@ export class TradingService {
             user_id: user.cryptoSubAccountId,
         });
 
+        const amtFiat = await this.getAmountInNaira(
+            swapInfo.data.from_currency,
+            Number(swapInfo.data?.from_amount),
+            "sell"
+        );
+        const transactionId = generateId({ type: "transaction" });
         if (swapInfo.data) {
             this.prisma.$transaction(
                 async (tx) => {
@@ -734,6 +774,7 @@ export class TradingService {
                         data: {
                             orderCategory: OrderCategory.SWAP,
                             status: swapInfo.data.status,
+                            transactionId: transactionId,
                             providerOrderId: swapInfo.data.id,
                             orderReference: generateId({
                                 type: "reference",
@@ -744,12 +785,15 @@ export class TradingService {
                             toCurrency: swapInfo.data.to_currency.toUpperCase(),
                             fromAmount: +swapInfo.data?.from_amount,
                             toAmount: +swapInfo.data?.received_amount,
+                            amount: +swapInfo.data?.from_amount,
                             quotationId: swapInfo.data.swap_quotation.id,
                             quoted_currency:
                                 swapInfo.data.swap_quotation.quoted_currency,
                             quoted_price:
                                 +swapInfo.data.swap_quotation.quoted_price,
                             executionPrice: +swapInfo.data.execution_price,
+                            amountInFiat: amtFiat?.amount,
+                            rateAtConversion: amtFiat?.rate,
                         },
                     });
                 },
@@ -759,7 +803,10 @@ export class TradingService {
 
         return buildResponse({
             message: "Swap request processed successfully",
-            data: swapInfo.data,
+            data: {
+                ...swapInfo.data,
+                transactionId: transactionId,
+            },
         });
     }
 
@@ -927,10 +974,18 @@ export class TradingService {
             });
 
             if (!transaction) {
+                const amtFiat = await this.getAmountInNaira(
+                    options.currency,
+                    Number(options.amount),
+                    "buy"
+                );
+
                 await this.prisma.order.create({
                     data: {
                         orderCategory: OrderCategory.RECEIVE,
                         status: options.status,
+                        transactionId: generateId({ type: "transaction" }),
+                        streamlinedStatus: getStreamlinedStatus(options.status),
                         providerOrderId: options.referenceId,
                         blockchain_txid: options.txid,
                         userId: user.id,
@@ -940,6 +995,8 @@ export class TradingService {
                         amount: +options.amount,
                         fee: +options.fee,
                         sourceType: options.type,
+                        amountInFiat: amtFiat?.amount,
+                        rateAtConversion: amtFiat?.rate,
                     },
                 });
             } else {
@@ -981,6 +1038,7 @@ export class TradingService {
             where: { id: transaction.id },
             data: {
                 status: options.status,
+                streamlinedStatus: getStreamlinedStatus(options.status),
             },
         });
     }
@@ -1015,6 +1073,7 @@ export class TradingService {
             where: { id: transaction.id },
             data: {
                 status: options.status,
+                streamlinedStatus: getStreamlinedStatus(options.status),
             },
         });
 
@@ -1071,5 +1130,29 @@ export class TradingService {
             "Unknown fee type or structure.",
             HttpStatus.INTERNAL_SERVER_ERROR
         );
+    }
+
+    async getAmountInNaira(
+        asset: string,
+        amount: number,
+        rateType: "buy" | "sell" | "last" = "buy"
+    ): Promise<{ amount?: number; rate?: number } | null> {
+        const referenceCurrency = "ngn";
+        const assetCurrency = asset.toLowerCase();
+        const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+        const marketData = await this.quidaxService.getSingleMarketTicker(
+            marketSymbol
+        );
+
+        const ticker = marketData.data?.ticker;
+        if (!ticker) return null;
+
+        const rate = parseFloat(ticker[rateType]);
+        if (isNaN(rate)) return null;
+
+        return {
+            amount: amount * rate,
+            rate: rate,
+        };
     }
 }

@@ -27,7 +27,7 @@ export class AdminUserController {
     @ApiOperation({ summary: "Admin gets Dashboard analytics overview" })
     @ApiBearerAuth("access-token")
     @Get("analytics-overview")
-    async getProfile() {
+    async getAnalyticsOverview() {
         return await this.adminService.getAnalyticsOverview();
     }
 

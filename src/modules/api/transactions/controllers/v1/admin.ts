@@ -55,9 +55,7 @@ export class AdminTransactionController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "admin get transaction detail" })
     @Get(":transactionId")
-    async getTransactionDetail(
-        @Param("transactionId", ParseIntPipe) transactionId: number
-    ) {
+    async getTransactionDetail(@Param("transactionId") transactionId: string) {
         return this.transactionService.getTransactionDetail(transactionId);
     }
 }

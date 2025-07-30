@@ -5,6 +5,7 @@ import {
     TransactionStatus,
     UserType,
 } from "@prisma/client";
+import { getStreamlinedStatus } from "../../trade/interfaces/trade";
 
 export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
     include: {
@@ -12,15 +13,21 @@ export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
     };
 }>;
 
-export const shapeTransaction = (t: TransactionIncludeOptions) => {
+export const shapeTransaction = (
+    t: TransactionIncludeOptions,
+    filter = false
+) => {
     return {
-        transactionId: t.id,
+        transactionId: t.transactionId,
         name: `${t.user.lastName} ${t.user.firstName}`,
         walletAddress: t?.recipient,
         transactionType: t.orderCategory,
         amount: t?.amount,
         currency: t?.currency,
         status: t.status,
+        streamLinedStatus: getStreamlinedStatus(
+            filter ? t.streamlinedStatus : t.status
+        ) as string,
         date: t.createdAt,
         swap:
             t.orderCategory === OrderCategory.SWAP
