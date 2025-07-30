@@ -5,6 +5,7 @@ import {
     HttpStatus,
     Post,
     ValidationPipe,
+    UseGuards
 } from "@nestjs/common";
 import {
     ApiTags,
@@ -15,6 +16,11 @@ import { SignInDto, UnflagUserDto } from "../../dtos";
 import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse } from "@/utils/api-response-util";
+import { AuthGuard } from "../../guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { UserType } from "@prisma/client";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+
 
 @ApiTags("admin")
 @Controller({
@@ -34,6 +40,8 @@ export class AdminAuthController {
         return await this.authService.adminSignIn(signInDto, clientData.ipAddress);
     }
 
+    @UseGuards(AuthGuard, RoleGuard)
+    @UserTypes([UserType.ADMIN])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Unflag a user account" })
     @SwaggerApiResponse({ status: HttpStatus.OK, description: "Account unflagged successfully" })

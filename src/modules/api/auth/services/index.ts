@@ -471,15 +471,15 @@ export class AuthService {
             );
         }
 
-        // if (
-        //     user.userType === UserType.INDIVIDUAL &&
-        //     user.bvnRegisteredPhone !== options.phone
-        // ) {
-        //     throw new VerificationGenericException(
-        //         "Please use the phone registered with your bvn",
-        //         HttpStatus.BAD_REQUEST
-        //     );
-        // }
+        if (
+            user.userType === UserType.INDIVIDUAL &&
+            user.bvnRegisteredPhone !== options.phone
+        ) {
+            throw new VerificationGenericException(
+                "Please use the phone registered with your bvn",
+                HttpStatus.BAD_REQUEST
+            );
+        }
 
         await this.prisma.user.update({
             where: { id: user.id },
@@ -964,7 +964,7 @@ export class AuthService {
         }
         const flagged = user.flagged || { flagged: false, reason: "" };
 
-        if (flagged.flagged) {
+        if (flagged.flagged && flagged.reason === 'Multiple failed login attempts') {
             throw new UserAccountDisabledException(
                 `Account is flagged: ${flagged.reason || "Multiple failed login attempts"}. Please contact support.`,
                 HttpStatus.FORBIDDEN
@@ -977,7 +977,6 @@ export class AuthService {
                 HttpStatus.BAD_REQUEST
             );
         }
-        Logger.log(user)
         switch (loginPlatform) {
             case LoginPlatform.ADMIN:
                 this.validateAdminAccount(user.userType);
@@ -1034,10 +1033,7 @@ export class AuthService {
                             flaggedId: flaggedRecord.id,
                         },
                     });
-                });
-    
-                Logger.log(`Failed login attempt for user ${user.email}. Login count: ${updatedLoginCount}`);
-    
+                });    
                 throw new InvalidCredentialException("Invalid email or password");
             }
     
@@ -1049,9 +1045,6 @@ export class AuthService {
                     ipAddress: ip,
                 },
             });
-    
-            Logger.log(`Failed login attempt for user ${user.email}. Login count: ${updatedLoginCount}`);
-    
             throw new InvalidCredentialException("Invalid email or password");
         }
     

@@ -16,7 +16,6 @@ import {
     TransactionIncludeOptions,
 } from "../../transactions/types";
 
-const logger = new Logger();
 
 @Injectable()
 export class AdminUserService {
