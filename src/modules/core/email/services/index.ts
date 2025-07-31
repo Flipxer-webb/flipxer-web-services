@@ -1,5 +1,5 @@
 // src/modules/core/email/services/email.service.ts
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
     ISendMailClient,
     SendMailOptions,
@@ -8,7 +8,11 @@ import {
 } from "../interfaces";
 
 @Injectable()
-export class EmailService {
+export class EmailService<
+    T extends Record<string, any> = Record<string, any>,
+    R = keyof T
+> {
+    private readonly logger = new Logger(EmailService.name);
     constructor(private client: ISendMailClient) {}
 
     async sendMail(options: SendMailOptions): Promise<any> {

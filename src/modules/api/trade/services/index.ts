@@ -69,6 +69,8 @@ import {
     CryptoTransactionFeeNotFoundException,
 } from "../../settings/errors";
 import { BankDetailNotFoundException } from "../../banks/errors";
+import { NotificationEvent } from "../../notification/events/notification.event";
+import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 
 @Injectable()
 export class TradingService {
@@ -79,7 +81,9 @@ export class TradingService {
         private readonly quidaxService: QuidaxService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
         @Inject(BankInjectionToken.PAYSTACK)
-        private readonly paystackService: PaystackBank
+        private readonly paystackService: PaystackBank,
+        private readonly notificationEvent: NotificationEvent,
+        private notificationMessage: NotificationMessageService
     ) {}
 
     getSupportedAssets() {

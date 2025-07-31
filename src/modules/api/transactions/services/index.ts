@@ -174,7 +174,7 @@ export class TransactionService {
             select: {
                 id: true,
                 orderCategory: true,
-                orderRef: true,
+                transactionId: true,
                 status: true,
                 paymentStatus: true,
                 amount: true,
@@ -256,7 +256,7 @@ export class TransactionService {
             }
 
             const data: GeneralReportDownload = {
-                transactionId: t.orderRef,
+                transactionId: t.transactionId,
                 type: t.orderCategory,
                 userType: t.user.userType,
                 name: name,

@@ -51,10 +51,13 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
     {
-        name: "RECOVERY_PIN_TEMPLATE", // Added for recovery PIN email
+        name: "RECOVERY_PIN_TEMPLATE",
         type: RequiredEnvironmentTypes.String,
     },
-    // Rest of the existing entries...
+    {
+        name: "TRANSACTION_NOTIFICATION_TEMPLATE",
+        type: RequiredEnvironmentTypes.String,
+    },
     {
         name: "JWT_SECRET",
         type: RequiredEnvironmentTypes.String,
@@ -213,14 +216,16 @@ export interface EMailTemplateConfig {
     registration_success: string;
     verify_account: string;
     forgot_password: string;
-    recovery_pin: string; // Added for recovery PIN
+    recovery_pin: string;
+    transaction_notification: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
     registration_success: process.env.REGISTRATION_SUCCESS_TEMPLATE,
     verify_account: process.env.VERIFY_ACCOUNT_TEMPLATE,
     forgot_password: process.env.FORGOT_PASSWORD_TEMPLATE,
-    recovery_pin: process.env.RECOVERY_PIN_TEMPLATE, // Added
+    recovery_pin: process.env.RECOVERY_PIN_TEMPLATE,
+    transaction_notification: process.env.TRANSACTION_NOTIFICATION_TEMPLATE,
 };
 
 // Email config
