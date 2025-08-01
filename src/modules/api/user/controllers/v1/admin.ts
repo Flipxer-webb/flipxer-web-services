@@ -5,14 +5,17 @@ import {
     ParseIntPipe,
     Query,
     UseGuards,
+    ValidationPipe,
+    Post,
+    Body
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiResponse as SwaggerApiResponse } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
-import { GetUserListDto } from "../../dtos";
+import { GetUserListDto, UnflagUserDto } from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
@@ -53,5 +56,15 @@ export class AdminUserController {
     @Get(":userId")
     async getUserInfo(@Param("userId", ParseIntPipe) userId: number) {
         return this.adminService.getUserInfo(userId);
+    }
+
+    //unflag users
+    @ApiOperation({ summary: "Admin unflags a user by ID" })
+    @ApiBearerAuth("access-token")
+    @Post("unflag/:userId")
+    async unflagUser(
+        @Param("userId", ParseIntPipe) userId: number
+    ): Promise<ApiResponse> {
+        return await this.adminService.unflagUser({ id: userId });
     }
 }

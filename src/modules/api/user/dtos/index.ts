@@ -8,6 +8,7 @@ import {
     Matches,
     IsNotEmpty,
     Length,
+    IsInt
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -173,4 +174,12 @@ export class UpdateProfilePasswordDto {
             "Password must be 10-100 characters long, contain at least one uppercase letter, one number, and one special character (!@#$&%)",
     })
     newPassword: string;
+}
+
+
+export class UnflagUserDto {
+    @ApiProperty({ description: "The ID of the user to unflag" })
+    @IsNotEmpty()
+    @IsInt({ message: "Invalid user ID" })
+    id: number;
 }

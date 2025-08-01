@@ -20,7 +20,7 @@ import {
     ApiResponse as SwaggerApiResponse,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@/modules/api/auth/guard';
-import { TransactionAmountGuard } from '../../guard'; // Ensure correct path
+import { TransactionAmountGuard } from '../../guard';
 import { RoleGuard } from '@/modules/api/authorize/guards/role.guard';
 import { User } from '@/modules/api/user';
 import { User as UserModel, UserType } from '@prisma/client';
@@ -135,7 +135,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'initiate a buy order request' })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth('access-token')
     @Post('buy/quote')
     async buyCrypto(@Body() dto: InitiateBuyOrderDto, @User() user: UserModel) {
@@ -156,7 +156,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'initiate a sell order request' })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth('access-token')
     @Post('sell/quote')
     async sellCryptoRequest(
@@ -183,7 +183,7 @@ export class TradingController {
         summary:
             'endpoint is used to generate an instant swap quotation. Please note that the instant swap quotation is valid for only 15 seconds. To refresh the swap and obtain a new quotation, you can use the Refresh Instant Swap endpoint.',
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth('access-token')
     @Post('request-instant-swap-quote')
     async createInstantSwap(
@@ -211,7 +211,7 @@ export class TradingController {
     @ApiOperation({
         summary: 'endpoint is used to refresh an instant swap quotation',
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth('access-token')
     @Post('refresh-instant-swap-quote')
     async refreshInstantSwapQuote(
@@ -242,7 +242,7 @@ export class TradingController {
         summary:
             'users can cancel withdrawal requests within a 6-second window after initiating the withdrawal',
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard) // Added TransactionAmountGuard
+    @UseGuards(AuthGuard)
     @ApiBearerAuth('access-token')
     @Post('cancel-withdrawer-request')
     async cancelWithdrawerRequest(

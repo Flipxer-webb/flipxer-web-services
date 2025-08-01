@@ -15,7 +15,6 @@ import {
     ResetPasswordDto,
     RefreshTokenDto,
     BusinessDocumentUploadDto,
-    UnflagUserDto
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -36,7 +35,6 @@ import {
     InvalidResetCodeException,
     ResetCodeExpiredException,
     InvalidResetRequestException,
-    UserUnauthorizedException,
     InvalidRefreshToken,
     AuthGenericException,
     UserAccountDisabledException,
@@ -1132,61 +1130,6 @@ export class AuthService {
         return buildResponse({
             message: "Login successful",
             data: responseData,
-        });
-    }
-    
-    async unflagUser(dto: UnflagUserDto): Promise<ApiResponse> {
-        const user = await this.prisma.user.findUnique({
-            where: { email: dto.email },
-            select: { id: true, flagged: true, flaggedId: true }, // Added flaggedId to select
-        });
-    
-        if (!user) {
-            throw new UserNotFoundException("Account with email not found.", HttpStatus.BAD_REQUEST);
-        }
-    
-        const flagged = user.flagged || { flagged: false, reason: "" };
-    
-        if (!flagged.flagged) {
-            return buildResponse({
-                message: "Account is not flagged.",
-            });
-        }
-    
-        await this.prisma.$transaction(async (tx) => {
-            await tx.user.update({
-                where: { id: user.id },
-                data: {
-                    loginCount: 0,
-                },
-            });
-    
-            const flaggedRecord = await tx.flagged.upsert({
-                where: { userId: user.id },
-                create: {
-                    userId: user.id,
-                    flagged: false,
-                    reason: "",
-                },
-                update: {
-                    flagged: false,
-                    reason: "",
-                    updatedAt: new Date(),
-                },
-            });
-    
-            if (!user.flaggedId) {
-                await tx.user.update({
-                    where: { id: user.id },
-                    data: {
-                        flaggedId: flaggedRecord.id,
-                    },
-                });
-            }
-        });
-    
-        return buildResponse({
-            message: "Account unflagged successfully.",
         });
     }
 
