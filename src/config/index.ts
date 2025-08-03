@@ -194,6 +194,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "PAYSTACK_CALLBACK_URL",
         type: RequiredEnvironmentTypes.String,
     },
+    {
+        name: "BLOCKED_COUNTRIES",
+        type: RequiredEnvironmentTypes.String,
+    },
 ];
 
 validate(runtimeEnvironment);
@@ -201,6 +205,7 @@ validate(runtimeEnvironment);
 // App
 export const allowedDomains =
     process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
+export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
 export const isProduction: boolean = process.env.NODE_ENV === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
@@ -359,6 +364,12 @@ export const paystackOptions: PaystackOptions = {
     cancel_action: process.env.PAYSTACK_CANCEL_ACTION,
     callback_url: process.env.PAYSTACK_CALLBACK_URL,
 };
+
+export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
+    ? process.env.BLOCKED_COUNTRIES.split(",").map((c) =>
+          c.trim().toUpperCase()
+      )
+    : [];
 
 export interface Configuration {
     redisConfig: RedisConfig;

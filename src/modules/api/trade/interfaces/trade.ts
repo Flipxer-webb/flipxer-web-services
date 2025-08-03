@@ -1,4 +1,4 @@
-import { OrderStatus, PaymentMethod } from "@prisma/client";
+import { Notification, OrderStatus, PaymentMethod } from "@prisma/client";
 
 interface FundingFailure {
     transactionId: number;
@@ -139,6 +139,7 @@ export interface DepositTransaction {
     fee: string;
     amount: string;
     recipient: string;
+    payment_address: string;
     quidaxUserId: string;
     currency: string;
     reason: string;
@@ -212,4 +213,10 @@ export function getStreamlinedStatus(status: string): OrderStreamlinedStatus {
         orderStatusToStreamlinedStatusMap[status] ??
         OrderStreamlinedStatus.pending
     ); // default fallback
+}
+
+export interface IWsNewNotification {
+    type: string;
+    notification: Notification;
+    notificationList: Notification[];
 }

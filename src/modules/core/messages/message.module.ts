@@ -3,7 +3,7 @@ import { NotificationMessageService } from "./services/notification.service";
 
 @Global()
 @Module({
-    providers: [, NotificationMessageService],
+    providers: [NotificationMessageService],
     exports: [NotificationMessageService],
 })
 export class MessageModule {}

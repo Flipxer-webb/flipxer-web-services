@@ -7,6 +7,7 @@ import { BankModule } from "./banks";
 import { TradingModule } from "./trade";
 import { TransactionModule } from "./transactions";
 import { SettingModule } from "./settings";
+import { NotificationModule } from "./notification/notification.module";
 
 @Module({
     imports: [
@@ -18,6 +19,7 @@ import { SettingModule } from "./settings";
         TradingModule,
         TransactionModule,
         SettingModule,
+        NotificationModule,
     ],
 })
 export class APIModule {}

@@ -439,6 +439,7 @@ model Order {
   reason           String?
   transaction_note String?
   recipient        String? //wallet address
+  sender           String? //wallet address
   amount           Float?
   fee              Float?
   total            Float?

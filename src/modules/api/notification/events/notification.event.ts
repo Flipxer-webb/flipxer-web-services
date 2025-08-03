@@ -1,15 +1,19 @@
 import { EventEmitter } from "events";
-import { Inject, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { EmailService } from "@/modules/core/email/services";
 import * as cf from "@/config";
 import * as t from "../types/notification.type";
 
+@Injectable()
 export class NotificationEvent extends EventEmitter {
     private readonly logger = new Logger(NotificationEvent.name);
-    constructor(private emailService: EmailService<cf.EMailTemplateConfig>) {
+    constructor(private emailService: EmailService) {
         super();
-        this.on("transaction_notification", this.sendTransactionNotification);
+        this.on(
+            "transaction_notification",
+            this.sendTransactionNotification.bind(this)
+        );
     }
     emit<K extends keyof t.NotificationEventMap>(
         eventName: K,

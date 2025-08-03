@@ -21,10 +21,14 @@ import {
 } from "../../transactions/errors";
 import { TransactionNotFoundException } from "../../trade";
 import {
+    NotificationBeneficiary,
+    NotificationStatus,
+    NotificationType,
     OrderCategory,
     OrderStatus,
     OrderStreamlinedStatus,
     TransactionStatus,
+    UserNotificationTarget,
 } from "@prisma/client";
 import logger from "moment-logger";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
@@ -335,6 +339,7 @@ export class BankService {
             if (transaction.orderId) {
                 const order = await this.prisma.order.findUnique({
                     where: { id: transaction.orderId },
+                    include: { user: true },
                 });
 
                 await this.prisma.order.update({
@@ -424,6 +429,33 @@ export class BankService {
                     paymentStatus: options.transferToBankStatus,
                 },
             });
+
+            // if (options.transferToBankStatus == TransactionStatus.SUCCESS) {
+            //     const message = this.notificationMessage.fiatPaymentSuccess({
+            //         amount: +transaction.amount,
+            //         accountNumber: transaction.destinationBankAccountNumber,
+            //         bankName: transaction.destinationBankAccountName,
+            //         transactionId: transaction.transactionId,
+            //     });
+
+            //     await this.prisma.notification.create({
+            //         data: {
+            //             title: "Your payment is sent",
+            //             body: message,
+            //             userId: transaction.userId,
+            //             target: UserNotificationTarget.SINGLE,
+            //             beneficiary: NotificationBeneficiary.INDIVIDUAL,
+            //             type: NotificationType.MESSAGE,
+            //             status: NotificationStatus.APPROVED,
+            //             senderId: null,
+            //         },
+            //     });
+
+            //     this.notificationEvent.emit("transaction_notification", {
+            //         email: admin.email,
+            //         notice: message,
+            //     });
+            // }
         } catch (error) {
             logger.error(error);
         }

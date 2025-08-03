@@ -8,10 +8,7 @@ import {
 } from "../interfaces";
 
 @Injectable()
-export class EmailService<
-    T extends Record<string, any> = Record<string, any>,
-    R = keyof T
-> {
+export class EmailService {
     private readonly logger = new Logger(EmailService.name);
     constructor(private client: ISendMailClient) {}
 
