@@ -312,8 +312,6 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            //do not throw error here, only log
-            console.log(error, "errors");
             Logger.error(`Failed to send account verification email${error}`);
         }
 

@@ -38,7 +38,6 @@ export class CoinGeckoService {
         };
         const coinGeckoId = coinGeckoIdMap[asset.toLowerCase()] || asset.toLowerCase();
 
-        this.logger.log(`Fetching USD price for asset: ${asset} (ID: ${coinGeckoId})`);
 
         try {
             const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
@@ -52,7 +51,6 @@ export class CoinGeckoService {
             if (!rate) throw new Error(`No price data for ${asset}`);
             return rate;
         } catch (error) {
-            this.logger.error(`CoinGecko error: ${error.message}`);
             throw new GeneralTransactionException(
                 `Failed to fetch USD rate for ${asset}: ${error.message}`,
                 HttpStatus.INTERNAL_SERVER_ERROR
@@ -195,7 +193,6 @@ export class TransactionAmountGuard implements CanActivate {
         transactionId: string,
         tx: any = this.prisma // Use passed transaction or default to prisma
     ): Promise<void> {
-        try {
             let orderCategory: OrderCategory;
             if (path.includes("buy/order") || path.includes("buy/quote")) {
                 orderCategory = OrderCategory.BUY;
@@ -223,15 +220,9 @@ export class TransactionAmountGuard implements CanActivate {
                     updatedAt: new Date(),
                 },
             });
-
-            this.logger.log(`Recorded failed transaction for user ${user.id} with transactionId ${transactionId}`);
-        } catch (error) {
-            this.logger.error(`Failed to record transaction for user ${user.id}: ${error.message}`);
-        }
     }
 
     private async sendFlaggedEmail(user: User, reason: string, transactionId: string): Promise<void> {
-        try {
             const team = COMPANY_NAME;
 
             await this.emailService.sendMailWithTemplate({
@@ -244,9 +235,5 @@ export class TransactionAmountGuard implements CanActivate {
                     team,
                 },
             });
-
-        } catch (error) {
-            this.logger.error(`Failed to send flagged email to ${user.email}: ${error.message}`);
-        }
     }
 }
