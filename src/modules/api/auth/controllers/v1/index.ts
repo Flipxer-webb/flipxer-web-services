@@ -53,7 +53,6 @@ import {
     UploadBusinessDocumentsFileInterface,
 } from "../../interfaces";
 
-
 @ApiTags("auth")
 @Controller({
     path: "auth",

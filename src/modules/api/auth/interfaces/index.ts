@@ -53,8 +53,3 @@ export const DocumentMetaMap = {
     meansOfIdentificationForBeneficialOwner:
         "Means Of Identification For Beneficial Owner",
 } as const;
-
-export interface FlaggedStatus {
-    flagged: boolean;
-    reason: string | null;
-  }

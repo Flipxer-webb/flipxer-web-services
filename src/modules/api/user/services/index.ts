@@ -11,6 +11,7 @@ import {
     forwardRef,
     Inject,
     HttpStatus,
+    Logger,
 } from "@nestjs/common";
 import { AuthService } from "../../auth/services";
 import { UploadFactory } from "@/modules/core/upload/services";
@@ -21,6 +22,7 @@ import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import {
     GetUserAssetsDto,
     UpdateProfilePasswordDto,
+    UpdateUserDetailsDto,
     SendRecoveryEmailOtpDto,
     VerifyRecoveryEmailOtpDto,
 } from "../dtos";
@@ -236,22 +238,51 @@ export class UserService {
         });
     }
 
-    async updateUserDetails(user: User, photo?: Express.Multer.File) {
-        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {};
+    async updateUserDetails(
+        options: UpdateUserDetailsDto,
+        user: User,
+        photo?: Express.Multer.File
+    ) {
+        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {
+            firstName: options.firstName ?? user.firstName,
+            lastName: options.lastName ?? user.lastName,
+            phone: options.phone ?? user.phone,
+            gender: options.gender ?? user.gender,
+            country: options.country ?? user.country,
+            dateOfBirth: new Date(options.dateOfBirth) ?? user.dateOfBirth,
+        };
+
+        if (options.phone) {
+            const phoneExist = await this.prisma.user.findFirst({
+                where: { id: { not: user.id }, phone: options.phone },
+            });
+            if (phoneExist) {
+                throw new DuplicateUserException(
+                    "Phone already in use by another",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+        }
+
         if (photo) {
             const uploadResponse = await this.uploadProfileImage(photo);
             if (user?.photoFileId) {
-                await this.uploadService.removeImage({
-                    fileId: user.photoFileId,
-                    key: process.env.IMAGEKIT_PRIVATE_KEY,
-                });
+                try {
+                    await this.uploadService.removeImage({
+                        fileId: user.photoFileId,
+                        key: process.env.IMAGEKIT_PRIVATE_KEY,
+                    });
+                } catch (error) {
+                    Logger.error(
+                        `Failed to delete image ${user.photoFileId}:`,
+                        error
+                    );
+                }
             }
             profileUpdateOptions.photo = uploadResponse.url;
             profileUpdateOptions.photoFileId = uploadResponse.fileId;
-        } else {
-            profileUpdateOptions.photo = null;
-            profileUpdateOptions.photoFileId = null;
         }
+
         const updatedUser = await this.prisma.user.update({
             where: { id: user.id },
             data: profileUpdateOptions,
@@ -267,8 +298,9 @@ export class UserService {
                 country: true,
             },
         });
+
         return {
-            message: "Profile picture updated successfully",
+            message: "User details updated successfully",
             data: updatedUser,
         };
     }
