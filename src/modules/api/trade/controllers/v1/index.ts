@@ -20,7 +20,7 @@ import {
     ApiBody,
     ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
-import { AuthGuard } from "@/modules/api/auth/guard";
+import { AuthGuard, CountryBlockGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
@@ -42,6 +42,7 @@ import {
     WithdrawerRequestDto,
 } from "../../dtos";
 
+@UseGuards(CountryBlockGuard)
 @ApiTags("trade")
 @Controller({
     path: "trades",

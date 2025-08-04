@@ -1,9 +1,14 @@
 import { ValidationPipe } from "@nestjs/common";
-
 import { WsValidationException } from "./error";
 
 export const WsValidatorPipeInstance = (): ValidationPipe => {
     return new ValidationPipe({
+        transform: true, // Enable transformation
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transformOptions: {
+            enableImplicitConversion: true, // Allow string to enum/number conversion
+        },
         exceptionFactory(errors) {
             const errorValues = errors.map((err) => {
                 if (err.constraints) {

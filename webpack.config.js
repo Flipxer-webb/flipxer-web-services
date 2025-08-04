@@ -5,7 +5,7 @@ const NodemonPlugin = require("nodemon-webpack-plugin");
 const TsconfigPathsPlugin = require("tsconfig-paths-webpack-plugin");
 
 module.exports = {
-    mode: "development", //process.env.NODE_ENV,
+    mode: process.env.NODE_ENV, //process.env.NODE_ENV,
     externals: nodeExternals(),
     target: "node",
     context: path.resolve(__dirname, "src"),

@@ -134,7 +134,7 @@ export class UserService {
         };
     }
 
-    async getUserWallets(user: User, query: GetUserAssetsDto) {
+    async getUserWallets(userId: number, query: GetUserAssetsDto) {
         const { pageNumber, pageSize, sortBy } = query;
 
         const resolvedPageNumber =
@@ -148,7 +148,7 @@ export class UserService {
         const dbQuery: Prisma.AssetWalletFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
-                userId: user.id,
+                userId: userId,
                 ...(query.searchText && {
                     OR: [
                         {
@@ -189,8 +189,6 @@ export class UserService {
         // Step 3: Fetch live Quidax rates
         const liveMarketData = await this.quidaxCacheService.getMarketTickers();
         const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
-
-        console.log(liveMarketData, "liveMarketData");
 
         // Step 4: Merge data into asset response
         const responseData: DataWithPagination<any> = {

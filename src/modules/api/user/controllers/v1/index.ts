@@ -19,7 +19,11 @@ import {
     ApiConsumes,
 } from "@nestjs/swagger";
 import { UserService } from "../../services";
-import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import {
+    AuthGuard,
+    CountryBlockGuard,
+    EnabledAccountGuard,
+} from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
     UpdateProfilePasswordDto,
@@ -34,7 +38,7 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "user",
 })
-@UseGuards(AuthGuard, EnabledAccountGuard)
+@UseGuards(CountryBlockGuard, AuthGuard, EnabledAccountGuard)
 export class UserController {
     constructor(private readonly userService: UserService) {}
 
@@ -109,7 +113,7 @@ export class UserController {
         @User() user: UserModel,
         @Query() query: GetUserAssetsDto
     ) {
-        return await this.userService.getUserWallets(user, query);
+        return await this.userService.getUserWallets(user.id, query);
     }
 
     @ApiOperation({

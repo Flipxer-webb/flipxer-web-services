@@ -13,6 +13,8 @@ import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processor
 import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
 import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
 import { UserModule } from "../user";
+import { WsGateway } from "./gateway/v1";
+import { WsService } from "./services/websocket.service";
 
 @Module({
     imports: [
@@ -29,11 +31,15 @@ import { UserModule } from "../user";
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
+        WsGateway,
+        WsService,
     ],
     exports: [
         TradingService,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
+        WsGateway,
+        WsService,
     ],
 })
 export class TradingModule {}

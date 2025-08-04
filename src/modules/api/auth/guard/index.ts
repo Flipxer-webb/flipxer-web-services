@@ -1,6 +1,7 @@
 import {
     blockedCountries,
     isProdEnvironment,
+    isProduction,
     jwtSecret,
     paystackSecretKey,
     quidaxConfig,
@@ -213,7 +214,7 @@ export class CountryBlockGuard implements CanActivate {
         const clientIp = requestIp.getClientIp(req) ?? "";
 
         if (!clientIp) {
-            if (isProdEnvironment) {
+            if (isProduction) {
                 throw new ForbiddenException("Access denied: IP not found");
             }
             return true;
@@ -237,7 +238,7 @@ export class CountryBlockGuard implements CanActivate {
             );
         }
 
-        if (!countryCode && isProdEnvironment) {
+        if (!countryCode && isProduction) {
             throw new ForbiddenException(
                 "Access denied: could not determine your country"
             );
@@ -267,11 +268,11 @@ export class SocketAuthGuard implements CanActivate {
         try {
             const payload: DataStoredInToken =
                 await this.jwtService.verifyAsync(token, {
-                    secret: process.env.JWT_SECRET, // Adjust your secret
+                    secret: process.env.JWT_SECRET,
                 });
 
             const user = await this.prisma.user.findUnique({
-                where: { identifier: payload.sub },
+                where: { id: +payload.sub },
             });
 
             if (!user) {

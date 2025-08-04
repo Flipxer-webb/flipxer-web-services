@@ -80,7 +80,47 @@ export class WsService {
     async getUserWallets(client: Socket, query: GetUserAssetsDto) {
         const user = client.data.user;
 
-        return this.userService.getUserWallets(user, query);
+        return this.userService.getUserWallets(user.id, query);
+    }
+
+    async broadcastWalletUpdates(server: Server) {
+        if (!server) return;
+
+        const results = await Promise.allSettled(
+            [...this.userSocketMap.entries()].map(
+                async ([userId, socketId]) => {
+                    try {
+                        if (!userId) return;
+
+                        const walletData =
+                            await this.userService.getUserWallets(
+                                parseInt(userId),
+                                {} as GetUserAssetsDto
+                            );
+
+                        server.to(socketId).emit(
+                            "walletAssetsUpdate",
+                            Utils.buildResponse({
+                                message: "wallet assets update",
+                                data: walletData.data,
+                            })
+                        );
+                    } catch (err) {
+                        Logger.error(
+                            `Error updating wallet for user ${userId}`,
+                            err
+                        );
+                        // Return rejected manually to log it below
+                        //throw new Error(`User ${userId} broadcast failed`);
+                    }
+                }
+            )
+        );
+
+        const failed = results.filter((r) => r.status === "rejected");
+        if (failed.length) {
+            Logger.warn(`${failed.length} user broadcasts failed`);
+        }
     }
 
     /**

@@ -20,7 +20,7 @@ import { SocketRoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { IWsNewNotification } from "../../interfaces/trade";
 import { GetUserAssetsDto } from "@/modules/api/user/dtos";
 
-@UseGuards(SocketAuthGuard, SocketRoleGuard)
+@UseGuards(SocketAuthGuard)
 @UsePipes(WsValidatorPipeInstance())
 @WebSocketGateway({
     namespace: "/v1/trades",
@@ -49,6 +49,10 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.wsService.emitNotificationToUser(userId, payload, this.server);
     }
 
+    broadcastWalletUpdatesToUser() {
+        this.wsService.broadcastWalletUpdates(this.server);
+    }
+
     @SubscribeMessage("getNotifications")
     async handleGetNotifications(@ConnectedSocket() client: Socket) {
         return await this.wsService.getNotifications(client);
@@ -57,9 +61,9 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @SubscribeMessage("getUserWallets")
     async handleGetUserWallets(
         @ConnectedSocket() client: Socket,
-        @MessageBody() query: GetUserAssetsDto
+        @MessageBody() [data, userId]: [GetUserAssetsDto, string]
     ) {
-        return await this.wsService.getUserWallets(client, query);
+        return await this.wsService.getUserWallets(client, data);
     }
 
     handleDisconnect(client: Socket) {
