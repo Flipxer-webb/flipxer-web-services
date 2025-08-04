@@ -1,4 +1,10 @@
-import { OrderCategory, Prisma } from "@prisma/client";
+import {
+    OrderCategory,
+    OrderStatus,
+    Prisma,
+    TransactionStatus,
+    UserType,
+} from "@prisma/client";
 import { getStreamlinedStatus } from "../../trade/interfaces/trade";
 
 export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
@@ -50,3 +56,31 @@ export enum TransactionShortDescription {
     TRANSFER_FUND = "Transferred Fund",
     BANK_TRANSFER_REFUND = "Failed Bank Transfer Refund",
 }
+
+export interface GeneralReportDownload {
+    transactionId: string;
+    type: OrderCategory;
+    userType: UserType;
+    name: string;
+    email: string;
+    amount: string | number;
+    currency: string;
+    transactionStatus: OrderStatus;
+    paymentStatus: TransactionStatus;
+    recipient: string;
+    fee: number | string;
+    date: string;
+    destinationBankName?: string;
+    destinationBankAccountNumber?: string;
+    destinationBankAccountName?: string;
+    totalReceiveInFiat?: string;
+    fromCurrency: string;
+    toCurrency: string;
+    toAmount: string;
+    quotedCurrency: string;
+}
+
+export type GeneralReportCSVField = {
+    id: keyof GeneralReportDownload;
+    title: string;
+};

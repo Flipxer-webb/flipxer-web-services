@@ -1,5 +1,5 @@
 // src/modules/core/email/services/email.service.ts
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
     ISendMailClient,
     SendMailOptions,
@@ -9,6 +9,7 @@ import {
 
 @Injectable()
 export class EmailService {
+    private readonly logger = new Logger(EmailService.name);
     constructor(private client: ISendMailClient) {}
 
     async sendMail(options: SendMailOptions): Promise<any> {

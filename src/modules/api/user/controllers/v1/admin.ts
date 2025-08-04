@@ -7,7 +7,11 @@ import {
     UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
-import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import {
+    AuthGuard,
+    CountryBlockGuard,
+    EnabledAccountGuard,
+} from "@/modules/api/auth/guard";
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
@@ -15,7 +19,7 @@ import { AdminUserService } from "../../services/admin";
 import { GetUserListDto } from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+@UseGuards(CountryBlockGuard, AuthGuard, RoleGuard, EnabledAccountGuard)
 @UserTypes([UserType.ADMIN])
 @ApiTags("admin")
 @Controller({

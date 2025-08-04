@@ -15,7 +15,7 @@ import { Gender, Country, Status, UserType } from "@prisma/client";
 
 export enum Sort {
     ASC = "asc",
-    DSCE = "desc",
+    DESC = "desc",
 }
 export class PaginationQueryDto {
     @ApiProperty({
@@ -25,8 +25,9 @@ export class PaginationQueryDto {
         required: false,
     })
     @IsOptional()
+    @Transform(({ value }) => value ?? "true")
     @IsBooleanString()
-    paginated?: string = "true";
+    paginated?: string;
 
     @ApiProperty({
         description: "Page number desired : defaults to 1 - optional",
@@ -52,7 +53,7 @@ export class PaginationQueryDto {
         required: false,
     })
     @IsEnum(Sort)
-    sortBy: Sort = Sort.DSCE;
+    sortBy?: Sort = Sort.DESC;
 }
 
 export class UpdateUserDetailsDto {

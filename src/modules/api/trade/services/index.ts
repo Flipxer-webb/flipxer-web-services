@@ -31,6 +31,9 @@ import {
 import {
     CryptoWalletStatus,
     NetworkTypes,
+    NotificationBeneficiary,
+    NotificationStatus,
+    NotificationType,
     OrderCategory,
     OrderSide,
     OrderStatus,
@@ -39,6 +42,7 @@ import {
     TransactionStatus,
     TransactionType,
     User,
+    UserNotificationTarget,
 } from "@prisma/client";
 import {
     CancelWithdrawerRequestDto,
@@ -69,6 +73,9 @@ import {
     CryptoTransactionFeeNotFoundException,
 } from "../../settings/errors";
 import { BankDetailNotFoundException } from "../../banks/errors";
+import { NotificationEvent } from "../../notification/events/notification.event";
+import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
+import { WsGateway } from "../gateway/v1";
 
 @Injectable()
 export class TradingService {
@@ -79,7 +86,10 @@ export class TradingService {
         private readonly quidaxService: QuidaxService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
         @Inject(BankInjectionToken.PAYSTACK)
-        private readonly paystackService: PaystackBank
+        private readonly paystackService: PaystackBank,
+        private readonly notificationEvent: NotificationEvent,
+        private notificationMessage: NotificationMessageService,
+        private readonly wsGateway: WsGateway
     ) {}
 
     getSupportedAssets() {
@@ -980,11 +990,12 @@ export class TradingService {
                     "buy"
                 );
 
+                const transactionId = generateId({ type: "transaction" });
                 await this.prisma.order.create({
                     data: {
                         orderCategory: OrderCategory.RECEIVE,
                         status: options.status,
-                        transactionId: generateId({ type: "transaction" }),
+                        transactionId: transactionId,
                         streamlinedStatus: getStreamlinedStatus(options.status),
                         providerOrderId: options.referenceId,
                         blockchain_txid: options.txid,
@@ -992,6 +1003,7 @@ export class TradingService {
                         currency: options.currency.toUpperCase(),
                         reason: options.reason,
                         recipient: options.recipient,
+                        sender: options.payment_address,
                         amount: +options.amount,
                         fee: +options.fee,
                         sourceType: options.type,
@@ -999,11 +1011,97 @@ export class TradingService {
                         rateAtConversion: amtFiat?.rate,
                     },
                 });
+
+                if (options.status == OrderStatus.accepted) {
+                    const message = this.notificationMessage.receiveTransaction(
+                        {
+                            amount: +options.amount,
+                            currency: options.currency.toUpperCase(),
+                            transactionId: transactionId,
+                            sender: options.payment_address,
+                        }
+                    );
+
+                    const createdNotification =
+                        await this.prisma.notification.create({
+                            data: {
+                                title: "You've received a new payment",
+                                body: message,
+                                userId: user.id,
+                                target: UserNotificationTarget.SINGLE,
+                                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                                type: NotificationType.MESSAGE,
+                                status: NotificationStatus.APPROVED,
+                                senderId: null,
+                            },
+                        });
+
+                    this.notificationEvent.emit("transaction_notification", {
+                        email: user.email,
+                        notice: message,
+                    });
+
+                    const notificationList =
+                        await this.prisma.notification.findMany({
+                            where: { userId: user.id },
+                            orderBy: { createdAt: "desc" },
+                            take: 20,
+                        });
+
+                    this.wsGateway.notifyUser(user.id, {
+                        type: "new_notification",
+                        notification: createdNotification,
+                        notificationList,
+                    });
+                }
             } else {
                 await this.prisma.order.update({
                     where: { id: transaction.id },
                     data: { status: options.status },
                 });
+
+                if (options.status == OrderStatus.accepted) {
+                    const message = this.notificationMessage.receiveTransaction(
+                        {
+                            amount: +options.amount,
+                            currency: options.currency.toUpperCase(),
+                            transactionId: transaction.transactionId,
+                            sender: options.payment_address,
+                        }
+                    );
+
+                    const createdNotification =
+                        await this.prisma.notification.create({
+                            data: {
+                                title: "You've received a new payment",
+                                body: message,
+                                userId: user.id,
+                                target: UserNotificationTarget.SINGLE,
+                                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                                type: NotificationType.MESSAGE,
+                                status: NotificationStatus.APPROVED,
+                                senderId: null,
+                            },
+                        });
+
+                    this.notificationEvent.emit("transaction_notification", {
+                        email: user.email,
+                        notice: message,
+                    });
+
+                    const notificationList =
+                        await this.prisma.notification.findMany({
+                            where: { userId: user.id },
+                            orderBy: { createdAt: "desc" },
+                            take: 20,
+                        });
+
+                    this.wsGateway.notifyUser(user.id, {
+                        type: "new_notification",
+                        notification: createdNotification,
+                        notificationList,
+                    });
+                }
             }
         }
 
@@ -1015,6 +1113,7 @@ export class TradingService {
     async swapTransactionHandler(options: SwapTransactionHandlerOptions) {
         const transaction = await this.prisma.order.findUnique({
             where: { providerOrderId: options.orderId },
+            include: { user: true },
         });
 
         if (!transaction) {
@@ -1041,6 +1140,46 @@ export class TradingService {
                 streamlinedStatus: getStreamlinedStatus(options.status),
             },
         });
+
+        if (options.status == OrderStatus.completed) {
+            const message = this.notificationMessage.swapTransactionSuccess({
+                fromAmount: transaction.fromAmount,
+                fromCurrency: transaction.fromCurrency,
+                toAmount: transaction.toAmount,
+                toCurrency: transaction.toCurrency,
+                transactionId: transaction.transactionId,
+            });
+
+            const createdNotification = await this.prisma.notification.create({
+                data: {
+                    title: "Your swap transaction is completed",
+                    body: message,
+                    userId: transaction.user.id,
+                    target: UserNotificationTarget.SINGLE,
+                    beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                    type: NotificationType.MESSAGE,
+                    status: NotificationStatus.APPROVED,
+                    senderId: null,
+                },
+            });
+
+            this.notificationEvent.emit("transaction_notification", {
+                email: transaction.user.email,
+                notice: message,
+            });
+
+            const notificationList = await this.prisma.notification.findMany({
+                where: { userId: transaction.user.id },
+                orderBy: { createdAt: "desc" },
+                take: 20,
+            });
+
+            this.wsGateway.notifyUser(transaction.user.id, {
+                type: "new_notification",
+                notification: createdNotification,
+                notificationList,
+            });
+        }
     }
 
     async withdrawerTransactionHandler(
@@ -1048,7 +1187,9 @@ export class TradingService {
     ) {
         const transaction = await this.prisma.order.findUnique({
             where: { orderReference: options.orderReference },
-            include: { user: { select: { userType: true } } },
+            include: {
+                user: { select: { id: true, email: true, userType: true } },
+            },
         });
 
         if (!transaction) {
@@ -1096,6 +1237,45 @@ export class TradingService {
             });
 
             //follow up: listen to the transfer event and update transaction record accordingly
+        }
+
+        if (options.status == OrderStatus.done) {
+            const message = this.notificationMessage.sendTransactionSuccess({
+                amount: transaction.amount,
+                currency: transaction.currency,
+                recipient: transaction.recipient,
+                transactionId: transaction.transactionId,
+            });
+
+            const createdNotification = await this.prisma.notification.create({
+                data: {
+                    title: "Your send transaction is done",
+                    body: message,
+                    userId: transaction.user.id,
+                    target: UserNotificationTarget.SINGLE,
+                    beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                    type: NotificationType.MESSAGE,
+                    status: NotificationStatus.APPROVED,
+                    senderId: null,
+                },
+            });
+
+            this.notificationEvent.emit("transaction_notification", {
+                email: transaction.user.email,
+                notice: message,
+            });
+
+            const notificationList = await this.prisma.notification.findMany({
+                where: { userId: transaction.user.id },
+                orderBy: { createdAt: "desc" },
+                take: 20,
+            });
+
+            this.wsGateway.notifyUser(transaction.user.id, {
+                type: "new_notification",
+                notification: createdNotification,
+                notificationList,
+            });
         }
     }
 

@@ -27,6 +27,7 @@ import {
     VerifyRecoveryEmailOtpDto,
 } from "../dtos";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
+import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
 import { AssetWallet, Prisma, User } from "@prisma/client";
 import { DuplicateUserException, IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
@@ -46,7 +47,8 @@ export class UserService {
         @Inject(forwardRef(() => AuthService))
         private authService: AuthService,
         private emailService: EmailService,
-        private uploadFactory: UploadFactory
+        private uploadFactory: UploadFactory,
+        private readonly quidaxCacheService: QuidaxCacheService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -132,23 +134,21 @@ export class UserService {
         };
     }
 
-    async getUserWallets(user: User, query: GetUserAssetsDto) {
+    async getUserWallets(userId: number, query: GetUserAssetsDto) {
         const { pageNumber, pageSize, sortBy } = query;
 
-        const resolvedPageNumber: number =
-            !pageNumber || (pageNumber && pageNumber <= 1)
+        const resolvedPageNumber =
+            !pageNumber || pageNumber <= 1
                 ? defaultPagination.pageNumber
                 : pageNumber;
 
-        const resolvedPageSize: number =
-            !pageSize || (pageSize && pageSize <= 0)
-                ? defaultPagination.pageSize
-                : query.pageSize;
+        const resolvedPageSize =
+            !pageSize || pageSize <= 0 ? defaultPagination.pageSize : pageSize;
 
         const dbQuery: Prisma.AssetWalletFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
-                userId: user.id,
+                userId: userId,
                 ...(query.searchText && {
                     OR: [
                         {
@@ -168,6 +168,7 @@ export class UserService {
             },
         };
 
+        // Step 1: Fetch user assets + count
         const [assets, count] = await this.prisma.$transaction([
             this.prisma.assetWallet.findMany({
                 ...dbQuery,
@@ -179,14 +180,18 @@ export class UserService {
             this.prisma.assetWallet.count({ where: dbQuery.where }),
         ]);
 
-        const referenceCurrency = "ngn";
         // Step 2: Fetch admin-defined crypto rates (e.g., BTC, USDT)
         const adminRates = await this.prisma.cryptoRate.findMany();
         const adminRatesMap = new Map(
             adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
         );
 
-        const responseData: DataWithPagination<AssetWallet> = {
+        // Step 3: Fetch live Quidax rates
+        const liveMarketData = await this.quidaxCacheService.getMarketTickers();
+        const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
+
+        // Step 4: Merge data into asset response
+        const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
@@ -203,6 +208,10 @@ export class UserService {
                 const adminBuyRate = adminRate?.buyRate ?? 0;
                 const adminSellRate = adminRate?.sellRate ?? 0;
 
+                // Live market data lookup
+                const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+                const ticker = liveMarketData?.[marketSymbol]?.ticker;
+
                 return {
                     ...asset,
                     buyRate: {
@@ -211,6 +220,12 @@ export class UserService {
                     },
                     sellRate: {
                         value: adminSellRate.toFixed(4),
+                        referenceCurrency,
+                    },
+                    liveRate: {
+                        buy: ticker?.buy ?? null,
+                        sell: ticker?.sell ?? null,
+                        last: ticker?.last ?? null,
                         referenceCurrency,
                     },
                 };
@@ -231,7 +246,7 @@ export class UserService {
             dir: storageDirConfig.profile,
             name: `profile-image-${date}-${generateRandomNum(5)}`,
             format: "webp",
-            body: file.buffer,
+            body: file.buffer, // Use file buffer directly
             quality: 100,
             width: 320,
             type: "image",

@@ -4,6 +4,7 @@ import {
     HttpCode,
     HttpStatus,
     Post,
+    UseGuards,
     ValidationPipe,
 } from "@nestjs/common";
 import {
@@ -15,7 +16,9 @@ import { SignInDto } from "../../dtos"; // Replaced UserSigInDto with SignInDto
 import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse } from "@/utils/api-response-util";
+import { CountryBlockGuard } from "../../guard";
 
+@UseGuards(CountryBlockGuard)
 @ApiTags("admin")
 @Controller({
     path: "admin/auth",

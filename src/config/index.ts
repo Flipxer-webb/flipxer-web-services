@@ -51,10 +51,13 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
     {
-        name: "RECOVERY_PIN_TEMPLATE", // Added for recovery PIN email
+        name: "RECOVERY_PIN_TEMPLATE",
         type: RequiredEnvironmentTypes.String,
     },
-    // Rest of the existing entries...
+    {
+        name: "TRANSACTION_NOTIFICATION_TEMPLATE",
+        type: RequiredEnvironmentTypes.String,
+    },
     {
         name: "JWT_SECRET",
         type: RequiredEnvironmentTypes.String,
@@ -191,6 +194,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "PAYSTACK_CALLBACK_URL",
         type: RequiredEnvironmentTypes.String,
     },
+    {
+        name: "BLOCKED_COUNTRIES",
+        type: RequiredEnvironmentTypes.String,
+    },
 ];
 
 validate(runtimeEnvironment);
@@ -198,6 +205,7 @@ validate(runtimeEnvironment);
 // App
 export const allowedDomains =
     process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
+export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
 export const isProduction: boolean = process.env.NODE_ENV === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
@@ -213,14 +221,16 @@ export interface EMailTemplateConfig {
     registration_success: string;
     verify_account: string;
     forgot_password: string;
-    recovery_pin: string; // Added for recovery PIN
+    recovery_pin: string;
+    transaction_notification: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
     registration_success: process.env.REGISTRATION_SUCCESS_TEMPLATE,
     verify_account: process.env.VERIFY_ACCOUNT_TEMPLATE,
     forgot_password: process.env.FORGOT_PASSWORD_TEMPLATE,
-    recovery_pin: process.env.RECOVERY_PIN_TEMPLATE, // Added
+    recovery_pin: process.env.RECOVERY_PIN_TEMPLATE,
+    transaction_notification: process.env.TRANSACTION_NOTIFICATION_TEMPLATE,
 };
 
 // Email config
@@ -354,6 +364,12 @@ export const paystackOptions: PaystackOptions = {
     cancel_action: process.env.PAYSTACK_CANCEL_ACTION,
     callback_url: process.env.PAYSTACK_CALLBACK_URL,
 };
+
+export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
+    ? process.env.BLOCKED_COUNTRIES.split(",").map((c) =>
+          c.trim().toUpperCase()
+      )
+    : [];
 
 export interface Configuration {
     redisConfig: RedisConfig;
