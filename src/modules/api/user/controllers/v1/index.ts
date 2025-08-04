@@ -23,7 +23,6 @@ import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
     UpdateProfilePasswordDto,
-    UpdateUserDetailsDto,
     SendRecoveryEmailOtpDto,
     VerifyRecoveryEmailOtpDto,
 } from "../../dtos";
@@ -71,14 +70,12 @@ export class UserController {
         },
     })
     @Post("profile/update-details")
-    @UsePipes(new ValidationPipe())
     @UseInterceptors(FileInterceptor("photo"))
     async updateUserDetails(
-        @Body() dto: UpdateUserDetailsDto,
         @UploadedFile() photo: Express.Multer.File,
         @User() user: UserModel
     ) {
-        return await this.userService.updateUserDetails(dto, user, photo);
+        return await this.userService.updateUserDetails(user, photo);
     }
 
     @ApiOperation({ summary: "Update user password" })

@@ -39,7 +39,8 @@
         "db:seed": "npx prisma db seed",
         "db:pull": "npx prisma db pull",
         "db:migrate:prod": "npx prisma migrate deploy",
-        "db:studio": "npx prisma studio"
+        "db:studio": "npx prisma studio",
+        "test": "jest"
     },
     "dependencies": {
         "@boxpositron/vre": "^1.0.0",
@@ -133,23 +134,26 @@
         "webpack-cli": "^5.0.2",
         "webpack-node-externals": "^3.0.0"
     },
-    "jest": {
-        "moduleFileExtensions": [
-            "js",
-            "json",
-            "ts"
-        ],
-        "rootDir": "src",
-        "testRegex": ".*\\.spec\\.ts$",
-        "transform": {
-            "^.+\\.(t|j)s$": "ts-jest"
-        },
-        "collectCoverageFrom": [
-            "**/*.(t|j)s"
-        ],
-        "coverageDirectory": "../coverage",
-        "testEnvironment": "node"
-    },
+   "jest": {
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
+  "rootDir": "src",
+  "testRegex": ".*\\.spec\\.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "collectCoverageFrom": [
+    "**/*.(t|j)s"
+  ],
+  "coverageDirectory": "../coverage",
+  "testEnvironment": "node",
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/$1"
+  }
+},
     "repository": {
         "type": "git",
         "url": "git+https://github.com/OmeriHQ/resolve-web-services"
@@ -163,5 +167,15 @@
     "bugs": {
         "url": "https://github.com/OmeriHQ/resolve-web-services/issues"
     },
-    "homepage": "https://github.comOmeriHQ/resolve-web-services#readme"
+    "homepage": "https://github.comOmeriHQ/resolve-web-services#readme",
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "@nestjs/core",
+            "@prisma/client",
+            "@prisma/engines",
+            "msgpackr-extract",
+            "prisma",
+            "sharp"
+        ]
+    }
 }

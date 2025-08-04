@@ -12,6 +12,8 @@ import { CryptoAccountQueueProducer } from "./queues/producers/producer.service"
 import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processors/account_init_processor";
 import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
 import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
+import { PrismaService } from "@/modules/core/prisma/services";
+import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from "./guard";
 
 @Module({
     imports: [
@@ -27,6 +29,12 @@ import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
+        PrismaService,
+        TransactionAmountGuard,
+        {
+            provide: TradingInjectionToken.COINGECKO,
+            useClass: CoinGeckoService,
+        },
     ],
     exports: [
         TradingService,
