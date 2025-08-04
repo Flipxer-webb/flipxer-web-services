@@ -39,7 +39,7 @@ export class NotificationController {
 
     @Post(":notificationId/toggle-status")
     @ApiOperation({
-        summary: "Toggle notification read status",
+        summary: "Toggle notification read status only",
     })
     async toggleNotificationReadStatus(
         @Param("notificationId", ParseIntPipe) notificationId: number
