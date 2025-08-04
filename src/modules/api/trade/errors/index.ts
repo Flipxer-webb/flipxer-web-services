@@ -35,7 +35,3 @@ export class UnknownFeeStructureException extends HttpException {
 export class GeneralTransactionException extends HttpException {
     name = "GeneralTransactionException";
 }
-
-export class InvalidTransactionAmountException extends HttpException {
-    name = "InvalidTransactionAmountException";
-}
