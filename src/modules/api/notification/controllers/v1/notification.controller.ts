@@ -37,6 +37,16 @@ export class NotificationController {
         return await this.notificationService.getNotifications(user, dto);
     }
 
+    @Post("mark-all-read")
+    @ApiOperation({
+        summary: "Mark all notifications as read",
+    })
+    async markAllUserNotificationsRead(@User() user: UserModel) {
+        return await this.notificationService.markAllUserNotificationsRead(
+            user
+        );
+    }
+
     @Post(":notificationId/toggle-status")
     @ApiOperation({
         summary: "Toggle notification read status only",

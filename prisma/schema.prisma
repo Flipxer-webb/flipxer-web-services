@@ -634,6 +634,8 @@ model Notification {
   beneficiary NotificationBeneficiary
   type        NotificationType        @default(MESSAGE)
   status      NotificationStatus      @default(PENDING)
+  transactionType  OrderCategory?
+  currency    String?
   createdAt   DateTime                @default(now())
   updatedAt   DateTime                @updatedAt
   sender      User?                   @relation(name: "senderNotification", fields: [senderId], references: [id])
