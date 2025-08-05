@@ -28,6 +28,31 @@ export class NotificationService {
         });
     }
 
+    async toggleNotificationReadStatus(notificationId: number) {
+        const notification = await this.prisma.notification.findUnique({
+            where: { id: notificationId },
+        });
+
+        if (!notification) {
+            throw new e.NotificationNotFoundException(
+                "Notification not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        const updatedNotification = await this.prisma.notification.update({
+            where: { id: notificationId },
+            data: {
+                isRead: !notification.isRead,
+            },
+        });
+
+        return Utils.buildResponse({
+            message: "Notification read status updated",
+            data: updatedNotification,
+        });
+    }
+
     async getNotifications(
         user: User,
         query: dto.GetNotificationsDto
@@ -48,12 +73,6 @@ export class NotificationService {
             orderBy: { createdAt: sortBy },
             where: {
                 userId: user.id,
-            },
-            select: {
-                id: true,
-                title: true,
-                body: true,
-                createdAt: true,
             },
         };
 

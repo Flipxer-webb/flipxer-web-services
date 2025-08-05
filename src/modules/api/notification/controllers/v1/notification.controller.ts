@@ -4,6 +4,8 @@ import {
     Get,
     HttpCode,
     HttpStatus,
+    Param,
+    ParseIntPipe,
     Post,
     Query,
     UseGuards,
@@ -33,5 +35,17 @@ export class NotificationController {
         @Query() dto: dto.GetNotificationsDto
     ) {
         return await this.notificationService.getNotifications(user, dto);
+    }
+
+    @Post(":notificationId/toggle-status")
+    @ApiOperation({
+        summary: "Toggle notification read status only",
+    })
+    async toggleNotificationReadStatus(
+        @Param("notificationId", ParseIntPipe) notificationId: number
+    ) {
+        return await this.notificationService.toggleNotificationReadStatus(
+            notificationId
+        );
     }
 }

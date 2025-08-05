@@ -37,6 +37,7 @@ import {
     VerificationCodeExpiredException,
     DuplicateVerificationException,
 } from "../../auth/errors";
+import { Ticker } from "@/libs/quidax/types/trade";
 
 @Injectable()
 export class UserService {
@@ -226,6 +227,7 @@ export class UserService {
                         buy: ticker?.buy ?? null,
                         sell: ticker?.sell ?? null,
                         last: ticker?.last ?? null,
+                        percentChange: this.calculatePercentageChange(ticker),
                         referenceCurrency,
                     },
                 };
@@ -236,6 +238,20 @@ export class UserService {
             message: "Assets successfully retrieved",
             data: responseData,
         };
+    }
+
+    calculatePercentageChange(ticker: Ticker): number | null {
+        if (!ticker?.open || !ticker?.last) return null;
+
+        const open = parseFloat(ticker.open);
+        const last = parseFloat(ticker.last);
+
+        if (isNaN(open) || open === 0 || isNaN(last)) {
+            return null;
+        }
+
+        const change = ((last - open) / open) * 100;
+        return parseFloat(change.toFixed(2));
     }
 
     private async uploadProfileImage(
