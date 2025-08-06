@@ -38,7 +38,6 @@ export class CoinGeckoService {
         };
         const coinGeckoId = coinGeckoIdMap[asset.toLowerCase()] || asset.toLowerCase();
 
-
         try {
             const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
                 params: {
@@ -80,15 +79,14 @@ export class TransactionAmountGuard implements CanActivate {
             throw new UserNotFoundException("User not found", HttpStatus.UNAUTHORIZED);
         }
 
+        // Check if user is already flagged
         const flagged = await this.prisma.flagged.findUnique({
             where: { userId: user.id },
         });
 
         if (flagged?.flagged) {
-            // Record failed transaction and get transactionId
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
             await this.recordFailedTransaction(user, body.amount, body.currency, flagged.reason, path, transactionId);
-            // Send email with transactionId
             await this.sendFlaggedEmail(user, flagged.reason, transactionId);
             throw new GeneralTransactionException(
                 `Something went wrong. Kindly contact support for further assistance.`,
@@ -100,6 +98,7 @@ export class TransactionAmountGuard implements CanActivate {
         let currency: string | undefined;
         let orderCategory: OrderCategory | undefined;
 
+        // Extract amount, currency, and order category based on request path
         if (path.includes("buy/order") || path.includes("buy/quote")) {
             amount = body.amount;
             currency = body.asset?.toUpperCase();
@@ -134,12 +133,64 @@ export class TransactionAmountGuard implements CanActivate {
             );
         }
 
-        const threshold = user.userType === "INDIVIDUAL" ? 10000 : 20000;
+        // Define daily and monthly limits
+        const dailyLimit = user.userType === "INDIVIDUAL" ? 5000 : 10000;
+        const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
 
-        if (amountInUSD.amount > threshold) {
+        // Get current date components
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1; // JavaScript months are 0-based, Prisma expects 1-based
+        const currentDay = now.getDate();
+
+        // Check daily transaction total
+        const dailyTransaction = await this.prisma.dailyTransaction.findUnique({
+            where: {
+                userId_year_month_day: {
+                    userId: user.id,
+                    year: currentYear,
+                    month: currentMonth,
+                    day: currentDay,
+                },
+            },
+        });
+
+        const currentDailyTotal = dailyTransaction?.totalUSD || 0;
+        const newDailyTotal = currentDailyTotal + amountInUSD.amount;
+
+        if (newDailyTotal > dailyLimit) {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-            const reason = `Amount exceeds $${threshold} for ${user.userType} ($${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
+            const reason = `Daily transaction limit exceeded for ${user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
+
+            // Record failed transaction without flagging
+            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+
+            throw new GeneralTransactionException(
+                `Transaction failed: Daily limit of $${dailyLimit} exceeded for ${user.userType} (Current: $${currentDailyTotal}, Attempted: $${amountInUSD.amount})`,
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        // Check monthly transaction total
+        const monthlyTransaction = await this.prisma.monthlyTransaction.findUnique({
+            where: {
+                userId_year_month: {
+                    userId: user.id,
+                    year: currentYear,
+                    month: currentMonth,
+                },
+            },
+        });
+
+        const currentMonthlyTotal = monthlyTransaction?.totalUSD || 0;
+        const newMonthlyTotal = currentMonthlyTotal + amountInUSD.amount;
+
+        if (newMonthlyTotal > monthlyLimit) {
+            const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+            const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
+
             await this.prisma.$transaction(async (tx) => {
+                // Flag the user
                 const flaggedRecord = await tx.flagged.upsert({
                     where: { userId: user.id },
                     create: {
@@ -160,18 +211,63 @@ export class TransactionAmountGuard implements CanActivate {
                     data: { flaggedId: flaggedRecord.id },
                 });
 
-                // Record failed transaction with transactionId
+                // Record failed transaction
                 await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId, tx);
             });
 
-            // Send email with transactionId
+            // Send email notification
             await this.sendFlaggedEmail(user, reason, transactionId);
 
             throw new GeneralTransactionException(
-                `Transaction failed for ${user.userType} ($${amountInUSD.amount})`,
+                `Transaction failed: Monthly limit of $${monthlyLimit} exceeded for ${user.userType} (Current: $${currentMonthlyTotal}, Attempted: $${amountInUSD.amount})`,
                 HttpStatus.FORBIDDEN
             );
         }
+
+        // Update daily and monthly transaction totals (for allowed transactions)
+        await this.prisma.$transaction(async (tx) => {
+            await tx.dailyTransaction.upsert({
+                where: {
+                    userId_year_month_day: {
+                        userId: user.id,
+                        year: currentYear,
+                        month: currentMonth,
+                        day: currentDay,
+                    },
+                },
+                create: {
+                    userId: user.id,
+                    year: currentYear,
+                    month: currentMonth,
+                    day: currentDay,
+                    totalUSD: amountInUSD.amount,
+                },
+                update: {
+                    totalUSD: { increment: amountInUSD.amount },
+                    updatedAt: new Date(),
+                },
+            });
+
+            await tx.monthlyTransaction.upsert({
+                where: {
+                    userId_year_month: {
+                        userId: user.id,
+                        year: currentYear,
+                        month: currentMonth,
+                    },
+                },
+                create: {
+                    userId: user.id,
+                    year: currentYear,
+                    month: currentMonth,
+                    totalUSD: amountInUSD.amount,
+                },
+                update: {
+                    totalUSD: { increment: amountInUSD.amount },
+                    updatedAt: new Date(),
+                },
+            });
+        });
 
         return true;
     }
@@ -191,49 +287,49 @@ export class TransactionAmountGuard implements CanActivate {
         reason: string,
         path: string,
         transactionId: string,
-        tx: any = this.prisma // Use passed transaction or default to prisma
+        tx: any = this.prisma
     ): Promise<void> {
-            let orderCategory: OrderCategory;
-            if (path.includes("buy/order") || path.includes("buy/quote")) {
-                orderCategory = OrderCategory.BUY;
-            } else if (path.includes("sell/order") || path.includes("sell/quote")) {
-                orderCategory = OrderCategory.SELL;
-            } else if (path.includes("request-instant-swap-quote") || path.includes("refresh-instant-swap-quote")) {
-                orderCategory = OrderCategory.SWAP;
-            } else if (path.includes("withdrawer-request")) {
-                orderCategory = OrderCategory.SEND;
-            } else {
-                throw new Error(`Invalid path for order category: ${path}`);
-            }
+        let orderCategory: OrderCategory;
+        if (path.includes("buy/order") || path.includes("buy/quote")) {
+            orderCategory = OrderCategory.BUY;
+        } else if (path.includes("sell/order") || path.includes("sell/quote")) {
+            orderCategory = OrderCategory.SELL;
+        } else if (path.includes("request-instant-swap-quote") || path.includes("refresh-instant-swap-quote")) {
+            orderCategory = OrderCategory.SWAP;
+        } else if (path.includes("withdrawer-request")) {
+            orderCategory = OrderCategory.SEND;
+        } else {
+            throw new Error(`Invalid path for order category: ${path}`);
+        }
 
-            await tx.order.create({
-                data: {
-                    userId: user.id,
-                    orderCategory,
-                    currency,
-                    amount,
-                    transactionId,
-                    status: OrderStatus.failed,
-                    streamlinedStatus: OrderStreamlinedStatus.failed,
-                    reason,
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                },
-            });
+        await tx.order.create({
+            data: {
+                userId: user.id,
+                orderCategory,
+                currency,
+                amount,
+                transactionId,
+                status: OrderStatus.failed,
+                streamlinedStatus: OrderStreamlinedStatus.failed,
+                reason,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            },
+        });
     }
 
     private async sendFlaggedEmail(user: User, reason: string, transactionId: string): Promise<void> {
-            const team = COMPANY_NAME;
+        const team = COMPANY_NAME;
 
-            await this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: user.email } }],
-                template_key: emailTemplateConfig.transaction_failed,
-                merge_info: {
-                    name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User",
-                    transactionId, // Changed from amount to transactionId
-                    team,
-                },
-            });
+        await this.emailService.sendMailWithTemplate({
+            from: { address: mailConfig.senderMail },
+            to: [{ email_address: { address: user.email } }],
+            template_key: emailTemplateConfig.transaction_failed,
+            merge_info: {
+                name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User",
+                transactionId,
+                team,
+            },
+        });
     }
 }
