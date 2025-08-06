@@ -53,6 +53,20 @@ export class NotificationService {
         });
     }
 
+    async markAllUserNotificationsRead(user: User) {
+        const updatedNotification = await this.prisma.notification.updateMany({
+            where: { userId: user.id, isRead: false },
+            data: {
+                isRead: true,
+            },
+        });
+
+        return Utils.buildResponse({
+            message: "User Notifications marked as read",
+            data: updatedNotification,
+        });
+    }
+
     async getNotifications(
         user: User,
         query: dto.GetNotificationsDto

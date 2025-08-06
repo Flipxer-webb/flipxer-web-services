@@ -1033,6 +1033,8 @@ export class TradingService {
                                 type: NotificationType.MESSAGE,
                                 status: NotificationStatus.APPROVED,
                                 senderId: null,
+                                transactionType: OrderCategory.RECEIVE,
+                                currency: options.currency.toUpperCase(),
                             },
                         });
 
@@ -1081,6 +1083,8 @@ export class TradingService {
                                 type: NotificationType.MESSAGE,
                                 status: NotificationStatus.APPROVED,
                                 senderId: null,
+                                transactionType: OrderCategory.RECEIVE,
+                                currency: options.currency.toUpperCase(),
                             },
                         });
 
@@ -1160,6 +1164,8 @@ export class TradingService {
                     type: NotificationType.MESSAGE,
                     status: NotificationStatus.APPROVED,
                     senderId: null,
+                    transactionType: transaction.orderCategory,
+                    currency: transaction.toCurrency,
                 },
             });
 
@@ -1257,6 +1263,8 @@ export class TradingService {
                     type: NotificationType.MESSAGE,
                     status: NotificationStatus.APPROVED,
                     senderId: null,
+                    transactionType: transaction.orderCategory,
+                    currency: transaction.currency,
                 },
             });
 
