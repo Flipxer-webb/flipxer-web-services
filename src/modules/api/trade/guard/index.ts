@@ -1,3 +1,4 @@
+
 import {
     CanActivate,
     ExecutionContext,
@@ -27,7 +28,6 @@ export const TradingInjectionToken = {
 
 @Injectable()
 export class CoinGeckoService {
-    private readonly logger = new Logger(CoinGeckoService.name);
 
     async getPriceInUSD(asset: string): Promise<number> {
         const coinGeckoIdMap: { [key: string]: string } = {

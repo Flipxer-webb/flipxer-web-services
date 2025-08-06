@@ -1,3 +1,4 @@
+
 generator client {
   provider        = "prisma-client-js"
   binaryTargets   = ["native", "rhel-openssl-1.0.x"]
@@ -87,8 +88,6 @@ model User {
   role                               Role                               @relation(fields: [roleId], references: [id], onDelete: Cascade)
   lastLogin                          DateTime?
   loginCount                         Int                                @default(0)
-  flagged                            Flagged?                           @relation(name: "UserToFlagged")
-  flaggedId                          Int?                               @unique
   userDocument                       UserDocument?
   businessRecord                     BusinessRecord?
   businessDocument                   BusinessDocument?
@@ -99,9 +98,14 @@ model User {
   cryptoWalletAddressList            CryptoWalletAddress[]
   assetWallets                       AssetWallet[]
   payments                           Payment[]
+  allowedIps                         AllowedIp[]
   RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest[]
+  sentNotifications                  Notification[]                     @relation(name: "senderNotification")
+  receiverNotifications              Notification[]                     @relation(name: "receiverNotification")
   dailyTransactions                  DailyTransaction[]                 @relation(name: "UserToDailyTransaction")
   monthlyTransactions                MonthlyTransaction[]               @relation(name: "UserToMonthlyTransaction")
+  flaggedRecord Flagged? @relation(name: "UserToFlagged")
+  flaggedId    Int?     @unique
 
   @@index([id, bvn])
   @@map("Users")
@@ -224,24 +228,24 @@ model BusinessDocument {
   cacDocumentNumber  String
   cacImageUrl        String
   cacImageUrlFieldId String
-  cacImageFileName  String?
+  cacImageFileName   String?
 
   articleOfAssociationNumber          String?
   articleOfAssociationImageUrl        String?
   articleOfAssociationImageUrlFieldId String?
-  articleOfAssociationFileName  String?
+  articleOfAssociationFileName        String?
 
   boardResolutionAuthorizedAcctOpeningImageUrl        String?
   boardResolutionAuthorizedAcctOpeningImageUrlFieldId String?
-  boardResolutionAuthorizedAcctOpeningFileName  String?
+  boardResolutionAuthorizedAcctOpeningFileName        String?
 
   proofOfAddressForBeneficialOwner             String?
   proofOfAddressForBeneficialOwnerImageFieldId String?
-  proofOfAddressForBeneficialOwnerFileName  String?
+  proofOfAddressForBeneficialOwnerFileName     String?
 
   meansOfIdentificationForBeneficialOwner             String?
   meansOfIdentificationForBeneficialOwnerImageFieldId String?
-  meansOfIdentificationForBeneficialOwnerFileName  String?
+  meansOfIdentificationForBeneficialOwnerFileName     String?
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -452,17 +456,17 @@ model Order {
   id            Int           @id @default(autoincrement())
   userId        Int
   orderCategory OrderCategory
-  transactionId String? @unique
+  transactionId String?       @unique
 
   //trade (buy/sell) related
-  market    String? // from TradingPair enum
-  orderType OrderType?
-  orderSide OrderSide?
-  volume    Float?
-  price     Float? // optional for market orders
-  status    OrderStatus
+  market            String? // from TradingPair enum
+  orderType         OrderType?
+  orderSide         OrderSide?
+  volume            Float?
+  price             Float? // optional for market orders
+  status            OrderStatus
   streamlinedStatus OrderStreamlinedStatus @default(pending)
-  paymentStatus TransactionStatus?
+  paymentStatus     TransactionStatus?
 
   //swap related
   quotationId     String?
@@ -481,6 +485,7 @@ model Order {
   reason           String?
   transaction_note String?
   recipient        String? //wallet address
+  sender           String? //wallet address
   amount           Float?
   fee              Float?
   total            Float?
@@ -489,9 +494,9 @@ model Order {
 
   destinationTag String?
 
-  amountInFiat    Float?  
+  amountInFiat          Float?
   referenceFiatCurrency ReferenceFiatCurrency @default(NGN)
-  rateAtConversion Float? 
+  rateAtConversion      Float?
 
   providerOrderId String? @unique // Quidax reference ID
   orderReference  String? @unique //Quidax order ref
@@ -613,6 +618,21 @@ model Payment {
   @@map("Payments")
 }
 
+model AllowedIp {
+  id       Int     @id @default(autoincrement())
+  userId   Int
+  ip       String
+  label    String? // optional name for this IP "Office", "VPN", "Home Wi-Fi"
+  isActive Boolean @default(true) // flag for soft-deletion or toggling
+
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, ip])
+  @@index(userId)
+  @@map("AllowedIps")
+}
 
 model RecoveryEmailVerificationRequest {
   id         Int      @id @default(autoincrement())
@@ -625,4 +645,47 @@ model RecoveryEmailVerificationRequest {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("RecoveryEmailVerificationRequests")
+}
+
+//Notification
+enum NotificationType {
+  PUSH_NOTIFICATION
+  MESSAGE
+}
+
+enum NotificationStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+enum NotificationBeneficiary {
+  ALL
+  INDIVIDUAL
+}
+
+enum UserNotificationTarget {
+  ALL
+  SINGLE
+}
+
+model Notification {
+  id          Int                     @id @default(autoincrement())
+  title       String
+  body        String?                 @db.Text
+  isRead      Boolean                 @default(false)
+  senderId    Int?
+  userId      Int?
+  target      UserNotificationTarget  @default(ALL)
+  beneficiary NotificationBeneficiary
+  type        NotificationType        @default(MESSAGE)
+  status      NotificationStatus      @default(PENDING)
+  transactionType  OrderCategory?
+  currency    String?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  sender      User?                   @relation(name: "senderNotification", fields: [senderId], references: [id])
+  receiver    User?                   @relation(name: "receiverNotification", fields: [userId], references: [id])
+
+  @@map("Notifications")
 }

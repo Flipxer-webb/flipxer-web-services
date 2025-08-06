@@ -18,7 +18,7 @@ import { AdminUserService } from "../../services/admin";
 import { GetUserListDto, UnflagUserDto } from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+// @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
 @UserTypes([UserType.ADMIN])
 @ApiTags("admin")
 @Controller({

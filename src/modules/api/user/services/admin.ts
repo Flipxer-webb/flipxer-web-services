@@ -16,7 +16,6 @@ import {
     TransactionIncludeOptions,
 } from "../../transactions/types";
 
-
 @Injectable()
 export class AdminUserService {
     constructor(
@@ -41,7 +40,6 @@ export class AdminUserService {
             }),
         ]);
 
-        //todo: completed the logic
         const [totalTransactionVolume, transactionsThisMonth] =
             await Promise.all([
                 this.prisma.order.aggregate({ _sum: { amountInFiat: true } }),
@@ -297,15 +295,24 @@ export class AdminUserService {
     async unflagUser(dto: UnflagUserDto): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: dto.id },
-            select: { id: true, flagged: true, flaggedId: true },
+            select: {
+                id: true,
+                flaggedRecord: { // Changed from flagged to flaggedRecord
+                    select: {
+                        flagged: true,
+                        reason: true,
+                    },
+                },
+                flaggedId: true,
+            },
         });
-    
+
         if (!user) {
             throw new UserNotFoundException("Account with ID not found.", HttpStatus.BAD_REQUEST);
         }
-    
-        const flagged = user.flagged || { flagged: false, reason: "" };
-    
+
+        const flagged = user.flaggedRecord || { flagged: false, reason: "" };
+
         if (!flagged.flagged) {
             return buildResponse({
                 message: "Account is not flagged.",
@@ -328,7 +335,7 @@ export class AdminUserService {
                     updatedAt: new Date(),
                 },
             });
-    
+
             await tx.user.update({
                 where: { id: user.id },
                 data: {
@@ -338,7 +345,7 @@ export class AdminUserService {
                 },
             });
         });
-    
+
         return buildResponse({
             message: "Account unflagged successfully.",
         });

@@ -929,8 +929,8 @@ export class AuthService {
             role: { select: { name: true, rolePermission: true } },
             lastLogin: true,
             loginCount: true,
-            flagged: true,
-            flaggedId: true, // Added flaggedId to select
+            flaggedRecord: true, // Changed from flagged to flaggedRecord
+            flaggedId: true,
             email: true,
         };
     
@@ -954,25 +954,28 @@ export class AuthService {
             },
             select: selectFields,
         });
-
+    
         if (!user) {
             throw new InvalidCredentialException("Invalid email or password");
         }
-        const flagged = user.flagged || { flagged: false, reason: "" };
-
+    
+        // Use flaggedRecord instead of flagged
+        const flagged = user.flaggedRecord || { flagged: false, reason: "" };
+    
         if (flagged.flagged && flagged.reason === 'Multiple failed login attempts') {
             throw new UserAccountDisabledException(
                 `Account is flagged: ${flagged.reason || "Multiple failed login attempts"}. Please contact support.`,
                 HttpStatus.FORBIDDEN
             );
         }
-
+    
         if (user.status === Status.BLOCKED) {
             throw new UserAccountDisabledException(
                 "Account is disabled. Kindly contact customer support",
                 HttpStatus.BAD_REQUEST
             );
         }
+    
         switch (loginPlatform) {
             case LoginPlatform.ADMIN:
                 this.validateAdminAccount(user.userType);
@@ -983,7 +986,6 @@ export class AuthService {
             default:
                 throw new AuthGenericException("Invalid login platform", HttpStatus.INTERNAL_SERVER_ERROR);
         }
-
     
         if (!user.password) {
             throw new AuthGenericException("Please create your password first", HttpStatus.BAD_REQUEST);
@@ -1029,7 +1031,7 @@ export class AuthService {
                             flaggedId: flaggedRecord.id,
                         },
                     });
-                });    
+                });
                 throw new InvalidCredentialException("Invalid email or password");
             }
     
