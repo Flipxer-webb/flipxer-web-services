@@ -81,7 +81,7 @@ export interface IMarket {
     };
 }
 
-interface Ticker {
+export interface Ticker {
     buy: string;
     sell: string;
     low: string;

@@ -4,20 +4,21 @@ import {
     HttpCode,
     HttpStatus,
     Post,
+    UseGuards,
     ValidationPipe,
-    UseGuards
 } from "@nestjs/common";
 import {
     ApiTags,
     ApiOperation,
     ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
-import { SignInDto} from "../../dtos";
+import { SignInDto } from "../../dtos"; // Replaced UserSigInDto with SignInDto
 import { AuthService } from "../../services";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse } from "@/utils/api-response-util";
+import { CountryBlockGuard } from "../../guard";
 
-
+@UseGuards(CountryBlockGuard)
 @ApiTags("admin")
 @Controller({
     path: "admin/auth",
@@ -26,13 +27,16 @@ export class AdminAuthController {
     constructor(private authService: AuthService) {}
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Admin login" })
-    @SwaggerApiResponse({ status: HttpStatus.OK, description: "Login successful" })
+    @ApiOperation({ summary: "admin login" })
     @Post("login")
     async signIn(
-        @Body(ValidationPipe) signInDto: SignInDto,
+        @Body(ValidationPipe) signInDto: SignInDto, // Updated to SignInDto
         @ClientData() clientData: ClientDataInterface
     ): Promise<ApiResponse> {
-        return await this.authService.adminSignIn(signInDto, clientData.ipAddress);
+        // The return type is still the interface
+        return await this.authService.adminSignIn(
+            signInDto,
+            clientData.ipAddress
+        );
     }
 }

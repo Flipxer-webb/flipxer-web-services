@@ -11,6 +11,7 @@ import {
     forwardRef,
     Inject,
     HttpStatus,
+    Logger,
 } from "@nestjs/common";
 import { AuthService } from "../../auth/services";
 import { UploadFactory } from "@/modules/core/upload/services";
@@ -21,10 +22,12 @@ import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import {
     GetUserAssetsDto,
     UpdateProfilePasswordDto,
+    UpdateUserDetailsDto,
     SendRecoveryEmailOtpDto,
     VerifyRecoveryEmailOtpDto,
 } from "../dtos";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
+import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
 import { AssetWallet, Prisma, User } from "@prisma/client";
 import { DuplicateUserException, IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
@@ -34,6 +37,7 @@ import {
     VerificationCodeExpiredException,
     DuplicateVerificationException,
 } from "../../auth/errors";
+import { Ticker } from "@/libs/quidax/types/trade";
 
 @Injectable()
 export class UserService {
@@ -44,7 +48,8 @@ export class UserService {
         @Inject(forwardRef(() => AuthService))
         private authService: AuthService,
         private emailService: EmailService,
-        private uploadFactory: UploadFactory
+        private uploadFactory: UploadFactory,
+        private readonly quidaxCacheService: QuidaxCacheService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -130,23 +135,21 @@ export class UserService {
         };
     }
 
-    async getUserWallets(user: User, query: GetUserAssetsDto) {
+    async getUserWallets(userId: number, query: GetUserAssetsDto) {
         const { pageNumber, pageSize, sortBy } = query;
 
-        const resolvedPageNumber: number =
-            !pageNumber || (pageNumber && pageNumber <= 1)
+        const resolvedPageNumber =
+            !pageNumber || pageNumber <= 1
                 ? defaultPagination.pageNumber
                 : pageNumber;
 
-        const resolvedPageSize: number =
-            !pageSize || (pageSize && pageSize <= 0)
-                ? defaultPagination.pageSize
-                : query.pageSize;
+        const resolvedPageSize =
+            !pageSize || pageSize <= 0 ? defaultPagination.pageSize : pageSize;
 
         const dbQuery: Prisma.AssetWalletFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
-                userId: user.id,
+                userId: userId,
                 ...(query.searchText && {
                     OR: [
                         {
@@ -166,6 +169,7 @@ export class UserService {
             },
         };
 
+        // Step 1: Fetch user assets + count
         const [assets, count] = await this.prisma.$transaction([
             this.prisma.assetWallet.findMany({
                 ...dbQuery,
@@ -177,14 +181,18 @@ export class UserService {
             this.prisma.assetWallet.count({ where: dbQuery.where }),
         ]);
 
-        const referenceCurrency = "ngn";
         // Step 2: Fetch admin-defined crypto rates (e.g., BTC, USDT)
         const adminRates = await this.prisma.cryptoRate.findMany();
         const adminRatesMap = new Map(
             adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
         );
 
-        const responseData: DataWithPagination<AssetWallet> = {
+        // Step 3: Fetch live Quidax rates
+        const liveMarketData = await this.quidaxCacheService.getMarketTickers();
+        const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
+
+        // Step 4: Merge data into asset response
+        const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
@@ -201,6 +209,10 @@ export class UserService {
                 const adminBuyRate = adminRate?.buyRate ?? 0;
                 const adminSellRate = adminRate?.sellRate ?? 0;
 
+                // Live market data lookup
+                const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+                const ticker = liveMarketData?.[marketSymbol]?.ticker;
+
                 return {
                     ...asset,
                     buyRate: {
@@ -209,6 +221,13 @@ export class UserService {
                     },
                     sellRate: {
                         value: adminSellRate.toFixed(4),
+                        referenceCurrency,
+                    },
+                    liveRate: {
+                        buy: ticker?.buy ?? null,
+                        sell: ticker?.sell ?? null,
+                        last: ticker?.last ?? null,
+                        percentChange: this.calculatePercentageChange(ticker),
                         referenceCurrency,
                     },
                 };
@@ -221,6 +240,20 @@ export class UserService {
         };
     }
 
+    calculatePercentageChange(ticker: Ticker): number | null {
+        if (!ticker?.open || !ticker?.last) return null;
+
+        const open = parseFloat(ticker.open);
+        const last = parseFloat(ticker.last);
+
+        if (isNaN(open) || open === 0 || isNaN(last)) {
+            return null;
+        }
+
+        const change = ((last - open) / open) * 100;
+        return parseFloat(change.toFixed(2));
+    }
+
     private async uploadProfileImage(
         file: Express.Multer.File
     ): Promise<UploadApiResponse | UploadResponse> {
@@ -229,29 +262,58 @@ export class UserService {
             dir: storageDirConfig.profile,
             name: `profile-image-${date}-${generateRandomNum(5)}`,
             format: "webp",
-            body: file.buffer,
+            body: file.buffer, // Use file buffer directly
             quality: 100,
             width: 320,
             type: "image",
         });
     }
 
-    async updateUserDetails(user: User, photo?: Express.Multer.File) {
-        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {};
+    async updateUserDetails(
+        options: UpdateUserDetailsDto,
+        user: User,
+        photo?: Express.Multer.File
+    ) {
+        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {
+            firstName: options.firstName ?? user.firstName,
+            lastName: options.lastName ?? user.lastName,
+            phone: options.phone ?? user.phone,
+            gender: options.gender ?? user.gender,
+            country: options.country ?? user.country,
+            dateOfBirth: new Date(options.dateOfBirth) ?? user.dateOfBirth,
+        };
+
+        if (options.phone) {
+            const phoneExist = await this.prisma.user.findFirst({
+                where: { id: { not: user.id }, phone: options.phone },
+            });
+            if (phoneExist) {
+                throw new DuplicateUserException(
+                    "Phone already in use by another",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+        }
+
         if (photo) {
             const uploadResponse = await this.uploadProfileImage(photo);
             if (user?.photoFileId) {
-                await this.uploadService.removeImage({
-                    fileId: user.photoFileId,
-                    key: process.env.IMAGEKIT_PRIVATE_KEY,
-                });
+                try {
+                    await this.uploadService.removeImage({
+                        fileId: user.photoFileId,
+                        key: process.env.IMAGEKIT_PRIVATE_KEY,
+                    });
+                } catch (error) {
+                    Logger.error(
+                        `Failed to delete image ${user.photoFileId}:`,
+                        error
+                    );
+                }
             }
             profileUpdateOptions.photo = uploadResponse.url;
             profileUpdateOptions.photoFileId = uploadResponse.fileId;
-        } else {
-            profileUpdateOptions.photo = null;
-            profileUpdateOptions.photoFileId = null;
         }
+
         const updatedUser = await this.prisma.user.update({
             where: { id: user.id },
             data: profileUpdateOptions,
@@ -267,8 +329,9 @@ export class UserService {
                 country: true,
             },
         });
+
         return {
-            message: "Profile picture updated successfully",
+            message: "User details updated successfully",
             data: updatedUser,
         };
     }

@@ -19,10 +19,15 @@ import {
     ApiConsumes,
 } from "@nestjs/swagger";
 import { UserService } from "../../services";
-import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import {
+    AuthGuard,
+    CountryBlockGuard,
+    EnabledAccountGuard,
+} from "@/modules/api/auth/guard";
 import {
     GetUserAssetsDto,
     UpdateProfilePasswordDto,
+    UpdateUserDetailsDto,
     SendRecoveryEmailOtpDto,
     VerifyRecoveryEmailOtpDto,
 } from "../../dtos";
@@ -33,7 +38,7 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "user",
 })
-@UseGuards(AuthGuard, EnabledAccountGuard)
+@UseGuards(CountryBlockGuard, AuthGuard, EnabledAccountGuard)
 export class UserController {
     constructor(private readonly userService: UserService) {}
 
@@ -70,12 +75,14 @@ export class UserController {
         },
     })
     @Post("profile/update-details")
+    @UsePipes(new ValidationPipe())
     @UseInterceptors(FileInterceptor("photo"))
     async updateUserDetails(
+        @Body() dto: UpdateUserDetailsDto,
         @UploadedFile() photo: Express.Multer.File,
         @User() user: UserModel
     ) {
-        return await this.userService.updateUserDetails(user, photo);
+        return await this.userService.updateUserDetails(dto, user, photo);
     }
 
     @ApiOperation({ summary: "Update user password" })
@@ -106,7 +113,7 @@ export class UserController {
         @User() user: UserModel,
         @Query() query: GetUserAssetsDto
     ) {
-        return await this.userService.getUserWallets(user, query);
+        return await this.userService.getUserWallets(user.id, query);
     }
 
     @ApiOperation({

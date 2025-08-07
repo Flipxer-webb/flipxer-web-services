@@ -7,8 +7,7 @@ import {
     IsDateString,
     Matches,
     IsNotEmpty,
-    Length,
-    IsInt
+    IsNumber,
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
@@ -16,7 +15,7 @@ import { Gender, Country, Status, UserType } from "@prisma/client";
 
 export enum Sort {
     ASC = "asc",
-    DSCE = "desc",
+    DESC = "desc",
 }
 export class PaginationQueryDto {
     @ApiProperty({
@@ -26,8 +25,9 @@ export class PaginationQueryDto {
         required: false,
     })
     @IsOptional()
+    @Transform(({ value }) => value ?? "true")
     @IsBooleanString()
-    paginated?: string = "true";
+    paginated?: string;
 
     @ApiProperty({
         description: "Page number desired : defaults to 1 - optional",
@@ -53,7 +53,7 @@ export class PaginationQueryDto {
         required: false,
     })
     @IsEnum(Sort)
-    sortBy: Sort = Sort.DSCE;
+    sortBy?: Sort = Sort.DESC;
 }
 
 export class UpdateUserDetailsDto {
@@ -176,10 +176,11 @@ export class UpdateProfilePasswordDto {
     newPassword: string;
 }
 
-
 export class UnflagUserDto {
-    @ApiProperty({ description: "The ID of the user to unflag" })
+    @ApiProperty({
+        description: "The ID of the user to unflag",
+    })
     @IsNotEmpty()
-    @IsInt({ message: "Invalid user ID" })
+    @IsNumber({}, { message: "User ID must be a number" })
     id: number;
 }

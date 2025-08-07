@@ -35,6 +35,7 @@ import {
     InvalidResetCodeException,
     ResetCodeExpiredException,
     InvalidResetRequestException,
+    UserUnauthorizedException,
     InvalidRefreshToken,
     AuthGenericException,
     UserAccountDisabledException,
@@ -74,7 +75,6 @@ import {
 } from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import * as crypto from "crypto";
-
 
 @Injectable()
 export class AuthService {
@@ -118,10 +118,8 @@ export class AuthService {
         const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
 
         if (!userTypes.includes(userType)) {
-            Logger.log(`incorrect user type`);
-
             throw new InvalidCredentialException(
-                "User type does not exist in database",
+                "Incorrect email or password",
                 HttpStatus.UNAUTHORIZED
             );
         }
@@ -265,7 +263,7 @@ export class AuthService {
                 "Role not found",
                 HttpStatus.NOT_FOUND
             );
-        };
+        }
 
         const createUserOptions: Prisma.UserUncheckedCreateInput = {
             email: options.email,
@@ -312,6 +310,8 @@ export class AuthService {
                 },
             });
         } catch (error) {
+            //do not throw error here, only log
+            console.log(error, "errors");
             Logger.error(`Failed to send account verification email${error}`);
         }
 
@@ -467,15 +467,15 @@ export class AuthService {
             );
         }
 
-        if (
-            user.userType === UserType.INDIVIDUAL &&
-            user.bvnRegisteredPhone !== options.phone
-        ) {
-            throw new VerificationGenericException(
-                "Please use the phone registered with your bvn",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        // if (
+        //     user.userType === UserType.INDIVIDUAL &&
+        //     user.bvnRegisteredPhone !== options.phone
+        // ) {
+        //     throw new VerificationGenericException(
+        //         "Please use the phone registered with your bvn",
+        //         HttpStatus.BAD_REQUEST
+        //     );
+        // }
 
         await this.prisma.user.update({
             where: { id: user.id },
@@ -914,12 +914,12 @@ export class AuthService {
         return await this.signIn(options, LoginPlatform.ADMIN, ip);
     }
 
-
     private async signIn(
         options: SignInOptions,
         loginPlatform: LoginPlatform,
         ip: string
     ): Promise<ApiResponse> {
+        // Define base select fields for all cases
         const baseSelect = {
             id: true,
             identifier: true,
@@ -929,11 +929,12 @@ export class AuthService {
             role: { select: { name: true, rolePermission: true } },
             lastLogin: true,
             loginCount: true,
-            flaggedRecord: true, // Changed from flagged to flaggedRecord
+            flaggedRecord: true,
             flaggedId: true,
             email: true,
         };
     
+        // Add additional fields for USER platform
         const selectFields =
             loginPlatform === LoginPlatform.USER
                 ? {
@@ -976,25 +977,39 @@ export class AuthService {
             );
         }
     
+        // Check that user is logging into the right platform
         switch (loginPlatform) {
-            case LoginPlatform.ADMIN:
+            case LoginPlatform.ADMIN: {
                 this.validateAdminAccount(user.userType);
                 break;
-            case LoginPlatform.USER:
+            }
+            case LoginPlatform.USER: {
                 this.validateUserAccount(user.userType);
                 break;
-            default:
-                throw new AuthGenericException("Invalid login platform", HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+            default: {
+                throw new AuthGenericException(
+                    "Invalid login platform",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
         }
     
         if (!user.password) {
-            throw new AuthGenericException("Please create your password first", HttpStatus.BAD_REQUEST);
+            throw new AuthGenericException(
+                "Please create your password first",
+                HttpStatus.BAD_REQUEST
+            );
         }
     
+        // Declare now and tenMinutesAgo
         const now = new Date();
         const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
     
-        const passwordMatch = await this.comparePassword(options.password, user.password);
+        const passwordMatch = await this.comparePassword(
+            options.password,
+            user.password
+        );
         if (!passwordMatch) {
             let updatedLoginCount = user.loginCount;
             let lastLogin = user.lastLogin || now;
@@ -1051,41 +1066,15 @@ export class AuthService {
             platform: loginPlatform,
         });
     
-        await this.prisma.$transaction(async (tx) => {
-            await tx.user.update({
-                where: { id: user.id },
-                data: {
-                    refreshToken: tokens.refreshToken,
-                    ipAddress: ip,
-                    lastLogin: now,
-                    loginCount: 0,
-                },
-            });
+        // Save the refresh token
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
     
-            const flaggedRecord = await tx.flagged.upsert({
-                where: { userId: user.id },
-                create: {
-                    userId: user.id,
-                    flagged: false,
-                    reason: "",
-                },
-                update: {
-                    flagged: false,
-                    reason: "",
-                    updatedAt: now,
-                },
-            });
-    
-            if (!user.flaggedId) {
-                await tx.user.update({
-                    where: { id: user.id },
-                    data: {
-                        flaggedId: flaggedRecord.id,
-                    },
-                });
-            }
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { ipAddress: ip },
         });
     
+        // For ADMIN platform, return only tokens
         if (loginPlatform === LoginPlatform.ADMIN) {
             return buildResponse({
                 message: "Login successful",
@@ -1096,6 +1085,7 @@ export class AuthService {
             });
         }
     
+        // For USER platform, include specified fields
         const userWithVerification = user as typeof user & {
             isEmailVerified: boolean;
             isPhoneVerified: boolean;
@@ -1114,8 +1104,10 @@ export class AuthService {
             isDocumentVerified: userWithVerification.isDocumentVerified,
         };
     
+        // Add business-specific fields for BUSINESS users
         if (userWithVerification.userType.toLowerCase() === "business") {
-            verificationStatus.businessRecordCompleted = userWithVerification.businessRecordCompleted;
+            verificationStatus.businessRecordCompleted =
+                userWithVerification.businessRecordCompleted;
             verificationStatus.businessDocumentVerificationStatus =
                 userWithVerification.businessDocumentVerificationStatus || null;
         }
@@ -1132,7 +1124,6 @@ export class AuthService {
             data: responseData,
         });
     }
-
 
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
         // Verify the refresh token

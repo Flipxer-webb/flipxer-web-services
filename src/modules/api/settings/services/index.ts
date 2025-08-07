@@ -2,20 +2,143 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
+    AllowedIpExistException,
+    AllowedIpNotFoundException,
     CryptoRateNotFoundException,
     CryptoTransactionFeeNotFoundException,
+    GenericAllowedIpException,
 } from "../errors";
 import {
+    AddAllowedIpDto,
     CreateOrUpdateCryptoRateDto,
     CreateOrUpdateCryptoTransactionFeeDto,
     GetCryptoTransactionFeePerAssetDto,
+    UpdateAllowedIpDto,
 } from "../dtos";
-import { TransactionFeeCategory } from "@prisma/client";
+import { TransactionFeeCategory, User } from "@prisma/client";
+import { UserForbiddenException } from "../../auth";
+import * as ip from "ip";
 
 @Injectable()
 export class SettingService {
     private readonly logger = new Logger("SettingService");
     constructor(private prisma: PrismaService) {}
+
+    async getAllowedList(user: User) {
+        const allowedIps = await this.prisma.allowedIp.findMany({
+            where: { userId: user.id, isActive: true },
+            select: {
+                id: true,
+                ip: true,
+                isActive: true,
+                label: true,
+                userId: true,
+            },
+        });
+        return buildResponse({
+            message: "Allowed ips list retrieved",
+            data: allowedIps,
+        });
+    }
+
+    async addAllowedIp(user: User, dto: AddAllowedIpDto) {
+        if (!ip.isPublic(dto.ip)) {
+            throw new GenericAllowedIpException(
+                "Only public IPs are allowed.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const existingIp = await this.prisma.allowedIp.findUnique({
+            where: {
+                userId_ip: { userId: user.id, ip: dto.ip },
+            },
+        });
+
+        if (existingIp?.isActive) {
+            throw new AllowedIpExistException(
+                "IP address already added and active."
+            );
+        }
+
+        if (existingIp && !existingIp.isActive) {
+            await this.prisma.allowedIp.update({
+                where: { userId_ip: { userId: user.id, ip: dto.ip } },
+                data: {
+                    isActive: true,
+                    label: dto.label ?? existingIp.label,
+                    updatedAt: new Date(),
+                },
+            });
+        }
+
+        if (!existingIp) {
+            await this.prisma.allowedIp.create({
+                data: {
+                    userId: user.id,
+                    ip: dto.ip,
+                    label: dto.label,
+                },
+            });
+        }
+
+        return buildResponse({
+            message: "Allowed IP added successfully",
+        });
+    }
+
+    async updateAllowedIp(
+        user: User,
+        ipAddress: string,
+        dto: UpdateAllowedIpDto
+    ) {
+        const existingIp = await this.prisma.allowedIp.findUnique({
+            where: { userId_ip: { userId: user.id, ip: ipAddress } },
+        });
+
+        if (!existingIp) {
+            throw new AllowedIpNotFoundException("IP address not found");
+        }
+
+        const updated = await this.prisma.allowedIp.update({
+            where: { userId_ip: { userId: user.id, ip: ipAddress } },
+            data: {
+                label: dto.label ?? existingIp.label,
+                isActive: dto.isActive ?? existingIp.isActive,
+            },
+        });
+
+        return buildResponse({
+            message: "Allowed IP updated successfully",
+            data: updated,
+        });
+    }
+
+    async deleteAllowedIp(user: User, id: number) {
+        const ipData = await this.prisma.allowedIp.findUnique({
+            where: { id: id },
+        });
+
+        if (ipData.userId !== user.id) {
+            throw new UserForbiddenException(
+                "Can only be updated by the user that sets it",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        if (!ipData) {
+            throw new AllowedIpNotFoundException();
+        }
+
+        await this.prisma.allowedIp.update({
+            where: { id: id },
+            data: { isActive: false },
+        });
+
+        return buildResponse({
+            message: "Allowed ip removed successfully",
+        });
+    }
 
     async getCryptoRateList() {
         const rates = await this.prisma.cryptoRate.findMany({

@@ -37,7 +37,7 @@ import {
     ApiConsumes,
     ApiBody,
 } from "@nestjs/swagger";
-import { AuthGuard } from "../../guard";
+import { AuthGuard, CountryBlockGuard } from "../../guard";
 import { User } from "@/modules/api/user";
 import { DocumentType, User as UserModel, UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
@@ -53,7 +53,7 @@ import {
     UploadBusinessDocumentsFileInterface,
 } from "../../interfaces";
 
-
+@UseGuards(CountryBlockGuard)
 @ApiTags("auth")
 @Controller({
     path: "auth",

@@ -64,3 +64,28 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
     @IsString()
     searchText?: string;
 }
+
+export class GeneralReportDownloadDto {
+    @ApiProperty({
+        enum: OrderCategory,
+        description: "filter by transaction type - optional",
+        required: false,
+    })
+    @IsOptional()
+    @IsEnum(OrderCategory)
+    type?: OrderCategory;
+
+    @ApiProperty({
+        description: "filter by start date",
+        example: "2024-01-01T00:00:00Z",
+    })
+    @IsDateString()
+    startDate: string;
+
+    @ApiProperty({
+        description: "filter by end date",
+        example: "2025-12-01T00:00:00Z",
+    })
+    @IsDateString()
+    endDate: string;
+}

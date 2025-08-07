@@ -1,8 +1,6 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { TradingService } from "./services";
 import { TradingController } from "./controllers/v1";
-export * from "./interfaces";
-export * from "./errors";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
 import { BullModule } from "@nestjs/bull";
@@ -12,8 +10,16 @@ import { CryptoAccountQueueProducer } from "./queues/producers/producer.service"
 import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processors/account_init_processor";
 import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
 import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
-import { PrismaService } from "@/modules/core/prisma/services";
-import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from "./guard";
+import { UserModule } from "../user";
+import { WsGateway } from "./gateway/v1";
+import { WsService } from "./services/websocket.service";
+import { AuthModule } from "@/modules/api/auth"; // Correct import
+import { PrismaModule } from "@/modules/core/prisma"; // Added for PrismaService
+import { EmailModule } from "@/modules/core/email"; // Added for EmailService
+import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from "@/modules/api/auth/guard";
+
+export * from "./interfaces";
+export * from "./errors";
 
 @Module({
     imports: [
@@ -21,6 +27,10 @@ import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from 
         BullBoardModule.forFeature(...quidaxBoardQueueConfig),
         TradingFactoryModule,
         BankFactoryModule,
+        forwardRef(() => UserModule),
+        forwardRef(() => AuthModule), // Provides TransactionAmountGuard and CoinGeckoService
+        PrismaModule, // Added to provide PrismaService
+        EmailModule, // Added to provide EmailService
     ],
     controllers: [TradingController],
     providers: [
@@ -29,7 +39,8 @@ import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from 
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
-        PrismaService,
+        WsGateway,
+        WsService,
         TransactionAmountGuard,
         {
             provide: TradingInjectionToken.COINGECKO,
@@ -40,6 +51,8 @@ import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from 
         TradingService,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
+        WsGateway,
+        WsService,
     ],
 })
 export class TradingModule {}
