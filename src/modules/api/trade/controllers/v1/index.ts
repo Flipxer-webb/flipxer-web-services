@@ -5,11 +5,9 @@ import {
     Get,
     HttpCode,
     HttpStatus,
-    Param,
     Post,
     Query,
     UseGuards,
-    ValidationPipe,
 } from "@nestjs/common";
 import { TradingService } from "../../services";
 import {
