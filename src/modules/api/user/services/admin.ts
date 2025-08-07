@@ -7,7 +7,7 @@ import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { endOfMonth, startOfMonth } from "date-fns";
-import { GetUserListDto } from "../dtos";
+import { GetUserListDto, UnflagUserDto } from "../dtos";
 import { Prisma, User } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
 import { GetUserTransactionListDto } from "../../transactions/dtos";
@@ -15,8 +15,6 @@ import {
     shapeTransaction,
     TransactionIncludeOptions,
 } from "../../transactions/types";
-
-const logger = new Logger();
 
 @Injectable()
 export class AdminUserService {
@@ -42,7 +40,6 @@ export class AdminUserService {
             }),
         ]);
 
-        //todo: completed the logic
         const [totalTransactionVolume, transactionsThisMonth] =
             await Promise.all([
                 this.prisma.order.aggregate({ _sum: { amountInFiat: true } }),
@@ -292,6 +289,65 @@ export class AdminUserService {
         return buildResponse({
             message: "Transactions retrieved",
             data: responseData,
+        });
+    }
+
+    async unflagUser(dto: UnflagUserDto): Promise<ApiResponse> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: dto.id },
+            select: {
+                id: true,
+                flaggedRecord: { // Changed from flagged to flaggedRecord
+                    select: {
+                        flagged: true,
+                        reason: true,
+                    },
+                },
+                flaggedId: true,
+            },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException("Account with ID not found.", HttpStatus.BAD_REQUEST);
+        }
+
+        const flagged = user.flaggedRecord || { flagged: false, reason: "" };
+
+        if (!flagged.flagged) {
+            return buildResponse({
+                message: "Account is not flagged.",
+            });
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            const flaggedRecord = await tx.flagged.upsert({
+                where: { userId: user.id },
+                create: {
+                    userId: user.id,
+                    flagged: false,
+                    reason: "",
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
+                update: {
+                    flagged: false,
+                    reason: "",
+                    updatedAt: new Date(),
+                },
+            });
+
+            await tx.user.update({
+                where: { id: user.id },
+                data: {
+                    flaggedId: flaggedRecord.id,
+                    loginCount: 0,
+                    updatedAt: new Date(),
+                },
+            });
+        });
+
+        return buildResponse({
+            message: "Account unflagged successfully.",
         });
     }
 }

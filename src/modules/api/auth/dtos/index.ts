@@ -6,6 +6,7 @@ import {
     IsEmail,
     IsEnum,
     IsNotEmpty,
+    IsNumber,
     IsNumberString,
     IsOptional,
     IsPhoneNumber,
@@ -15,6 +16,7 @@ import {
     MaxLength,
     MinLength,
 } from "class-validator";
+import { Type } from "class-transformer"; // Added for type conversion
 
 enum Gender {
     MALE = "MALE",
@@ -68,7 +70,6 @@ export class CreatePasswordDto {
     password: string;
 }
 
-// New DTO for sending forgot password email
 export class SendForgotPasswordDto {
     @ApiProperty()
     @IsNotEmpty()
@@ -76,7 +77,6 @@ export class SendForgotPasswordDto {
     email: string;
 }
 
-// Extended DTO for reset password
 export class ResetPasswordDto extends CreatePasswordDto {
     @ApiProperty()
     @IsNotEmpty()
@@ -137,7 +137,7 @@ export class BvnVerificationDto {
     })
     @IsNotEmpty()
     @IsNumberString()
-    @Length(11, 11, { message: "Bnv number must be 11 digits" })
+    @Length(11, 11, { message: "Bvn number must be 11 digits" })
     bvn: string;
 }
 
@@ -322,3 +322,4 @@ export class RefreshTokenDto {
     @IsString()
     refreshToken: string;
 }
+

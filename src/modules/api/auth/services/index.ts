@@ -927,8 +927,13 @@ export class AuthService {
             userType: true,
             status: true,
             role: { select: { name: true, rolePermission: true } },
+            lastLogin: true,
+            loginCount: true,
+            flaggedRecord: true,
+            flaggedId: true,
+            email: true,
         };
-
+    
         // Add additional fields for USER platform
         const selectFields =
             loginPlatform === LoginPlatform.USER
@@ -943,26 +948,35 @@ export class AuthService {
                       businessDocumentVerificationStatus: true,
                   }
                 : baseSelect;
-
+    
         const user = await this.prisma.user.findUnique({
             where: {
                 email: options.email,
             },
             select: selectFields,
         });
-
+    
         if (!user) {
             throw new InvalidCredentialException("Invalid email or password");
         }
-
-        // Check that user account is not blocked
+    
+        // Use flaggedRecord instead of flagged
+        const flagged = user.flaggedRecord || { flagged: false, reason: "" };
+    
+        if (flagged.flagged && flagged.reason === 'Multiple failed login attempts') {
+            throw new UserAccountDisabledException(
+                `Account is flagged: ${flagged.reason || "Multiple failed login attempts"}. Please contact support.`,
+                HttpStatus.FORBIDDEN
+            );
+        }
+    
         if (user.status === Status.BLOCKED) {
             throw new UserAccountDisabledException(
                 "Account is disabled. Kindly contact customer support",
                 HttpStatus.BAD_REQUEST
             );
         }
-
+    
         // Check that user is logging into the right platform
         switch (loginPlatform) {
             case LoginPlatform.ADMIN: {
@@ -980,35 +994,86 @@ export class AuthService {
                 );
             }
         }
-
+    
         if (!user.password) {
             throw new AuthGenericException(
                 "Please create your password first",
                 HttpStatus.BAD_REQUEST
             );
         }
-
+    
+        // Declare now and tenMinutesAgo
+        const now = new Date();
+        const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    
         const passwordMatch = await this.comparePassword(
             options.password,
             user.password
         );
         if (!passwordMatch) {
+            let updatedLoginCount = user.loginCount;
+            let lastLogin = user.lastLogin || now;
+    
+            if (lastLogin && lastLogin >= tenMinutesAgo) {
+                updatedLoginCount += 1;
+            } else {
+                updatedLoginCount = 1;
+                lastLogin = now;
+            }
+    
+            if (updatedLoginCount >= 10) {
+                await this.prisma.$transaction(async (tx) => {
+                    const flaggedRecord = await tx.flagged.upsert({
+                        where: { userId: user.id },
+                        create: {
+                            userId: user.id,
+                            flagged: true,
+                            reason: "Multiple failed login attempts",
+                        },
+                        update: {
+                            flagged: true,
+                            reason: "Multiple failed login attempts",
+                            updatedAt: now,
+                        },
+                    });
+    
+                    await tx.user.update({
+                        where: { id: user.id },
+                        data: {
+                            loginCount: updatedLoginCount,
+                            lastLogin,
+                            ipAddress: ip,
+                            flaggedId: flaggedRecord.id,
+                        },
+                    });
+                });
+                throw new InvalidCredentialException("Invalid email or password");
+            }
+    
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    loginCount: updatedLoginCount,
+                    lastLogin,
+                    ipAddress: ip,
+                },
+            });
             throw new InvalidCredentialException("Invalid email or password");
         }
-
+    
         const tokens = await this.generateTokens({
             sub: user.id,
             platform: loginPlatform,
         });
-
-        //save the refresh token
+    
+        // Save the refresh token
         await this.saveRefreshToken(user.id, tokens.refreshToken);
-
+    
         await this.prisma.user.update({
             where: { id: user.id },
             data: { ipAddress: ip },
         });
-
+    
         // For ADMIN platform, return only tokens
         if (loginPlatform === LoginPlatform.ADMIN) {
             return buildResponse({
@@ -1019,7 +1084,7 @@ export class AuthService {
                 },
             });
         }
-
+    
         // For USER platform, include specified fields
         const userWithVerification = user as typeof user & {
             isEmailVerified: boolean;
@@ -1030,7 +1095,7 @@ export class AuthService {
             businessRecordCompleted: boolean;
             businessDocumentVerificationStatus: string | null;
         };
-
+    
         const verificationStatus: any = {
             isEmailVerified: userWithVerification.isEmailVerified,
             isPhoneVerified: userWithVerification.isPhoneVerified,
@@ -1038,7 +1103,7 @@ export class AuthService {
             isBvnVerified: userWithVerification.isBvnVerified,
             isDocumentVerified: userWithVerification.isDocumentVerified,
         };
-
+    
         // Add business-specific fields for BUSINESS users
         if (userWithVerification.userType.toLowerCase() === "business") {
             verificationStatus.businessRecordCompleted =
@@ -1046,14 +1111,14 @@ export class AuthService {
             verificationStatus.businessDocumentVerificationStatus =
                 userWithVerification.businessDocumentVerificationStatus || null;
         }
-
+    
         const responseData = {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             userType: userWithVerification.userType.toLowerCase(),
             verificationStatus,
         };
-
+    
         return buildResponse({
             message: "Login successful",
             data: responseData,

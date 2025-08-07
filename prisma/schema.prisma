@@ -1,3 +1,4 @@
+
 generator client {
   provider        = "prisma-client-js"
   binaryTargets   = ["native", "rhel-openssl-1.0.x"]
@@ -101,10 +102,55 @@ model User {
   RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest[]
   sentNotifications                  Notification[]                     @relation(name: "senderNotification")
   receiverNotifications              Notification[]                     @relation(name: "receiverNotification")
+  dailyTransactions                  DailyTransaction[]                 @relation(name: "UserToDailyTransaction")
+  monthlyTransactions                MonthlyTransaction[]               @relation(name: "UserToMonthlyTransaction")
+  flaggedRecord Flagged? @relation(name: "UserToFlagged")
+  flaggedId    Int?     @unique
 
   @@index([id, bvn])
   @@map("Users")
 }
+
+model Flagged {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  flagged   Boolean  @default(false)
+  reason    String?  // Optional string, no default needed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(name: "UserToFlagged", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("Flagged")
+}
+model DailyTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  year      Int
+  month     Int
+  day       Int
+  totalUSD  Float    @default(0.0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(name: "UserToDailyTransaction", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, year, month, day])
+  @@map("DailyTransactions")
+}
+
+model MonthlyTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  year      Int
+  month     Int
+  totalUSD  Float    @default(0.0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(name: "UserToMonthlyTransaction", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, year, month])
+  @@map("MonthlyTransactions")
+}
+
 
 // AccountLimit Model
 model AccountLimit {

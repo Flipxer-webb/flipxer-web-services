@@ -11,7 +11,6 @@ import {
     UseGuards,
     ValidationPipe,
 } from "@nestjs/common";
-
 import { TradingService } from "../../services";
 import {
     ApiTags,
@@ -20,7 +19,7 @@ import {
     ApiBody,
     ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
-import { AuthGuard, CountryBlockGuard } from "@/modules/api/auth/guard";
+import { AuthGuard, CountryBlockGuard, TransactionAmountGuard } from "@/modules/api/auth/guard"; // Added TransactionAmountGuard
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
@@ -113,7 +112,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "initiate  wallet address generation",
+        summary: "initiate wallet address generation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -155,7 +154,7 @@ export class TradingController {
     @ApiOperation({
         summary: "confirm buy order",
     })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard) // Added TransactionAmountGuard
     @ApiBearerAuth("access-token")
     @Post("buy/order")
     async buyCryptoOrder(
@@ -183,7 +182,7 @@ export class TradingController {
     @ApiOperation({
         summary: "confirm sell order",
     })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/order")
     async sellCryptoOrder(
@@ -212,7 +211,7 @@ export class TradingController {
     @ApiOperation({
         summary: "endpoint is used to confirm an instant swap quotation",
     })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("confirm-instant-swap-quote")
     async confirmInstantSwapQuote(
@@ -224,7 +223,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "endpoint is used to refresh an instant swap quotation - ",
+        summary: "endpoint is used to refresh an instant swap quotation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -241,8 +240,7 @@ export class TradingController {
         summary:
             "This end point initiates the withdrawal - verify the details before proceeding with the withdrawal process. Once submitted, funds cannot be recovered if sent to an incorrect address.",
     })
-    @UseGuards(AuthGuard)
-    @ApiBearerAuth("access-token")
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBody({ type: WithdrawerRequestDto })
     @Post("withdrawer-request")
     async withdrawerRequest(

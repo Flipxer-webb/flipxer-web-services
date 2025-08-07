@@ -59,6 +59,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
     {
+        name: "FAILED_TRANSACTION_TEMPLATE",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
         name: "JWT_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
@@ -223,6 +227,7 @@ export interface EMailTemplateConfig {
     forgot_password: string;
     recovery_pin: string;
     transaction_notification: string;
+    transaction_failed: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
@@ -231,6 +236,7 @@ export const emailTemplateConfig: EMailTemplateConfig = {
     forgot_password: process.env.FORGOT_PASSWORD_TEMPLATE,
     recovery_pin: process.env.RECOVERY_PIN_TEMPLATE,
     transaction_notification: process.env.TRANSACTION_NOTIFICATION_TEMPLATE,
+    transaction_failed: process.env.FAILED_TRANSACTION_TEMPLATE,
 };
 
 // Email config
