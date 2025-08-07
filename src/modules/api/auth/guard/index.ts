@@ -24,7 +24,6 @@ import {
     AccountDeletedException,
     UserNotFoundException,
 } from "@/modules/api/user";
-
 import {
     AuthTokenValidationException,
     InvalidAuthTokenException,
@@ -63,9 +62,7 @@ import {
 import axios from "axios";
 import { customAlphabet } from "nanoid";
 import { User } from "@prisma/client";
-
-
-
+import { setTimeout } from "timers/promises";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -172,7 +169,6 @@ export class QuidaxWebhookGuard implements CanActivate {
         const request = context
             .switchToHttp()
             .getRequest() as RequestFromQuidax;
-        //retrieve signature and timesatmp fro header
         const [timestampSection, signatureSection] =
             request.headers["quidax-signature"].split(",");
 
@@ -298,7 +294,6 @@ export class SocketAuthGuard implements CanActivate {
                 );
             }
 
-            // Attach user to the client object
             client.data.user = user;
         } catch (error) {
             if (error instanceof WsUserNotFoundException) {
@@ -322,40 +317,66 @@ export class SocketAuthGuard implements CanActivate {
     }
 }
 
-
-// Injection token for CoinGeckoService
 export const TradingInjectionToken = {
     COINGECKO: Symbol("COINGECKO"),
 };
 
 @Injectable()
 export class CoinGeckoService {
+    constructor(private readonly redisCacheService: RedisCacheService) {}
 
-    async getPriceInUSD(asset: string): Promise<number> {
+    async getPriceInUSD(asset: string, retries = 3, delay = 1000): Promise<number> {
+        const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
+        const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
+        if (cachedPrice) return cachedPrice;
+
         const coinGeckoIdMap: { [key: string]: string } = {
             btc: "bitcoin",
             eth: "ethereum",
             usdt: "tether",
+            usdc: "usd-coin",
             bnb: "binancecoin",
+            ada: "cardano",
+            sol: "solana",
+            xrp: "ripple",
+            dot: "polkadot",
+            doge: "dogecoin",
+            matic: "matic-network",
+            avax: "avalanche-2",
+            shib: "shiba-inu",
+            ltc: "litecoin",
+            link: "chainlink",
+            bch: "bitcoin-cash",
+            xlm: "stellar",
+            algo: "algorand",
+            atom: "cosmos",
+            dai: "dai"
         };
         const coinGeckoId = coinGeckoIdMap[asset.toLowerCase()] || asset.toLowerCase();
 
-        try {
-            const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
-                params: {
-                    ids: coinGeckoId,
-                    vs_currencies: "usd",
-                },
-            });
-
-            const rate = response.data[coinGeckoId]?.usd;
-            if (!rate) throw new Error(`No price data for ${asset}`);
-            return rate;
-        } catch (error) {
-            throw new GeneralTransactionException(
-                `Failed to fetch USD rate for ${asset}: ${error.message}`,
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
+                    params: { ids: coinGeckoId, vs_currencies: "usd" },
+                });
+                const rate = response.data[coinGeckoId]?.usd;
+                if (!rate) throw new Error(`No price data for ${asset} (ID: ${coinGeckoId})`);
+                await this.redisCacheService.set(cacheKey, rate, 5 * 60); // Cache for 5 minutes
+                return rate;
+            } catch (error) {
+                console.error(`Attempt ${attempt} failed for ${asset}:`, {
+                    message: error.message,
+                    status: error.response?.status,
+                    data: error.response?.data,
+                });
+                if (attempt === retries) {
+                    throw new GeneralTransactionException(
+                        `Failed to fetch USD rate for ${asset} after ${retries} attempts: ${error.message}`,
+                        HttpStatus.INTERNAL_SERVER_ERROR
+                    );
+                }
+                await setTimeout(delay * attempt);
+            }
         }
     }
 }
@@ -381,7 +402,6 @@ export class TransactionAmountGuard implements CanActivate {
             throw new UserNotFoundException("User not found", HttpStatus.UNAUTHORIZED);
         }
 
-        // Check if user is already flagged
         const flagged = await this.prisma.flagged.findUnique({
             where: { userId: user.id },
         });
@@ -391,7 +411,7 @@ export class TransactionAmountGuard implements CanActivate {
             await this.recordFailedTransaction(user, body.amount, body.currency, flagged.reason, path, transactionId);
             await this.sendFlaggedEmail(user, flagged.reason, transactionId);
             throw new GeneralTransactionException(
-                `Something went wrong. Kindly contact support for further assistance.`,
+                `Something went wrong. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
             );
         }
@@ -400,7 +420,6 @@ export class TransactionAmountGuard implements CanActivate {
         let currency: string | undefined;
         let orderCategory: OrderCategory | undefined;
 
-        // Extract amount, currency, and order category based on request path
         if (path.includes("buy/order") || path.includes("buy/quote")) {
             amount = body.amount;
             currency = body.asset?.toUpperCase();
@@ -435,17 +454,14 @@ export class TransactionAmountGuard implements CanActivate {
             );
         }
 
-        // Define daily and monthly limits
         const dailyLimit = user.userType === "INDIVIDUAL" ? 5000 : 10000;
         const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
 
-        // Get current date components
         const now = new Date();
         const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth() + 1; // JavaScript months are 0-based, Prisma expects 1-based
+        const currentMonth = now.getMonth() + 1;
         const currentDay = now.getDate();
 
-        // Check daily transaction total
         const dailyTransaction = await this.prisma.dailyTransaction.findUnique({
             where: {
                 userId_year_month_day: {
@@ -464,16 +480,14 @@ export class TransactionAmountGuard implements CanActivate {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
             const reason = `Daily transaction limit exceeded for ${user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
 
-            // Record failed transaction without flagging
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
 
             throw new GeneralTransactionException(
-                `Transaction failed: Daily limit of $${dailyLimit} exceeded for ${user.userType} (Current: $${currentDailyTotal}, Attempted: $${amountInUSD.amount})`,
+                `Transaction failed: Daily limit of $${dailyLimit} exceeded for ${user.userType} (Current: $${currentDailyTotal}, Attempted: $${amountInUSD.amount}). Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
             );
         }
 
-        // Check monthly transaction total
         const monthlyTransaction = await this.prisma.monthlyTransaction.findUnique({
             where: {
                 userId_year_month: {
@@ -492,7 +506,6 @@ export class TransactionAmountGuard implements CanActivate {
             const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
 
             await this.prisma.$transaction(async (tx) => {
-                // Flag the user
                 const flaggedRecord = await tx.flagged.upsert({
                     where: { userId: user.id },
                     create: {
@@ -513,20 +526,17 @@ export class TransactionAmountGuard implements CanActivate {
                     data: { flaggedId: flaggedRecord.id },
                 });
 
-                // Record failed transaction
                 await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId, tx);
             });
 
-            // Send email notification
             await this.sendFlaggedEmail(user, reason, transactionId);
 
             throw new GeneralTransactionException(
-                `Transaction failed: Monthly limit of $${monthlyLimit} exceeded for ${user.userType} (Current: $${currentMonthlyTotal}, Attempted: $${amountInUSD.amount})`,
+                `Transaction failed: Monthly limit of $${monthlyLimit} exceeded for ${user.userType} (Current: $${currentMonthlyTotal}, Attempted: $${amountInUSD.amount}). Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
             );
         }
 
-        // Update daily and monthly transaction totals (for allowed transactions)
         await this.prisma.$transaction(async (tx) => {
             await tx.dailyTransaction.upsert({
                 where: {
@@ -631,6 +641,7 @@ export class TransactionAmountGuard implements CanActivate {
                 name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User",
                 transactionId,
                 team,
+                reason // Include reason in email payload
             },
         });
     }
