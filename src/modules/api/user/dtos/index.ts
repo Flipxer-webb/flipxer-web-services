@@ -184,3 +184,20 @@ export class UnflagUserDto {
     @IsNumber({}, { message: "User ID must be a number" })
     id: number;
 }
+
+// dtos.ts
+export class FlagUserDto {
+    @ApiProperty({
+        description: "The ID of the user to flag",
+    })
+    @IsNotEmpty()
+    @IsNumber({}, { message: "User ID must be a number" })
+    id: number;
+
+    @ApiProperty({
+        description: "The reason for flagging the user",
+    })
+    @IsNotEmpty()
+    @IsString()
+    reason: string;
+}

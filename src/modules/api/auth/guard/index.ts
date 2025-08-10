@@ -389,27 +389,90 @@ export class TransactionAmountGuard implements CanActivate {
         private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.COINGECKO)
         private readonly coinGeckoService: CoinGeckoService,
-        private readonly emailService: EmailService
+        private readonly emailService: EmailService,
+        private readonly jwtService: JwtService
     ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest<RequestWithUser>();
-        const user: User = request.user;
+        const token = this.extractTokenFromHeader(request);
+        let user: User | null = null; // Declare user variable in outer scope
+        if (!token) {
+            throw new InvalidAuthTokenException(
+                "Authorization header is missing",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+        try {
+            const payload: DataStoredInToken =
+                await this.jwtService.verifyAsync(token, {
+                    secret: jwtSecret,
+                });
+
+            const user = await this.prisma.user.findUnique({
+                where: {
+                    id: +payload.sub,
+                },
+                include: { role: { select: { name: true, slug: true } } },
+            });
+            if (!user) {
+                throw new UserNotFoundException(
+                    "Your session is unauthorized",
+                    HttpStatus.UNAUTHORIZED
+                );
+            }
+
+            if (user.isDeleted) {
+                throw new AccountDeletedException(
+                    "Account not found",
+                    HttpStatus.UNAUTHORIZED
+                );
+            }
+
+            request.user = user;
+        } catch (error) {
+            logger.error(error);
+            switch (true) {
+                case error instanceof UserNotFoundException: {
+                    throw error;
+                }
+
+                case error instanceof AccountDeletedException: {
+                    throw error;
+                }
+
+                case error instanceof UserForbiddenException: {
+                    throw error;
+                }
+
+                case error.name == "PrismaClientKnownRequestError": {
+                    throw new PrismaNetworkException(
+                        "Unable to process request. Please try again",
+                        HttpStatus.SERVICE_UNAVAILABLE
+                    );
+                }
+
+                default: {
+                    throw new AuthTokenValidationException(
+                        "Your session is unauthorized or expired",
+                        HttpStatus.UNAUTHORIZED
+                    );
+                }
+            }
+        }
+
+        // The user variable is already assigned to request.user, but we use request.user for consistency
         const body = request.body;
         const path = request.path;
 
-        if (!user) {
-            throw new UserNotFoundException("User not found", HttpStatus.UNAUTHORIZED);
-        }
-
         const flagged = await this.prisma.flagged.findUnique({
-            where: { userId: user.id },
+            where: { userId: request.user.id },
         });
 
         if (flagged?.flagged) {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-            await this.recordFailedTransaction(user, body.amount, body.currency, flagged.reason, path, transactionId);
-            await this.sendFlaggedEmail(user, flagged.reason, transactionId);
+            await this.recordFailedTransaction(request.user, body.amount, body.currency, flagged.reason, path, transactionId);
+            await this.sendFlaggedEmail(request.user, flagged.reason, transactionId);
             throw new GeneralTransactionException(
                 `Something went wrong. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
@@ -454,8 +517,8 @@ export class TransactionAmountGuard implements CanActivate {
             );
         }
 
-        const dailyLimit = user.userType === "INDIVIDUAL" ? 5000 : 10000;
-        const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
+        const dailyLimit = request.user.userType === "INDIVIDUAL" ? 5000 : 10000;
+        const monthlyLimit = request.user.userType === "INDIVIDUAL" ? 100000 : 500000;
 
         const now = new Date();
         const currentYear = now.getFullYear();
@@ -465,7 +528,7 @@ export class TransactionAmountGuard implements CanActivate {
         const dailyTransaction = await this.prisma.dailyTransaction.findUnique({
             where: {
                 userId_year_month_day: {
-                    userId: user.id,
+                    userId: request.user.id,
                     year: currentYear,
                     month: currentMonth,
                     day: currentDay,
@@ -478,12 +541,12 @@ export class TransactionAmountGuard implements CanActivate {
 
         if (newDailyTotal > dailyLimit) {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-            const reason = `Daily transaction limit exceeded for ${user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
+            const reason = `Daily transaction limit exceeded for ${request.user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
 
-            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+            await this.recordFailedTransaction(request.user, amount, currency, reason, path, transactionId);
 
             throw new GeneralTransactionException(
-                `Transaction failed: Daily limit of $${dailyLimit} exceeded for ${user.userType} (Current: $${currentDailyTotal}, Attempted: $${amountInUSD.amount}). Transaction ID: ${transactionId}`,
+                `Transaction failed: Daily limit of $${dailyLimit} exceeded for ${request.user.userType} (Current: $${currentDailyTotal}, Attempted: $${amountInUSD.amount}). Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
             );
         }
@@ -491,7 +554,7 @@ export class TransactionAmountGuard implements CanActivate {
         const monthlyTransaction = await this.prisma.monthlyTransaction.findUnique({
             where: {
                 userId_year_month: {
-                    userId: user.id,
+                    userId: request.user.id,
                     year: currentYear,
                     month: currentMonth,
                 },
@@ -503,13 +566,13 @@ export class TransactionAmountGuard implements CanActivate {
 
         if (newMonthlyTotal > monthlyLimit) {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-            const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
+            const reason = `Monthly transaction limit exceeded for ${request.user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
 
             await this.prisma.$transaction(async (tx) => {
                 const flaggedRecord = await tx.flagged.upsert({
-                    where: { userId: user.id },
+                    where: { userId: request.user.id },
                     create: {
-                        userId: user.id,
+                        userId: request.user.id,
                         flagged: true,
                         reason,
                         updatedAt: new Date(),
@@ -522,17 +585,17 @@ export class TransactionAmountGuard implements CanActivate {
                 });
 
                 await tx.user.update({
-                    where: { id: user.id },
+                    where: { id: request.user.id },
                     data: { flaggedId: flaggedRecord.id },
                 });
 
-                await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId, tx);
+                await this.recordFailedTransaction(request.user, amount, currency, reason, path, transactionId, tx);
             });
 
-            await this.sendFlaggedEmail(user, reason, transactionId);
+            await this.sendFlaggedEmail(request.user, reason, transactionId);
 
             throw new GeneralTransactionException(
-                `Transaction failed: Monthly limit of $${monthlyLimit} exceeded for ${user.userType} (Current: $${currentMonthlyTotal}, Attempted: $${amountInUSD.amount}). Transaction ID: ${transactionId}`,
+                `Transaction failed: Monthly limit of $${monthlyLimit} exceeded for ${request.user.userType} (Current: $${currentMonthlyTotal}, Attempted: $${amountInUSD.amount}). Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
             );
         }
@@ -541,14 +604,14 @@ export class TransactionAmountGuard implements CanActivate {
             await tx.dailyTransaction.upsert({
                 where: {
                     userId_year_month_day: {
-                        userId: user.id,
+                        userId: request.user.id,
                         year: currentYear,
                         month: currentMonth,
                         day: currentDay,
                     },
                 },
                 create: {
-                    userId: user.id,
+                    userId: request.user.id,
                     year: currentYear,
                     month: currentMonth,
                     day: currentDay,
@@ -563,13 +626,13 @@ export class TransactionAmountGuard implements CanActivate {
             await tx.monthlyTransaction.upsert({
                 where: {
                     userId_year_month: {
-                        userId: user.id,
+                        userId: request.user.id,
                         year: currentYear,
                         month: currentMonth,
                     },
                 },
                 create: {
-                    userId: user.id,
+                    userId: request.user.id,
                     year: currentYear,
                     month: currentMonth,
                     totalUSD: amountInUSD.amount,
@@ -641,8 +704,13 @@ export class TransactionAmountGuard implements CanActivate {
                 name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User",
                 transactionId,
                 team,
-                reason // Include reason in email payload
+                reason
             },
         });
+    }
+
+    private extractTokenFromHeader(request: Request): string | undefined {
+        const [type, token] = request.headers.authorization?.split(" ") ?? [];
+        return type === "Bearer" ? token : undefined;
     }
 }
