@@ -87,6 +87,15 @@ export class UserService {
                         swapToken: true,
                     },
                 },
+                flaggedRecord: {
+                    select: {
+                        id: true,
+                        flagged: true,
+                        reason: true,
+                        createdAt: true,
+                        updatedAt: true,
+                    },
+                },
             },
         });
 
