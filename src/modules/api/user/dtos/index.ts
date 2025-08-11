@@ -25,9 +25,9 @@ export class PaginationQueryDto {
         required: false,
     })
     @IsOptional()
-    @Transform(({ value }) => value ?? "true")
+    @Transform(({ value }) => value)
     @IsBooleanString()
-    paginated?: string;
+    paginated?: string = "true";
 
     @ApiProperty({
         description: "Page number desired : defaults to 1 - optional",
