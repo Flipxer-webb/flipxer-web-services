@@ -1,11 +1,12 @@
+// admin-user.controller.ts
 import {
     Controller,
     Get,
-    Post, // Added for the new endpoint
+    Post,
     Param,
     ParseIntPipe,
     Query,
-    Body, // Added for the request body
+    Body,
     UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
@@ -18,10 +19,10 @@ import { UserTypes } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
-import { GetUserListDto, UnflagUserDto } from "../../dtos"; // Ensure UnflagUserDto is imported
+import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../../dtos"; // Added FlagUserDto
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard) // Apply guards globally for the controller
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
 @UserTypes([UserType.ADMIN])
 @ApiTags("admin")
 @Controller({
@@ -66,5 +67,12 @@ export class AdminUserController {
     @Post("unflag")
     async unflagUser(@Body() dto: UnflagUserDto) {
         return await this.adminService.unflagUser(dto);
+    }
+
+    @ApiOperation({ summary: "Admin flags a user account" })
+    @ApiBearerAuth("access-token")
+    @Post("flag")
+    async flagUser(@Body() dto: FlagUserDto) {
+        return await this.adminService.flagUser(dto);
     }
 }

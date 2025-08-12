@@ -23,6 +23,7 @@ import { CountryBlockGuard } from "../../guard";
 @Controller({
     path: "admin/auth",
 })
+
 export class AdminAuthController {
     constructor(private authService: AuthService) {}
 

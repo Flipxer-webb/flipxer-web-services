@@ -16,7 +16,7 @@ import {
     MaxLength,
     MinLength,
 } from "class-validator";
-import { Type } from "class-transformer"; // Added for type conversion
+import { Type } from "class-transformer";
 
 enum Gender {
     MALE = "MALE",
@@ -87,8 +87,6 @@ export class ResetPasswordDto extends CreatePasswordDto {
     @IsNotEmpty()
     @IsString()
     resetCode: string;
-
-    // password field is inherited from CreatePasswordDto
 }
 
 enum AccountType {
@@ -106,6 +104,15 @@ export class SignUpDto {
     @IsNotEmpty()
     @IsEmail({}, { message: "Invalid email address" })
     email: string;
+
+    @ApiProperty({
+        description: "Optional Flagged record ID for the user",
+        required: false,
+    })
+    @IsOptional()
+    @IsNumber({}, { message: "Flagged ID must be a number" })
+    @Type(() => Number) // Ensure string-to-number conversion for JSON input
+    flaggedId?: number;
 }
 
 export class BvnVerificationDto {

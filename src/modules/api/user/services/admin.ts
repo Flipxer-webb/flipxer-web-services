@@ -1,3 +1,4 @@
+// admin-user.service.ts
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildPaginationMeta, defaultPagination } from "@/utils";
@@ -7,14 +8,14 @@ import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { endOfMonth, startOfMonth } from "date-fns";
-import { GetUserListDto, UnflagUserDto } from "../dtos";
+import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../dtos"; // Added FlagUserDto
 import { Prisma, User } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
-import { GetUserTransactionListDto } from "../../transactions/dtos";
 import {
     shapeTransaction,
     TransactionIncludeOptions,
 } from "../../transactions/types";
+import { GetUserTransactionListDto } from "../../transactions/dtos";
 
 @Injectable()
 export class AdminUserService {
@@ -135,6 +136,12 @@ export class AdminUserService {
                 status: true,
                 userType: true,
                 createdAt: true,
+                flaggedRecord: {
+                    select: {
+                        flagged: true,
+                        reason: true,
+                    },
+                },
             },
         };
 
@@ -184,6 +191,12 @@ export class AdminUserService {
                 businessDocument: true,
                 userDocument: true,
                 businessRecord: true,
+                flaggedRecord: {
+                    select: {
+                        flagged: true,
+                        reason: true,
+                    },
+                },
             },
         });
 
@@ -298,7 +311,6 @@ export class AdminUserService {
             select: {
                 id: true,
                 flaggedRecord: {
-                    // Changed from flagged to flaggedRecord
                     select: {
                         flagged: true,
                         reason: true,
@@ -315,43 +327,125 @@ export class AdminUserService {
             );
         }
 
-        const flagged = user.flaggedRecord || { flagged: false, reason: "" };
-
-        if (!flagged.flagged) {
+        if (!user.flaggedRecord || !user.flaggedRecord.flagged) {
             return buildResponse({
                 message: "Account is not flagged.",
+                data: { flaggedRecord: { flagged: false, reason: "" } },
             });
         }
 
         await this.prisma.$transaction(async (tx) => {
-            const flaggedRecord = await tx.flagged.upsert({
-                where: { userId: user.id },
-                create: {
-                    userId: user.id,
-                    flagged: false,
-                    reason: "",
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                },
-                update: {
-                    flagged: false,
-                    reason: "",
-                    updatedAt: new Date(),
-                },
-            });
-
-            await tx.user.update({
-                where: { id: user.id },
-                data: {
-                    flaggedId: flaggedRecord.id,
-                    loginCount: 0,
-                    updatedAt: new Date(),
-                },
-            });
+            let flaggedRecord;
+            if (user.flaggedId) {
+                // Update existing Flagged record
+                flaggedRecord = await tx.flagged.update({
+                    where: { id: user.flaggedId },
+                    data: {
+                        flagged: false,
+                        reason: "",
+                        updatedAt: new Date(),
+                    },
+                });
+            } else {
+                // Create new Flagged record if none exists
+                flaggedRecord = await tx.flagged.create({
+                    data: {
+                        userId: user.id,
+                        flagged: false,
+                        reason: "",
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    },
+                });
+                // Update user with new flaggedId
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        flaggedId: flaggedRecord.id,
+                        loginCount: 0,
+                        updatedAt: new Date(),
+                    },
+                });
+            }
         });
 
         return buildResponse({
             message: "Account unflagged successfully.",
+            data: { flaggedRecord: { flagged: false, reason: "" } },
+        });
+    }
+
+    async flagUser(dto: FlagUserDto): Promise<ApiResponse> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: dto.id },
+            select: {
+                id: true,
+                flaggedRecord: {
+                    select: {
+                        flagged: true,
+                        reason: true,
+                    },
+                },
+                flaggedId: true,
+            },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException(
+                "Account with ID not found.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (user.flaggedRecord && user.flaggedRecord.flagged) {
+            return buildResponse({
+                message: "Account is already flagged.",
+                data: {
+                    flaggedRecord: {
+                        flagged: true,
+                        reason: user.flaggedRecord.reason,
+                    },
+                },
+            });
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            let flaggedRecord;
+            if (user.flaggedId) {
+                // Update existing Flagged record
+                flaggedRecord = await tx.flagged.update({
+                    where: { id: user.flaggedId },
+                    data: {
+                        flagged: true,
+                        reason: dto.reason,
+                        updatedAt: new Date(),
+                    },
+                });
+            } else {
+                // Create new Flagged record
+                flaggedRecord = await tx.flagged.create({
+                    data: {
+                        userId: user.id,
+                        flagged: true,
+                        reason: dto.reason,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    },
+                });
+                // Update user with new flaggedId
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        flaggedId: flaggedRecord.id,
+                        updatedAt: new Date(),
+                    },
+                });
+            }
+        });
+
+        return buildResponse({
+            message: "Account flagged successfully.",
+            data: { flaggedRecord: { flagged: true, reason: dto.reason } },
         });
     }
 }

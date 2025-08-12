@@ -5,11 +5,9 @@ import {
     Get,
     HttpCode,
     HttpStatus,
-    Param,
     Post,
     Query,
     UseGuards,
-    ValidationPipe,
 } from "@nestjs/common";
 import { TradingService } from "../../services";
 import {
@@ -23,7 +21,7 @@ import {
     AuthGuard,
     CountryBlockGuard,
     TransactionAmountGuard,
-} from "@/modules/api/auth/guard"; // Added TransactionAmountGuard
+} from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
@@ -54,56 +52,56 @@ export class TradingController {
     constructor(private tradingService: TradingService) {}
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get supported assets list" })
+    @ApiOperation({ summary: "Get supported assets list" })
     @Get("supported-assets")
     async getSupportedAssets() {
         return this.tradingService.getSupportedAssets();
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get supported payment methods" })
+    @ApiOperation({ summary: "Get supported payment methods" })
     @Get("supported-payment-methods")
     async getSupportedPaymentMethod(@Query() query: SupportedPaymentMethodDto) {
         return this.tradingService.getSupportedPaymentMethod(query);
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get supported network list" })
+    @ApiOperation({ summary: "Get supported network list" })
     @Get("supported-networks")
     async getSupportedNetworks() {
         return this.tradingService.getSupportedNetworks();
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get supported trading pair list" })
+    @ApiOperation({ summary: "Get supported trading pair list" })
     @Get("supported-trading-pairs")
     async getSupportedTradingPairs() {
         return this.tradingService.getSupportedTradingPairs();
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get supported payment methods" })
+    @ApiOperation({ summary: "Get supported payment methods" })
     @Get("purchase-limits/buy")
     async getPurchaseLimitForBuy(@Query() query: PurchaseLimitBuyDto) {
         return this.tradingService.getPurchaseLimitForBuy(query);
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "verify wallet address" })
+    @ApiOperation({ summary: "Verify wallet address" })
     @Get("verify-wallet-address")
     async verifyWalletAddress(@Query() dto: VerifyWalletAddressDto) {
         return this.tradingService.verifyWalletAddress(dto);
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get crypto withdrawer fee" })
+    @ApiOperation({ summary: "Get crypto withdrawer fee" })
     @Get("withdrawer-fee")
     async getWithdrawerFee(@Query() dto: GetCryptoWithdrawerFeeDto) {
         return this.tradingService.getCryptoWithdrawerFee(dto);
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get wallet info" })
+    @ApiOperation({ summary: "Get wallet info for the authenticated user" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Get("get-wallet-info")
@@ -116,7 +114,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "initiate wallet address generation",
+        summary:
+            "Initiate wallet address generation for the authenticated user",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -134,7 +133,7 @@ export class TradingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
         summary:
-            "manual crypto account creation for user that missed auto generation",
+            "Manually trigger crypto account creation for users who missed auto-generation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -145,9 +144,10 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "initiate a buy order request",
+        summary:
+            "Initiate a buy order request. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("buy/quote")
     async buyCrypto(@Body() dto: InitiateBuyOrderDto, @User() user: UserModel) {
@@ -156,9 +156,10 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "confirm buy order",
+        summary:
+            "Confirm a buy order. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard) // Added TransactionAmountGuard
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("buy/order")
     async buyCryptoOrder(
@@ -170,9 +171,10 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "initiate a sell order request",
+        summary:
+            "Initiate a sell order request. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/quote")
     async sellCryptoRequest(
@@ -184,7 +186,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "confirm sell order",
+        summary:
+            "Confirm a sell order. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
@@ -199,9 +202,9 @@ export class TradingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
         summary:
-            "endpoint is used to generate an instant swap quotation. Please note that the instant swap quotation is valid for only 15 seconds. To refresh the swap and obtain a new quotation, you can use the Refresh Instant Swap endpoint.",
+            "Generate an instant swap quotation, valid for 15 seconds. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent. Use the Refresh Instant Swap endpoint to obtain a new quotation.",
     })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("request-instant-swap-quote")
     async createInstantSwap(
@@ -213,9 +216,9 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "endpoint is used to confirm an instant swap quotation",
+        summary: "Confirm an instant swap quotation",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("confirm-instant-swap-quote")
     async confirmInstantSwapQuote(
@@ -227,9 +230,10 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "endpoint is used to refresh an instant swap quotation",
+        summary:
+            "Refresh an instant swap quotation. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("refresh-instant-swap-quote")
     async refreshInstantSwapQuote(
@@ -242,10 +246,11 @@ export class TradingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
         summary:
-            "This end point initiates the withdrawal - verify the details before proceeding with the withdrawal process. Once submitted, funds cannot be recovered if sent to an incorrect address.",
+            "Initiate a withdrawal. Verify details before proceeding, as funds cannot be recovered if sent to an incorrect address. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBody({ type: WithdrawerRequestDto })
+    @ApiBearerAuth("access-token")
     @Post("withdrawer-request")
     async withdrawerRequest(
         @Body() dto: WithdrawerRequestDto,
@@ -257,7 +262,7 @@ export class TradingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
         summary:
-            "users can cancel withdrawal requests within a 6-second window after initiating the withdrawal",
+            "Cancel a withdrawal request within a 6-second window after initiation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
