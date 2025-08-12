@@ -16,7 +16,7 @@ export class ManageOrdersSchedulerService {
     ) {}
 
     //every 1hr "0 */1 * * *"
-    @Cron("0 */1 * * *", { timeZone: "Africa/Lagos" })
+    @Cron("0/2 * * * *", { timeZone: "Africa/Lagos" })
     async verifySwapTransaction() {
         this.logger.debug("Cron job triggered!");
 

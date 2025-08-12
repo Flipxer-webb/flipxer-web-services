@@ -7,7 +7,7 @@ import {
     quidaxConfig,
     COMPANY_NAME,
     mailConfig,
-    emailTemplateConfig
+    emailTemplateConfig,
 } from "@/config";
 import {
     CanActivate,
@@ -16,7 +16,7 @@ import {
     HttpStatus,
     Injectable,
     Inject,
-    Logger
+    Logger,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
@@ -54,7 +54,11 @@ import {
     WsUserNotFoundException,
 } from "../errors/ws";
 import { EmailService } from "@/modules/core/email/services";
-import { OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
+import {
+    OrderCategory,
+    OrderStatus,
+    OrderStreamlinedStatus,
+} from "@prisma/client";
 import {
     GeneralTransactionException,
     InvalidTransactionAmountException,
@@ -325,7 +329,11 @@ export const TradingInjectionToken = {
 export class CoinGeckoService {
     constructor(private readonly redisCacheService: RedisCacheService) {}
 
-    async getPriceInUSD(asset: string, retries = 3, delay = 1000): Promise<number> {
+    async getPriceInUSD(
+        asset: string,
+        retries = 3,
+        delay = 1000
+    ): Promise<number> {
         const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
         const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
         if (cachedPrice) return cachedPrice;
@@ -350,17 +358,24 @@ export class CoinGeckoService {
             xlm: "stellar",
             algo: "algorand",
             atom: "cosmos",
-            dai: "dai"
+            dai: "dai",
         };
-        const coinGeckoId = coinGeckoIdMap[asset.toLowerCase()] || asset.toLowerCase();
+        const coinGeckoId =
+            coinGeckoIdMap[asset.toLowerCase()] || asset.toLowerCase();
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
-                    params: { ids: coinGeckoId, vs_currencies: "usd" },
-                });
+                const response = await axios.get(
+                    "https://api.coingecko.com/api/v3/simple/price",
+                    {
+                        params: { ids: coinGeckoId, vs_currencies: "usd" },
+                    }
+                );
                 const rate = response.data[coinGeckoId]?.usd;
-                if (!rate) throw new Error(`No price data for ${asset} (ID: ${coinGeckoId})`);
+                if (!rate)
+                    throw new Error(
+                        `No price data for ${asset} (ID: ${coinGeckoId})`
+                    );
                 await this.redisCacheService.set(cacheKey, rate, 5 * 60); // Cache for 5 minutes
                 return rate;
             } catch (error) {
@@ -470,9 +485,23 @@ export class TransactionAmountGuard implements CanActivate {
         });
 
         if (flagged?.flagged) {
-            const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-            await this.recordFailedTransaction(request.user, body.amount, body.currency, flagged.reason, path, transactionId);
-            await this.sendFlaggedEmail(request.user, flagged.reason, transactionId);
+            const transactionId = customAlphabet(
+                "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                10
+            )();
+            await this.recordFailedTransaction(
+                request.user,
+                body.amount,
+                body.currency,
+                flagged.reason,
+                path,
+                transactionId
+            );
+            await this.sendFlaggedEmail(
+                request.user,
+                flagged.reason,
+                transactionId
+            );
             throw new GeneralTransactionException(
                 `Something went wrong. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
@@ -491,9 +520,14 @@ export class TransactionAmountGuard implements CanActivate {
             amount = body.amount;
             currency = body.asset?.toUpperCase();
             orderCategory = OrderCategory.SELL;
-        } else if (path.includes("request-instant-swap-quote") || path.includes("refresh-instant-swap-quote")) {
+        } else if (
+            path.includes("request-instant-swap-quote") ||
+            path.includes("refresh-instant-swap-quote")
+        ) {
             amount = body.from_amount || body.to_amount;
-            currency = body.from_amount ? body.from_currency?.toUpperCase() : body.to_currency?.toUpperCase();
+            currency = body.from_amount
+                ? body.from_currency?.toUpperCase()
+                : body.to_currency?.toUpperCase();
             orderCategory = OrderCategory.SWAP;
         } else if (path.includes("withdrawer-request")) {
             amount = body.amount;
@@ -517,8 +551,10 @@ export class TransactionAmountGuard implements CanActivate {
             );
         }
 
-        const dailyLimit = request.user.userType === "INDIVIDUAL" ? 5000 : 10000;
-        const monthlyLimit = request.user.userType === "INDIVIDUAL" ? 100000 : 500000;
+        const dailyLimit =
+            request.user.userType === "INDIVIDUAL" ? 5000 : 10000;
+        const monthlyLimit =
+            request.user.userType === "INDIVIDUAL" ? 100000 : 500000;
 
         const now = new Date();
         const currentYear = now.getFullYear();
@@ -540,10 +576,20 @@ export class TransactionAmountGuard implements CanActivate {
         const newDailyTotal = currentDailyTotal + amountInUSD.amount;
 
         if (newDailyTotal > dailyLimit) {
-            const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+            const transactionId = customAlphabet(
+                "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                10
+            )();
             const reason = `Daily transaction limit exceeded for ${request.user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
 
-            await this.recordFailedTransaction(request.user, amount, currency, reason, path, transactionId);
+            await this.recordFailedTransaction(
+                request.user,
+                amount,
+                currency,
+                reason,
+                path,
+                transactionId
+            );
 
             throw new GeneralTransactionException(
                 `Transaction failed: Daily limit of $${dailyLimit} exceeded for ${request.user.userType} (Current: $${currentDailyTotal}, Attempted: $${amountInUSD.amount}). Transaction ID: ${transactionId}`,
@@ -551,21 +597,25 @@ export class TransactionAmountGuard implements CanActivate {
             );
         }
 
-        const monthlyTransaction = await this.prisma.monthlyTransaction.findUnique({
-            where: {
-                userId_year_month: {
-                    userId: request.user.id,
-                    year: currentYear,
-                    month: currentMonth,
+        const monthlyTransaction =
+            await this.prisma.monthlyTransaction.findUnique({
+                where: {
+                    userId_year_month: {
+                        userId: request.user.id,
+                        year: currentYear,
+                        month: currentMonth,
+                    },
                 },
-            },
-        });
+            });
 
         const currentMonthlyTotal = monthlyTransaction?.totalUSD || 0;
         const newMonthlyTotal = currentMonthlyTotal + amountInUSD.amount;
 
         if (newMonthlyTotal > monthlyLimit) {
-            const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+            const transactionId = customAlphabet(
+                "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                10
+            )();
             const reason = `Monthly transaction limit exceeded for ${request.user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
 
             await this.prisma.$transaction(async (tx) => {
@@ -589,7 +639,15 @@ export class TransactionAmountGuard implements CanActivate {
                     data: { flaggedId: flaggedRecord.id },
                 });
 
-                await this.recordFailedTransaction(request.user, amount, currency, reason, path, transactionId, tx);
+                await this.recordFailedTransaction(
+                    request.user,
+                    amount,
+                    currency,
+                    reason,
+                    path,
+                    transactionId,
+                    tx
+                );
             });
 
             await this.sendFlaggedEmail(request.user, reason, transactionId);
@@ -647,7 +705,10 @@ export class TransactionAmountGuard implements CanActivate {
         return true;
     }
 
-    async getAmountInUSD(asset: string, amount: number): Promise<{ amount?: number; rate?: number } | null> {
+    async getAmountInUSD(
+        asset: string,
+        amount: number
+    ): Promise<{ amount?: number; rate?: number } | null> {
         const rate = await this.coinGeckoService.getPriceInUSD(asset);
         return {
             amount: amount * rate,
@@ -669,7 +730,10 @@ export class TransactionAmountGuard implements CanActivate {
             orderCategory = OrderCategory.BUY;
         } else if (path.includes("sell/order") || path.includes("sell/quote")) {
             orderCategory = OrderCategory.SELL;
-        } else if (path.includes("request-instant-swap-quote") || path.includes("refresh-instant-swap-quote")) {
+        } else if (
+            path.includes("request-instant-swap-quote") ||
+            path.includes("refresh-instant-swap-quote")
+        ) {
             orderCategory = OrderCategory.SWAP;
         } else if (path.includes("withdrawer-request")) {
             orderCategory = OrderCategory.SEND;
@@ -693,7 +757,11 @@ export class TransactionAmountGuard implements CanActivate {
         });
     }
 
-    private async sendFlaggedEmail(user: User, reason: string, transactionId: string): Promise<void> {
+    private async sendFlaggedEmail(
+        user: User,
+        reason: string,
+        transactionId: string
+    ): Promise<void> {
         const team = COMPANY_NAME;
 
         await this.emailService.sendMailWithTemplate({
@@ -701,10 +769,12 @@ export class TransactionAmountGuard implements CanActivate {
             to: [{ email_address: { address: user.email } }],
             template_key: emailTemplateConfig.transaction_failed,
             merge_info: {
-                name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User",
+                name:
+                    `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+                    "User",
                 transactionId,
                 team,
-                reason
+                reason,
             },
         });
     }

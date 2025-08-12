@@ -321,7 +321,10 @@ export class AdminUserService {
         });
 
         if (!user) {
-            throw new UserNotFoundException("Account with ID not found.", HttpStatus.BAD_REQUEST);
+            throw new UserNotFoundException(
+                "Account with ID not found.",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         if (!user.flaggedRecord || !user.flaggedRecord.flagged) {
@@ -388,13 +391,21 @@ export class AdminUserService {
         });
 
         if (!user) {
-            throw new UserNotFoundException("Account with ID not found.", HttpStatus.BAD_REQUEST);
+            throw new UserNotFoundException(
+                "Account with ID not found.",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         if (user.flaggedRecord && user.flaggedRecord.flagged) {
             return buildResponse({
                 message: "Account is already flagged.",
-                data: { flaggedRecord: { flagged: true, reason: user.flaggedRecord.reason } },
+                data: {
+                    flaggedRecord: {
+                        flagged: true,
+                        reason: user.flaggedRecord.reason,
+                    },
+                },
             });
         }
 

@@ -99,7 +99,13 @@ export class NotificationService {
             this.prisma.notification.count({
                 where: queryOptions.where,
             }),
-            this.prisma.notification.findMany(queryOptions),
+            this.prisma.notification.findMany({
+                ...queryOptions,
+                ...(query.paginated === "true" && {
+                    skip: (resolvedPageNumber - 1) * resolvedPageSize,
+                    take: resolvedPageSize,
+                }),
+            }),
         ]);
 
         const responseData: DataWithPagination<any> = {
