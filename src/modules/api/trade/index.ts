@@ -16,7 +16,11 @@ import { WsService } from "./services/websocket.service";
 import { AuthModule } from "@/modules/api/auth"; // Correct import
 import { PrismaModule } from "@/modules/core/prisma"; // Added for PrismaService
 import { EmailModule } from "@/modules/core/email"; // Added for EmailService
-import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from "@/modules/api/auth/guard";
+import {
+    TransactionAmountGuard,
+    CoinGeckoService,
+    TradingInjectionToken,
+} from "@/modules/api/auth/guard";
 
 export * from "./interfaces";
 export * from "./errors";

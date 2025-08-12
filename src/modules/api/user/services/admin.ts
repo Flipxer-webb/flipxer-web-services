@@ -297,7 +297,8 @@ export class AdminUserService {
             where: { id: dto.id },
             select: {
                 id: true,
-                flaggedRecord: { // Changed from flagged to flaggedRecord
+                flaggedRecord: {
+                    // Changed from flagged to flaggedRecord
                     select: {
                         flagged: true,
                         reason: true,
@@ -308,7 +309,10 @@ export class AdminUserService {
         });
 
         if (!user) {
-            throw new UserNotFoundException("Account with ID not found.", HttpStatus.BAD_REQUEST);
+            throw new UserNotFoundException(
+                "Account with ID not found.",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         const flagged = user.flaggedRecord || { flagged: false, reason: "" };
