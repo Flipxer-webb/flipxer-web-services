@@ -16,8 +16,8 @@ import {
 import { AuthService } from "../../auth/services";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
-import { UploadApiResponse } from "cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
+import { UploadApiResponse } from "cloudinary";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import {
     GetUserAssetsDto,
@@ -25,6 +25,7 @@ import {
     UpdateUserDetailsDto,
     SendRecoveryEmailOtpDto,
     VerifyRecoveryEmailOtpDto,
+    GetUserListDto,
 } from "../dtos";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
@@ -64,6 +65,7 @@ export class UserService {
                 firstName: true,
                 lastName: true,
                 email: true,
+                recoveryEmail: true,
                 photo: true,
                 phone: true,
                 userType: true,
@@ -122,9 +124,160 @@ export class UserService {
             message: "Profile successfully retrieved",
             data: {
                 ...profile,
+                recoveryEmail: profile.recoveryEmail || null, 
                 assetWallet: defaultWallet,
             },
         };
+    }
+
+    async getUserList(query: GetUserListDto) {
+        const { pageNumber, pageSize, sortBy, status, accountType, startDate, endDate, searchText, paginated } = query;
+
+        const resolvedPageNumber = !pageNumber || pageNumber <= 1 ? defaultPagination.pageNumber : pageNumber;
+        const resolvedPageSize = !pageSize || pageSize <= 0 ? defaultPagination.pageSize : pageSize;
+
+        const dbQuery: Prisma.UserFindManyArgs = {
+            where: {
+                isDeleted: false,
+                ...(status && { status }),
+                ...(accountType && { userType: accountType }),
+                ...(startDate && endDate && {
+                    createdAt: {
+                        gte: new Date(startDate),
+                        lte: new Date(endDate),
+                    },
+                }),
+                ...(searchText && {
+                    OR: [
+                        { firstName: { contains: searchText, mode: "insensitive" } },
+                        { lastName: { contains: searchText, mode: "insensitive" } },
+                        { email: { contains: searchText, mode: "insensitive" } },
+                        { phone: { contains: searchText, mode: "insensitive" } },
+                    ],
+                }),
+            },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                recoveryEmail: true, // Added recoveryEmail
+                phone: true,
+                photo: true,
+                status: true,
+                userType: true,
+                createdAt: true,
+            },
+            orderBy: { createdAt: sortBy },
+        };
+
+        const [users, count] = await this.prisma.$transaction([
+            this.prisma.user.findMany({
+                ...dbQuery,
+                ...(paginated === "true" && {
+                    skip: (resolvedPageNumber - 1) * resolvedPageSize,
+                    take: resolvedPageSize,
+                }),
+            }),
+            this.prisma.user.count({ where: dbQuery.where }),
+        ]);
+
+        return {
+            success: true,
+            message: "Users list retrieved",
+            data: {
+                meta: buildPaginationMeta(resolvedPageNumber, resolvedPageSize, count, users.length),
+                records: users.map(user => ({
+                    id: user.id,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    email: user.email,
+                    recoveryEmail: user.recoveryEmail || null, // Ensure null if not set
+                    phone: user.phone,
+                    photo: user.photo,
+                    status: user.status,
+                    userType: user.userType,
+                    createdAt: user.createdAt,
+                })),
+            },
+        };
+    }
+
+    async updateUserDetails(
+        options: UpdateUserDetailsDto,
+        user: User,
+        photo?: Express.Multer.File
+    ) {
+        if (!photo) {
+            throw new AuthGenericException(
+                "Profile photo is required to update user details",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {};
+
+        try {
+            const uploadResponse = await this.uploadProfileImage(photo);
+            if (user?.photoFileId) {
+                try {
+                    await this.uploadService.removeImage({
+                        fileId: user.photoFileId,
+                        key: process.env.IMAGEKIT_PRIVATE_KEY,
+                    });
+                } catch (error) {
+                    Logger.error(`Failed to delete image ${user.photoFileId}:`, error);
+                }
+            }
+            profileUpdateOptions.photo = uploadResponse.url;
+            profileUpdateOptions.photoFileId = uploadResponse.fileId;
+        } catch (error) {
+            Logger.error(`Failed to upload profile image for user ${user.id}:`, error);
+            throw new AuthGenericException(
+                "Failed to update profile image",
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        }
+
+        const updatedUser = await this.prisma.user.update({
+            where: { id: user.id },
+            data: profileUpdateOptions,
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                recoveryEmail: true, 
+                photo: true,
+                phone: true,
+                gender: true,
+                dateOfBirth: true,
+                country: true,
+            },
+        });
+
+        return {
+            message: "Profile photo updated successfully",
+            data: {
+                ...updatedUser,
+                recoveryEmail: updatedUser.recoveryEmail || null, // Ensure null if not set
+            },
+        };
+    }
+
+    private async uploadProfileImage(
+        file: Express.Multer.File
+    ): Promise<UploadApiResponse | UploadResponse> {
+        const date = Date.now();
+        return await this.uploadService.uploadCompressedImage({
+            dir: storageDirConfig.profile,
+            name: `profile-image-${date}-${generateRandomNum(5)}`,
+            format: "webp",
+            body: file.buffer,
+            quality: 100,
+            width: 320,
+            type: "image",
+        });
     }
 
     async getUserAggregatedWalletBalance(user: User) {
@@ -261,88 +414,6 @@ export class UserService {
 
         const change = ((last - open) / open) * 100;
         return parseFloat(change.toFixed(2));
-    }
-
-    private async uploadProfileImage(
-        file: Express.Multer.File
-    ): Promise<UploadApiResponse | UploadResponse> {
-        const date = Date.now();
-        return await this.uploadService.uploadCompressedImage({
-            dir: storageDirConfig.profile,
-            name: `profile-image-${date}-${generateRandomNum(5)}`,
-            format: "webp",
-            body: file.buffer, // Use file buffer directly
-            quality: 100,
-            width: 320,
-            type: "image",
-        });
-    }
-
-    async updateUserDetails(
-        options: UpdateUserDetailsDto,
-        user: User,
-        photo?: Express.Multer.File
-    ) {
-        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {
-            firstName: options.firstName ?? user.firstName,
-            lastName: options.lastName ?? user.lastName,
-            phone: options.phone ?? user.phone,
-            gender: options.gender ?? user.gender,
-            country: options.country ?? user.country,
-            dateOfBirth: new Date(options.dateOfBirth) ?? user.dateOfBirth,
-        };
-
-        if (options.phone) {
-            const phoneExist = await this.prisma.user.findFirst({
-                where: { id: { not: user.id }, phone: options.phone },
-            });
-            if (phoneExist) {
-                throw new DuplicateUserException(
-                    "Phone already in use by another",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-        }
-
-        if (photo) {
-            const uploadResponse = await this.uploadProfileImage(photo);
-            if (user?.photoFileId) {
-                try {
-                    await this.uploadService.removeImage({
-                        fileId: user.photoFileId,
-                        key: process.env.IMAGEKIT_PRIVATE_KEY,
-                    });
-                } catch (error) {
-                    Logger.error(
-                        `Failed to delete image ${user.photoFileId}:`,
-                        error
-                    );
-                }
-            }
-            profileUpdateOptions.photo = uploadResponse.url;
-            profileUpdateOptions.photoFileId = uploadResponse.fileId;
-        }
-
-        const updatedUser = await this.prisma.user.update({
-            where: { id: user.id },
-            data: profileUpdateOptions,
-            select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                photo: true,
-                phone: true,
-                gender: true,
-                dateOfBirth: true,
-                country: true,
-            },
-        });
-
-        return {
-            message: "User details updated successfully",
-            data: updatedUser,
-        };
     }
 
     async updateProfilePassword(options: UpdateProfilePasswordDto, user: User) {

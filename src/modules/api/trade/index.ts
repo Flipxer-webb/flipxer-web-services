@@ -13,11 +13,13 @@ import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
 import { UserModule } from "../user";
 import { WsGateway } from "./gateway/v1";
 import { WsService } from "./services/websocket.service";
-import { AuthModule } from "@/modules/api/auth"; // Correct import
-import { PrismaModule } from "@/modules/core/prisma"; // Added for PrismaService
-import { EmailModule } from "@/modules/core/email"; // Added for EmailService
-import { TransactionAmountGuard, CoinGeckoService, TradingInjectionToken } from "@/modules/api/auth/guard";
-
+import { AuthModule } from "@/modules/api/auth";
+import { PrismaModule } from "@/modules/core/prisma";
+import { EmailModule } from "@/modules/core/email";
+import { TransactionAmountGuard } from "@/modules/api/auth/guard";
+import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { TransactionService } from "../auth/services/transaction.service";
 export * from "./interfaces";
 export * from "./errors";
 
@@ -28,9 +30,9 @@ export * from "./errors";
         TradingFactoryModule,
         BankFactoryModule,
         forwardRef(() => UserModule),
-        forwardRef(() => AuthModule), // Provides TransactionAmountGuard and CoinGeckoService
-        PrismaModule, // Added to provide PrismaService
-        EmailModule, // Added to provide EmailService
+        forwardRef(() => AuthModule),
+        PrismaModule,
+        EmailModule,
     ],
     controllers: [TradingController],
     providers: [
@@ -41,6 +43,7 @@ export * from "./errors";
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,
         WsService,
+        TransactionService,
         TransactionAmountGuard,
         {
             provide: TradingInjectionToken.COINGECKO,

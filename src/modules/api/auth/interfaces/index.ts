@@ -1,6 +1,12 @@
-import { User } from "@prisma/client";
+import { 
+    User,
+    Status,
+    UserType,
+    DocumentVerificationStatus
+} from "@prisma/client";
 import { Request } from "express";
 import { UserSigInDto } from "../dtos";
+
 
 export interface DataStoredInToken {
     sub: string;
@@ -40,6 +46,38 @@ export interface DocumentVerificationFileInterface {
 
 interface PaystackHeader {
     ["x-paystack-signature"]: string;
+}
+
+export interface VerificationStatus {
+    isEmailVerified: boolean;
+    isPhoneVerified: boolean;
+    isPasswordCreated: boolean;
+    isBvnVerified: boolean;
+    isDocumentVerified: boolean;
+    businessRecordCompleted?: boolean;
+    businessDocumentVerificationStatus?: string | null;
+}
+
+// Custom type for signIn query result
+export interface SignInUser {
+    id: number;
+    identifier: string;
+    password: string;
+    userType: UserType;
+    status: Status;
+    role: { name: string; rolePermission: any[] };
+    lastLogin: Date | null;
+    loginCount: number | null;
+    flaggedRecord: { flagged: boolean; reason: string } | null;
+    flaggedId: number | null;
+    email: string;
+    isEmailVerified: boolean;
+    isPhoneVerified: boolean;
+    isPasswordCreated: boolean;
+    isBvnVerified: boolean;
+    isDocumentVerified: boolean;
+    businessRecordCompleted: boolean;
+    businessDocumentVerificationStatus: DocumentVerificationStatus | null;
 }
 
 export type RequestFromPaystack = Request & { headers: PaystackHeader };
