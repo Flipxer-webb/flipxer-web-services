@@ -17,7 +17,11 @@ import {
     ApiBody,
     ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
-import { AuthGuard, CountryBlockGuard, TransactionAmountGuard } from "@/modules/api/auth/guard";
+import {
+    AuthGuard,
+    CountryBlockGuard,
+    TransactionAmountGuard,
+} from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
@@ -110,7 +114,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Initiate wallet address generation for the authenticated user",
+        summary:
+            "Initiate wallet address generation for the authenticated user",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -127,7 +132,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Manually trigger crypto account creation for users who missed auto-generation",
+        summary:
+            "Manually trigger crypto account creation for users who missed auto-generation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -138,7 +144,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Initiate a buy order request. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
+        summary:
+            "Initiate a buy order request. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
@@ -149,7 +156,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Confirm a buy order. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
+        summary:
+            "Confirm a buy order. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
@@ -163,7 +171,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Initiate a sell order request. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
+        summary:
+            "Initiate a sell order request. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
@@ -177,7 +186,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Confirm a sell order. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
+        summary:
+            "Confirm a sell order. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
@@ -191,7 +201,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Generate an instant swap quotation, valid for 15 seconds. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent. Use the Refresh Instant Swap endpoint to obtain a new quotation.",
+        summary:
+            "Generate an instant swap quotation, valid for 15 seconds. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent. Use the Refresh Instant Swap endpoint to obtain a new quotation.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
@@ -219,7 +230,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Refresh an instant swap quotation. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
+        summary:
+            "Refresh an instant swap quotation. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
@@ -233,7 +245,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Initiate a withdrawal. Verify details before proceeding, as funds cannot be recovered if sent to an incorrect address. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
+        summary:
+            "Initiate a withdrawal. Verify details before proceeding, as funds cannot be recovered if sent to an incorrect address. If the user is flagged, the transaction is blocked, recorded as failed with a unique transaction ID, and an email is sent prompting the user to contact support. If the transaction exceeds the daily limit ($5,000 for individuals, $10,000 for others) or monthly limit ($100,000 for individuals, $500,000 for others), it is blocked, recorded as failed, and for monthly limit violations, the user is flagged and an email is sent.",
     })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBody({ type: WithdrawerRequestDto })
@@ -248,7 +261,8 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({
-        summary: "Cancel a withdrawal request within a 6-second window after initiation",
+        summary:
+            "Cancel a withdrawal request within a 6-second window after initiation",
     })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")

@@ -161,7 +161,7 @@ export class UserService {
                 firstName: true,
                 lastName: true,
                 email: true,
-                recoveryEmail: true, // Added recoveryEmail
+                recoveryEmail: true,
                 phone: true,
                 photo: true,
                 status: true,
@@ -192,7 +192,6 @@ export class UserService {
                     firstName: user.firstName,
                     lastName: user.lastName,
                     email: user.email,
-                    recoveryEmail: user.recoveryEmail || null, // Ensure null if not set
                     phone: user.phone,
                     photo: user.photo,
                     status: user.status,
@@ -247,7 +246,7 @@ export class UserService {
                 firstName: true,
                 lastName: true,
                 email: true,
-                recoveryEmail: true, 
+                recoveryEmail: true, // Added recoveryEmail
                 photo: true,
                 phone: true,
                 gender: true,

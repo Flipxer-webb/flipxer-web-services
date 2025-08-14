@@ -994,6 +994,7 @@ export class AuthService {
             },
         });
 
+
         if (!user) {
             throw new InvalidCredentialException("Invalid email or password");
         }
@@ -1001,10 +1002,13 @@ export class AuthService {
         const flagged = user.flaggedRecord || { flagged: false, reason: "" };
         if (flagged.flagged && flagged.reason === 'Multiple failed login attempts') {
             throw new UserAccountDisabledException(
-                `Account is flagged: ${flagged.reason || "Multiple failed login attempts"}. Please contact support.`,
+                `Account is flagged: ${
+                    flagged.reason || "Multiple failed login attempts"
+                }. Please contact support.`,
                 HttpStatus.FORBIDDEN
             );
         }
+
 
         if (user.status === Status.BLOCKED) {
             throw new UserAccountDisabledException(
@@ -1028,12 +1032,14 @@ export class AuthService {
             throw new InvalidCredentialException("Invalid email or password");
         }
 
+
         const tokens = await this.generateTokens({
             sub: user.id,
             platform: loginPlatform,
         });
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
+
 
         await this.prisma.user.update({
             where: { id: user.id },
@@ -1067,12 +1073,14 @@ export class AuthService {
             verificationStatus.businessDocumentVerificationStatus = user.businessDocumentVerificationStatus || null;
         }
 
+
         const responseData = {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             userType: user.userType.toLowerCase(),
             verificationStatus,
         };
+
 
         return buildResponse({
             message: "Login successful",

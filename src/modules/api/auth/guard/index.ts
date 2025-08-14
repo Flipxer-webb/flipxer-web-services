@@ -1,10 +1,10 @@
+
 import {
     CanActivate,
     ExecutionContext,
     ForbiddenException,
     HttpStatus,
     Injectable,
-    Logger
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
@@ -339,9 +339,14 @@ export class TransactionAmountGuard implements CanActivate {
             amount = body.amount;
             currency = body.asset?.toUpperCase();
             orderCategory = OrderCategory.SELL;
-        } else if (path.includes("request-instant-swap-quote") || path.includes("refresh-instant-swap-quote")) {
+        } else if (
+            path.includes("request-instant-swap-quote") ||
+            path.includes("refresh-instant-swap-quote")
+        ) {
             amount = body.from_amount || body.to_amount;
-            currency = body.from_amount ? body.from_currency?.toUpperCase() : body.to_currency?.toUpperCase();
+            currency = body.from_amount
+                ? body.from_currency?.toUpperCase()
+                : body.to_currency?.toUpperCase();
             orderCategory = OrderCategory.SWAP;
         } else if (path.includes("withdrawer-request")) {
             amount = body.amount;
