@@ -246,7 +246,7 @@ export class UserService {
                 firstName: true,
                 lastName: true,
                 email: true,
-                recoveryEmail: true, // Added recoveryEmail
+                recoveryEmail: true,
                 photo: true,
                 phone: true,
                 gender: true,
@@ -259,7 +259,7 @@ export class UserService {
             message: "Profile photo updated successfully",
             data: {
                 ...updatedUser,
-                recoveryEmail: updatedUser.recoveryEmail || null, // Ensure null if not set
+                recoveryEmail: updatedUser.recoveryEmail || null,
             },
         };
     }

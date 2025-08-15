@@ -11,7 +11,6 @@ import {
 } from "@/modules/api/trade/errors";
 import { customAlphabet } from "nanoid";
 import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
-import { getTriggeredTime } from "@/modules/scheduler/services/utils";
 
 const prisma = new PrismaClient();
 
@@ -31,8 +30,6 @@ export class TransactionService {
         orderCategory: OrderCategory,
         path: string
     ): Promise<void> {
-        this.logger.debug(`Validating transaction for user ${user.id} (${user.userType}) for ${amount} ${currency} at ${getTriggeredTime()}`);
-
         // Check flagged status
         const flagged = await prisma.flagged.findUnique({
             where: { userId: user.id },
@@ -42,7 +39,6 @@ export class TransactionService {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
             await this.recordFailedTransaction(user, amount, currency, flagged.reason, path, transactionId);
             await this.sendFlaggedEmail(user, flagged.reason, transactionId);
-            this.logger.warn(`Transaction blocked for flagged user ${user.id}: ${flagged.reason}`);
             throw new GeneralTransactionException(
                 `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                 HttpStatus.FORBIDDEN
@@ -59,14 +55,12 @@ export class TransactionService {
         orderCategory: OrderCategory,
         path: string
     ): Promise<void> {
-        this.logger.debug(`Validating transaction limits for user ${user.id} (${user.userType}) for ${amount} ${currency} at ${getTriggeredTime()}`);
 
         // Validate currency
-        if (!currency || !["BTC", "ETH", "USDT"].includes(currency.toUpperCase())) { // Example supported currencies
+        if (!currency || !["BTC", "ETH", "USDT"].includes(currency.toUpperCase())) {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
             const reason = `Unsupported currency ${currency} - Transaction ID: ${transactionId}`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-            this.logger.error(`Transaction failed for user ${user.id} due to unsupported currency: ${currency}`);
             throw new GeneralTransactionException(
                 `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                 HttpStatus.BAD_REQUEST
@@ -78,14 +72,11 @@ export class TransactionService {
             const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
             const reason = `Conversion failed for ${amount} ${currency} - Transaction ID: ${transactionId}`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-            this.logger.error(`Transaction failed for user ${user.id} due to price conversion failure for ${currency}`);
             throw new GeneralTransactionException(
                 `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                 HttpStatus.INTERNAL_SERVER_ERROR
             );
         }
-
-        this.logger.debug(`Converted ${amount} ${currency} to $${amountInUSD.amount} USD for user ${user.id}`);
 
         const dailyLimit = user.userType === "INDIVIDUAL" ? 5000 : 10000;
         const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
@@ -94,9 +85,14 @@ export class TransactionService {
         const currentMonth = now.getMonth() + 1;
         const currentDay = now.getDate();
 
+        let currentMonthlyTotal: number | undefined;
+        let newMonthlyTotal: number | undefined;
+        let transactionId: string | undefined;
+        let reason: string | undefined;
+
         try {
             await prisma.$transaction(async (tx) => {
-                // Check monthly limit first
+                // Check monthly limit
                 const monthlyTransaction = await tx.monthlyTransaction.findUnique({
                     where: {
                         userId_year_month: {
@@ -107,48 +103,19 @@ export class TransactionService {
                     },
                 });
 
-                const currentMonthlyTotal = monthlyTransaction?.totalUSD || 0;
-                const newMonthlyTotal = currentMonthlyTotal + amountInUSD.amount;
-
-                this.logger.debug(`Monthly check for user ${user.id}: Current $${currentMonthlyTotal}, Attempted $${newMonthlyTotal}, Limit $${monthlyLimit}`);
+                currentMonthlyTotal = monthlyTransaction?.totalUSD || 0;
+                newMonthlyTotal = currentMonthlyTotal + amountInUSD.amount;
 
                 if (newMonthlyTotal > monthlyLimit) {
-                    const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-                    const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
-
-                    // Flag the user
-                    const flaggedRecord = await tx.flagged.upsert({
-                        where: { userId: user.id },
-                        create: {
-                            userId: user.id,
-                            flagged: true,
-                            reason,
-                            updatedAt: new Date(),
-                        },
-                        update: {
-                            flagged: true,
-                            reason,
-                            updatedAt: new Date(),
-                        },
-                    });
-
-                    await tx.user.update({
-                        where: { id: user.id },
-                        data: { flaggedId: flaggedRecord.id },
-                    });
-
-                    await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId, tx);
-                    await this.sendFlaggedEmail(user, reason, transactionId);
-
-                    this.logger.warn(`User ${user.id} flagged for exceeding monthly limit: ${reason}`);
-
+                    transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+                    reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
                     throw new GeneralTransactionException(
                         `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                         HttpStatus.FORBIDDEN
                     );
                 }
 
-                // Check daily limit only if monthly limit is not exceeded
+                // Check daily limit
                 const dailyTransaction = await tx.dailyTransaction.findUnique({
                     where: {
                         userId_year_month_day: {
@@ -163,21 +130,17 @@ export class TransactionService {
                 const currentDailyTotal = dailyTransaction?.totalUSD || 0;
                 const newDailyTotal = currentDailyTotal + amountInUSD.amount;
 
-                this.logger.debug(`Daily check for user ${user.id}: Current $${currentDailyTotal}, Attempted $${newDailyTotal}, Limit $${dailyLimit}`);
-
                 if (newDailyTotal > dailyLimit) {
-                    const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-                    const reason = `Daily transaction limit exceeded for ${user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
-                    // Do not flag the user, just block the transaction
+                    transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+                    reason = `Daily transaction limit exceeded for ${user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
                     await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId, tx);
-                    this.logger.warn(`Transaction blocked for user ${user.id} due to daily limit: ${reason}`);
                     throw new GeneralTransactionException(
                         `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                         HttpStatus.FORBIDDEN
                     );
                 }
 
-                // Update transaction totals only if both limits are valid
+                // Update transaction totals
                 await tx.monthlyTransaction.upsert({
                     where: {
                         userId_year_month: {
@@ -220,11 +183,52 @@ export class TransactionService {
                     },
                 });
 
-                this.logger.debug(`Transaction limits updated for user ${user.id}: Monthly total $${newMonthlyTotal}, Daily total $${newDailyTotal}`);
             }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         } catch (error) {
-            this.logger.error(`Transaction processing failed for user ${user.id}: ${error.message}`);
-            throw error; // Re-throw to ensure the error is propagated
+            if (error instanceof GeneralTransactionException && transactionId && reason) {
+                // Log current flagged record state
+                const existingFlagged = await prisma.flagged.findUnique({
+                    where: { userId: user.id },
+                });
+
+                // Update flagged record outside transaction
+                const flaggedRecord = await prisma.flagged.upsert({
+                    where: { userId: user.id },
+                    create: {
+                        userId: user.id,
+                        flagged: true,
+                        reason,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    },
+                    update: {
+                        flagged: true,
+                        reason,
+                        updatedAt: new Date(),
+                    },
+                });
+
+
+                // Verify flagged record in database
+                const verifiedFlagged = await prisma.flagged.findUnique({
+                    where: { userId: user.id },
+                });
+                if (!verifiedFlagged || !verifiedFlagged.flagged || verifiedFlagged.reason !== reason) {
+                    throw new Error(`Failed to update flagged record for user ${user.id}`);
+                }
+
+                // Update user.flaggedId
+                const updatedUser = await prisma.user.update({
+                    where: { id: user.id },
+                    data: { flaggedId: flaggedRecord.id },
+                    select: { id: true, flaggedId: true },
+                });
+
+                // Record failed transaction and send email
+                await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+                await this.sendFlaggedEmail(user, reason, transactionId);
+            }
+            throw error;
         }
     }
 
@@ -234,7 +238,6 @@ export class TransactionService {
             this.logger.error(`Failed to fetch USD price for ${asset}`);
             return null;
         }
-        this.logger.debug(`Fetched USD price for ${asset}: $${rate}`);
         return {
             amount: amount * rate,
             rate,
@@ -263,7 +266,6 @@ export class TransactionService {
             throw new Error(`Invalid path for order category: ${path}`);
         }
 
-        try {
             await tx.order.create({
                 data: {
                     userId: user.id,
@@ -278,17 +280,11 @@ export class TransactionService {
                     updatedAt: new Date(),
                 },
             });
-            this.logger.debug(`Recorded failed transaction for user ${user.id}: ${reason}`);
-        } catch (error) {
-            this.logger.error(`Failed to record transaction for user ${user.id}: ${error.message}`);
-            throw error;
-        }
     }
 
     private async sendFlaggedEmail(user: User, reason: string, transactionId: string): Promise<void> {
         const team = COMPANY_NAME;
 
-        try {
             await this.emailService.sendMailWithTemplate({
                 from: { address: mailConfig.senderMail },
                 to: [{ email_address: { address: user.email } }],
@@ -300,9 +296,5 @@ export class TransactionService {
                     reason
                 },
             });
-            this.logger.debug(`Sent flagged email to user ${user.id} for transaction ${transactionId}`);
-        } catch (error) {
-            this.logger.error(`Failed to send flagged email to user ${user.id}: ${error.message}`);
-        }
     }
 }
