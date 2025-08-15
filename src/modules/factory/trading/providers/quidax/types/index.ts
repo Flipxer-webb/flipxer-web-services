@@ -293,3 +293,4 @@ export interface IQuidaxService {
         options: PurchaseQuoteSellOptions
     ): Promise<QD.QuidaxResponse<any>>;
 }
+

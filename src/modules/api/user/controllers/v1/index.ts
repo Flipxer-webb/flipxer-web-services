@@ -71,6 +71,8 @@ export class UserController {
                     format: "binary",
                     description: "Profile image file (e.g., PNG, JPEG)",
                 },
+                recoveryEmail: { type: "string", format: "date", nullable: true },
+
             },
         },
     })

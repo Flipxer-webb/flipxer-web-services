@@ -8,6 +8,7 @@ export type BuildOptions<T extends Provider> = {
 
 export enum TradingInjectionToken {
     QUIDAX = "QUIDAX",
+    COINGECKO = "COINGECKO",
 }
 
 export interface ITradingFactory {

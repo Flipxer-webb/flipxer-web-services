@@ -7,8 +7,8 @@ import { AdminAuthController } from "./controllers/v1/admin";
 import { AuthGuard } from "./guard";
 import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 import { TradingModule } from "../trade";
-import { PrismaModule } from "@/modules/core/prisma"; // Added for PrismaService
-import { EmailModule } from "@/modules/core/email"; // Added for EmailService
+import { PrismaModule } from "@/modules/core/prisma";
+import { EmailModule } from "@/modules/core/email";
 
 export * from "./interfaces";
 export * from "./errors";
@@ -22,8 +22,8 @@ export * from "./errors";
         }),
         IdentityComplianceFactoryModule,
         forwardRef(() => TradingModule),
-        PrismaModule, // Added to provide PrismaService
-        EmailModule, // Added to provide EmailService
+        PrismaModule,
+        EmailModule,
     ],
     controllers: [AuthController, AdminAuthController],
     providers: [AuthService, AuthGuard],
