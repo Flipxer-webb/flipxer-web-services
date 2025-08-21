@@ -110,7 +110,7 @@ export class PaystackBank implements TBankFactory<"paystack"> {
                     },
                 ],
             };
-
+            logger.log(`amount from paystack bank is ${typeof amount}`)
             const options: IPaystackInitializePaymentDetail = {
                 amount: amount * 100,
                 email: user.email,
