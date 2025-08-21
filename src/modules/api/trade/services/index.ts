@@ -275,6 +275,7 @@ export class TradingService {
         };
 
         const amount = +responseData.totalToChargeViaPaymentGateway;
+        Logger.log(`amount: ${typeof amount}`)
         const { data } = await this.paystackService.initializePaystackPayment(
             userData,
             amount
