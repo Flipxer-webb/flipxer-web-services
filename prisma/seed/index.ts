@@ -10,8 +10,8 @@ const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
 async function main() {
     logger.info("Starting database seeding...");
 
-    // Seed roles
-    logger.info("Seeding roles...");
+    // Seed transaction fees
+    logger.info("Seeding transaction fees...");
     const currencies = ["BTC", "USDT", "USDC"];
     const feeCategories = Object.values(TransactionFeeCategory);
     for (const category of feeCategories) {
@@ -32,6 +32,9 @@ async function main() {
             });
         }
     }
+
+    // Seed crypto rates
+    logger.info("Seeding crypto rates...");
     for (const currency of currencies) {
         await prisma.cryptoRate.upsert({
             where: { currency },
@@ -45,6 +48,7 @@ async function main() {
     }
 
     // Seed roles
+    logger.info("Seeding roles...");
     for (let role of roles) {
         await prisma.role.upsert({
             where: { slug: role.slug },
@@ -236,6 +240,77 @@ async function main() {
         });
     } else {
         logger.error("Individual role not found for Chidi");
+    }
+
+    // Seed VERIFIED INDIVIDUAL user (Jane Smith)
+    logger.info("Seeding Jane Smith user (fully verified with document)...");
+    if (individualRole) {
+        const plainJanePassword = "pass123";
+        const hashedJanePassword = await bcrypt.hash(plainJanePassword, SALT_ROUNDS);
+        const jane = await prisma.user.upsert({
+            where: { email: "jane.smith@example.com" },
+            update: {},
+            create: {
+                email: "jane.smith@example.com",
+                phone: "09035000004",
+                userType: UserType.INDIVIDUAL,
+                identifier: "Jane12345",
+                password: hashedJanePassword,
+                roleId: individualRole.id,
+                firstName: "Jane",
+                lastName: "Smith",
+                recoveryEmail: "jane.recovery@example.com",
+                bvn: "12345678901", // Sample BVN for verification
+                bvnRegisteredPhone: "09035000004", // Matching phone number
+                isEmailVerified: true, // Email verified
+                isPhoneVerified: true, // Phone verified
+                isBvnVerified: true, // BVN verified
+                isDocumentVerified: true, // Document verified
+                isPasswordCreated: true, // Password created
+                accountLimit: {
+                    create: {
+                        sellTokenFiat: 50000,
+                        buyToken: "unlimited",
+                        swapToken: "unlimited",
+                        sendToken: 50000,
+                        receiveToken: "unlimited",
+                    },
+                },
+                bankDetails: {
+                    create: [
+                        {
+                            bankName: "UBA",
+                            accountName: "Jane Smith",
+                            accountNumber: "5432109876",
+                        },
+                    ],
+                },
+                userDocument: {
+                    create: {
+                        type: "INTERNATIONAL_PASSPORT",
+                        country: "NIGERIA",
+                        documentNumber: "A12345678",
+                        documentImageUrl: "https://example.com/documents/jane_smith_passport.jpg", // Sample document link
+                        documentImageFieldId: "doc_jane_12345",
+                    },
+                },
+            },
+        });
+
+        await prisma.recoveryEmailVerificationRequest.upsert({
+            where: {
+                userId: jane.id,
+            },
+            update: { code: generateVerificationCode() },
+            create: {
+                userId: jane.id,
+                email: "jane.recovery@example.com",
+                code: generateVerificationCode(),
+                isVerified: true, // Recovery email verified
+            },
+        });
+    } else {
+        logger.error("Individual role not found for Jane Smith");
     }
 
     // Seed BUSINESS user (Acme Corp)

@@ -143,7 +143,7 @@ export class TradingController {
     @ApiOperation({
         summary: "Initiate buy order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("buy/quote")
     async buyCrypto(@Body() dto: InitiateBuyOrderDto, @User() user: UserModel) {
@@ -168,7 +168,7 @@ export class TradingController {
     @ApiOperation({
         summary: "Initiate sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/quote")
     async sellCryptoRequest(
@@ -196,7 +196,7 @@ export class TradingController {
     @ApiOperation({
         summary: "Generate instant swap quote (valid for 15s); blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("request-instant-swap-quote")
     async createInstantSwap(
@@ -222,7 +222,7 @@ export class TradingController {
     @ApiOperation({
         summary: "Refresh instant swap quote; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("refresh-instant-swap-quote")
     async refreshInstantSwapQuote(
