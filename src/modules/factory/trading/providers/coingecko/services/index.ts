@@ -42,9 +42,14 @@ export class CoinGeckoService {
     };
 
     async getPriceInUSD(asset: string, retries = 3, delay = 1000): Promise<number> {
+        console.log(`🔍 Fetching price for asset: ${asset}`);
+
         const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
         const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
-        if (cachedPrice) return cachedPrice;
+        if (cachedPrice) {
+            console.log(`✅ Cache hit for ${asset}: $${cachedPrice}`);
+            return cachedPrice;
+        }
 
         const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
         if (!coinGeckoId) {
@@ -56,15 +61,17 @@ export class CoinGeckoService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
+                console.log(`🌍 Requesting CoinGecko API for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
                 const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
                     params: { ids: coinGeckoId, vs_currencies: "usd" },
                 });
                 const rate = response.data[coinGeckoId]?.usd;
                 if (!rate) throw new Error(`No price data for ${asset} (ID: ${coinGeckoId})`);
                 await this.redisCacheService.set(cacheKey, rate, 5 * 60); // Cache for 5 minutes
+                console.log(`💰 Price for ${asset}: $${rate}`);
                 return rate;
             } catch (error) {
-                console.error(`Attempt ${attempt} failed for ${asset}:`, {
+                console.error(`❌ Attempt ${attempt} failed for ${asset}:`, {
                     message: error.message,
                     status: error.response?.status,
                     data: error.response?.data,
@@ -81,6 +88,8 @@ export class CoinGeckoService {
     }
 
     async getBatchPriceInUSD(assets: string[], retries = 3, delay = 1000): Promise<Record<string, number | null>> {
+        console.log(`🔍 Batch fetching prices for: ${assets.join(", ")}`);
+
         const result: Record<string, number | null> = {};
         assets.forEach(asset => {
             result[asset.toLowerCase()] = null;
@@ -88,7 +97,8 @@ export class CoinGeckoService {
 
         const coinGeckoIds = assets
             .map(asset => this.coinGeckoIdMap[asset.toLowerCase()])
-            .filter(id => id); // Filter out undefined IDs
+            .filter(id => id);
+
         if (coinGeckoIds.length === 0) {
             throw new GeneralTransactionException(
                 "No valid CoinGecko IDs provided",
@@ -98,6 +108,7 @@ export class CoinGeckoService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
+                console.log(`🌍 Requesting CoinGecko API for batch [${coinGeckoIds.join(", ")}], attempt ${attempt}`);
                 const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
                     params: {
                         ids: coinGeckoIds.join(","),
@@ -113,13 +124,16 @@ export class CoinGeckoService {
                             const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
                             this.redisCacheService.set(cacheKey, price, 5 * 60);
                             result[asset.toLowerCase()] = price;
+                            console.log(`💰 Price for ${asset}: $${price}`);
+                        } else {
+                            console.warn(`⚠️ No price data returned for ${asset} (ID: ${coinGeckoId})`);
                         }
                     }
                 });
 
                 return result;
             } catch (error) {
-                console.error(`Batch fetch attempt ${attempt} failed:`, {
+                console.error(`❌ Batch fetch attempt ${attempt} failed:`, {
                     message: error.message,
                     status: error.response?.status,
                     data: error.response?.data,
