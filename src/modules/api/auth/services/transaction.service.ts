@@ -6,11 +6,10 @@ import {
 import { PrismaClient, User, OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
 import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
 import { EmailService } from "@/modules/core/email/services";
-import {
-    GeneralTransactionException,
-} from "@/modules/api/trade/errors";
-import { customAlphabet } from "nanoid";
+import { GeneralTransactionException } from "@/modules/api/trade/errors";
+import { v4 as uuidv4 } from "uuid";
 import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
+import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 
 const prisma = new PrismaClient();
 
@@ -30,13 +29,15 @@ export class TransactionService {
         orderCategory: OrderCategory,
         path: string
     ): Promise<void> {
+        this.logger.log(`validateTransaction called with user: ${user.id}, currency: ${currency}, amount: ${amount}, path: ${path}`);
+
         // Check flagged status
         const flagged = await prisma.flagged.findUnique({
             where: { userId: user.id },
         });
 
         if (flagged?.flagged) {
-            const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+            const transactionId = uuidv4();
             await this.recordFailedTransaction(user, amount, currency, flagged.reason, path, transactionId);
             await this.sendFlaggedEmail(user, flagged.reason, transactionId);
             throw new GeneralTransactionException(
@@ -55,33 +56,39 @@ export class TransactionService {
         orderCategory: OrderCategory,
         path: string
     ): Promise<void> {
+        this.logger.log(`validateTransactionLimits called with currency: ${currency}, amount: ${amount}, path: ${path}`);
+
         // Validate currency
-        if (!currency || !["BTC", "ETH", "USDT"].includes(currency.toUpperCase())) {
-            const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-            const reason = `Unsupported currency ${currency} - Transaction ID: ${transactionId}`;
-            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+        const allowedCurrencies = Object.values(SupportedAssets) as string[];
+        if (!currency || typeof currency !== 'string' || !allowedCurrencies.some(ac => ac.toLowerCase() === currency.toLowerCase())) {
+            const transactionId = uuidv4();
+            const reason = `Invalid currency: ${currency || 'null'}. Must be one of ${allowedCurrencies.join(', ')}.`;
+            await this.recordFailedTransaction(user, amount, currency || 'UNKNOWN', reason, path, transactionId);
             throw new GeneralTransactionException(
-                `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
+                reason,
                 HttpStatus.BAD_REQUEST
             );
         }
 
-        const amountInUSD = await this.getAmountInUSD(currency, amount);
+        // Normalize currency to lowercase for USD conversion
+        const normalizedCurrency = currency.toLowerCase() as SupportedAssets;
+
+        const amountInUSD = await this.getAmountInUSD(normalizedCurrency, amount);
         if (!amountInUSD || !amountInUSD.amount) {
-            const transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
-            const reason = `Conversion failed for ${amount} ${currency} - Transaction ID: ${transactionId}`;
+            const transactionId = uuidv4();
+            const reason = `Failed to convert ${amount} ${currency} to USD. Please try again later.`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
             throw new GeneralTransactionException(
-                `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
+                reason,
                 HttpStatus.INTERNAL_SERVER_ERROR
             );
         }
 
         const dailyLimit = user.userType === "INDIVIDUAL" ? 5000 : 10000;
         const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
-        const now = new Date(); // 2025-08-25 22:54:00 WAT (UTC+1)
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 2025-08-24 22:54:00 WAT
-        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); // 2025-07-26 22:54:00 WAT
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
         let transactionId: string | undefined;
         let reason: string | undefined;
@@ -97,15 +104,20 @@ export class TransactionService {
         });
 
         // Batch fetch USD rates for unique currencies
-        const uniqueCurrencies = [...new Set(orders.map(order => order.currency).concat(currency))];
+        const uniqueCurrencies = [...new Set(orders.map(order => order.currency).concat(normalizedCurrency))];
         const rateCache: { [key: string]: number } = {};
         for (const curr of uniqueCurrencies) {
-            const rate = await this.coinGeckoCacheService.getPriceInUSD(curr);
+            if (!curr || typeof curr !== 'string') {
+                this.logger.warn(`Skipping invalid currency in rate cache: ${curr}`);
+                rateCache[curr] = 0;
+                continue;
+            }
+            const rate = await this.coinGeckoCacheService.getPriceInUSD(curr.toLowerCase() as SupportedAssets);
             if (rate) {
                 rateCache[curr] = rate;
             } else {
                 this.logger.warn(`Using fallback rate for ${curr}`);
-                rateCache[curr] = 0; // Handle gracefully or throw error
+                rateCache[curr] = 0;
             }
         }
 
@@ -122,7 +134,7 @@ export class TransactionService {
         const newDailyTotal = currentDailyTotal + amountInUSD.amount;
 
         if (newDailyTotal > dailyLimit) {
-            transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+            transactionId = uuidv4();
             reason = `Daily transaction limit exceeded for ${user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
             await this.sendFlaggedEmail(user, reason, transactionId);
@@ -145,7 +157,7 @@ export class TransactionService {
         const newMonthlyTotal = currentMonthlyTotal + amountInUSD.amount;
 
         if (newMonthlyTotal > monthlyLimit) {
-            transactionId = customAlphabet("1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 10)();
+            transactionId = uuidv4();
             reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal} (Current: $${currentMonthlyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
 
@@ -187,12 +199,14 @@ export class TransactionService {
                 HttpStatus.FORBIDDEN
             );
         }
-
-        // No updates to DailyTransaction or MonthlyTransaction
     }
 
     private async getAmountInUSD(asset: string, amount: number): Promise<{ amount?: number; rate?: number } | null> {
-        const rate = await this.coinGeckoCacheService.getPriceInUSD(asset);
+        if (!asset || typeof asset !== 'string') {
+            this.logger.error(`Invalid asset provided to getAmountInUSD: ${asset}`);
+            return null;
+        }
+        const rate = await this.coinGeckoCacheService.getPriceInUSD(asset.toLowerCase() as SupportedAssets);
         if (!rate) {
             this.logger.error(`Failed to fetch USD price for ${asset}`);
             return null;
@@ -229,7 +243,7 @@ export class TransactionService {
             data: {
                 userId: user.id,
                 orderCategory,
-                currency,
+                currency: currency || 'UNKNOWN',
                 amount,
                 transactionId,
                 status: OrderStatus.failed,

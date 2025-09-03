@@ -140,9 +140,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Initiate buy order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
-    })
+    @ApiOperation({ summary: "Initiate buy order" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("buy/quote")
@@ -151,9 +149,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Confirm buy order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
-    })
+    @ApiOperation({ summary: "Confirm buy order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations" })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("buy/order")
@@ -165,9 +161,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Initiate sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
-    })
+    @ApiOperation({ summary: "Initiate sell order" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/quote")
@@ -179,9 +173,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Confirm sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
-    })
+    @ApiOperation({ summary: "Confirm sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations" })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/order")
@@ -193,9 +185,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Generate instant swap quote (valid for 15s); blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
-    })
+    @ApiOperation({ summary: "Generate instant swap quote (valid for 15s)" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("request-instant-swap-quote")
@@ -219,9 +209,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Refresh instant swap quote; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
-    })
+    @ApiOperation({ summary: "Refresh instant swap quote" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("refresh-instant-swap-quote")
@@ -233,9 +221,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Initiate withdrawal; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
-    })
+    @ApiOperation({ summary: "Initiate withdrawal" })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBody({ type: WithdrawerRequestDto })
     @ApiBearerAuth("access-token")
