@@ -266,7 +266,17 @@ export interface WithdrawerFeesOptions {
     network?: NetworkTypes;
 }
 
-export type WithdrawerFeesResponse = Record<string, string>;
+export interface WithdrawerFeeRange {
+    min: number;
+    max: number;
+    type: "flat" | "percentage";
+    value: number;
+}
+
+export interface WithdrawerFeesResponse {
+    fee: WithdrawerFeeRange[];
+    type: "range" | "flat";
+}
 
 export interface SellOrBuyOrderRequestOptions {
     market: TradingPair;

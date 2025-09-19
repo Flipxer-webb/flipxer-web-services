@@ -219,13 +219,23 @@ export class GetCryptoWithdrawerFeeDto {
 
     @ApiProperty({
         example: 0.01,
-        description: "Amount of crypto the user wants to buy",
+        description: "Amount of crypto the user wants to withdraw",
     })
     @Transform(({ value }) => +value)
     @IsNotEmpty()
     @IsPositive()
     @IsNumber()
     amount!: number;
+
+    @ApiProperty({
+        enum: NetworkTypes,
+        required: false,
+        description: "Blockchain network for the withdrawal",
+        example: "erc20",
+    })
+    @IsOptional()
+    @IsEnum(NetworkTypes)
+    network?: NetworkTypes;
 }
 
 export class PlaceInstantSwapRequestDto {
