@@ -147,7 +147,6 @@ export class TradingService {
                 },
             },
         });
-
         return buildResponse({
             message: "wallet info retrieved",
             data: wallet,
@@ -169,6 +168,7 @@ export class TradingService {
     async getCryptoWithdrawerFee(dto: GetCryptoWithdrawerFeeDto) {
         const info = await this.quidaxService.getWithdrawerFees({
             currency: dto.currency,
+            ...(dto.network && { network: dto.network }),
         });
 
         return buildResponse({
@@ -275,7 +275,7 @@ export class TradingService {
         };
 
         const amount = +responseData.totalToChargeViaPaymentGateway;
-        Logger.log(`amount: ${typeof amount}`)
+        Logger.log(`amount: ${typeof amount}`);
         const { data } = await this.paystackService.initializePaystackPayment(
             userData,
             amount
@@ -1299,13 +1299,27 @@ export class TradingService {
             };
         }
 
+        if (data.type === "percentage" && typeof data.fee === "number") {
+            return {
+                fee: (amount * data.fee) / 100,
+                type: "percentage",
+            };
+        }
+
         if (data.type === "range" && Array.isArray(data.fee)) {
             for (const range of data.fee) {
                 if (amount >= range.min && amount < range.max) {
-                    return {
-                        fee: range.value,
-                        type: "flat", // all ranges from Quidax return "flat"
-                    };
+                    if (range.type === "percentage") {
+                        return {
+                            fee: (amount * range.value) / 100,
+                            type: "percentage",
+                        };
+                    } else {
+                        return {
+                            fee: range.value,
+                            type: "flat",
+                        };
+                    }
                 }
             }
 
@@ -1316,7 +1330,9 @@ export class TradingService {
         }
 
         throw new UnknownFeeStructureException(
-            "Unknown fee type or structure.",
+            `Unknown fee type or structure. Received data: ${JSON.stringify(
+                data
+            )}`,
             HttpStatus.INTERNAL_SERVER_ERROR
         );
     }
