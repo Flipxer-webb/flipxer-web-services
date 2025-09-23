@@ -166,14 +166,44 @@ export class TradingService {
     }
 
     async getCryptoWithdrawerFee(dto: GetCryptoWithdrawerFeeDto) {
-        const info = await this.quidaxService.getWithdrawerFees({
-            currency: dto.currency,
-            ...(dto.network && { network: dto.network }),
-        });
+        const currency = dto.currency.toUpperCase();
+
+        // Fetch both provider fee and admin transaction fee
+        const [providerFeeInfo, adminFee] = await Promise.all([
+            this.quidaxService.getWithdrawerFees({
+                currency: dto.currency,
+                ...(dto.network && { network: dto.network }),
+            }),
+            this.prisma.transactionFee.findUnique({
+                where: {
+                    category_currency: {
+                        category: TransactionFeeCategory.SELL,
+                        currency,
+                    },
+                },
+            }),
+        ]);
+
+        console.log(`Admin fee for ${currency}:`, adminFee);
+
+        // Calculate provider fee
+        const providerFee = await this.getFee(dto.amount, providerFeeInfo.data);
+
+        // Calculate admin fee (default to 0 if not configured)
+        const adminFeeAmount = adminFee ? adminFee.fee : 0;
+
+        // Calculate total fee (provider fee + admin fee)
+        const totalFee = providerFee.fee + adminFeeAmount;
 
         return buildResponse({
             message: "withdrawer fee info retrieved",
-            data: await this.getFee(dto.amount, info.data),
+            data: {
+                networkFee: providerFee.fee,
+                adminFee: adminFeeAmount,
+                totalFee: totalFee,
+                feeType: providerFee.type,
+                currency: currency,
+            },
         });
     }
 
