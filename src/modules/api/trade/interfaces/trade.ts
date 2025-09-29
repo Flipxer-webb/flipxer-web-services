@@ -13,6 +13,7 @@ export interface IWalletAddressCreatedSuccess {
     walletAddress: string;
     totalPayments: string;
     destination_tag?: string;
+    network?: string;
 }
 
 export interface IWalletUpdated {

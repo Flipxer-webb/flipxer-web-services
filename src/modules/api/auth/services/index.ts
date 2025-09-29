@@ -73,12 +73,10 @@ import {
     SignInOptions,
     UploadBusinessDocumentsFileInterface,
     VerificationStatus,
-    SignInUser
+    SignInUser,
 } from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import * as crypto from "crypto";
-
-
 
 @Injectable()
 export class AuthService {
@@ -100,7 +98,10 @@ export class AuthService {
     }
 
     // Separated platform validation logic
-    private validateLoginPlatform(userType: UserType, loginPlatform: LoginPlatform): void {
+    private validateLoginPlatform(
+        userType: UserType,
+        loginPlatform: LoginPlatform
+    ): void {
         const adminUserTypes: UserType[] = [UserType.ADMIN];
         const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
 
@@ -130,7 +131,10 @@ export class AuthService {
     }
 
     // Separated login count and flagging logic
-    private async handleFailedLogin(user: SignInUser, ip: string): Promise<void> {
+    private async handleFailedLogin(
+        user: SignInUser,
+        ip: string
+    ): Promise<void> {
         const now = new Date();
         const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
         let updatedLoginCount = user.loginCount || 0;
@@ -204,7 +208,9 @@ export class AuthService {
         return { accessToken, refreshToken };
     }
 
-    async requestPasswordReset(dto: SendForgotPasswordDto): Promise<ApiResponse> {
+    async requestPasswordReset(
+        dto: SendForgotPasswordDto
+    ): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { email: dto.email },
         });
@@ -674,8 +680,11 @@ export class AuthService {
                 },
             });
         }
-
-        await this.cryptoAccountQueueProducer.enqueue(user.id);
+        try {
+            await this.cryptoAccountQueueProducer.enqueue(user.id);
+        } catch (error) {
+            console.log("error in sub account setup", { error });
+        }
 
         return buildResponse({
             message: "Bvn Verification successfully",
@@ -982,25 +991,30 @@ export class AuthService {
 
         const user = await this.prisma.user.findUnique({
             where: { email: options.email },
-            select: loginPlatform === LoginPlatform.USER ? baseSelect : {
-                ...baseSelect,
-                isEmailVerified: false,
-                isPhoneVerified: false,
-                isPasswordCreated: false,
-                isBvnVerified: false,
-                isDocumentVerified: false,
-                businessRecordCompleted: false,
-                businessDocumentVerificationStatus: false,
-            },
+            select:
+                loginPlatform === LoginPlatform.USER
+                    ? baseSelect
+                    : {
+                          ...baseSelect,
+                          isEmailVerified: false,
+                          isPhoneVerified: false,
+                          isPasswordCreated: false,
+                          isBvnVerified: false,
+                          isDocumentVerified: false,
+                          businessRecordCompleted: false,
+                          businessDocumentVerificationStatus: false,
+                      },
         });
-
 
         if (!user) {
             throw new InvalidCredentialException("Invalid email or password");
         }
 
         const flagged = user.flaggedRecord || { flagged: false, reason: "" };
-        if (flagged.flagged && flagged.reason === 'Multiple failed login attempts') {
+        if (
+            flagged.flagged &&
+            flagged.reason === "Multiple failed login attempts"
+        ) {
             throw new UserAccountDisabledException(
                 `Account is flagged: ${
                     flagged.reason || "Multiple failed login attempts"
@@ -1008,7 +1022,6 @@ export class AuthService {
                 HttpStatus.FORBIDDEN
             );
         }
-
 
         if (user.status === Status.BLOCKED) {
             throw new UserAccountDisabledException(
@@ -1026,12 +1039,14 @@ export class AuthService {
             );
         }
 
-        const passwordMatch = await this.comparePassword(options.password, user.password);
+        const passwordMatch = await this.comparePassword(
+            options.password,
+            user.password
+        );
         if (!passwordMatch) {
             await this.handleFailedLogin(user, ip);
             throw new InvalidCredentialException("Invalid email or password");
         }
-
 
         const tokens = await this.generateTokens({
             sub: user.id,
@@ -1039,7 +1054,6 @@ export class AuthService {
         });
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
-
 
         await this.prisma.user.update({
             where: { id: user.id },
@@ -1069,10 +1083,11 @@ export class AuthService {
         };
 
         if (user.userType.toLowerCase() === "business") {
-            verificationStatus.businessRecordCompleted = user.businessRecordCompleted;
-            verificationStatus.businessDocumentVerificationStatus = user.businessDocumentVerificationStatus || null;
+            verificationStatus.businessRecordCompleted =
+                user.businessRecordCompleted;
+            verificationStatus.businessDocumentVerificationStatus =
+                user.businessDocumentVerificationStatus || null;
         }
-
 
         const responseData = {
             accessToken: tokens.accessToken,
@@ -1081,12 +1096,11 @@ export class AuthService {
             verificationStatus,
         };
 
-
         return buildResponse({
             message: "Login successful",
             data: responseData,
         });
-    };
+    }
 
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
         const payload = await this.jwtService.verify(options.refreshToken, {

@@ -1,7 +1,4 @@
-import {
-    SwaggerResponse,
-    ApiResponse
-} from "@/utils/api-response-util";
+// import { ApiResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -13,19 +10,13 @@ import {
     UseGuards,
 } from "@nestjs/common";
 import { TradingService } from "../../services";
-import {
-    ApiTags,
-    ApiOperation,
-    ApiBearerAuth,
-    ApiBody,
-    ApiResponse as SwaggerApiResponse,
-} from "@nestjs/swagger";
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody } from "@nestjs/swagger";
 import {
     AuthGuard,
     CountryBlockGuard,
     TransactionAmountGuard,
 } from "@/modules/api/auth/guard";
-import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+// import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import {
@@ -34,6 +25,7 @@ import {
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
+    GetWalletAddressesDto,
     InitiateBuyOrderDto,
     InitiateSellOrderDto,
     InitiateWalletCreationDto,
@@ -52,7 +44,7 @@ import {
     path: "trades",
 })
 export class TradingController {
-    constructor(private tradingService: TradingService) {}
+    constructor(private readonly tradingService: TradingService) {}
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "List supported assets" })
@@ -116,6 +108,20 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "Get all wallet addresses for an asset (auth user)",
+    })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Get("wallet-addresses")
+    async getWalletAddresses(
+        @Query() dto: GetWalletAddressesDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.getWalletAddresses(user.id, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Initiate wallet address generation for user" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
@@ -149,7 +155,10 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Confirm buy order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations" })
+    @ApiOperation({
+        summary:
+            "Confirm buy order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
+    })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("buy/order")
@@ -173,7 +182,10 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Confirm sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations" })
+    @ApiOperation({
+        summary:
+            "Confirm sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
+    })
     @UseGuards(AuthGuard, TransactionAmountGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/order")
