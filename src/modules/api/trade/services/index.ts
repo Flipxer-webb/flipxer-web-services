@@ -4,7 +4,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
-import { GetUserWalletResponse } from "@/libs/quidax";
+import { GetUserWalletResponse, IPaymentAddress } from "@/libs/quidax";
 import {
     AccountCreationException,
     AssetNotFoundException,
@@ -243,9 +243,12 @@ export class TradingService {
 
         const register = (candidate?: string | null) => {
             if (!candidate?.trim()) {
-                this.logWalletFlow("extractDepositEnabledNetworkMap:skip_empty", {
-                    candidate,
-                });
+                this.logWalletFlow(
+                    "extractDepositEnabledNetworkMap:skip_empty",
+                    {
+                        candidate,
+                    }
+                );
                 return;
             }
 
@@ -352,6 +355,46 @@ export class TradingService {
         }
 
         let targetNetworks = Array.from(depositEnabledNetworkMap.keys());
+
+        let providerAddresses: IPaymentAddress[] = [];
+        const providerAddressMap = new Map<NetworkTypes, IPaymentAddress>();
+
+        try {
+            const providerAddressResponse =
+                await this.quidaxService.getPaymentAddressList({
+                    user_id: cryptoSubAccountId,
+                    currency,
+                });
+
+            providerAddresses = providerAddressResponse.data ?? [];
+
+            for (const providerAddress of providerAddresses) {
+                const normalizedNetwork = this.normalizeNetworkInput(
+                    providerAddress.network
+                );
+
+                if (!normalizedNetwork) {
+                    continue;
+                }
+
+                providerAddressMap.set(normalizedNetwork, providerAddress);
+            }
+
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:provider_addresses_loaded",
+                {
+                    providerAddressCount: providerAddresses.length,
+                    mappedCount: providerAddressMap.size,
+                }
+            );
+        } catch (error) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:provider_address_fetch_failed",
+                {
+                    error: error?.message,
+                }
+            );
+        }
         this.logWalletFlow("ensureWalletPaymentAddresses:initial_targets", {
             targetNetworks,
         });
@@ -427,6 +470,71 @@ export class TradingService {
             }
         }
 
+        const backfilledProviderAddresses: CryptoWalletAddress[] = [];
+
+        for (const [network, providerAddress] of providerAddressMap.entries()) {
+            if (!targetNetworks.includes(network)) {
+                continue;
+            }
+
+            if (existingNetworkSet.has(network)) {
+                continue;
+            }
+
+            try {
+                const hasAddress = Boolean(providerAddress.address);
+
+                const record = await this.prisma.cryptoWalletAddress.upsert({
+                    where: { walletAddressId: providerAddress.id },
+                    update: {
+                        address: providerAddress.address,
+                        destination_tag: providerAddress.destination_tag,
+                        status: hasAddress
+                            ? CryptoWalletStatus.ACTIVE
+                            : CryptoWalletStatus.PENDING,
+                        lastSyncedAt: hasAddress ? new Date() : undefined,
+                        network,
+                    },
+                    create: {
+                        assetSymbol: assetSymbolUpper,
+                        walletAddressId: providerAddress.id,
+                        userId,
+                        network,
+                        address: providerAddress.address,
+                        destination_tag: providerAddress.destination_tag,
+                        status: hasAddress
+                            ? CryptoWalletStatus.ACTIVE
+                            : CryptoWalletStatus.PENDING,
+                        lastSyncedAt: hasAddress ? new Date() : undefined,
+                    },
+                });
+
+                backfilledProviderAddresses.push(record);
+                existingNetworkSet.add(network);
+            } catch (error) {
+                this.logWalletFlow(
+                    "ensureWalletPaymentAddresses:provider_backfill_failed",
+                    {
+                        network,
+                        error: error?.message,
+                    }
+                );
+            }
+        }
+
+        if (backfilledProviderAddresses.length) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:provider_backfill_success",
+                {
+                    backfilledCount: backfilledProviderAddresses.length,
+                }
+            );
+        }
+
+        targetNetworks = targetNetworks.filter(
+            (network) => !existingNetworkSet.has(network)
+        );
+
         const networksToCreate = targetNetworks.filter(
             (network) => !existingNetworkSet.has(network)
         );
@@ -473,8 +581,7 @@ export class TradingService {
                     network: providerNetwork,
                 });
 
-                const responseNetworkValue =
-                    response.data.network || network;
+                const responseNetworkValue = response.data.network || network;
                 const normalizedNetwork =
                     this.normalizeNetworkInput(responseNetworkValue);
 
@@ -516,14 +623,10 @@ export class TradingService {
             }> => result.status === "fulfilled"
         );
 
-        this.logWalletFlow(
-            "ensureWalletPaymentAddresses:creation_results",
-            {
-                successfulCount: successfulCreations.length,
-                rejectedCount:
-                    creationResults.length - successfulCreations.length,
-            }
-        );
+        this.logWalletFlow("ensureWalletPaymentAddresses:creation_results", {
+            successfulCount: successfulCreations.length,
+            rejectedCount: creationResults.length - successfulCreations.length,
+        });
 
         if (!successfulCreations.length) {
             throw new GeneralTransactionException(
@@ -532,7 +635,9 @@ export class TradingService {
             );
         }
 
-        const createdAddresses: CryptoWalletAddress[] = [];
+        const createdAddresses: CryptoWalletAddress[] = [
+            ...backfilledProviderAddresses,
+        ];
 
         this.logWalletFlow(
             "ensureWalletPaymentAddresses:persisting_addresses",
@@ -1374,7 +1479,8 @@ export class TradingService {
                     where: {
                         userId_assetCurrency: {
                             userId: walletAddress.user.id,
-                            assetCurrency: walletAddress.assetSymbol.toUpperCase(),
+                            assetCurrency:
+                                walletAddress.assetSymbol.toUpperCase(),
                         },
                     },
                     update: {
@@ -1495,6 +1601,71 @@ export class TradingService {
         const user = await this.prisma.user.findUnique({
             where: { cryptoSubAccountId: options.quidaxUserId },
         });
+
+        if (!user) {
+            this.logger.error(
+                `User not found for deposit | ${JSON.stringify({
+                    quidaxUserId: options.quidaxUserId,
+                    referenceId: options.referenceId,
+                })}`
+            );
+            return buildResponse({
+                message: "User not found for deposit transaction",
+            });
+        }
+
+        // Validate that the payment address exists in our database
+        const paymentAddress = await this.prisma.cryptoWalletAddress.findUnique(
+            {
+                where: { walletAddressId: options.payment_address_id },
+                select: {
+                    id: true,
+                    userId: true,
+                    assetSymbol: true,
+                    network: true,
+                    address: true,
+                },
+            }
+        );
+
+        if (!paymentAddress) {
+            this.logger.error(
+                `Payment address not found in database | ${JSON.stringify({
+                    payment_address_id: options.payment_address_id,
+                    network: options.network,
+                    currency: options.currency,
+                    amount: options.amount,
+                })}`
+            );
+            return buildResponse({
+                message: "Payment address not found in database",
+            });
+        }
+
+        // Verify the payment address belongs to this user
+        if (paymentAddress.userId !== user.id) {
+            this.logger.error(
+                `Payment address does not belong to user | ${JSON.stringify({
+                    paymentAddressUserId: paymentAddress.userId,
+                    expectedUserId: user.id,
+                    payment_address_id: options.payment_address_id,
+                })}`
+            );
+            return buildResponse({
+                message: "Payment address does not belong to user",
+            });
+        }
+
+        this.logger.log(
+            `Processing deposit | ${JSON.stringify({
+                userId: user.id,
+                currency: options.currency,
+                amount: options.amount,
+                network: options.network,
+                paymentAddressId: options.payment_address_id,
+                status: options.status,
+            })}`
+        );
 
         if (user) {
             const transaction = await this.prisma.order.findUnique({
