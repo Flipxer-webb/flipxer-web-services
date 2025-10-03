@@ -108,6 +108,11 @@ const NETWORK_ALIAS_MAP: Record<string, NetworkTypes> = {
     sol: NetworkTypes.solana,
     polygon: NetworkTypes.polygon,
     matic: NetworkTypes.polygon,
+    ton: NetworkTypes.ton,
+    celo: NetworkTypes.celo,
+    optimism: NetworkTypes.optimism,
+    arbitrum: NetworkTypes.arbitrum,
+    base: NetworkTypes.base,
 };
 
 const NETWORK_SEGMENT_SPLITTER = /[\s/_-]+/;
@@ -605,11 +610,15 @@ export class TradingService {
                     {
                         walletAddressId: response.data.id,
                         normalizedNetwork,
+                        address: response.data.address,
+                        destination_tag: response.data.destination_tag,
                     }
                 );
                 return {
                     walletAddressId: response.data.id,
                     network: normalizedNetwork,
+                    address: response.data.address,
+                    destination_tag: response.data.destination_tag,
                 };
             })
         );
@@ -620,6 +629,8 @@ export class TradingService {
             ): result is PromiseFulfilledResult<{
                 walletAddressId: string;
                 network: NetworkTypes;
+                address: string;
+                destination_tag: string | null;
             }> => result.status === "fulfilled"
         );
 
@@ -650,6 +661,8 @@ export class TradingService {
             await this.prisma.$transaction(
                 async (tx) => {
                     for (const creation of successfulCreations) {
+                        const hasAddress = Boolean(creation.value.address);
+
                         const record = await tx.cryptoWalletAddress.upsert({
                             where: {
                                 userId_assetSymbol_network: {
@@ -660,12 +673,24 @@ export class TradingService {
                             },
                             update: {
                                 walletAddressId: creation.value.walletAddressId,
+                                address: creation.value.address,
+                                destination_tag: creation.value.destination_tag,
+                                status: hasAddress
+                                    ? CryptoWalletStatus.ACTIVE
+                                    : CryptoWalletStatus.PENDING,
+                                lastSyncedAt: hasAddress ? new Date() : undefined,
                             },
                             create: {
                                 assetSymbol: assetSymbolUpper,
                                 walletAddressId: creation.value.walletAddressId,
                                 userId,
                                 network: creation.value.network,
+                                address: creation.value.address,
+                                destination_tag: creation.value.destination_tag,
+                                status: hasAddress
+                                    ? CryptoWalletStatus.ACTIVE
+                                    : CryptoWalletStatus.PENDING,
+                                lastSyncedAt: hasAddress ? new Date() : undefined,
                             },
                         });
 
@@ -1723,7 +1748,10 @@ export class TradingService {
                     });
 
                     if (assetWallet) {
-                        const newBalance = (parseFloat(assetWallet.balance) + parseFloat(options.amount)).toString();
+                        const currentBalance = parseFloat(assetWallet.balance.toString());
+                        const depositAmount = parseFloat(options.amount);
+                        const newBalance = (currentBalance + depositAmount).toString();
+
                         await this.prisma.assetWallet.update({
                             where: { id: assetWallet.id },
                             data: { balance: newBalance },
@@ -1733,7 +1761,7 @@ export class TradingService {
                             `Wallet balance updated | ${JSON.stringify({
                                 userId: user.id,
                                 currency: options.currency,
-                                oldBalance: assetWallet.balance,
+                                oldBalance: assetWallet.balance.toString(),
                                 depositAmount: options.amount,
                                 newBalance: newBalance,
                             })}`
@@ -1801,7 +1829,10 @@ export class TradingService {
                     });
 
                     if (assetWallet) {
-                        const newBalance = (parseFloat(assetWallet.balance) + parseFloat(options.amount)).toString();
+                        const currentBalance = parseFloat(assetWallet.balance.toString());
+                        const depositAmount = parseFloat(options.amount);
+                        const newBalance = (currentBalance + depositAmount).toString();
+
                         await this.prisma.assetWallet.update({
                             where: { id: assetWallet.id },
                             data: { balance: newBalance },
@@ -1811,7 +1842,7 @@ export class TradingService {
                             `Wallet balance updated | ${JSON.stringify({
                                 userId: user.id,
                                 currency: options.currency,
-                                oldBalance: assetWallet.balance,
+                                oldBalance: assetWallet.balance.toString(),
                                 depositAmount: options.amount,
                                 newBalance: newBalance,
                             })}`
