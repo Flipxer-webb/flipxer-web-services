@@ -650,8 +650,18 @@ export class TradingService {
             await this.prisma.$transaction(
                 async (tx) => {
                     for (const creation of successfulCreations) {
-                        const record = await tx.cryptoWalletAddress.create({
-                            data: {
+                        const record = await tx.cryptoWalletAddress.upsert({
+                            where: {
+                                userId_assetSymbol_network: {
+                                    userId,
+                                    assetSymbol: assetSymbolUpper,
+                                    network: creation.value.network,
+                                },
+                            },
+                            update: {
+                                walletAddressId: creation.value.walletAddressId,
+                            },
+                            create: {
                                 assetSymbol: assetSymbolUpper,
                                 walletAddressId: creation.value.walletAddressId,
                                 userId,
@@ -1702,6 +1712,34 @@ export class TradingService {
                 });
 
                 if (options.status == OrderStatus.accepted) {
+                    // Update user's wallet balance
+                    const assetWallet = await this.prisma.assetWallet.findUnique({
+                        where: {
+                            userId_assetCurrency: {
+                                userId: user.id,
+                                assetCurrency: options.currency.toUpperCase(),
+                            },
+                        },
+                    });
+
+                    if (assetWallet) {
+                        const newBalance = (parseFloat(assetWallet.balance) + parseFloat(options.amount)).toString();
+                        await this.prisma.assetWallet.update({
+                            where: { id: assetWallet.id },
+                            data: { balance: newBalance },
+                        });
+
+                        this.logger.log(
+                            `Wallet balance updated | ${JSON.stringify({
+                                userId: user.id,
+                                currency: options.currency,
+                                oldBalance: assetWallet.balance,
+                                depositAmount: options.amount,
+                                newBalance: newBalance,
+                            })}`
+                        );
+                    }
+
                     const message = this.notificationMessage.receiveTransaction(
                         {
                             amount: +options.amount,
@@ -1751,7 +1789,35 @@ export class TradingService {
                     data: { status: options.status },
                 });
 
-                if (options.status == OrderStatus.accepted) {
+                if (options.status == OrderStatus.accepted && transaction.status !== OrderStatus.accepted) {
+                    // Update user's wallet balance (only if not already accepted)
+                    const assetWallet = await this.prisma.assetWallet.findUnique({
+                        where: {
+                            userId_assetCurrency: {
+                                userId: user.id,
+                                assetCurrency: options.currency.toUpperCase(),
+                            },
+                        },
+                    });
+
+                    if (assetWallet) {
+                        const newBalance = (parseFloat(assetWallet.balance) + parseFloat(options.amount)).toString();
+                        await this.prisma.assetWallet.update({
+                            where: { id: assetWallet.id },
+                            data: { balance: newBalance },
+                        });
+
+                        this.logger.log(
+                            `Wallet balance updated | ${JSON.stringify({
+                                userId: user.id,
+                                currency: options.currency,
+                                oldBalance: assetWallet.balance,
+                                depositAmount: options.amount,
+                                newBalance: newBalance,
+                            })}`
+                        );
+                    }
+
                     const message = this.notificationMessage.receiveTransaction(
                         {
                             amount: +options.amount,
