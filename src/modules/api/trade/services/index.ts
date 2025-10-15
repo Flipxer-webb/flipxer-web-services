@@ -4,6 +4,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
+import { GetUserWalletResponse, IPaymentAddress } from "@/libs/quidax";
 import {
     AccountCreationException,
     AssetNotFoundException,
@@ -29,6 +30,7 @@ import {
     WithdrawerTransactionHandlerOptions,
 } from "../interfaces/trade";
 import {
+    CryptoWalletAddress,
     CryptoWalletStatus,
     NetworkTypes,
     NotificationBeneficiary,
@@ -49,6 +51,7 @@ import {
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
+    GetWalletAddressesDto,
     InitiateBuyOrderDto,
     InitiateSellOrderDto,
     InitiateWalletCreationDto,
@@ -77,18 +80,70 @@ import { NotificationEvent } from "../../notification/events/notification.event"
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../gateway/v1";
 
+const NETWORK_ALIAS_MAP: Record<string, NetworkTypes> = {
+    trc20: NetworkTypes.trc20,
+    tron: NetworkTypes.trc20, // Map tron to trc20 for Quidax API compatibility
+    erc20: NetworkTypes.erc20,
+    ethereum: NetworkTypes.erc20,
+    eth: NetworkTypes.erc20,
+    bep20: NetworkTypes.bep20,
+    bsc: NetworkTypes.bep20,
+    bnb: NetworkTypes.bep20,
+    btc: NetworkTypes.btc,
+    bitcoin: NetworkTypes.btc,
+    ltc: NetworkTypes.ltc,
+    litecoin: NetworkTypes.ltc,
+    dash: NetworkTypes.dash,
+    doge: NetworkTypes.doge,
+    dogecoin: NetworkTypes.doge,
+    bch: NetworkTypes.bch,
+    "bitcoin cash": NetworkTypes.bch,
+    ripple: NetworkTypes.ripple,
+    xrp: NetworkTypes.ripple,
+    stellar: NetworkTypes.stellar,
+    xlm: NetworkTypes.stellar,
+    cardano: NetworkTypes.cardano,
+    ada: NetworkTypes.cardano,
+    solana: NetworkTypes.solana,
+    sol: NetworkTypes.solana,
+    polygon: NetworkTypes.polygon,
+    matic: NetworkTypes.polygon,
+    ton: NetworkTypes.ton,
+    celo: NetworkTypes.celo,
+    optimism: NetworkTypes.optimism,
+    arbitrum: NetworkTypes.arbitrum,
+    base: NetworkTypes.base,
+};
+
+const NETWORK_SEGMENT_SPLITTER = /[\s/_-]+/;
+
+const SUPPORTED_ASSETS = new Set(["BTC", "USDT", "USDC"]);
+
 @Injectable()
 export class TradingService {
     private readonly logger = new Logger("TradeService");
+    private readonly supportedNetworkSet = new Set<string>(
+        Object.values(NetworkTypes)
+    );
+
+    private logWalletFlow(step: string, payload: Record<string, unknown> = {}) {
+        const safePayload = JSON.stringify(payload, (_, value) =>
+            typeof value === "bigint" ? value.toString() : value
+        );
+
+        console.log(`[WalletFlow] ${step}`, payload);
+        this.logger.log(`${step} | ${safePayload}`, "WalletFlow");
+    }
+
     constructor(
-        private prisma: PrismaService,
+        private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
         @Inject(BankInjectionToken.PAYSTACK)
         private readonly paystackService: PaystackBank,
         private readonly notificationEvent: NotificationEvent,
-        private notificationMessage: NotificationMessageService,
+        private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway
     ) {}
 
@@ -137,6 +192,547 @@ export class TradingService {
         });
     }
 
+    private normalizeNetworkInput(
+        network?: string | null
+    ): NetworkTypes | null {
+        if (!network) {
+            return null;
+        }
+
+        const trimmed = network.trim().toLowerCase();
+
+        if (!trimmed) {
+            return null;
+        }
+
+        const directMatch =
+            NETWORK_ALIAS_MAP[trimmed] ||
+            (this.supportedNetworkSet.has(trimmed)
+                ? (trimmed as NetworkTypes)
+                : null);
+
+        if (directMatch) {
+            return directMatch;
+        }
+
+        const segments = trimmed.split(NETWORK_SEGMENT_SPLITTER).reverse();
+
+        for (const segment of segments) {
+            if (!segment) {
+                continue;
+            }
+
+            const alias =
+                NETWORK_ALIAS_MAP[segment] ||
+                (this.supportedNetworkSet.has(segment)
+                    ? (segment as NetworkTypes)
+                    : null);
+
+            if (alias) {
+                return alias;
+            }
+        }
+
+        return null;
+    }
+
+    private extractDepositEnabledNetworkMap(
+        wallet: GetUserWalletResponse
+    ): Map<NetworkTypes, string> {
+        this.logWalletFlow("extractDepositEnabledNetworkMap:start", {
+            currency: wallet.currency,
+            defaultNetwork: wallet.default_network,
+            networkCount: wallet.networks?.length ?? 0,
+        });
+        const depositEnabledMap = new Map<NetworkTypes, string>();
+
+        const register = (candidate?: string | null) => {
+            if (!candidate?.trim()) {
+                this.logWalletFlow(
+                    "extractDepositEnabledNetworkMap:skip_empty",
+                    {
+                        candidate,
+                    }
+                );
+                return;
+            }
+
+            const normalized = this.normalizeNetworkInput(candidate);
+
+            if (!normalized) {
+                this.logWalletFlow(
+                    "extractDepositEnabledNetworkMap:unsupported_network",
+                    { candidate }
+                );
+                return;
+            }
+
+            depositEnabledMap.set(normalized, candidate.trim().toLowerCase());
+            this.logWalletFlow("extractDepositEnabledNetworkMap:registered", {
+                normalized,
+                providerValue: candidate.trim().toLowerCase(),
+            });
+        };
+
+        const networks = wallet.networks ?? [];
+
+        if (wallet.default_network) {
+            const defaultNetworkInfo = networks.find(
+                (network) => network.id === wallet.default_network
+            );
+
+            if (!defaultNetworkInfo || defaultNetworkInfo.deposits_enabled) {
+                register(wallet.default_network);
+            }
+        }
+
+        for (const network of networks) {
+            if (!network.deposits_enabled) {
+                this.logWalletFlow(
+                    "extractDepositEnabledNetworkMap:skip_deposit_disabled",
+                    { networkId: network.id }
+                );
+                continue;
+            }
+
+            register(network.id);
+        }
+
+        this.logWalletFlow("extractDepositEnabledNetworkMap:complete", {
+            registeredCount: depositEnabledMap.size,
+        });
+        return depositEnabledMap;
+    }
+
+    async ensureWalletPaymentAddresses(options: {
+        userId: number;
+        cryptoSubAccountId: string;
+        assetSymbol: string;
+        requestedNetworks?: string[];
+        walletData?: GetUserWalletResponse;
+    }): Promise<CryptoWalletAddress[]> {
+        const { userId, cryptoSubAccountId, assetSymbol } = options;
+
+        const assetSymbolUpper = assetSymbol.toUpperCase();
+        const currency = assetSymbol.toLowerCase();
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:start", {
+            userId,
+            cryptoSubAccountId,
+            assetSymbol: assetSymbolUpper,
+            requestedNetworks: options.requestedNetworks,
+            hasWalletData: Boolean(options.walletData),
+        });
+
+        if (!SUPPORTED_ASSETS.has(assetSymbolUpper)) {
+            this.logWalletFlow("ensureWalletPaymentAddresses:skip_asset", {
+                assetSymbol: assetSymbolUpper,
+            });
+            return [];
+        }
+
+        const walletResponse =
+            options.walletData ??
+            (
+                await this.quidaxService.getUserWallet({
+                    user_id: cryptoSubAccountId,
+                    currency,
+                })
+            ).data;
+
+        if (!walletResponse) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:no_wallet_response",
+                { currency, cryptoSubAccountId }
+            );
+            return [];
+        }
+
+        const depositEnabledNetworkMap =
+            this.extractDepositEnabledNetworkMap(walletResponse);
+
+        if (!depositEnabledNetworkMap.size) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:no_deposit_enabled_network",
+                { currency, cryptoSubAccountId }
+            );
+            return [];
+        }
+
+        let targetNetworks = Array.from(depositEnabledNetworkMap.keys());
+
+        let providerAddresses: IPaymentAddress[] = [];
+        const providerAddressMap = new Map<NetworkTypes, IPaymentAddress>();
+
+        try {
+            const providerAddressResponse =
+                await this.quidaxService.getPaymentAddressList({
+                    user_id: cryptoSubAccountId,
+                    currency,
+                });
+
+            providerAddresses = providerAddressResponse.data ?? [];
+
+            for (const providerAddress of providerAddresses) {
+                const normalizedNetwork = this.normalizeNetworkInput(
+                    providerAddress.network
+                );
+
+                if (!normalizedNetwork) {
+                    continue;
+                }
+
+                providerAddressMap.set(normalizedNetwork, providerAddress);
+            }
+
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:provider_addresses_loaded",
+                {
+                    providerAddressCount: providerAddresses.length,
+                    mappedCount: providerAddressMap.size,
+                }
+            );
+        } catch (error) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:provider_address_fetch_failed",
+                {
+                    error: error?.message,
+                }
+            );
+        }
+        this.logWalletFlow("ensureWalletPaymentAddresses:initial_targets", {
+            targetNetworks,
+        });
+
+        if (options.requestedNetworks?.length) {
+            const normalizedRequests = new Set<NetworkTypes>();
+
+            for (const requested of options.requestedNetworks) {
+                const normalized = this.normalizeNetworkInput(requested);
+
+                if (!normalized || !depositEnabledNetworkMap.has(normalized)) {
+                    this.logWalletFlow(
+                        "ensureWalletPaymentAddresses:requested_network_unavailable",
+                        { requested }
+                    );
+                    throw new OutOfRangeException(
+                        `Network ${requested} is not available for ${walletResponse.currency.toUpperCase()}`,
+                        HttpStatus.BAD_REQUEST
+                    );
+                }
+
+                normalizedRequests.add(normalized);
+            }
+
+            targetNetworks = Array.from(normalizedRequests);
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:filtered_requested_networks",
+                { targetNetworks }
+            );
+        }
+
+        if (!targetNetworks.length) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:no_target_networks_after_filter",
+                { currency, cryptoSubAccountId }
+            );
+            return [];
+        }
+
+        const existingAddresses =
+            await this.prisma.cryptoWalletAddress.findMany({
+                where: {
+                    userId,
+                    assetSymbol: assetSymbolUpper,
+                },
+                select: {
+                    network: true,
+                },
+            });
+
+        const existingNetworkSet = new Set<NetworkTypes>();
+
+        const defaultNetworkNormalized = this.normalizeNetworkInput(
+            walletResponse.default_network
+        );
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:existing_addresses", {
+            existingCount: existingAddresses.length,
+            defaultNetworkNormalized,
+        });
+
+        for (const existing of existingAddresses) {
+            if (existing.network) {
+                existingNetworkSet.add(existing.network);
+                continue;
+            }
+
+            if (
+                defaultNetworkNormalized &&
+                depositEnabledNetworkMap.has(defaultNetworkNormalized)
+            ) {
+                existingNetworkSet.add(defaultNetworkNormalized);
+            }
+        }
+
+        const backfilledProviderAddresses: CryptoWalletAddress[] = [];
+
+        for (const [network, providerAddress] of providerAddressMap.entries()) {
+            if (!targetNetworks.includes(network)) {
+                continue;
+            }
+
+            if (existingNetworkSet.has(network)) {
+                continue;
+            }
+
+            try {
+                const hasAddress = Boolean(providerAddress.address);
+
+                const record = await this.prisma.cryptoWalletAddress.upsert({
+                    where: { walletAddressId: providerAddress.id },
+                    update: {
+                        address: providerAddress.address,
+                        destination_tag: providerAddress.destination_tag,
+                        status: hasAddress
+                            ? CryptoWalletStatus.ACTIVE
+                            : CryptoWalletStatus.PENDING,
+                        lastSyncedAt: hasAddress ? new Date() : undefined,
+                        network,
+                    },
+                    create: {
+                        assetSymbol: assetSymbolUpper,
+                        walletAddressId: providerAddress.id,
+                        userId,
+                        network,
+                        address: providerAddress.address,
+                        destination_tag: providerAddress.destination_tag,
+                        status: hasAddress
+                            ? CryptoWalletStatus.ACTIVE
+                            : CryptoWalletStatus.PENDING,
+                        lastSyncedAt: hasAddress ? new Date() : undefined,
+                    },
+                });
+
+                backfilledProviderAddresses.push(record);
+                existingNetworkSet.add(network);
+            } catch (error) {
+                this.logWalletFlow(
+                    "ensureWalletPaymentAddresses:provider_backfill_failed",
+                    {
+                        network,
+                        error: error?.message,
+                    }
+                );
+            }
+        }
+
+        if (backfilledProviderAddresses.length) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:provider_backfill_success",
+                {
+                    backfilledCount: backfilledProviderAddresses.length,
+                }
+            );
+        }
+
+        targetNetworks = targetNetworks.filter(
+            (network) => !existingNetworkSet.has(network)
+        );
+
+        const networksToCreate = targetNetworks.filter(
+            (network) => !existingNetworkSet.has(network)
+        );
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:networks_to_create", {
+            networksToCreate,
+        });
+
+        if (!networksToCreate.length) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:all_networks_exist",
+                { assetSymbol: assetSymbolUpper }
+            );
+            return [];
+        }
+
+        const creationResults = await Promise.allSettled(
+            networksToCreate.map(async (network) => {
+                const providerNetwork = depositEnabledNetworkMap.get(network);
+
+                if (!providerNetwork) {
+                    this.logWalletFlow(
+                        "ensureWalletPaymentAddresses:missing_provider_network",
+                        { network }
+                    );
+                    throw new GeneralTransactionException(
+                        `Unable to resolve provider network for ${network}`,
+                        HttpStatus.SERVICE_UNAVAILABLE
+                    );
+                }
+
+                this.logWalletFlow(
+                    "ensureWalletPaymentAddresses:creating_address",
+                    {
+                        network,
+                        providerNetwork,
+                        currency,
+                        cryptoSubAccountId,
+                    }
+                );
+                const response = await this.quidaxService.createPaymentAddress({
+                    user_id: cryptoSubAccountId,
+                    currency,
+                    network: providerNetwork,
+                });
+
+                const responseNetworkValue = response.data.network || network;
+                const normalizedNetwork =
+                    this.normalizeNetworkInput(responseNetworkValue);
+
+                if (!normalizedNetwork) {
+                    this.logWalletFlow(
+                        "ensureWalletPaymentAddresses:unsupported_network_returned",
+                        {
+                            responseNetworkValue,
+                            providerNetwork,
+                            assetSymbol: assetSymbolUpper,
+                        }
+                    );
+                    throw new GeneralTransactionException(
+                        `Unsupported network ${responseNetworkValue} returned while creating address for ${assetSymbolUpper}`,
+                        HttpStatus.SERVICE_UNAVAILABLE
+                    );
+                }
+
+                this.logWalletFlow(
+                    "ensureWalletPaymentAddresses:created_address",
+                    {
+                        walletAddressId: response.data.id,
+                        normalizedNetwork,
+                        address: response.data.address,
+                        destination_tag: response.data.destination_tag,
+                    }
+                );
+                return {
+                    walletAddressId: response.data.id,
+                    network: normalizedNetwork,
+                    address: response.data.address,
+                    destination_tag: response.data.destination_tag,
+                };
+            })
+        );
+
+        const successfulCreations = creationResults.filter(
+            (
+                result
+            ): result is PromiseFulfilledResult<{
+                walletAddressId: string;
+                network: NetworkTypes;
+                address: string;
+                destination_tag: string | null;
+            }> => result.status === "fulfilled"
+        );
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:creation_results", {
+            successfulCount: successfulCreations.length,
+            rejectedCount: creationResults.length - successfulCreations.length,
+        });
+
+        if (!successfulCreations.length) {
+            throw new GeneralTransactionException(
+                "Failed to create wallet addresses",
+                HttpStatus.SERVICE_UNAVAILABLE
+            );
+        }
+
+        const createdAddresses: CryptoWalletAddress[] = [
+            ...backfilledProviderAddresses,
+        ];
+
+        this.logWalletFlow(
+            "ensureWalletPaymentAddresses:persisting_addresses",
+            {
+                createCount: successfulCreations.length,
+            }
+        );
+
+        try {
+            await this.prisma.$transaction(
+                async (tx) => {
+                    for (const creation of successfulCreations) {
+                        const hasAddress = Boolean(creation.value.address);
+
+                        const record = await tx.cryptoWalletAddress.upsert({
+                            where: {
+                                userId_assetSymbol_network: {
+                                    userId,
+                                    assetSymbol: assetSymbolUpper,
+                                    network: creation.value.network,
+                                },
+                            },
+                            update: {
+                                walletAddressId: creation.value.walletAddressId,
+                                address: creation.value.address,
+                                destination_tag: creation.value.destination_tag,
+                                status: hasAddress
+                                    ? CryptoWalletStatus.ACTIVE
+                                    : CryptoWalletStatus.PENDING,
+                                lastSyncedAt: hasAddress ? new Date() : undefined,
+                            },
+                            create: {
+                                assetSymbol: assetSymbolUpper,
+                                walletAddressId: creation.value.walletAddressId,
+                                userId,
+                                network: creation.value.network,
+                                address: creation.value.address,
+                                destination_tag: creation.value.destination_tag,
+                                status: hasAddress
+                                    ? CryptoWalletStatus.ACTIVE
+                                    : CryptoWalletStatus.PENDING,
+                                lastSyncedAt: hasAddress ? new Date() : undefined,
+                            },
+                        });
+
+                        createdAddresses.push(record);
+                    }
+                },
+                { timeout: 20000 }
+            );
+        } catch (error) {
+            this.logWalletFlow("ensureWalletPaymentAddresses:persist_failed", {
+                error: error?.message,
+            });
+            throw error;
+        }
+
+        const rejectedErrors = creationResults.filter(
+            (result): result is PromiseRejectedResult =>
+                result.status === "rejected"
+        );
+
+        if (rejectedErrors.length) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:rejected_creations",
+                { count: rejectedErrors.length }
+            );
+            rejectedErrors.forEach((err, index) =>
+                console.error(
+                    `[WalletFlow] ensureWalletPaymentAddresses:rejected_detail index=${index}`,
+                    err.reason
+                )
+            );
+        }
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:complete", {
+            createdAddresses: createdAddresses.map((address) => ({
+                id: address.id,
+                network: address.network,
+            })),
+        });
+        return createdAddresses;
+    }
+
     async getWalletAddress(userId: number, dto: GetWalletDto) {
         const wallet = await this.prisma.cryptoWalletAddress.findUnique({
             where: {
@@ -150,6 +746,21 @@ export class TradingService {
         return buildResponse({
             message: "wallet info retrieved",
             data: wallet,
+        });
+    }
+
+    async getWalletAddresses(userId: number, dto: GetWalletAddressesDto) {
+        const wallets = await this.prisma.cryptoWalletAddress.findMany({
+            where: {
+                userId,
+                assetSymbol: dto.asset.toUpperCase(),
+            },
+            orderBy: { createdAt: "desc" },
+        });
+
+        return buildResponse({
+            message: "wallet addresses retrieved",
+            data: wallets,
         });
     }
 
@@ -211,28 +822,6 @@ export class TradingService {
         userId: number,
         dto: InitiateWalletCreationDto
     ) {
-        // const existingWallet = await this.prisma.cryptoWalletAddress.findUnique(
-        //     {
-        //         where: {
-        //             userId_assetSymbol_network: {
-        //                 userId,
-        //                 assetSymbol: dto.asset.toUpperCase(),
-        //                 network: dto.network,
-        //             },
-        //         },
-        //     }
-        // );
-
-        // if (existingWallet) {
-        //     return buildResponse({
-        //         message: "wallet info retrieved",
-        //         data: {
-        //             status: "already_created",
-        //             address: existingWallet,
-        //         },
-        //     });
-        // }
-
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
         });
@@ -242,36 +831,24 @@ export class TradingService {
                 HttpStatus.NOT_FOUND
             );
         }
-
-        const wallet = await this.quidaxService.createPaymentAddress({
-            user_id: user.cryptoSubAccountId,
-            currency: dto.asset.toLowerCase(),
-            network: dto.network,
+        const createdAddresses = await this.ensureWalletPaymentAddresses({
+            userId: user.id,
+            cryptoSubAccountId: user.cryptoSubAccountId,
+            assetSymbol: dto.asset.toUpperCase(),
+            requestedNetworks: dto.network ? [dto.network] : undefined,
         });
 
-        const cryptoWallet = await this.prisma.$transaction(
-            async (tx) => {
-                const cryptoWallet = await tx.cryptoWalletAddress.create({
-                    data: {
-                        assetSymbol: dto.asset.toUpperCase(),
-                        walletAddressId: wallet.data.id,
-                        userId: user.id,
-                        network: wallet.data.network as NetworkTypes,
-                    },
-                });
-
-                return cryptoWallet;
-            },
-            {
-                timeout: 20000, // 20 seconds
-            }
-        );
+        const hasCreatedAddresses = createdAddresses.length > 0;
 
         return buildResponse({
-            message: "wallet address generation initiated",
+            message: hasCreatedAddresses
+                ? "wallet address generation initiated"
+                : "wallet address already exists",
             data: {
-                walletGenerationStatus: "initiated",
-                address: cryptoWallet,
+                walletGenerationStatus: hasCreatedAddresses
+                    ? "initiated"
+                    : "already_created",
+                addresses: hasCreatedAddresses ? createdAddresses : undefined,
             },
         });
     }
@@ -899,6 +1476,7 @@ export class TradingService {
             select: {
                 id: true,
                 assetSymbol: true,
+                network: true,
                 user: { select: { id: true, cryptoSubAccountId: true } },
             },
         });
@@ -932,8 +1510,32 @@ export class TradingService {
             });
 
             if (status === "success") {
-                await this.prisma.assetWallet.create({
-                    data: {
+                await this.prisma.assetWallet.upsert({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: walletAddress.user.id,
+                            assetCurrency:
+                                walletAddress.assetSymbol.toUpperCase(),
+                        },
+                    },
+                    update: {
+                        quidaxWalletId: data.id,
+                        assetName: data.name,
+                        balance: data.balance,
+                        locked: data.locked,
+                        staked: data.staked,
+                        convertedBalance: data.converted_balance,
+                        blockchainEnabled: data.blockchain_enabled,
+                        defaultNetwork: data.default_network,
+                        isCrypto: data.is_crypto,
+                        networks: data.networks,
+                        referenceCurrency: data.reference_currency,
+                        depositAddress: data.deposit_address,
+                        destinationTag: data.destination_tag,
+                        ...(data.deposit_address && { addressSynced: true }),
+                        ...(data.deposit_address && { isActive: true }),
+                    },
+                    create: {
                         quidaxWalletId: data.id, // Quidax wallet ID
                         assetCurrency: data.currency.toUpperCase(),
                         assetName: data.name,
@@ -953,7 +1555,29 @@ export class TradingService {
                         ...(data.deposit_address && { isActive: true }), // Mark wallet as active if deposit address exists
                     },
                 });
+
+                this.logWalletFlow(
+                    "walletAddressCreatedSuccessHandler:asset_wallet_synced",
+                    {
+                        userId: walletAddress.user.id,
+                        asset: walletAddress.assetSymbol,
+                        walletId: data.id,
+                    }
+                );
             }
+        }
+
+        const webhookNetwork = this.normalizeNetworkInput(data.network);
+        console.log("webhook network", webhookNetwork);
+
+        if (
+            walletAddress.network &&
+            webhookNetwork &&
+            walletAddress.network !== webhookNetwork
+        ) {
+            this.logger.warn(
+                `Incoming network ${webhookNetwork} differs from stored network ${walletAddress.network} for wallet ${data.walletAddressId}`
+            );
         }
 
         // Step 5: Update the crypto wallet address record with the new address and mark it active
@@ -967,6 +1591,10 @@ export class TradingService {
                 destination_tag: data.destination_tag,
                 status: CryptoWalletStatus.ACTIVE, // Mark as active
                 lastSyncedAt: new Date(), // Timestamp of the last sync
+                ...(webhookNetwork &&
+                    !walletAddress.network && {
+                        network: webhookNetwork,
+                    }),
             },
         });
     }
@@ -1009,6 +1637,71 @@ export class TradingService {
             where: { cryptoSubAccountId: options.quidaxUserId },
         });
 
+        if (!user) {
+            this.logger.error(
+                `User not found for deposit | ${JSON.stringify({
+                    quidaxUserId: options.quidaxUserId,
+                    referenceId: options.referenceId,
+                })}`
+            );
+            return buildResponse({
+                message: "User not found for deposit transaction",
+            });
+        }
+
+        // Validate that the payment address exists in our database
+        const paymentAddress = await this.prisma.cryptoWalletAddress.findUnique(
+            {
+                where: { walletAddressId: options.payment_address_id },
+                select: {
+                    id: true,
+                    userId: true,
+                    assetSymbol: true,
+                    network: true,
+                    address: true,
+                },
+            }
+        );
+
+        if (!paymentAddress) {
+            this.logger.error(
+                `Payment address not found in database | ${JSON.stringify({
+                    payment_address_id: options.payment_address_id,
+                    network: options.network,
+                    currency: options.currency,
+                    amount: options.amount,
+                })}`
+            );
+            return buildResponse({
+                message: "Payment address not found in database",
+            });
+        }
+
+        // Verify the payment address belongs to this user
+        if (paymentAddress.userId !== user.id) {
+            this.logger.error(
+                `Payment address does not belong to user | ${JSON.stringify({
+                    paymentAddressUserId: paymentAddress.userId,
+                    expectedUserId: user.id,
+                    payment_address_id: options.payment_address_id,
+                })}`
+            );
+            return buildResponse({
+                message: "Payment address does not belong to user",
+            });
+        }
+
+        this.logger.log(
+            `Processing deposit | ${JSON.stringify({
+                userId: user.id,
+                currency: options.currency,
+                amount: options.amount,
+                network: options.network,
+                paymentAddressId: options.payment_address_id,
+                status: options.status,
+            })}`
+        );
+
         if (user) {
             const transaction = await this.prisma.order.findUnique({
                 where: { providerOrderId: options.referenceId },
@@ -1044,6 +1737,37 @@ export class TradingService {
                 });
 
                 if (options.status == OrderStatus.accepted) {
+                    // Update user's wallet balance
+                    const assetWallet = await this.prisma.assetWallet.findUnique({
+                        where: {
+                            userId_assetCurrency: {
+                                userId: user.id,
+                                assetCurrency: options.currency.toUpperCase(),
+                            },
+                        },
+                    });
+
+                    if (assetWallet) {
+                        const currentBalance = parseFloat(assetWallet.balance.toString());
+                        const depositAmount = parseFloat(options.amount);
+                        const newBalance = (currentBalance + depositAmount).toString();
+
+                        await this.prisma.assetWallet.update({
+                            where: { id: assetWallet.id },
+                            data: { balance: newBalance },
+                        });
+
+                        this.logger.log(
+                            `Wallet balance updated | ${JSON.stringify({
+                                userId: user.id,
+                                currency: options.currency,
+                                oldBalance: assetWallet.balance.toString(),
+                                depositAmount: options.amount,
+                                newBalance: newBalance,
+                            })}`
+                        );
+                    }
+
                     const message = this.notificationMessage.receiveTransaction(
                         {
                             amount: +options.amount,
@@ -1093,7 +1817,38 @@ export class TradingService {
                     data: { status: options.status },
                 });
 
-                if (options.status == OrderStatus.accepted) {
+                if (options.status == OrderStatus.accepted && transaction.status !== OrderStatus.accepted) {
+                    // Update user's wallet balance (only if not already accepted)
+                    const assetWallet = await this.prisma.assetWallet.findUnique({
+                        where: {
+                            userId_assetCurrency: {
+                                userId: user.id,
+                                assetCurrency: options.currency.toUpperCase(),
+                            },
+                        },
+                    });
+
+                    if (assetWallet) {
+                        const currentBalance = parseFloat(assetWallet.balance.toString());
+                        const depositAmount = parseFloat(options.amount);
+                        const newBalance = (currentBalance + depositAmount).toString();
+
+                        await this.prisma.assetWallet.update({
+                            where: { id: assetWallet.id },
+                            data: { balance: newBalance },
+                        });
+
+                        this.logger.log(
+                            `Wallet balance updated | ${JSON.stringify({
+                                userId: user.id,
+                                currency: options.currency,
+                                oldBalance: assetWallet.balance.toString(),
+                                depositAmount: options.amount,
+                                newBalance: newBalance,
+                            })}`
+                        );
+                    }
+
                     const message = this.notificationMessage.receiveTransaction(
                         {
                             amount: +options.amount,

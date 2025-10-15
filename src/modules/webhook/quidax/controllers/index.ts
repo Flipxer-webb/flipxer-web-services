@@ -21,6 +21,7 @@ export class QuidaxWebhookController {
 
     @Post()
     async processWebhook(@Body() eventBody: EventBody, @Res() res: Response) {
+        console.log("data", { eventBody });
         this.quidaxWebhookEvent.emit("process-webhook-event", eventBody);
         res.sendStatus(200);
     }

@@ -13,6 +13,7 @@ export interface IWalletAddressCreatedSuccess {
     walletAddress: string;
     totalPayments: string;
     destination_tag?: string;
+    network?: string;
 }
 
 export interface IWalletUpdated {
@@ -140,6 +141,8 @@ export interface DepositTransaction {
     amount: string;
     recipient: string;
     payment_address: string;
+    payment_address_id: string;
+    network: string;
     quidaxUserId: string;
     currency: string;
     reason: string;

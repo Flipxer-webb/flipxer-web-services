@@ -8,15 +8,9 @@ import {
     IsString,
     Length,
     Matches,
-    ValidateIf,
     ValidateNested,
 } from "class-validator";
-import {
-    OrderSide,
-    OrderType,
-    SupportedAssets,
-    TradingPair,
-} from "../interfaces/trade";
+import { SupportedAssets } from "../interfaces/trade";
 import { NetworkTypes } from "@prisma/client";
 import { Transform, Type } from "class-transformer";
 
@@ -30,6 +24,13 @@ export class GetWalletDto {
     @IsNotEmpty()
     @IsEnum(NetworkTypes)
     network: NetworkTypes;
+}
+
+export class GetWalletAddressesDto {
+    @ApiProperty({ enum: SupportedAssets })
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    asset: SupportedAssets;
 }
 
 export class InitiateWalletCreationDto {
