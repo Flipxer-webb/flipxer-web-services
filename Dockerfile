@@ -4,7 +4,6 @@ RUN npm install -g pnpm
 COPY ./package.json .
 RUN pnpm install
 COPY . .
-RUN pnpm db:migrate:prod
 RUN pnpm prisma generate
 RUN pnpm build
 
