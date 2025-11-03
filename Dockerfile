@@ -4,7 +4,8 @@ RUN npm install -g pnpm
 COPY ./package.json .
 RUN pnpm install
 COPY . .
-RUN pnpm prisma generate 
+RUN pnpm db:migrate:prod
+RUN pnpm prisma generate
 RUN pnpm build
 
 FROM node:18.18.2 as production
@@ -16,6 +17,6 @@ COPY ./package.json .
 COPY ./public ./public
 COPY ./prisma ./prisma
 RUN pnpm install --prod
-RUN pnpm prisma generate 
+RUN pnpm prisma generate
 COPY --from=build /usr/src/app/dist ./dist
 CMD ["node", "dist/server"]
