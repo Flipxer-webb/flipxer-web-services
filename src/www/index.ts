@@ -10,7 +10,7 @@ import morgan from "morgan";
 import { frontendDevOrigin, isProdEnvironment, redisConfig } from "@/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
 import { waitForRedis } from "@/utils";
 
 export interface CreateServerOptions {
@@ -40,24 +40,38 @@ export default async (
         credentials: true,
     };
 
-    //hanlde prflight request
-    app.use((req: Request, res: Response, next: NextFunction) => {
-        if (req.method === "OPTIONS") {
-            res.header(
-                "Access-Control-Allow-Origin",
-                req.headers.origin || "*"
-            );
-            res.header(
-                "Access-Control-Allow-Methods",
-                "GET, PUT, POST, PATCH, DELETE, OPTIONS"
-            );
-            res.header(
-                "Access-Control-Allow-Headers",
-                "Authorization, X-Requested-With, Content-Type"
-            );
+    const allowedMethodsHeader = Array.isArray(corsOptions.methods)
+        ? corsOptions.methods.join(", ")
+        : corsOptions.methods;
+    const allowedHeadersHeader = Array.isArray(corsOptions.allowedHeaders)
+        ? corsOptions.allowedHeaders.join(", ")
+        : corsOptions.allowedHeaders;
+
+    app.options("*", (req: Request, res: Response) => {
+        const origin = req.headers.origin;
+        const isAllowedOrigin =
+            typeof origin === "string" &&
+            Array.isArray(whitelist) &&
+            whitelist.some((item) => {
+                if (typeof item === "string") return item === origin;
+                if (item instanceof RegExp) return item.test(origin);
+                return false;
+            });
+
+        if (isAllowedOrigin) {
+            res.header("Access-Control-Allow-Origin", origin);
+            res.header("Vary", "Origin");
+            res.header("Access-Control-Allow-Credentials", "true");
+        }
+
+        res.header("Access-Control-Allow-Methods", allowedMethodsHeader);
+        res.header("Access-Control-Allow-Headers", allowedHeadersHeader);
+
+        if (isAllowedOrigin || !origin) {
             return res.sendStatus(204);
         }
-        next();
+
+        return res.sendStatus(403);
     });
 
     app.use(helmet());
@@ -72,8 +86,8 @@ export default async (
     });
 
     const config = new DocumentBuilder()
-        .setTitle("Resolve web API Service")
-        .setDescription("API service that powers resolve web app")
+        .setTitle("Flipxer Web API Service")
+        .setDescription("API service that powers the Flipxer web app")
         .setVersion("1.0")
         .addBearerAuth(
             { type: "http", scheme: "bearer", bearerFormat: "JWT" }, // Bearer config

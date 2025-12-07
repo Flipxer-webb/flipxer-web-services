@@ -106,7 +106,7 @@ export class PaystackBank implements TBankFactory<"paystack"> {
                     {
                         display_name: "Reason",
                         variable_name: "reason",
-                        value: "Resolve payment",
+                        value: "Flipxer payment",
                     },
                 ],
             };

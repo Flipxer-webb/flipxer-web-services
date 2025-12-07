@@ -1,0 +1,9 @@
+ignoredBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - msgpackr-extract
+
+onlyBuiltDependencies:
+  - '@nestjs/core'
+  - prisma
+  - sharp
