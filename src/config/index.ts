@@ -124,7 +124,37 @@ const runtimeEnvironment: RequiredEnvironment[] = [
     // - BLOCKED_COUNTRIES
 ];
 
-validate(runtimeEnvironment);
+// Log which environment variables are present/missing before validation
+const missingVars: string[] = [];
+const presentVars: string[] = [];
+for (const envVar of runtimeEnvironment) {
+    if (process.env[envVar.name]) {
+        presentVars.push(envVar.name);
+    } else {
+        missingVars.push(envVar.name);
+    }
+}
+
+console.log("=== Environment Variable Check ===");
+console.log(`Present (${presentVars.length}):`, presentVars.join(", "));
+console.log(`Missing (${missingVars.length}):`, missingVars.join(", "));
+console.log("==================================");
+
+if (missingVars.length > 0) {
+    console.error(
+        `\n❌ FATAL: Missing required environment variables:\n${missingVars.map((v) => `  - ${v}`).join("\n")}\n`
+    );
+    console.error(
+        "Please add these variables to your Render Environment tab.\n"
+    );
+}
+
+try {
+    validate(runtimeEnvironment);
+} catch (error) {
+    console.error("Environment validation failed:", error);
+    throw error;
+}
 
 // App
 export const allowedDomains =
