@@ -47,12 +47,13 @@ export default async (
         ? corsOptions.allowedHeaders.join(", ")
         : corsOptions.allowedHeaders;
 
-    app.options("*", (req: Request, res: Response) => {
+    const expressApp = app.getHttpAdapter().getInstance();
+    expressApp.options("*", (req: Request, res: Response) => {
         const origin = req.headers.origin;
         const isAllowedOrigin =
             typeof origin === "string" &&
             Array.isArray(whitelist) &&
-            whitelist.some((item) => {
+            whitelist.some((item: string | RegExp) => {
                 if (typeof item === "string") return item === origin;
                 if (item instanceof RegExp) return item.test(origin);
                 return false;

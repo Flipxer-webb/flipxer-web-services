@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: flipxer-api
+    runtime: node
+    region: oregon
+    plan: starter
+    nodeVersion: 18.18.2
+    buildCommand: pnpm install && npx prisma generate && pnpm run build
+    startCommand: pnpm run start:prod
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: 3500
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_HOST
+        sync: false
+      - key: REDIS_PORT
+        sync: false
+      - key: REDIS_USER
+        sync: false
+      - key: REDIS_PASSWORD
+        sync: false
+      - key: REDIS_TLS
+        value: true
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: ENCRYPT_SECRET
+        sync: false
