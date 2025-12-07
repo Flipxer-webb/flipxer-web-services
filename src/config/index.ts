@@ -147,13 +147,16 @@ if (missingVars.length > 0) {
     console.error(
         "Please add these variables to your Render Environment tab.\n"
     );
+    // Exit gracefully instead of throwing to get a clean error message
+    process.exit(1);
 }
 
 try {
     validate(runtimeEnvironment);
 } catch (error) {
-    console.error("Environment validation failed:", error);
-    throw error;
+    console.error("\n❌ Environment validation failed:");
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
 }
 
 // App
