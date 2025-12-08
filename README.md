@@ -1,6 +1,6 @@
-# Resolve Web Services
+# Flipxer Web Services
 
-> Core API service powering the Resolve web application - a comprehensive financial services platform for cryptocurrency trading, payments, and identity verification.
+> Core API service powering the Flipxer web application - a comprehensive financial services platform for cryptocurrency trading, payments, and identity verification.
 
 [![Node.js](https://img.shields.io/badge/Node.js-18.18.2-green.svg)](https://nodejs.org/)
 [![NestJS](https://img.shields.io/badge/NestJS-10.3-red.svg)](https://nestjs.com/)
@@ -51,7 +51,7 @@ This application is built using:
 ### Project Structure
 
 ```
-resolve-web-services/
+flipxer-web-services/
 ├── src/
 │   ├── config/          # Configuration files
 │   ├── core/            # Core functionality (exceptions, pipes, decorators)
@@ -94,8 +94,8 @@ Before you begin, ensure you have the following installed:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/OmeriHQ/resolve-web-services.git
-cd resolve-web-services
+git clone https://github.com/OmeriHQ/flipxer-web-services.git
+cd flipxer-web-services
 ```
 
 ### 2. Install Dependencies
@@ -255,7 +255,7 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for comprehensive deployment instructions.
 
 ```bash
 # Build Docker image
-docker build -t resolve-web-services:latest .
+docker build -t flipxer-web-services:latest .
 
 # Run with Docker Compose
 docker-compose up -d
@@ -311,7 +311,7 @@ test: add user service tests
 For questions, issues, or support:
 
 -   **Email**: adegbesan86@gmail.com
--   **Issues**: [GitHub Issues](https://github.com/OmeriHQ/resolve-web-services/issues)
+-   **Issues**: [GitHub Issues](https://github.com/OmeriHQ/flipxer-web-services/issues)
 
 ## 👥 Contributors
 
@@ -323,9 +323,9 @@ For questions, issues, or support:
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🏦 About Resolve
+## 🏦 About Flipxer
 
-Resolve is a comprehensive financial services platform that enables users to:
+Flipxer is a comprehensive financial services platform that enables users to:
 
 -   Trade cryptocurrencies securely
 -   Process payments and transfers

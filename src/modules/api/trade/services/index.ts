@@ -982,8 +982,8 @@ export class TradingService {
         const requestRes = await this.quidaxService.createWithdrawerRequest({
             amount: totalCryptoToAdmin.toString(),
             currency: dto.asset.toLowerCase(),
-            narration: "resolve sell order transaction",
-            transaction_note: "resolve sell order transaction",
+            narration: "flipxer sell order transaction",
+            transaction_note: "flipxer sell order transaction",
             user_id: user.cryptoSubAccountId,
             fund_uid: adminAssetWallet.data.deposit_address, //receiving wallet address //main account on quidax
             fund_uid2: adminAssetWallet.data.destination_tag, // destination tag

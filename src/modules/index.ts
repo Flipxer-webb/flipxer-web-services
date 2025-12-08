@@ -2,8 +2,9 @@ import { Module } from "@nestjs/common";
 import { APIModule } from "./api";
 import { CoreModule } from "./core";
 import { ScheduleModule } from "@nestjs/schedule";
-import { BullBoardModule } from "@bull-board/nestjs";
-import { ExpressAdapter } from "@bull-board/express";
+// Bull Board disabled due to path-to-regexp compatibility issue with Express 4.x
+// import { BullBoardModule } from "@bull-board/nestjs";
+// import { ExpressAdapter } from "@bull-board/express";
 import { FactoryModule } from "./factory";
 import { SchedulerModule } from "./scheduler";
 import { WebhookModule } from "./webhook";
@@ -22,11 +23,12 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
         ConfigModule.forRoot({
             isGlobal: true,
         }),
-        //queue
-        BullBoardModule.forRoot({
-            route: "/queues",
-            adapter: ExpressAdapter,
-        }),
+        // Bull Board disabled due to path-to-regexp compatibility issue with Express 4.x
+        // Re-enable when upgrading to NestJS 11 / Express 5
+        // BullBoardModule.forRoot({
+        //     route: "/queues",
+        //     adapter: ExpressAdapter,
+        // }),
         BullModule.forRootAsync({
             useFactory: async () => {
                 return {

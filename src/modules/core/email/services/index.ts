@@ -19,7 +19,15 @@ export class EmailService {
     async sendMailWithTemplate(
         options: SendMailWithTemplateOptions
     ): Promise<any> {
-        return await this.client.sendMailWithTemplate(options);
+        this.logger.log(`Sending email to: ${JSON.stringify(options.to)}, template: ${options.template_key}`);
+        try {
+            const result = await this.client.sendMailWithTemplate(options);
+            this.logger.log(`Email sent successfully: ${JSON.stringify(result)}`);
+            return result;
+        } catch (error) {
+            this.logger.error(`Failed to send email: ${error.message}`, error.stack);
+            throw error;
+        }
     }
 
     async sendBatchMail(options: MailBatchWithTemplateOptions): Promise<any> {

@@ -358,8 +358,8 @@ export class BankService {
                         await this.quidaxService.createWithdrawerRequest({
                             amount: order.amount.toString(),
                             currency: order.currency.toLowerCase(),
-                            narration: "resolve buy order transaction",
-                            transaction_note: "resolve buy order transaction",
+                            narration: "flipxer buy order transaction",
+                            transaction_note: "flipxer buy order transaction",
                             user_id: "me", //main account on quidax
                             fund_uid: order.recipient, //receiving wallet address
                             fund_uid2: order.destinationTag, // destination tag

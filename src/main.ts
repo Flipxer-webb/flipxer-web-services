@@ -1,3 +1,24 @@
+// Global error handler to catch module import errors
+process.on("uncaughtException", (error) => {
+    console.error("\n=== UNCAUGHT EXCEPTION ===");
+    console.error("Error:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("===========================\n");
+    process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+    console.error("\n=== UNHANDLED REJECTION ===");
+    console.error("Reason:", reason);
+    console.error("============================\n");
+    process.exit(1);
+});
+
+console.log("=== Flipxer Backend Starting ===");
+console.log("Node version:", process.version);
+console.log("Environment:", process.env.NODE_ENV);
+console.log("================================\n");
+
 import createServer, { CreateServerOptions } from "@/www";
 import { allowedDomains, isProduction, port } from "@/config";
 import logger from "moment-logger";
