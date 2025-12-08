@@ -16,6 +16,9 @@ COPY ./package.json .
 COPY ./public ./public
 COPY ./prisma ./prisma
 RUN pnpm install --prod
+RUN pnpm add -D ts-node typescript @types/node
 RUN pnpm prisma generate
 COPY --from=build /usr/src/app/dist ./dist
-CMD ["node", "dist/server"]
+COPY docker-entrypoint.sh .
+RUN chmod +x docker-entrypoint.sh
+CMD ["./docker-entrypoint.sh"]
