@@ -5,15 +5,17 @@ import { UserService } from "./services";
 import { AdminUserService } from "./services/admin";
 import { AdminUserController } from "./controllers/v1/admin";
 import { CachingModule } from "@/modules/core/redisCache";
+import { TierService } from "../auth/services/tier.service";
+import { PrismaModule } from "@/modules/core/prisma";
 export * from "./interfaces";
 export * from "./errors";
 export * from "./decorators";
 
 @Global()
 @Module({
-    imports: [forwardRef(() => AuthModule), CachingModule],
+    imports: [forwardRef(() => AuthModule), CachingModule, PrismaModule],
     controllers: [UserController, AdminUserController],
-    providers: [UserService, AdminUserService],
-    exports: [UserService],
+    providers: [UserService, AdminUserService, TierService],
+    exports: [UserService, TierService],
 })
 export class UserModule {}

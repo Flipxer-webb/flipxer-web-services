@@ -32,11 +32,15 @@ model User {
   roleId                             Int
   ipAddress                          String?
   notificationToken                  String?
+  tier                               Int                               @default(0)
   isEmailVerified                    Boolean                           @default(false)
   isPhoneVerified                    Boolean                           @default(false)
   isPasswordCreated                  Boolean                           @default(false)
   isBvnVerified                      Boolean                           @default(false)
   isDocumentVerified                 Boolean                           @default(false)
+  isAddressVerified                  Boolean                           @default(false)
+  isBiometricVerified                Boolean                           @default(false)
+  isIncomeVerified                   Boolean                           @default(false)
   businessRecordCompleted            Boolean                           @default(false)
   businessDocumentVerificationStatus DocumentVerificationStatus?
   isDeleted                          Boolean                           @default(false)

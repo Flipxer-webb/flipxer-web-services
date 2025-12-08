@@ -21,6 +21,7 @@ import { TransactionAmountGuard } from "@/modules/api/auth/guard";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { TransactionService } from "../auth/services/transaction.service";
+import { TierService } from "../auth/services/tier.service";
 export * from "./interfaces";
 export * from "./errors";
 
@@ -46,6 +47,7 @@ export * from "./errors";
         WsGateway,
         WsService,
         TransactionService,
+        TierService,
         TransactionAmountGuard,
         {
             provide: TradingInjectionToken.COINGECKO,
@@ -58,6 +60,7 @@ export * from "./errors";
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,
         WsService,
+        TierService,
     ],
 })
 export class TradingModule {}
