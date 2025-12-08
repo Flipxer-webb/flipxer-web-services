@@ -5,6 +5,7 @@ import { UploadModule } from "./upload";
 import { CachingModule } from "./redisCache";
 import { MessageModule } from "./messages/message.module";
 import { GeoIpModule } from "./geoip";
+import { SmsModule } from "./sms";
 
 @Module({
     imports: [
@@ -14,6 +15,7 @@ import { GeoIpModule } from "./geoip";
         CachingModule,
         MessageModule,
         GeoIpModule,
+        SmsModule,
     ],
 })
 export class CoreModule {}

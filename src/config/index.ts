@@ -5,6 +5,7 @@ import validate, {
 } from "@boxpositron/vre";
 import { ConfigOptions } from "cloudinary";
 import { PaystackOptions } from "@/libs/paystack";
+import { TermiiOptions } from "@/libs/termii";
 
 export * from "./constants";
 
@@ -329,6 +330,26 @@ export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
           c.trim().toUpperCase()
       )
     : [];
+
+// Termii SMS (optional - SMS features will not work without credentials)
+export interface TermiiConfig {
+    apiKey: string;
+    secretKey: string;
+    senderId: string;
+    baseUrl?: string;
+}
+
+export const termiiConfig: TermiiConfig = {
+    apiKey: process.env.TERMII_API_KEY || "",
+    secretKey: process.env.TERMII_SECRET_KEY || "",
+    senderId: process.env.TERMII_SENDER_ID || "Flipxer",
+    baseUrl: process.env.TERMII_BASE_URL || "https://v3.api.termii.com",
+};
+
+export const termiiOptions: TermiiOptions = {
+    apiKey: termiiConfig.apiKey,
+    baseUrl: termiiConfig.baseUrl,
+};
 
 export interface Configuration {
     redisConfig: RedisConfig;

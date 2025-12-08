@@ -77,6 +77,7 @@ import {
 } from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import * as crypto from "crypto";
+import { SmsService } from "@/modules/core/sms/services";
 
 @Injectable()
 export class AuthService {
@@ -90,7 +91,8 @@ export class AuthService {
         private uploadFactory: UploadFactory,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
         private readonly dojahService: DojahService,
-        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer
+        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
+        private readonly smsService: SmsService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -547,15 +549,13 @@ export class AuthService {
             },
         });
 
-        const phoneNumber = options.phone
-            ? `234${options.phone.trim().substring(1)}`
-            : null;
-        // TODO: send code to phone
+        // Send verification code via SMS
+        await this.smsService.sendVerificationCode(options.phone, verificationCode);
 
         return buildResponse({
             message: `A phone verification code has been sent to your phone, ${options.phone}`,
             data: {
-                email: options.phone,
+                phone: options.phone,
             },
         });
     }
