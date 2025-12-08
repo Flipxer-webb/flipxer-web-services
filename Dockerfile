@@ -13,6 +13,7 @@ ENV NODE_ENV=production
 WORKDIR /usr/src/app
 RUN npm install -g pnpm
 COPY ./package.json .
+COPY ./tsconfig.json .
 COPY ./public ./public
 COPY ./prisma ./prisma
 RUN pnpm install --prod
