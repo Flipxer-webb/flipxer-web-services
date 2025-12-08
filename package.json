@@ -43,9 +43,9 @@
     },
     "dependencies": {
         "@boxpositron/vre": "^1.0.0",
-        "@bull-board/api": "^5.10.2",
-        "@bull-board/express": "^5.10.2",
-        "@bull-board/nestjs": "^5.10.2",
+        "@bull-board/api": "^6.6.2",
+        "@bull-board/express": "^6.6.2",
+        "@bull-board/nestjs": "^6.6.2",
         "@casl/ability": "^6.5.0",
         "@casl/prisma": "^1.4.1",
         "@nestjs/bull": "^10.0.1",
