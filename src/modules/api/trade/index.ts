@@ -4,8 +4,9 @@ import { TradingController } from "./controllers/v1";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
 import { BullModule } from "@nestjs/bull";
-import { BullBoardModule } from "@bull-board/nestjs";
-import { quidaxBoardQueueConfig, quidaxQueueConfig } from "./queues";
+// Bull Board disabled due to path-to-regexp compatibility issue with Express 4.x
+// import { BullBoardModule } from "@bull-board/nestjs";
+import { quidaxQueueConfig } from "./queues";
 import { CryptoAccountQueueProducer } from "./queues/producers/producer.service";
 import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processors/account_init_processor";
 import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
@@ -26,7 +27,8 @@ export * from "./errors";
 @Module({
     imports: [
         BullModule.registerQueue(...quidaxQueueConfig),
-        BullBoardModule.forFeature(...quidaxBoardQueueConfig),
+        // Bull Board disabled due to path-to-regexp compatibility issue with Express 4.x
+        // BullBoardModule.forFeature(...quidaxBoardQueueConfig),
         TradingFactoryModule,
         BankFactoryModule,
         forwardRef(() => UserModule),
