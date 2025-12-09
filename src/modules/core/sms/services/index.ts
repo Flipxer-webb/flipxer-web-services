@@ -1,24 +1,24 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { TermiiLib } from "@/libs/termii";
-import { termiiConfig, termiiOptions } from "@/config";
+import { SendchampLib } from "@/libs/sendchamp";
+import { sendchampConfig, sendchampOptions } from "@/config";
 import { SmsServiceInterface } from "../interfaces";
 import { COMPANY_NAME } from "@/config/constants";
 
 @Injectable()
 export class SmsService implements SmsServiceInterface {
     private readonly logger = new Logger(SmsService.name);
-    private readonly termii: TermiiLib;
+    private readonly sendchamp: SendchampLib;
     private readonly isConfigured: boolean;
 
     constructor() {
-        this.isConfigured = !!termiiConfig.apiKey;
+        this.isConfigured = !!sendchampConfig.accessKey;
         
         if (this.isConfigured) {
-            this.termii = new TermiiLib(termiiOptions);
-            this.logger.log("SMS service initialized with Termii");
+            this.sendchamp = new SendchampLib(sendchampOptions);
+            this.logger.log("SMS service initialized with Sendchamp");
         } else {
             this.logger.warn(
-                "SMS service not configured - TERMII_API_KEY missing"
+                "SMS service not configured - SENDCHAMP_ACCESS_KEY missing"
             );
         }
     }
@@ -60,12 +60,11 @@ export class SmsService implements SmsServiceInterface {
         try {
             const formattedPhone = this.formatPhoneNumber(to);
             
-            await this.termii.sendSms({
+            await this.sendchamp.sendSms({
                 to: formattedPhone,
-                sms: message,
-                from: termiiConfig.senderId,
-                type: "plain",
-                channel: "generic",
+                message: message,
+                sender_name: sendchampConfig.senderId,
+                route: "non_dnd",
             });
             
             this.logger.log(`SMS sent successfully to ${formattedPhone}`);
