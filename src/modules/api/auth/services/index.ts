@@ -7,6 +7,7 @@ import {
     VerifyEmailOtpDto,
     CreatePasswordDto,
     BvnVerificationDto,
+    OnboardIndividualDto,
     VerifyPhoneOtpDto,
     SendPhoneVerificationCodeDto,
     DocumentVerificationDto,
@@ -688,6 +689,35 @@ export class AuthService {
 
         return buildResponse({
             message: "Bvn Verification successfully",
+        });
+    }
+
+    async onboardIndividual(user: User, dto: OnboardIndividualDto) {
+        // Check if user already has profile info set
+        if (user.firstName && user.lastName && user.dateOfBirth) {
+            throw new VerificationGenericException(
+                "User profile already completed",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                firstName: dto.firstName,
+                lastName: dto.lastName,
+                dateOfBirth: new Date(dto.dateOfBirth),
+            },
+        });
+
+        try {
+            await this.cryptoAccountQueueProducer.enqueue(user.id);
+        } catch (error) {
+            console.log("error in sub account setup", { error });
+        }
+
+        return buildResponse({
+            message: "Profile updated successfully",
         });
     }
 

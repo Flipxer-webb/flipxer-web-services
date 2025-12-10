@@ -66,8 +66,8 @@ export class TierService {
             return 2;
         }
 
-        // Tier 1: Basic document verified
-        if (user.isDocumentVerified) {
+        // Tier 1: BVN verified + Document verified
+        if (user.isBvnVerified && user.isDocumentVerified) {
             return 1;
         }
 

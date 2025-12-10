@@ -15,6 +15,7 @@ import {
     BvnVerificationDto,
     CreatePasswordDto,
     DocumentVerificationDto,
+    OnboardIndividualDto,
     SendEmailVerificationCodeDto,
     SendPhoneVerificationCodeDto,
     SignUpDto,
@@ -111,6 +112,18 @@ export class AuthController {
         @Body(ValidationPipe) createPasswordDto: CreatePasswordDto
     ) {
         return await this.authService.createPassword(user, createPasswordDto);
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("onboard-individual")
+    @ApiOperation({ summary: "onboard user with individual account - save basic profile info" })
+    async onboardIndividual(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: OnboardIndividualDto
+    ) {
+        return await this.authService.onboardIndividual(user, dto);
     }
 
     @ApiBearerAuth("access-token")
