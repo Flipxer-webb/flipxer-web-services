@@ -64,70 +64,73 @@ export class AuthGuard implements CanActivate {
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest() as RequestWithUser;
         const token = this.extractTokenFromHeader(request);
+        
         if (!token) {
             throw new InvalidAuthTokenException(
                 "Authorization header is missing",
                 HttpStatus.UNAUTHORIZED
             );
         }
+        
         try {
-            const payload: DataStoredInToken =
-                await this.jwtService.verifyAsync(token, {
-                    secret: jwtSecret,
-                });
-
-            const user = await this.prisma.user.findUnique({
-                where: {
-                    id: +payload.sub,
-                },
-                include: { role: { select: { name: true, slug: true } } },
-            });
-            if (!user) {
-                throw new UserNotFoundException(
-                    "Your session is unauthorized",
-                    HttpStatus.UNAUTHORIZED
-                );
-            }
-
-            if (user.isDeleted) {
-                throw new AccountDeletedException(
-                    "Account not found",
-                    HttpStatus.UNAUTHORIZED
-                );
-            }
-
+            const user = await this.verifyAndFetchUser(token);
             request.user = user;
+            return true;
         } catch (error) {
-            logger.error(error);
-            switch (true) {
-                case error instanceof UserNotFoundException: {
-                    throw error;
-                }
-
-                case error instanceof AccountDeletedException: {
-                    throw error;
-                }
-
-                case error instanceof UserForbiddenException: {
-                    throw error;
-                }
-
-                case error.name == "PrismaClientKnownRequestError": {
-                    throw new PrismaNetworkException(
-                        "Unable to process request. Please try again",
-                        HttpStatus.SERVICE_UNAVAILABLE
-                    );
-                }
-
-                default: {
-                    throw new AuthTokenValidationException(
-                        "Your session is unauthorized or expired",
-                        HttpStatus.UNAUTHORIZED
-                    );
-                }
-            }
+            this.handleAuthError(error);
         }
-        return true;
+    }
+
+    private async verifyAndFetchUser(token: string) {
+        const payload: DataStoredInToken = await this.jwtService.verifyAsync(
+            token,
+            { secret: jwtSecret }
+        );
+
+        const user = await this.prisma.user.findUnique({
+            where: { id: +payload.sub },
+            include: { role: { select: { name: true, slug: true } } },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException(
+                "Your session is unauthorized",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        if (user.isDeleted) {
+            throw new AccountDeletedException(
+                "Account not found",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        return user;
+    }
+
+    private handleAuthError(error: any): never {
+        logger.error(error);
+
+        if (
+            error instanceof UserNotFoundException ||
+            error instanceof AccountDeletedException ||
+            error instanceof UserForbiddenException
+        ) {
+            throw error;
+        }
+
+        if (error.name === "PrismaClientKnownRequestError") {
+            throw new PrismaNetworkException(
+                "Unable to process request. Please try again",
+                HttpStatus.SERVICE_UNAVAILABLE
+            );
+        }
+
+        throw new AuthTokenValidationException(
+            "Your session is unauthorized or expired",
+            HttpStatus.UNAUTHORIZED
+        );
     }
 
     private extractTokenFromHeader(request: Request): string | undefined {
