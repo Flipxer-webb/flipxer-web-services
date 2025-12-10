@@ -64,7 +64,7 @@ export class SmsService implements SmsServiceInterface {
                 to: formattedPhone,
                 message: message,
                 sender_name: sendchampConfig.senderId,
-                route: "non_dnd",
+                route: "dnd",
             });
             
             this.logger.log(`SMS sent successfully to ${formattedPhone}`);
