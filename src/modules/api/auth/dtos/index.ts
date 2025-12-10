@@ -177,6 +177,39 @@ export class BvnVerificationDto {
     bvn: string;
 }
 
+export class NinVerificationDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
+    @ApiProperty({
+        description: "Date of Birth in YYYY-MM-DD format",
+        example: "2024-06-01",
+        format: "date",
+    })
+    @IsNotEmpty()
+    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+        message:
+            "Date of Birth must be in YYYY-MM-DD format (e.g., 2024-06-01)",
+    })
+    dateOfBirth: string;
+
+    @ApiProperty({
+        description: "user NIN",
+        example: "use 00000000001 for sandbox NIN testing",
+    })
+    @IsNotEmpty()
+    @IsNumberString()
+    @Length(11, 11, { message: "NIN must be 11 digits" })
+    nin: string;
+}
+
 export class OnboardIndividualDto {
     @ApiProperty()
     @IsNotEmpty()

@@ -13,6 +13,7 @@ import {
 import { Request } from "express";
 import {
     BvnVerificationDto,
+    NinVerificationDto,
     CreatePasswordDto,
     DocumentVerificationDto,
     OnboardIndividualDto,
@@ -148,6 +149,18 @@ export class AuthController {
         @Body(ValidationPipe) dto: BvnVerificationDto
     ) {
         return await this.authService.bvnVerification(user, dto);
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-nin")
+    @ApiOperation({ summary: "verify user with individual account NIN" })
+    async ninVerification(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: NinVerificationDto
+    ) {
+        return await this.authService.ninVerification(user, dto);
     }
 
     @UseGuards(AuthGuard)

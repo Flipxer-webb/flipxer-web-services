@@ -7,6 +7,7 @@ import {
     VerifyEmailOtpDto,
     CreatePasswordDto,
     BvnVerificationDto,
+    NinVerificationDto,
     OnboardIndividualDto,
     VerifyPhoneOtpDto,
     SendPhoneVerificationCodeDto,
@@ -694,6 +695,76 @@ export class AuthService {
 
         return buildResponse({
             message: "Bvn Verification successfully",
+        });
+    }
+
+    async ninVerification(user: User, dto: NinVerificationDto) {
+        if (user.isNinVerified) {
+            throw new DuplicateVerificationException(
+                "NIN verification already completed",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const ninInUseByAnother = await this.prisma.user.findFirst({
+            where: { id: { not: user.id }, nin: dto.nin },
+        });
+
+        if (ninInUseByAnother) {
+            throw new VerificationGenericException(
+                "NIN already in use",
+                HttpStatus.CONFLICT
+            );
+        }
+
+        const result = await this.dojahService.verifyNin({
+            nin: dto.nin,
+        });
+
+        if (dto.nin === "00000000001") {
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    firstName: dto.firstName,
+                    lastName: dto.lastName,
+                    dateOfBirth: new Date(dto.dateOfBirth),
+                    isNinVerified: true,
+                    nin: generateId({ type: "numeric" }),
+                },
+            });
+        } else {
+            if (
+                dto.firstName.toLowerCase() !==
+                    result?.data?.entity?.first_name.toLowerCase() ||
+                dto.lastName.toLowerCase() !==
+                    result?.data?.entity?.last_name.toLowerCase() ||
+                dto.dateOfBirth !== result?.data?.entity?.date_of_birth
+            ) {
+                throw new VerificationGenericException(
+                    "Incorrect first name, last name or date of birth",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    firstName: dto.firstName,
+                    lastName: dto.lastName,
+                    dateOfBirth: new Date(dto.dateOfBirth),
+                    isNinVerified: true,
+                    nin: dto.nin,
+                    ninRegisteredPhone: result.data.entity.phone_number,
+                },
+            });
+        }
+        try {
+            await this.cryptoAccountQueueProducer.enqueue(user.id);
+        } catch (error) {
+            console.log("error in sub account setup", { error });
+        }
+
+        return buildResponse({
+            message: "NIN Verification successfully",
         });
     }
 

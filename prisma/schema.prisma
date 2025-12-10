@@ -27,6 +27,8 @@ model User {
   dateOfBirth                        DateTime?
   bvn                                String?
   bvnRegisteredPhone                 String?
+  nin                                String?
+  ninRegisteredPhone                 String?
   country                            Country                           @default(NIGERIA)
   status                             Status                            @default(ACTIVE)
   roleId                             Int
@@ -37,6 +39,7 @@ model User {
   isPhoneVerified                    Boolean                           @default(false)
   isPasswordCreated                  Boolean                           @default(false)
   isBvnVerified                      Boolean                           @default(false)
+  isNinVerified                      Boolean                           @default(false)
   isDocumentVerified                 Boolean                           @default(false)
   isAddressVerified                  Boolean                           @default(false)
   isBiometricVerified                Boolean                           @default(false)
