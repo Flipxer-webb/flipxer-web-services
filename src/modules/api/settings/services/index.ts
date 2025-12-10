@@ -525,4 +525,38 @@ export class SettingService {
             secret: user.twoFactorSecret,
         });
     }
+
+    /**
+     * Verify 2FA code for transactions (withdrawals, sends, transfers)
+     */
+    async verify2FAForTransaction(user: User, dto: { code: string }) {
+        const userData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { twoFactorSecret: true, isTwoFactorEnabled: true },
+        });
+
+        if (!userData?.isTwoFactorEnabled || !userData?.twoFactorSecret) {
+            throw new UserForbiddenException(
+                "Two-factor authentication is not enabled on your account",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        const isValid = authenticator.verify({
+            token: dto.code,
+            secret: userData.twoFactorSecret,
+        });
+
+        if (!isValid) {
+            throw new UserForbiddenException(
+                "Invalid verification code",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        return buildResponse({
+            message: "2FA verification successful",
+            data: { verified: true },
+        });
+    }
 }

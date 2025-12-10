@@ -127,3 +127,14 @@ export class Disable2FADto {
     @IsString()
     password: string;
 }
+
+export class Verify2FACodeDto {
+    @ApiProperty({
+        description: "6-digit TOTP code from authenticator app",
+        example: "123456",
+    })
+    @IsNotEmpty({ message: "TOTP code is required" })
+    @IsString()
+    @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
+    code: string;
+}

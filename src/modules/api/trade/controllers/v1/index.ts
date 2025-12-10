@@ -15,6 +15,7 @@ import {
     AuthGuard,
     CountryBlockGuard,
     TransactionAmountGuard,
+    TwoFactorGuard,
 } from "@/modules/api/auth/guard";
 // import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
@@ -186,7 +187,7 @@ export class TradingController {
         summary:
             "Confirm sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/order")
     async sellCryptoOrder(
@@ -210,7 +211,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Confirm instant swap quote" })
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TwoFactorGuard)
     @ApiBearerAuth("access-token")
     @Post("confirm-instant-swap-quote")
     async confirmInstantSwapQuote(
@@ -234,7 +235,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Initiate withdrawal" })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
     @ApiBody({ type: WithdrawerRequestDto })
     @ApiBearerAuth("access-token")
     @Post("withdrawer-request")

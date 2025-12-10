@@ -25,6 +25,7 @@ import {
     GetCryptoTransactionFeePerAssetDto,
     Enable2FADto,
     Disable2FADto,
+    Verify2FACodeDto,
     // UpdateAllowedIpDto,
 } from "../../dtos";
 import { AuthGuard } from "@/modules/api/auth/guard";
@@ -158,5 +159,14 @@ export class SettingController {
     @Post("2fa/disable")
     async disable2FA(@User() user: UserModel, @Body() dto: Disable2FADto) {
         return this.settingService.disable2FA(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Verify 2FA code for transactions" })
+    @Post("2fa/verify")
+    async verify2FA(@User() user: UserModel, @Body() dto: Verify2FACodeDto) {
+        return this.settingService.verify2FAForTransaction(user, dto);
     }
 }

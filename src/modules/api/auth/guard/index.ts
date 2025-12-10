@@ -45,6 +45,7 @@ import {
     InvalidTransactionAmountException,
 } from "@/modules/api/trade/errors";
 import { TransactionService } from "../services/transaction.service";
+import { authenticator } from "otplib";
 import {
     blockedCountries,
     isProduction,
@@ -368,6 +369,60 @@ export class TransactionAmountGuard implements CanActivate {
             orderCategory,
             path
         );
+
+        return true;
+    }
+}
+
+@Injectable()
+export class TwoFactorGuard implements CanActivate {
+    constructor(private prisma: PrismaService) {}
+
+    async canActivate(context: ExecutionContext): Promise<boolean> {
+        const request = context.switchToHttp().getRequest<RequestWithUser>();
+        const user = request.user;
+
+        if (!user) {
+            throw new InvalidAuthTokenException(
+                "User not found in request",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        // Check if user has 2FA enabled
+        const userData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { twoFactorSecret: true, isTwoFactorEnabled: true },
+        });
+
+        if (!userData?.isTwoFactorEnabled || !userData?.twoFactorSecret) {
+            throw new UserForbiddenException(
+                "Two-factor authentication must be enabled to perform this action",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        // Get 2FA code from request body or header
+        const code = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+
+        if (!code) {
+            throw new UserForbiddenException(
+                "Two-factor authentication code is required for this transaction",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        const isValid = authenticator.verify({
+            token: code,
+            secret: userData.twoFactorSecret,
+        });
+
+        if (!isValid) {
+            throw new UserForbiddenException(
+                "Invalid two-factor authentication code",
+                HttpStatus.FORBIDDEN
+            );
+        }
 
         return true;
     }
