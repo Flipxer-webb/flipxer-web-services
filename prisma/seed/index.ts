@@ -421,7 +421,8 @@ async function main() {
         const testUser = await prisma.user.upsert({
             where: { email: "testuser@flipxer.com" },
             update: {
-                // Update all verification flags to true
+                // Force update password and all verification flags
+                password: hashedTestPassword,
                 isEmailVerified: true,
                 isPhoneVerified: true,
                 isPasswordCreated: true,
