@@ -14,10 +14,15 @@ import {
     CreateOrUpdateCryptoTransactionFeeDto,
     GetCryptoTransactionFeePerAssetDto,
     UpdateAllowedIpDto,
+    Enable2FADto,
+    Disable2FADto,
 } from "../dtos";
 import { TransactionFeeCategory, User } from "@prisma/client";
 import { UserForbiddenException } from "../../auth";
 import * as ipaddr from "ipaddr.js";
+import { authenticator } from "otplib";
+import * as QRCode from "qrcode";
+import * as bcrypt from "bcryptjs";
 
 const NON_PUBLIC_IP_RANGES = new Set([
     "unspecified",
@@ -358,6 +363,166 @@ export class SettingService {
 
         return buildResponse({
             message: "Crypto transaction fee removed successfully",
+        });
+    }
+
+    // ==================== Two-Factor Authentication ====================
+
+    /**
+     * Setup 2FA - Generate secret and return QR code URL
+     */
+    async setup2FA(user: User) {
+        // Generate a new secret
+        const secret = authenticator.generateSecret();
+        
+        // Create the otpauth URL for the authenticator app
+        const appName = "Flipxer";
+        const otpauthUrl = authenticator.keyuri(user.email, appName, secret);
+        
+        // Generate QR code as data URL
+        const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
+
+        // Temporarily store the secret (will be confirmed when user enables 2FA)
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { twoFactorSecret: secret },
+        });
+
+        return buildResponse({
+            message: "2FA setup initiated. Scan the QR code with your authenticator app.",
+            data: {
+                qrCodeUrl: qrCodeDataUrl,
+                secret: secret, // Allow manual entry if QR scanning fails
+            },
+        });
+    }
+
+    /**
+     * Enable 2FA - Verify the code and enable 2FA for the user
+     */
+    async enable2FA(user: User, dto: Enable2FADto) {
+        // Get user with secret
+        const userWithSecret = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { twoFactorSecret: true, isTwoFactorEnabled: true },
+        });
+
+        if (!userWithSecret?.twoFactorSecret) {
+            throw new UserForbiddenException(
+                "Please set up 2FA first by generating a QR code",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        if (userWithSecret.isTwoFactorEnabled) {
+            throw new UserForbiddenException("2FA is already enabled", HttpStatus.FORBIDDEN);
+        }
+
+        // Verify the TOTP code
+        const isValid = authenticator.verify({
+            token: dto.code,
+            secret: userWithSecret.twoFactorSecret,
+        });
+
+        if (!isValid) {
+            throw new UserForbiddenException("Invalid verification code", HttpStatus.FORBIDDEN);
+        }
+
+        // Enable 2FA
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { isTwoFactorEnabled: true },
+        });
+
+        return buildResponse({
+            message: "Two-factor authentication has been enabled successfully",
+        });
+    }
+
+    /**
+     * Disable 2FA - Verify code and password, then disable 2FA
+     */
+    async disable2FA(user: User, dto: Disable2FADto) {
+        // Get user with secret and password
+        const userWithData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: {
+                twoFactorSecret: true,
+                isTwoFactorEnabled: true,
+                password: true,
+            },
+        });
+
+        if (!userWithData?.isTwoFactorEnabled) {
+            throw new UserForbiddenException("2FA is not enabled", HttpStatus.FORBIDDEN);
+        }
+
+        // Verify password
+        const isPasswordValid = await bcrypt.compare(
+            dto.password,
+            userWithData.password
+        );
+        if (!isPasswordValid) {
+            throw new UserForbiddenException("Invalid password", HttpStatus.FORBIDDEN);
+        }
+
+        // Verify the TOTP code
+        const isValid = authenticator.verify({
+            token: dto.code,
+            secret: userWithData.twoFactorSecret,
+        });
+
+        if (!isValid) {
+            throw new UserForbiddenException("Invalid verification code", HttpStatus.FORBIDDEN);
+        }
+
+        // Disable 2FA and clear secret
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                isTwoFactorEnabled: false,
+                twoFactorSecret: null,
+            },
+        });
+
+        return buildResponse({
+            message: "Two-factor authentication has been disabled successfully",
+        });
+    }
+
+    /**
+     * Get 2FA status for the current user
+     */
+    async get2FAStatus(user: User) {
+        const userData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { isTwoFactorEnabled: true },
+        });
+
+        return buildResponse({
+            message: "2FA status retrieved successfully",
+            data: {
+                isEnabled: userData?.isTwoFactorEnabled ?? false,
+            },
+        });
+    }
+
+    /**
+     * Verify 2FA code (used during login)
+     */
+    async verify2FACode(userId: number, code: string): Promise<boolean> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { twoFactorSecret: true, isTwoFactorEnabled: true },
+        });
+
+        if (!user?.isTwoFactorEnabled || !user?.twoFactorSecret) {
+            return true; // 2FA not enabled, allow login
+        }
+
+        return authenticator.verify({
+            token: code,
+            secret: user.twoFactorSecret,
         });
     }
 }

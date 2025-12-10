@@ -89,6 +89,18 @@ export class ResetPasswordDto extends CreatePasswordDto {
     resetCode: string;
 }
 
+export class Verify2FALoginDto {
+    @ApiProperty({ description: "Temporary token received from login" })
+    @IsNotEmpty()
+    @IsString()
+    tempToken: string;
+
+    @ApiProperty({ description: "6-digit TOTP code from authenticator app" })
+    @IsNotEmpty()
+    @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
+    code: string;
+}
+
 enum AccountType {
     INDIVIDUAL = "INDIVIDUAL",
     BUSINESS = "BUSINESS",

@@ -16,6 +16,7 @@ import {
     ResetPasswordDto,
     RefreshTokenDto,
     BusinessDocumentUploadDto,
+    Verify2FALoginDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -77,6 +78,7 @@ import {
     SignInUser,
 } from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
+import { authenticator } from "otplib";
 import * as crypto from "crypto";
 import { SmsService } from "@/modules/core/sms/services";
 
@@ -1020,6 +1022,8 @@ export class AuthService {
             isDocumentVerified: true,
             businessRecordCompleted: true,
             businessDocumentVerificationStatus: true,
+            isTwoFactorEnabled: true,
+            twoFactorSecret: true,
         };
 
         const user = await this.prisma.user.findUnique({
@@ -1079,6 +1083,22 @@ export class AuthService {
         if (!passwordMatch) {
             await this.handleFailedLogin(user, ip);
             throw new InvalidCredentialException("Invalid email or password");
+        }
+
+        // Check if 2FA is enabled - return temporary token for 2FA verification
+        if (user.isTwoFactorEnabled && user.twoFactorSecret && loginPlatform === LoginPlatform.USER) {
+            const tempToken = await this.jwtService.signAsync(
+                { sub: user.id, type: "2fa_pending", platform: loginPlatform },
+                { secret: jwtSecret, expiresIn: "5m" }
+            );
+
+            return buildResponse({
+                message: "Two-factor authentication required",
+                data: {
+                    requiresTwoFactor: true,
+                    tempToken: tempToken,
+                },
+            });
         }
 
         const tokens = await this.generateTokens({
@@ -1174,5 +1194,107 @@ export class AuthService {
             where: { id: id },
         });
         return user && user.refreshToken === refreshToken;
+    }
+
+    /**
+     * Verify 2FA code and complete login
+     */
+    async verify2FALogin(dto: Verify2FALoginDto, ip: string): Promise<ApiResponse> {
+        // Verify the temp token
+        let payload: { sub: number; type: string; platform: LoginPlatform };
+        try {
+            payload = await this.jwtService.verifyAsync(dto.tempToken, {
+                secret: jwtSecret,
+            });
+        } catch {
+            throw new UserUnauthorizedException(
+                "Invalid or expired token. Please log in again.",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        if (payload.type !== "2fa_pending") {
+            throw new UserUnauthorizedException(
+                "Invalid token type",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        // Get user with 2FA details
+        const user = await this.prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: {
+                id: true,
+                twoFactorSecret: true,
+                isTwoFactorEnabled: true,
+                userType: true,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+                isBvnVerified: true,
+                isDocumentVerified: true,
+                businessRecordCompleted: true,
+                businessDocumentVerificationStatus: true,
+            },
+        });
+
+        if (!user || !user.isTwoFactorEnabled || !user.twoFactorSecret) {
+            throw new UserUnauthorizedException(
+                "2FA is not enabled for this account",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Verify TOTP code
+        const isValid = authenticator.verify({
+            token: dto.code,
+            secret: user.twoFactorSecret,
+        });
+
+        if (!isValid) {
+            throw new InvalidCredentialException("Invalid verification code");
+        }
+
+        // Generate actual tokens
+        const tokens = await this.generateTokens({
+            sub: user.id,
+            platform: payload.platform,
+        });
+
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                ipAddress: ip,
+                loginCount: 0,
+                lastLogin: new Date(),
+            },
+        });
+
+        const verificationStatus: VerificationStatus = {
+            isEmailVerified: user.isEmailVerified,
+            isPhoneVerified: user.isPhoneVerified,
+            isPasswordCreated: user.isPasswordCreated,
+            isBvnVerified: user.isBvnVerified,
+            isDocumentVerified: user.isDocumentVerified,
+        };
+
+        if (user.userType.toLowerCase() === "business") {
+            verificationStatus.businessRecordCompleted =
+                user.businessRecordCompleted;
+            verificationStatus.businessDocumentVerificationStatus =
+                user.businessDocumentVerificationStatus || null;
+        }
+
+        return buildResponse({
+            message: "Login successful",
+            data: {
+                accessToken: tokens.accessToken,
+                refreshToken: tokens.refreshToken,
+                userType: user.userType.toLowerCase(),
+                verificationStatus,
+            },
+        });
     }
 }

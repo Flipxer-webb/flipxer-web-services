@@ -97,3 +97,33 @@ export class UpdateAllowedIpDto {
     @IsOptional()
     isActive?: boolean;
 }
+
+// 2FA DTOs
+export class Enable2FADto {
+    @ApiProperty({
+        description: "6-digit TOTP code from authenticator app",
+        example: "123456",
+    })
+    @IsNotEmpty({ message: "TOTP code is required" })
+    @IsString()
+    @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
+    code: string;
+}
+
+export class Disable2FADto {
+    @ApiProperty({
+        description: "6-digit TOTP code from authenticator app",
+        example: "123456",
+    })
+    @IsNotEmpty({ message: "TOTP code is required" })
+    @IsString()
+    @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
+    code: string;
+
+    @ApiProperty({
+        description: "User password for verification",
+    })
+    @IsNotEmpty({ message: "Password is required" })
+    @IsString()
+    password: string;
+}

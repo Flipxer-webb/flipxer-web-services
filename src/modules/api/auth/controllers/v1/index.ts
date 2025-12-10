@@ -29,6 +29,7 @@ import {
     BusinessDocumentUploadDto,
     BusinessDocumentUploadFormDto,
     DocumentVerificationUploadFormDto,
+    Verify2FALoginDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
 import {
@@ -79,6 +80,16 @@ export class AuthController {
         @Req() req: Request
     ) {
         return await this.authService.userSignIn(signInDto, req.ip);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-2fa-login")
+    @ApiOperation({ summary: "verify 2FA code to complete login" })
+    async verify2FALogin(
+        @Body(ValidationPipe) dto: Verify2FALoginDto,
+        @Req() req: Request
+    ) {
+        return await this.authService.verify2FALogin(dto, req.ip);
     }
 
     @HttpCode(HttpStatus.OK)
