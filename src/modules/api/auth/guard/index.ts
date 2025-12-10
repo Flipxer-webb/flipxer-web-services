@@ -307,9 +307,45 @@ export class SocketAuthGuard implements CanActivate {
     }
 }
 
+interface TransactionRouteConfig {
+    patterns: string[];
+    category: OrderCategory;
+    getAmount: (body: any) => number | undefined;
+    getCurrency: (body: any) => string | undefined;
+}
+
+const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
+    {
+        patterns: ["buy/order", "buy/quote"],
+        category: OrderCategory.BUY,
+        getAmount: (body) => body.amount,
+        getCurrency: (body) => body.asset?.toUpperCase(),
+    },
+    {
+        patterns: ["sell/order", "sell/quote"],
+        category: OrderCategory.SELL,
+        getAmount: (body) => body.amount,
+        getCurrency: (body) => body.asset?.toUpperCase(),
+    },
+    {
+        patterns: ["request-instant-swap-quote", "refresh-instant-swap-quote"],
+        category: OrderCategory.SWAP,
+        getAmount: (body) => body.from_amount || body.to_amount,
+        getCurrency: (body) =>
+            body.from_amount
+                ? body.from_currency?.toUpperCase()
+                : body.to_currency?.toUpperCase(),
+    },
+    {
+        patterns: ["withdrawer-request"],
+        category: OrderCategory.SEND,
+        getAmount: (body) => body.amount,
+        getCurrency: (body) => body.currency?.toUpperCase(),
+    },
+];
+
 @Injectable()
 export class TransactionAmountGuard implements CanActivate {
-
     constructor(
         private readonly transactionService: TransactionService
     ) {}
@@ -325,37 +361,10 @@ export class TransactionAmountGuard implements CanActivate {
             );
         }
 
-        const body = request.body;
-        const path = request.path;
+        const { body, path } = request;
+        const transactionData = this.extractTransactionData(body, path);
 
-        let amount: number | undefined;
-        let currency: string | undefined;
-        let orderCategory: OrderCategory | undefined;
-
-        if (path.includes("buy/order") || path.includes("buy/quote")) {
-            amount = body.amount;
-            currency = body.asset?.toUpperCase();
-            orderCategory = OrderCategory.BUY;
-        } else if (path.includes("sell/order") || path.includes("sell/quote")) {
-            amount = body.amount;
-            currency = body.asset?.toUpperCase();
-            orderCategory = OrderCategory.SELL;
-        } else if (
-            path.includes("request-instant-swap-quote") ||
-            path.includes("refresh-instant-swap-quote")
-        ) {
-            amount = body.from_amount || body.to_amount;
-            currency = body.from_amount
-                ? body.from_currency?.toUpperCase()
-                : body.to_currency?.toUpperCase();
-            orderCategory = OrderCategory.SWAP;
-        } else if (path.includes("withdrawer-request")) {
-            amount = body.amount;
-            currency = body.currency?.toUpperCase();
-            orderCategory = OrderCategory.SEND;
-        }
-
-        if (!amount || !currency || !orderCategory) {
+        if (!transactionData) {
             throw new InvalidTransactionAmountException(
                 `Missing amount, currency, or invalid path at ${path}`,
                 HttpStatus.BAD_REQUEST
@@ -364,13 +373,31 @@ export class TransactionAmountGuard implements CanActivate {
 
         await this.transactionService.validateTransaction(
             user,
-            amount,
-            currency,
-            orderCategory,
+            transactionData.amount,
+            transactionData.currency,
+            transactionData.category,
             path
         );
 
         return true;
+    }
+
+    private extractTransactionData(
+        body: any,
+        path: string
+    ): { amount: number; currency: string; category: OrderCategory } | null {
+        const config = TRANSACTION_ROUTE_CONFIGS.find((cfg) =>
+            cfg.patterns.some((pattern) => path.includes(pattern))
+        );
+
+        if (!config) return null;
+
+        const amount = config.getAmount(body);
+        const currency = config.getCurrency(body);
+
+        if (!amount || !currency) return null;
+
+        return { amount, currency, category: config.category };
     }
 }
 

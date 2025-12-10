@@ -3,12 +3,12 @@ import logger from "moment-logger"; // Assuming this is your custom logger
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
 import { roles } from "./role"; // Assumed roles array file
+import { SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH } from "./constants";
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
-const passwordAlphabet =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@#$%^&*";
-const generateSeedPassword = customAlphabet(passwordAlphabet, 16);
+
+const generateSeedPassword = customAlphabet(SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH);
 
 const getSeedPassword = (envKey: string, label: string): string => {
     const envPassword = (process.env[envKey] || process.env.SEED_DEFAULT_PASSWORD || "").trim();
