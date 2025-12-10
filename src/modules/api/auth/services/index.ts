@@ -338,6 +338,9 @@ export class AuthService {
             userType: options.accountType,
             roleId: role.id,
             ipAddress: ip,
+            firstName: options.firstName,
+            lastName: options.lastName,
+            dateOfBirth: new Date(options.dateOfBirth),
         };
 
         const createdUser = await this.prisma.user.create({

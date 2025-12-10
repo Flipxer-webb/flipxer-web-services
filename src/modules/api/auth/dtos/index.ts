@@ -105,6 +105,23 @@ export class SignUpDto {
     @IsEmail({}, { message: "Invalid email address" })
     email: string;
 
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
+    @ApiProperty({
+        description: "Date of Birth in YYYY-MM-DD format",
+    })
+    @IsNotEmpty()
+    @IsString()
+    dateOfBirth: string;
+
     @ApiProperty({
         description: "Optional Flagged record ID for the user",
         required: false,
