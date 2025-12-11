@@ -1492,10 +1492,32 @@ export class TradingService {
                 this.logger.log(`User ${user.id} already has crypto sub-account: ${cryptoSubAccountId}, ensuring wallets exist`);
             }
 
+            // Check if AssetWallet records already exist for all currencies
             const currencies = ["btc", "usdt", "usdc"];
+            const existingWallets = await this.prisma.assetWallet.findMany({
+                where: {
+                    userId: user.id,
+                    assetCurrency: { in: currencies.map(c => c.toUpperCase()) },
+                },
+                select: { assetCurrency: true },
+            });
+            const existingCurrencies = new Set(existingWallets.map(w => w.assetCurrency.toLowerCase()));
+            
+            // Only process currencies that don't have AssetWallet records yet
+            const missingCurrencies = currencies.filter(c => !existingCurrencies.has(c));
+            
+            if (missingCurrencies.length === 0) {
+                this.logger.log(`User ${user.id} already has all AssetWallet records, skipping`);
+                return buildResponse({
+                    message: `account already fully set up`,
+                    data: { walletResults: currencies.map(c => ({ currency: c, success: true, existing: true })) },
+                });
+            }
+            
+            this.logger.log(`User ${user.id} missing wallets for: ${missingCurrencies.join(', ')}`);
             const walletResults = [];
 
-            for (const currency of currencies) {
+            for (const currency of missingCurrencies) {
                 try {
                     this.logger.log(`Creating wallet for ${currency.toUpperCase()}...`);
                     const addresses = await this.ensureWalletPaymentAddresses({
