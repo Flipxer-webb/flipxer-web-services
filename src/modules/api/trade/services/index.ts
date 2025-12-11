@@ -1461,12 +1461,52 @@ export class TradingService {
             );
         }
 
-        //create user quidax account and default wallet address once email is verified
-        await this.cryptoAccountQueueProducer.enqueue(user.id);
+        // Run synchronously instead of using queue for reliability
+        try {
+            this.logger.log(`Creating crypto account for user ${user.id}`);
+            
+            // Create sub-account
+            const result = await this.quidaxService.createSubAccount({
+                email: user.email,
+                first_name: user.firstName,
+                last_name: user.lastName,
+            });
 
-        return buildResponse({
-            message: "account generation initiated",
-        });
+            if (result.status !== "success") {
+                this.logger.error(`Sub-account creation failed: ${result.status}`);
+                throw new Error("Failed to create sub-account");
+            }
+
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: { cryptoSubAccountId: result.data.id },
+            });
+
+            this.logger.log(`Sub-account ID stored: ${result.data.id}`);
+
+            const currencies = ["btc", "usdt", "usdc"];
+
+            await Promise.allSettled(
+                currencies.map(async (currency) => {
+                    try {
+                        await this.ensureWalletPaymentAddresses({
+                            userId: user.id,
+                            cryptoSubAccountId: result.data.id,
+                            assetSymbol: currency.toUpperCase(),
+                        });
+                    } catch (error) {
+                        this.logger.error(`Address creation error for ${currency}: ${error?.message}`);
+                    }
+                })
+            );
+
+            return buildResponse({
+                message: "account generation completed",
+            });
+        } catch (error) {
+            this.logger.error(`triggerQuidaxAccountCreation failed: ${error?.message}`);
+            throw error;
+        }
     }
 
     // Handles successful wallet address creation webhook from Quidax
