@@ -1454,35 +1454,37 @@ export class TradingService {
     }
 
     async triggerQuidaxAccountCreation(user: User) {
-        if (user.cryptoSubAccountId) {
-            throw new AccountCreationException(
-                "Crypto account already created",
-                HttpStatus.CONFLICT
-            );
-        }
-
         // Run synchronously instead of using queue for reliability
         try {
-            this.logger.log(`Creating crypto account for user ${user.id}`);
-            
-            // Create sub-account
-            const result = await this.quidaxService.createSubAccount({
-                email: user.email,
-                first_name: user.firstName,
-                last_name: user.lastName,
-            });
+            let cryptoSubAccountId = user.cryptoSubAccountId;
 
-            if (result.status !== "success") {
-                this.logger.error(`Sub-account creation failed: ${result.status}`);
-                throw new Error("Failed to create sub-account");
+            // If user doesn't have a crypto sub-account, create one
+            if (!cryptoSubAccountId) {
+                this.logger.log(`Creating crypto account for user ${user.id}`);
+                
+                // Create sub-account
+                const result = await this.quidaxService.createSubAccount({
+                    email: user.email,
+                    first_name: user.firstName,
+                    last_name: user.lastName,
+                });
+
+                if (result.status !== "success") {
+                    this.logger.error(`Sub-account creation failed: ${result.status}`);
+                    throw new Error("Failed to create sub-account");
+                }
+
+                cryptoSubAccountId = result.data.id;
+
+                await this.prisma.user.update({
+                    where: { id: user.id },
+                    data: { cryptoSubAccountId },
+                });
+
+                this.logger.log(`Sub-account ID stored: ${cryptoSubAccountId}`);
+            } else {
+                this.logger.log(`User ${user.id} already has crypto sub-account: ${cryptoSubAccountId}, ensuring wallets exist`);
             }
-
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: { cryptoSubAccountId: result.data.id },
-            });
-
-            this.logger.log(`Sub-account ID stored: ${result.data.id}`);
 
             const currencies = ["btc", "usdt", "usdc"];
 
@@ -1491,7 +1493,7 @@ export class TradingService {
                     try {
                         await this.ensureWalletPaymentAddresses({
                             userId: user.id,
-                            cryptoSubAccountId: result.data.id,
+                            cryptoSubAccountId,
                             assetSymbol: currency.toUpperCase(),
                         });
                     } catch (error) {
