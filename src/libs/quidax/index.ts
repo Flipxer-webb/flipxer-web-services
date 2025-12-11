@@ -26,6 +26,12 @@ export class QuidaxLib {
     });
 
     private handleQuidaxError(error: AxiosError<any>) {
+        // Enhanced logging for debugging Quidax API issues
+        const logger = new Logger("QuidaxLib");
+        logger.error(`Quidax API Error - Status: ${error.response?.status}, URL: ${error.config?.url}`);
+        logger.error(`Quidax API Error - Response: ${JSON.stringify(error.response?.data)}`);
+        logger.error(`Quidax API Error - Message: ${error.message}`);
+        
         switch (true) {
             case error.response?.status == 401: {
                 throw new e.QuidaxAuthorizationError(
