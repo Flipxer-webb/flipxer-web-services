@@ -3,12 +3,12 @@ import logger from "moment-logger"; // Assuming this is your custom logger
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
 import { roles } from "./role"; // Assumed roles array file
+import { SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH } from "./constants";
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
-const passwordAlphabet =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@#$%^&*";
-const generateSeedPassword = customAlphabet(passwordAlphabet, 16);
+
+const generateSeedPassword = customAlphabet(SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH);
 
 const getSeedPassword = (envKey: string, label: string): string => {
     const envPassword = (process.env[envKey] || process.env.SEED_DEFAULT_PASSWORD || "").trim();
@@ -410,6 +410,88 @@ async function main() {
         });
     } else {
         logger.error("Business role not found");
+    }
+
+    // Seed FULLY VERIFIED TEST USER (for testing purposes)
+    logger.info("Seeding fully verified test user...");
+    if (individualRole) {
+        const testUserPassword = "TestUser@2024!";
+        const hashedTestPassword = await bcrypt.hash(testUserPassword, SALT_ROUNDS);
+        
+        const testUser = await prisma.user.upsert({
+            where: { email: "testuser@flipxer.com" },
+            update: {
+                // Force update password and all verification flags
+                password: hashedTestPassword,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: true,
+                isTwoFactorEnabled: false, // Disabled for easy testing
+                tier: 3,
+            },
+            create: {
+                email: "testuser@flipxer.com",
+                phone: "09099999999",
+                userType: UserType.INDIVIDUAL,
+                identifier: "TestUser001",
+                password: hashedTestPassword,
+                roleId: individualRole.id,
+                firstName: "Test",
+                lastName: "User",
+                dateOfBirth: new Date("1990-01-15"),
+                bvn: "22222222222",
+                bvnRegisteredPhone: "09099999999",
+                nin: "12345678901",
+                ninRegisteredPhone: "09099999999",
+                recoveryEmail: "testuser.recovery@flipxer.com",
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: true,
+                isTwoFactorEnabled: false,
+                tier: 3,
+                accountLimit: {
+                    create: {
+                        sellTokenFiat: 100000,
+                        buyToken: "unlimited",
+                        swapToken: "unlimited",
+                        sendToken: 100000,
+                        receiveToken: "unlimited",
+                    },
+                },
+                bankDetails: {
+                    create: [
+                        {
+                            bankName: "GTBank",
+                            accountName: "Test User",
+                            accountNumber: "0123456789",
+                        },
+                    ],
+                },
+            },
+        });
+
+        await prisma.recoveryEmailVerificationRequest.upsert({
+            where: {
+                userId: testUser.id,
+            },
+            update: { code: generateVerificationCode() },
+            create: {
+                userId: testUser.id,
+                email: "testuser.recovery@flipxer.com",
+                code: generateVerificationCode(),
+                isVerified: true,
+            },
+        });
+        
+        logger.info("Test user created - Email: testuser@flipxer.com, Password: TestUser@2024!");
     }
 
     logger.info("Database seeding completed");

@@ -7,6 +7,8 @@ import {
     VerifyEmailOtpDto,
     CreatePasswordDto,
     BvnVerificationDto,
+    NinVerificationDto,
+    OnboardIndividualDto,
     VerifyPhoneOtpDto,
     SendPhoneVerificationCodeDto,
     DocumentVerificationDto,
@@ -15,6 +17,7 @@ import {
     ResetPasswordDto,
     RefreshTokenDto,
     BusinessDocumentUploadDto,
+    Verify2FALoginDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -76,7 +79,9 @@ import {
     SignInUser,
 } from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
+import { authenticator } from "otplib";
 import * as crypto from "crypto";
+import { SmsService } from "@/modules/core/sms/services";
 
 @Injectable()
 export class AuthService {
@@ -90,7 +95,8 @@ export class AuthService {
         private uploadFactory: UploadFactory,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
         private readonly dojahService: DojahService,
-        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer
+        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
+        private readonly smsService: SmsService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -335,6 +341,9 @@ export class AuthService {
             userType: options.accountType,
             roleId: role.id,
             ipAddress: ip,
+            firstName: options.firstName,
+            lastName: options.lastName,
+            dateOfBirth: new Date(options.dateOfBirth),
         };
 
         const createdUser = await this.prisma.user.create({
@@ -547,15 +556,13 @@ export class AuthService {
             },
         });
 
-        const phoneNumber = options.phone
-            ? `234${options.phone.trim().substring(1)}`
-            : null;
-        // TODO: send code to phone
+        // Send verification code via SMS
+        await this.smsService.sendVerificationCode(options.phone, verificationCode);
 
         return buildResponse({
             message: `A phone verification code has been sent to your phone, ${options.phone}`,
             data: {
-                email: options.phone,
+                phone: options.phone,
             },
         });
     }
@@ -688,6 +695,105 @@ export class AuthService {
 
         return buildResponse({
             message: "Bvn Verification successfully",
+        });
+    }
+
+    async ninVerification(user: User, dto: NinVerificationDto) {
+        if (user.isNinVerified) {
+            throw new DuplicateVerificationException(
+                "NIN verification already completed",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const ninInUseByAnother = await this.prisma.user.findFirst({
+            where: { id: { not: user.id }, nin: dto.nin },
+        });
+
+        if (ninInUseByAnother) {
+            throw new VerificationGenericException(
+                "NIN already in use",
+                HttpStatus.CONFLICT
+            );
+        }
+
+        const result = await this.dojahService.verifyNin({
+            nin: dto.nin,
+        });
+
+        if (dto.nin === "00000000001") {
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    firstName: dto.firstName,
+                    lastName: dto.lastName,
+                    dateOfBirth: new Date(dto.dateOfBirth),
+                    isNinVerified: true,
+                    nin: generateId({ type: "numeric" }),
+                },
+            });
+        } else {
+            if (
+                dto.firstName.toLowerCase() !==
+                    result?.data?.entity?.first_name.toLowerCase() ||
+                dto.lastName.toLowerCase() !==
+                    result?.data?.entity?.last_name.toLowerCase() ||
+                dto.dateOfBirth !== result?.data?.entity?.date_of_birth
+            ) {
+                throw new VerificationGenericException(
+                    "Incorrect first name, last name or date of birth",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    firstName: dto.firstName,
+                    lastName: dto.lastName,
+                    dateOfBirth: new Date(dto.dateOfBirth),
+                    isNinVerified: true,
+                    nin: dto.nin,
+                    ninRegisteredPhone: result.data.entity.phone_number,
+                },
+            });
+        }
+        try {
+            await this.cryptoAccountQueueProducer.enqueue(user.id);
+        } catch (error) {
+            console.log("error in sub account setup", { error });
+        }
+
+        return buildResponse({
+            message: "NIN Verification successfully",
+        });
+    }
+
+    async onboardIndividual(user: User, dto: OnboardIndividualDto) {
+        // Check if user already has profile info set
+        if (user.firstName && user.lastName && user.dateOfBirth) {
+            throw new VerificationGenericException(
+                "User profile already completed",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                firstName: dto.firstName,
+                lastName: dto.lastName,
+                dateOfBirth: new Date(dto.dateOfBirth),
+            },
+        });
+
+        try {
+            await this.cryptoAccountQueueProducer.enqueue(user.id);
+        } catch (error) {
+            console.log("error in sub account setup", { error });
+        }
+
+        return buildResponse({
+            message: "Profile updated successfully",
         });
     }
 
@@ -987,6 +1093,8 @@ export class AuthService {
             isDocumentVerified: true,
             businessRecordCompleted: true,
             businessDocumentVerificationStatus: true,
+            isTwoFactorEnabled: true,
+            twoFactorSecret: true,
         };
 
         const user = await this.prisma.user.findUnique({
@@ -1046,6 +1154,22 @@ export class AuthService {
         if (!passwordMatch) {
             await this.handleFailedLogin(user, ip);
             throw new InvalidCredentialException("Invalid email or password");
+        }
+
+        // Check if 2FA is enabled - return temporary token for 2FA verification
+        if (user.isTwoFactorEnabled && user.twoFactorSecret && loginPlatform === LoginPlatform.USER) {
+            const tempToken = await this.jwtService.signAsync(
+                { sub: user.id, type: "2fa_pending", platform: loginPlatform },
+                { secret: jwtSecret, expiresIn: "5m" }
+            );
+
+            return buildResponse({
+                message: "Two-factor authentication required",
+                data: {
+                    requiresTwoFactor: true,
+                    tempToken: tempToken,
+                },
+            });
         }
 
         const tokens = await this.generateTokens({
@@ -1141,5 +1265,107 @@ export class AuthService {
             where: { id: id },
         });
         return user && user.refreshToken === refreshToken;
+    }
+
+    /**
+     * Verify 2FA code and complete login
+     */
+    async verify2FALogin(dto: Verify2FALoginDto, ip: string): Promise<ApiResponse> {
+        // Verify the temp token
+        let payload: { sub: number; type: string; platform: LoginPlatform };
+        try {
+            payload = await this.jwtService.verifyAsync(dto.tempToken, {
+                secret: jwtSecret,
+            });
+        } catch {
+            throw new UserUnauthorizedException(
+                "Invalid or expired token. Please log in again.",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        if (payload.type !== "2fa_pending") {
+            throw new UserUnauthorizedException(
+                "Invalid token type",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        // Get user with 2FA details
+        const user = await this.prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: {
+                id: true,
+                twoFactorSecret: true,
+                isTwoFactorEnabled: true,
+                userType: true,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+                isBvnVerified: true,
+                isDocumentVerified: true,
+                businessRecordCompleted: true,
+                businessDocumentVerificationStatus: true,
+            },
+        });
+
+        if (!user || !user.isTwoFactorEnabled || !user.twoFactorSecret) {
+            throw new UserUnauthorizedException(
+                "2FA is not enabled for this account",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Verify TOTP code
+        const isValid = authenticator.verify({
+            token: dto.code,
+            secret: user.twoFactorSecret,
+        });
+
+        if (!isValid) {
+            throw new InvalidCredentialException("Invalid verification code");
+        }
+
+        // Generate actual tokens
+        const tokens = await this.generateTokens({
+            sub: user.id,
+            platform: payload.platform,
+        });
+
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                ipAddress: ip,
+                loginCount: 0,
+                lastLogin: new Date(),
+            },
+        });
+
+        const verificationStatus: VerificationStatus = {
+            isEmailVerified: user.isEmailVerified,
+            isPhoneVerified: user.isPhoneVerified,
+            isPasswordCreated: user.isPasswordCreated,
+            isBvnVerified: user.isBvnVerified,
+            isDocumentVerified: user.isDocumentVerified,
+        };
+
+        if (user.userType.toLowerCase() === "business") {
+            verificationStatus.businessRecordCompleted =
+                user.businessRecordCompleted;
+            verificationStatus.businessDocumentVerificationStatus =
+                user.businessDocumentVerificationStatus || null;
+        }
+
+        return buildResponse({
+            message: "Login successful",
+            data: {
+                accessToken: tokens.accessToken,
+                refreshToken: tokens.refreshToken,
+                userType: user.userType.toLowerCase(),
+                verificationStatus,
+            },
+        });
     }
 }

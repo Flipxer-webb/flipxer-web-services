@@ -25,26 +25,50 @@ export class DojahService {
 
             return resp;
         } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof DJ.DojahError: {
-                    throw new e.DojahException(
-                        error.message ??
-                            "Failed to initiate bvn verification. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.DojahException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.DojahException(
-                        "Failed to initiate verification",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
+            this.handleVerificationError(error, "bvn");
         }
+    }
+
+    async verifyNin(options: DJ.VerifyNinOptions) {
+        try {
+            const resp = await this.dojah.verifyNin({
+                nin: options.nin,
+                first_name: options.first_name,
+                last_name: options.last_name,
+                dob: options.dob,
+            });
+
+            if (!resp) {
+                throw new e.DojahException(
+                    `Unable to initiate NIN verification`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            return resp;
+        } catch (error) {
+            this.handleVerificationError(error, "NIN");
+        }
+    }
+
+    private handleVerificationError(error: any, verificationType: string): never {
+        this.logger.error(error);
+
+        if (error instanceof e.DojahException) {
+            throw error;
+        }
+
+        if (error instanceof DJ.DojahError) {
+            throw new e.DojahException(
+                error.message ??
+                    `Failed to initiate ${verificationType} verification. Please try again`,
+                error.status ?? HttpStatus.BAD_REQUEST
+            );
+        }
+
+        throw new e.DojahException(
+            "Failed to initiate verification",
+            HttpStatus.NOT_IMPLEMENTED
+        );
     }
 }

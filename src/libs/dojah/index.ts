@@ -92,4 +92,37 @@ export class DojahLib {
             this.handleDojahError(error);
         }
     }
+
+    async verifyNin(
+        options: t.VerifyNinOptions
+    ): Promise<t.DojahResponse<t.VerifyNinResponseData>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: "/api/v1/kyc/nin",
+                method: "GET",
+                params: {
+                    nin: options.nin,
+                    first_name: options.first_name,
+                    last_name: options.last_name,
+                    dob: options.dob,
+                } as t.VerifyNinOptions,
+            };
+            const resp = await this.axios<t.VerifyNinResponseData>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.DojahError("Failed to verify NIN");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: true,
+                responseCode: resp.status,
+                data: resp.data,
+            };
+        } catch (error) {
+            this.handleDojahError(error);
+        }
+    }
 }

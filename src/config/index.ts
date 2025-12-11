@@ -5,6 +5,7 @@ import validate, {
 } from "@boxpositron/vre";
 import { ConfigOptions } from "cloudinary";
 import { PaystackOptions } from "@/libs/paystack";
+import { SendchampOptions } from "@/libs/sendchamp";
 
 export * from "./constants";
 
@@ -329,6 +330,24 @@ export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
           c.trim().toUpperCase()
       )
     : [];
+
+// Sendchamp SMS (optional - SMS features will not work without credentials)
+export interface SendchampConfig {
+    accessKey: string;
+    senderId: string;
+    baseUrl?: string;
+}
+
+export const sendchampConfig: SendchampConfig = {
+    accessKey: process.env.SENDCHAMP_ACCESS_KEY || "",
+    senderId: process.env.SENDCHAMP_SENDER_ID || "Flipxer",
+    baseUrl: process.env.SENDCHAMP_BASE_URL || "https://api.sendchamp.com/api/v1",
+};
+
+export const sendchampOptions: SendchampOptions = {
+    accessKey: sendchampConfig.accessKey,
+    baseUrl: sendchampConfig.baseUrl,
+};
 
 export interface Configuration {
     redisConfig: RedisConfig;

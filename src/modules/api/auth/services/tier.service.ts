@@ -25,6 +25,29 @@ const WITHDRAWAL_LIMITS: Record<TierLevel, number | "unlimited"> = {
     3: "unlimited",
 };
 
+// Tier requirement checker functions for individual users
+const INDIVIDUAL_TIER_CHECKS: Array<{
+    tier: TierLevel;
+    check: (user: Partial<UserWithTier>) => boolean;
+}> = [
+    {
+        tier: 3,
+        check: (user) =>
+            !!user.isDocumentVerified &&
+            !!user.isAddressVerified &&
+            !!user.isBiometricVerified &&
+            !!user.isIncomeVerified,
+    },
+    {
+        tier: 2,
+        check: (user) => !!user.isDocumentVerified && !!user.isAddressVerified,
+    },
+    {
+        tier: 1,
+        check: (user) => !!user.isBvnVerified && !!user.isDocumentVerified,
+    },
+];
+
 @Injectable()
 export class TierService {
     private readonly logger = new Logger(TierService.name);
@@ -39,39 +62,32 @@ export class TierService {
     calculateTier(user: Partial<UserWithTier>): TierLevel {
         // Business accounts get Tier 3 automatically when KYC is complete
         if (user.userType === UserType.BUSINESS) {
-            if (user.businessRecordCompleted && user.businessDocumentsUploaded) {
-                return 3;
-            }
+            return this.calculateBusinessTier(user);
+        }
+
+        return this.calculateIndividualTier(user);
+    }
+
+    private calculateBusinessTier(user: Partial<UserWithTier>): TierLevel {
+        if (user.businessRecordCompleted && user.businessDocumentsUploaded) {
+            return 3;
+        }
+        return 0;
+    }
+
+    private calculateIndividualTier(user: Partial<UserWithTier>): TierLevel {
+        // Safety check for basic verification
+        if (!user.isEmailVerified || !user.isPhoneVerified) {
             return 0;
         }
 
-        // Individual tier calculation
-        // Tier 0: Email + SMS verified (newly onboarded)
-        if (!user.isEmailVerified || !user.isPhoneVerified) {
-            return 0; // Should not happen if login is enforced, but safety check
+        // Find the highest tier the user qualifies for
+        for (const tierCheck of INDIVIDUAL_TIER_CHECKS) {
+            if (tierCheck.check(user)) {
+                return tierCheck.tier;
+            }
         }
 
-        // Tier 3: Biometric + Income verified
-        if (
-            user.isDocumentVerified &&
-            user.isAddressVerified &&
-            user.isBiometricVerified &&
-            user.isIncomeVerified
-        ) {
-            return 3;
-        }
-
-        // Tier 2: Document + Address verified
-        if (user.isDocumentVerified && user.isAddressVerified) {
-            return 2;
-        }
-
-        // Tier 1: Basic document verified
-        if (user.isDocumentVerified) {
-            return 1;
-        }
-
-        // Tier 0: Only email/phone verified (onboarded but no KYC)
         return 0;
     }
 

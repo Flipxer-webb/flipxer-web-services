@@ -45,6 +45,7 @@ import {
     InvalidTransactionAmountException,
 } from "@/modules/api/trade/errors";
 import { TransactionService } from "../services/transaction.service";
+import { authenticator } from "otplib";
 import {
     blockedCountries,
     isProduction,
@@ -63,70 +64,73 @@ export class AuthGuard implements CanActivate {
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest() as RequestWithUser;
         const token = this.extractTokenFromHeader(request);
+        
         if (!token) {
             throw new InvalidAuthTokenException(
                 "Authorization header is missing",
                 HttpStatus.UNAUTHORIZED
             );
         }
+        
         try {
-            const payload: DataStoredInToken =
-                await this.jwtService.verifyAsync(token, {
-                    secret: jwtSecret,
-                });
-
-            const user = await this.prisma.user.findUnique({
-                where: {
-                    id: +payload.sub,
-                },
-                include: { role: { select: { name: true, slug: true } } },
-            });
-            if (!user) {
-                throw new UserNotFoundException(
-                    "Your session is unauthorized",
-                    HttpStatus.UNAUTHORIZED
-                );
-            }
-
-            if (user.isDeleted) {
-                throw new AccountDeletedException(
-                    "Account not found",
-                    HttpStatus.UNAUTHORIZED
-                );
-            }
-
+            const user = await this.verifyAndFetchUser(token);
             request.user = user;
+            return true;
         } catch (error) {
-            logger.error(error);
-            switch (true) {
-                case error instanceof UserNotFoundException: {
-                    throw error;
-                }
-
-                case error instanceof AccountDeletedException: {
-                    throw error;
-                }
-
-                case error instanceof UserForbiddenException: {
-                    throw error;
-                }
-
-                case error.name == "PrismaClientKnownRequestError": {
-                    throw new PrismaNetworkException(
-                        "Unable to process request. Please try again",
-                        HttpStatus.SERVICE_UNAVAILABLE
-                    );
-                }
-
-                default: {
-                    throw new AuthTokenValidationException(
-                        "Your session is unauthorized or expired",
-                        HttpStatus.UNAUTHORIZED
-                    );
-                }
-            }
+            this.handleAuthError(error);
         }
-        return true;
+    }
+
+    private async verifyAndFetchUser(token: string) {
+        const payload: DataStoredInToken = await this.jwtService.verifyAsync(
+            token,
+            { secret: jwtSecret }
+        );
+
+        const user = await this.prisma.user.findUnique({
+            where: { id: +payload.sub },
+            include: { role: { select: { name: true, slug: true } } },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException(
+                "Your session is unauthorized",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        if (user.isDeleted) {
+            throw new AccountDeletedException(
+                "Account not found",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        return user;
+    }
+
+    private handleAuthError(error: any): never {
+        logger.error(error);
+
+        if (
+            error instanceof UserNotFoundException ||
+            error instanceof AccountDeletedException ||
+            error instanceof UserForbiddenException
+        ) {
+            throw error;
+        }
+
+        if (error.name === "PrismaClientKnownRequestError") {
+            throw new PrismaNetworkException(
+                "Unable to process request. Please try again",
+                HttpStatus.SERVICE_UNAVAILABLE
+            );
+        }
+
+        throw new AuthTokenValidationException(
+            "Your session is unauthorized or expired",
+            HttpStatus.UNAUTHORIZED
+        );
     }
 
     private extractTokenFromHeader(request: Request): string | undefined {
@@ -306,9 +310,45 @@ export class SocketAuthGuard implements CanActivate {
     }
 }
 
+interface TransactionRouteConfig {
+    patterns: string[];
+    category: OrderCategory;
+    getAmount: (body: any) => number | undefined;
+    getCurrency: (body: any) => string | undefined;
+}
+
+const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
+    {
+        patterns: ["buy/order", "buy/quote"],
+        category: OrderCategory.BUY,
+        getAmount: (body) => body.amount,
+        getCurrency: (body) => body.asset?.toUpperCase(),
+    },
+    {
+        patterns: ["sell/order", "sell/quote"],
+        category: OrderCategory.SELL,
+        getAmount: (body) => body.amount,
+        getCurrency: (body) => body.asset?.toUpperCase(),
+    },
+    {
+        patterns: ["request-instant-swap-quote", "refresh-instant-swap-quote"],
+        category: OrderCategory.SWAP,
+        getAmount: (body) => body.from_amount || body.to_amount,
+        getCurrency: (body) =>
+            body.from_amount
+                ? body.from_currency?.toUpperCase()
+                : body.to_currency?.toUpperCase(),
+    },
+    {
+        patterns: ["withdrawer-request"],
+        category: OrderCategory.SEND,
+        getAmount: (body) => body.amount,
+        getCurrency: (body) => body.currency?.toUpperCase(),
+    },
+];
+
 @Injectable()
 export class TransactionAmountGuard implements CanActivate {
-
     constructor(
         private readonly transactionService: TransactionService
     ) {}
@@ -324,37 +364,10 @@ export class TransactionAmountGuard implements CanActivate {
             );
         }
 
-        const body = request.body;
-        const path = request.path;
+        const { body, path } = request;
+        const transactionData = this.extractTransactionData(body, path);
 
-        let amount: number | undefined;
-        let currency: string | undefined;
-        let orderCategory: OrderCategory | undefined;
-
-        if (path.includes("buy/order") || path.includes("buy/quote")) {
-            amount = body.amount;
-            currency = body.asset?.toUpperCase();
-            orderCategory = OrderCategory.BUY;
-        } else if (path.includes("sell/order") || path.includes("sell/quote")) {
-            amount = body.amount;
-            currency = body.asset?.toUpperCase();
-            orderCategory = OrderCategory.SELL;
-        } else if (
-            path.includes("request-instant-swap-quote") ||
-            path.includes("refresh-instant-swap-quote")
-        ) {
-            amount = body.from_amount || body.to_amount;
-            currency = body.from_amount
-                ? body.from_currency?.toUpperCase()
-                : body.to_currency?.toUpperCase();
-            orderCategory = OrderCategory.SWAP;
-        } else if (path.includes("withdrawer-request")) {
-            amount = body.amount;
-            currency = body.currency?.toUpperCase();
-            orderCategory = OrderCategory.SEND;
-        }
-
-        if (!amount || !currency || !orderCategory) {
+        if (!transactionData) {
             throw new InvalidTransactionAmountException(
                 `Missing amount, currency, or invalid path at ${path}`,
                 HttpStatus.BAD_REQUEST
@@ -363,11 +376,83 @@ export class TransactionAmountGuard implements CanActivate {
 
         await this.transactionService.validateTransaction(
             user,
-            amount,
-            currency,
-            orderCategory,
+            transactionData.amount,
+            transactionData.currency,
+            transactionData.category,
             path
         );
+
+        return true;
+    }
+
+    private extractTransactionData(
+        body: any,
+        path: string
+    ): { amount: number; currency: string; category: OrderCategory } | null {
+        const config = TRANSACTION_ROUTE_CONFIGS.find((cfg) =>
+            cfg.patterns.some((pattern) => path.includes(pattern))
+        );
+
+        if (!config) return null;
+
+        const amount = config.getAmount(body);
+        const currency = config.getCurrency(body);
+
+        if (!amount || !currency) return null;
+
+        return { amount, currency, category: config.category };
+    }
+}
+
+@Injectable()
+export class TwoFactorGuard implements CanActivate {
+    constructor(private prisma: PrismaService) {}
+
+    async canActivate(context: ExecutionContext): Promise<boolean> {
+        const request = context.switchToHttp().getRequest<RequestWithUser>();
+        const user = request.user;
+
+        if (!user) {
+            throw new InvalidAuthTokenException(
+                "User not found in request",
+                HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        // Check if user has 2FA enabled
+        const userData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { twoFactorSecret: true, isTwoFactorEnabled: true },
+        });
+
+        if (!userData?.isTwoFactorEnabled || !userData?.twoFactorSecret) {
+            throw new UserForbiddenException(
+                "Two-factor authentication must be enabled to perform this action",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        // Get 2FA code from request body or header
+        const code = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+
+        if (!code) {
+            throw new UserForbiddenException(
+                "Two-factor authentication code is required for this transaction",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        const isValid = authenticator.verify({
+            token: code,
+            secret: userData.twoFactorSecret,
+        });
+
+        if (!isValid) {
+            throw new UserForbiddenException(
+                "Invalid two-factor authentication code",
+                HttpStatus.FORBIDDEN
+            );
+        }
 
         return true;
     }

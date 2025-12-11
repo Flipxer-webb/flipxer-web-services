@@ -18,16 +18,19 @@ import {
     ApiTags,
     ApiOperation,
     ApiResponse as SwaggerApiResponse,
-    // ApiBearerAuth,
+    ApiBearerAuth,
 } from "@nestjs/swagger";
 import {
     // AddAllowedIpDto,
     GetCryptoTransactionFeePerAssetDto,
+    Enable2FADto,
+    Disable2FADto,
+    Verify2FACodeDto,
     // UpdateAllowedIpDto,
 } from "../../dtos";
-// import { AuthGuard } from "@/modules/api/auth/guard";
-// import { User } from "@/modules/api/user";
-// import { User as UserModel } from "@prisma/client";
+import { AuthGuard } from "@/modules/api/auth/guard";
+import { User } from "@/modules/api/user";
+import { User as UserModel } from "@prisma/client";
 
 @ApiTags("settings")
 @Controller({
@@ -119,4 +122,51 @@ export class SettingController {
     // ) {
     //     return this.settingService.deleteAllowedIp(user, allowedIpId);
     // }
+
+    // ==================== Two-Factor Authentication ====================
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get 2FA status" })
+    @Get("2fa/status")
+    async get2FAStatus(@User() user: UserModel) {
+        return this.settingService.get2FAStatus(user);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Setup 2FA - Get QR code" })
+    @Post("2fa/setup")
+    async setup2FA(@User() user: UserModel) {
+        return this.settingService.setup2FA(user);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Enable 2FA" })
+    @Post("2fa/enable")
+    async enable2FA(@User() user: UserModel, @Body() dto: Enable2FADto) {
+        return this.settingService.enable2FA(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Disable 2FA" })
+    @Post("2fa/disable")
+    async disable2FA(@User() user: UserModel, @Body() dto: Disable2FADto) {
+        return this.settingService.disable2FA(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Verify 2FA code for transactions" })
+    @Post("2fa/verify")
+    async verify2FA(@User() user: UserModel, @Body() dto: Verify2FACodeDto) {
+        return this.settingService.verify2FAForTransaction(user, dto);
+    }
 }

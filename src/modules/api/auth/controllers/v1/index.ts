@@ -13,8 +13,10 @@ import {
 import { Request } from "express";
 import {
     BvnVerificationDto,
+    NinVerificationDto,
     CreatePasswordDto,
     DocumentVerificationDto,
+    OnboardIndividualDto,
     SendEmailVerificationCodeDto,
     SendPhoneVerificationCodeDto,
     SignUpDto,
@@ -28,6 +30,7 @@ import {
     BusinessDocumentUploadDto,
     BusinessDocumentUploadFormDto,
     DocumentVerificationUploadFormDto,
+    Verify2FALoginDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
 import {
@@ -81,6 +84,16 @@ export class AuthController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @Post("verify-2fa-login")
+    @ApiOperation({ summary: "verify 2FA code to complete login" })
+    async verify2FALogin(
+        @Body(ValidationPipe) dto: Verify2FALoginDto,
+        @Req() req: Request
+    ) {
+        return await this.authService.verify2FALogin(dto, req.ip);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @Post("initiate-email-verification")
     @ApiOperation({ summary: "initiate email verification process" })
     async sendAccountVerificationEmail(
@@ -116,6 +129,18 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
+    @Post("onboard-individual")
+    @ApiOperation({ summary: "onboard user with individual account - save basic profile info" })
+    async onboardIndividual(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: OnboardIndividualDto
+    ) {
+        return await this.authService.onboardIndividual(user, dto);
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
     @Post("verify-bvn")
     @ApiOperation({ summary: "verify user with individual account bvn" })
     @ApiBearerAuth("access-token")
@@ -124,6 +149,18 @@ export class AuthController {
         @Body(ValidationPipe) dto: BvnVerificationDto
     ) {
         return await this.authService.bvnVerification(user, dto);
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-nin")
+    @ApiOperation({ summary: "verify user with individual account NIN" })
+    async ninVerification(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: NinVerificationDto
+    ) {
+        return await this.authService.ninVerification(user, dto);
     }
 
     @UseGuards(AuthGuard)

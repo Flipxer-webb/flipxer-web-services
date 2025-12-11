@@ -21,6 +21,7 @@ interface UserWithTier {
     userType: UserType;
     isEmailVerified: boolean;
     isPhoneVerified: boolean;
+    isBvnVerified: boolean;
     isDocumentVerified: boolean;
     isAddressVerified?: boolean;
     isBiometricVerified?: boolean;
@@ -60,8 +61,8 @@ function calculateTier(user: UserWithTier): TierLevel {
         return 2;
     }
 
-    // Tier 1: Basic document verified
-    if (user.isDocumentVerified) {
+    // Tier 1: BVN verified + Document verified
+    if (user.isBvnVerified && user.isDocumentVerified) {
         return 1;
     }
 
@@ -81,6 +82,7 @@ async function migrateUserTiers() {
                 "userType",
                 "isEmailVerified",
                 "isPhoneVerified",
+                "isBvnVerified",
                 "isDocumentVerified",
                 "isAddressVerified",
                 "isBiometricVerified",

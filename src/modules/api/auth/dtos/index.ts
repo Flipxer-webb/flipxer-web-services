@@ -89,6 +89,18 @@ export class ResetPasswordDto extends CreatePasswordDto {
     resetCode: string;
 }
 
+export class Verify2FALoginDto {
+    @ApiProperty({ description: "Temporary token received from login" })
+    @IsNotEmpty()
+    @IsString()
+    tempToken: string;
+
+    @ApiProperty({ description: "6-digit TOTP code from authenticator app" })
+    @IsNotEmpty()
+    @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
+    code: string;
+}
+
 enum AccountType {
     INDIVIDUAL = "INDIVIDUAL",
     BUSINESS = "BUSINESS",
@@ -104,6 +116,23 @@ export class SignUpDto {
     @IsNotEmpty()
     @IsEmail({}, { message: "Invalid email address" })
     email: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
+    @ApiProperty({
+        description: "Date of Birth in YYYY-MM-DD format",
+    })
+    @IsNotEmpty()
+    @IsString()
+    dateOfBirth: string;
 
     @ApiProperty({
         description: "Optional Flagged record ID for the user",
@@ -146,6 +175,63 @@ export class BvnVerificationDto {
     @IsNumberString()
     @Length(11, 11, { message: "Bvn number must be 11 digits" })
     bvn: string;
+}
+
+export class NinVerificationDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
+    @ApiProperty({
+        description: "Date of Birth in YYYY-MM-DD format",
+        example: "2024-06-01",
+        format: "date",
+    })
+    @IsNotEmpty()
+    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+        message:
+            "Date of Birth must be in YYYY-MM-DD format (e.g., 2024-06-01)",
+    })
+    dateOfBirth: string;
+
+    @ApiProperty({
+        description: "user NIN",
+        example: "use 00000000001 for sandbox NIN testing",
+    })
+    @IsNotEmpty()
+    @IsNumberString()
+    @Length(11, 11, { message: "NIN must be 11 digits" })
+    nin: string;
+}
+
+export class OnboardIndividualDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    firstName: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    lastName: string;
+
+    @ApiProperty({
+        description: "Date of Birth in YYYY-MM-DD format",
+        example: "2024-06-01",
+        format: "date",
+    })
+    @IsNotEmpty()
+    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+        message:
+            "Date of Birth must be in YYYY-MM-DD format (e.g., 2024-06-01)",
+    })
+    dateOfBirth: string;
 }
 
 export class SignInDto {
