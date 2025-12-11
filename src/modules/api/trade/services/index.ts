@@ -1463,14 +1463,20 @@ export class TradingService {
                 this.logger.log(`Creating crypto account for user ${user.id}`);
                 
                 // Create sub-account
-                const result = await this.quidaxService.createSubAccount({
-                    email: user.email,
-                    first_name: user.firstName,
-                    last_name: user.lastName,
-                });
+                let result;
+                try {
+                    result = await this.quidaxService.createSubAccount({
+                        email: user.email,
+                        first_name: user.firstName,
+                        last_name: user.lastName,
+                    });
+                } catch (quidaxError) {
+                    this.logger.error(`Quidax createSubAccount failed: ${quidaxError?.message}`, quidaxError?.stack);
+                    throw new Error(`Quidax API error: ${quidaxError?.message}`);
+                }
 
                 if (result.status !== "success") {
-                    this.logger.error(`Sub-account creation failed: ${result.status}`);
+                    this.logger.error(`Sub-account creation failed: ${JSON.stringify(result)}`);
                     throw new Error("Failed to create sub-account");
                 }
 
@@ -1487,26 +1493,33 @@ export class TradingService {
             }
 
             const currencies = ["btc", "usdt", "usdc"];
+            const walletResults = [];
 
-            await Promise.allSettled(
-                currencies.map(async (currency) => {
-                    try {
-                        await this.ensureWalletPaymentAddresses({
-                            userId: user.id,
-                            cryptoSubAccountId,
-                            assetSymbol: currency.toUpperCase(),
-                        });
-                    } catch (error) {
-                        this.logger.error(`Address creation error for ${currency}: ${error?.message}`);
-                    }
-                })
-            );
+            for (const currency of currencies) {
+                try {
+                    this.logger.log(`Creating wallet for ${currency.toUpperCase()}...`);
+                    const addresses = await this.ensureWalletPaymentAddresses({
+                        userId: user.id,
+                        cryptoSubAccountId,
+                        assetSymbol: currency.toUpperCase(),
+                    });
+                    this.logger.log(`Wallet created for ${currency.toUpperCase()}: ${addresses?.length || 0} addresses`);
+                    walletResults.push({ currency, success: true, addresses: addresses?.length || 0 });
+                } catch (error) {
+                    this.logger.error(`Address creation error for ${currency}: ${error?.message}`, error?.stack);
+                    walletResults.push({ currency, success: false, error: error?.message });
+                }
+            }
+
+            const successCount = walletResults.filter(r => r.success).length;
+            this.logger.log(`Wallet creation summary: ${successCount}/${currencies.length} successful`);
 
             return buildResponse({
-                message: "account generation completed",
+                message: `account generation completed (${successCount}/${currencies.length} wallets created)`,
+                data: { walletResults },
             });
         } catch (error) {
-            this.logger.error(`triggerQuidaxAccountCreation failed: ${error?.message}`);
+            this.logger.error(`triggerQuidaxAccountCreation failed: ${error?.message}`, error?.stack);
             throw error;
         }
     }
