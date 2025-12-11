@@ -1504,6 +1504,66 @@ export class TradingService {
                         assetSymbol: currency.toUpperCase(),
                     });
                     this.logger.log(`Wallet created for ${currency.toUpperCase()}: ${addresses?.length || 0} addresses`);
+                    
+                    // Also create/update AssetWallet record directly (don't wait for webhook)
+                    try {
+                        const walletData = await this.quidaxService.getUserWallet({
+                            user_id: cryptoSubAccountId,
+                            currency: currency.toLowerCase(),
+                        });
+                        
+                        if (walletData.status === "success" && walletData.data) {
+                            const data = walletData.data;
+                            await this.prisma.assetWallet.upsert({
+                                where: {
+                                    userId_assetCurrency: {
+                                        userId: user.id,
+                                        assetCurrency: currency.toUpperCase(),
+                                    },
+                                },
+                                update: {
+                                    quidaxWalletId: data.id,
+                                    assetName: data.name,
+                                    balance: data.balance,
+                                    locked: data.locked,
+                                    staked: data.staked,
+                                    convertedBalance: data.converted_balance,
+                                    blockchainEnabled: data.blockchain_enabled,
+                                    defaultNetwork: data.default_network,
+                                    isCrypto: data.is_crypto,
+                                    networks: data.networks,
+                                    referenceCurrency: data.reference_currency,
+                                    depositAddress: data.deposit_address,
+                                    destinationTag: data.destination_tag,
+                                    ...(data.deposit_address && { addressSynced: true }),
+                                    ...(data.deposit_address && { isActive: true }),
+                                },
+                                create: {
+                                    quidaxWalletId: data.id,
+                                    assetCurrency: data.currency.toUpperCase(),
+                                    assetName: data.name,
+                                    balance: data.balance,
+                                    locked: data.locked,
+                                    staked: data.staked,
+                                    convertedBalance: data.converted_balance,
+                                    blockchainEnabled: data.blockchain_enabled,
+                                    defaultNetwork: data.default_network,
+                                    isCrypto: data.is_crypto,
+                                    networks: data.networks,
+                                    referenceCurrency: data.reference_currency,
+                                    depositAddress: data.deposit_address,
+                                    destinationTag: data.destination_tag,
+                                    userId: user.id,
+                                    ...(data.deposit_address && { addressSynced: true }),
+                                    ...(data.deposit_address && { isActive: true }),
+                                },
+                            });
+                            this.logger.log(`AssetWallet created/updated for ${currency.toUpperCase()}`);
+                        }
+                    } catch (assetError) {
+                        this.logger.error(`Failed to create AssetWallet for ${currency}: ${assetError?.message}`);
+                    }
+                    
                     walletResults.push({ currency, success: true, addresses: addresses?.length || 0 });
                 } catch (error) {
                     this.logger.error(`Address creation error for ${currency}: ${error?.message}`, error?.stack);
