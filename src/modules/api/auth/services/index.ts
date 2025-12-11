@@ -82,6 +82,8 @@ import { CryptoAccountQueueProducer } from "../../trade/queues/producers/produce
 import { authenticator } from "otplib";
 import * as crypto from "crypto";
 import { SmsService } from "@/modules/core/sms/services";
+import { SessionService } from "../../session/services";
+import { SessionInfo } from "../../session/interfaces";
 
 @Injectable()
 export class AuthService {
@@ -96,7 +98,8 @@ export class AuthService {
         @Inject(IdentityComplianceInjectionToken.DOJAH)
         private readonly dojahService: DojahService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
-        private readonly smsService: SmsService
+        private readonly smsService: SmsService,
+        private readonly sessionService: SessionService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -1179,6 +1182,22 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
+        // Create session for user logins
+        let sessionId: string | undefined;
+        if (loginPlatform === LoginPlatform.USER) {
+            const sessionInfo: SessionInfo = {
+                deviceName: options.deviceName,
+                deviceType: options.deviceType,
+                browser: options.browser,
+                os: options.os,
+                ipAddress: ip,
+            };
+            sessionId = await this.sessionService.createSession(
+                user.id,
+                sessionInfo
+            );
+        }
+
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
@@ -1216,6 +1235,7 @@ export class AuthService {
         const responseData = {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
+            sessionId,
             userType: user.userType.toLowerCase(),
             verificationStatus,
         };
@@ -1334,6 +1354,22 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
+        // Create session for user logins (2FA complete)
+        let sessionId: string | undefined;
+        if (payload.platform === LoginPlatform.USER) {
+            const sessionInfo: SessionInfo = {
+                deviceName: dto.deviceName,
+                deviceType: dto.deviceType,
+                browser: dto.browser,
+                os: dto.os,
+                ipAddress: ip,
+            };
+            sessionId = await this.sessionService.createSession(
+                user.id,
+                sessionInfo
+            );
+        }
+
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
@@ -1363,6 +1399,7 @@ export class AuthService {
             data: {
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken,
+                sessionId,
                 userType: user.userType.toLowerCase(),
                 verificationStatus,
             },

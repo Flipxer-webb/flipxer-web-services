@@ -9,6 +9,7 @@ import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompl
 import { TradingModule } from "../trade";
 import { PrismaModule } from "@/modules/core/prisma";
 import { EmailModule } from "@/modules/core/email";
+import { SessionModule } from "../session";
 
 export * from "./interfaces";
 export * from "./errors";
@@ -24,6 +25,7 @@ export * from "./errors";
         forwardRef(() => TradingModule),
         PrismaModule,
         EmailModule,
+        SessionModule,
     ],
     controllers: [AuthController, AdminAuthController],
     providers: [AuthService, AuthGuard],

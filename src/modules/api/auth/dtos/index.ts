@@ -99,6 +99,26 @@ export class Verify2FALoginDto {
     @IsNotEmpty()
     @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
     code: string;
+
+    @ApiProperty({ required: false, description: "Device name for session tracking" })
+    @IsString()
+    @IsOptional()
+    deviceName?: string;
+
+    @ApiProperty({ required: false, description: "Device type (mobile, desktop, tablet)" })
+    @IsString()
+    @IsOptional()
+    deviceType?: string;
+
+    @ApiProperty({ required: false, description: "Browser name" })
+    @IsString()
+    @IsOptional()
+    browser?: string;
+
+    @ApiProperty({ required: false, description: "Operating system" })
+    @IsString()
+    @IsOptional()
+    os?: string;
 }
 
 enum AccountType {
@@ -242,6 +262,26 @@ export class SignInDto {
     @ApiProperty()
     @IsString({ message: "Invalid password format" })
     password: string;
+
+    @ApiProperty({ required: false, description: "Device name for session tracking" })
+    @IsString()
+    @IsOptional()
+    deviceName?: string;
+
+    @ApiProperty({ required: false, description: "Device type (mobile, desktop, tablet)" })
+    @IsString()
+    @IsOptional()
+    deviceType?: string;
+
+    @ApiProperty({ required: false, description: "Browser name" })
+    @IsString()
+    @IsOptional()
+    browser?: string;
+
+    @ApiProperty({ required: false, description: "Operating system" })
+    @IsString()
+    @IsOptional()
+    os?: string;
 }
 
 export enum UserSignInAppType {
