@@ -10,6 +10,7 @@ import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import { v4 as uuidv4 } from "uuid";
 import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
+import { TierService } from "./tier.service";
 
 const prisma = new PrismaClient();
 
@@ -19,7 +20,8 @@ export class TransactionService {
 
     constructor(
         private readonly coinGeckoCacheService: CoinGeckoCacheService,
-        private readonly emailService: EmailService
+        private readonly emailService: EmailService,
+        private readonly tierService: TierService
     ) {}
 
     async validateTransaction(
@@ -84,7 +86,25 @@ export class TransactionService {
             );
         }
 
-        const dailyLimit = user.userType === "INDIVIDUAL" ? 5000 : 10000;
+        // Get tier info for the user
+        const tierInfo = this.tierService.getTierInfo(user);
+        
+        // Tier 0 users cannot transact at all
+        if (!tierInfo.canTransact) {
+            const transactionId = uuidv4();
+            const reason = `Transaction blocked: Complete KYC verification to unlock transactions. Current tier: ${tierInfo.tier}`;
+            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+            throw new GeneralTransactionException(
+                "Complete KYC verification to unlock transactions. Visit your profile to verify your identity.",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        // Get tier-based daily limit (unlimited = -1 or "unlimited")
+        const tierWithdrawalLimit = tierInfo.withdrawalLimit;
+        const hasUnlimitedWithdrawal = tierWithdrawalLimit === "unlimited";
+        
+        // Fall back to monthly limits for overall transaction control
         const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
         const now = new Date();
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -133,15 +153,19 @@ export class TransactionService {
         }
         const newDailyTotal = currentDailyTotal + amountInUSD.amount;
 
-        if (newDailyTotal > dailyLimit) {
-            transactionId = uuidv4();
-            reason = `Daily transaction limit exceeded for ${user.userType}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal} (Current: $${currentDailyTotal}, This transaction: $${amountInUSD.amount}) - Transaction ID: ${transactionId}`;
-            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-            await this.sendFlaggedEmail(user, reason, transactionId);
-            throw new GeneralTransactionException(
-                `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
-                HttpStatus.FORBIDDEN
-            );
+        // Check tier-based daily withdrawal limit (only if not unlimited)
+        if (!hasUnlimitedWithdrawal) {
+            const dailyLimit = tierWithdrawalLimit as number;
+            if (newDailyTotal > dailyLimit) {
+                transactionId = uuidv4();
+                reason = `Daily withdrawal limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)} (Current: $${currentDailyTotal.toFixed(2)}, This transaction: $${amountInUSD.amount.toFixed(2)}) - Transaction ID: ${transactionId}`;
+                await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+                await this.sendFlaggedEmail(user, reason, transactionId);
+                throw new GeneralTransactionException(
+                    `Daily withdrawal limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
+                    HttpStatus.FORBIDDEN
+                );
+            }
         }
 
         // Calculate monthly total (last 30 days)

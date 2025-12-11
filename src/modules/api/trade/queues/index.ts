@@ -1,7 +1,8 @@
 import { BullModuleOptions } from "@nestjs/bull";
 import { TradingQueue } from "./interfaces";
-import { BullBoardQueueOptions } from "@bull-board/nestjs";
-import { BullAdapter } from "@bull-board/api/bullAdapter";
+// BullBoard imports removed - package uninstalled
+// import { BullBoardQueueOptions } from "@bull-board/nestjs";
+// import { BullAdapter } from "@bull-board/api/bullAdapter";
 export * from "./interfaces";
 
 export const quidaxTradingOptions: BullModuleOptions = {
@@ -28,13 +29,15 @@ export const quidaxQueueConfig: BullModuleOptions[] = [
     quidaxTradingOptions,
     quidaxSyncBalanceQueue,
 ];
-export const quidaxBoardQueueConfig: BullBoardQueueOptions[] = [
-    {
-        name: TradingQueue.QUIDAX_ACCOUNT_INIT,
-        adapter: BullAdapter,
-    },
-    {
-        name: TradingQueue.QUIDAX_SYNC_BALANCE,
-        adapter: BullAdapter,
-    },
-];
+
+// BullBoard queue config removed - package uninstalled
+// export const quidaxBoardQueueConfig: BullBoardQueueOptions[] = [
+//     {
+//         name: TradingQueue.QUIDAX_ACCOUNT_INIT,
+//         adapter: BullAdapter,
+//     },
+//     {
+//         name: TradingQueue.QUIDAX_SYNC_BALANCE,
+//         adapter: BullAdapter,
+//     },
+// ];

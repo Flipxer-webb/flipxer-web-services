@@ -14,6 +14,7 @@ import {
     Logger,
 } from "@nestjs/common";
 import { AuthService } from "../../auth/services";
+import { TierService } from "../../auth/services/tier.service";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
@@ -29,7 +30,7 @@ import {
 } from "../dtos";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
-import { AssetWallet, Prisma, User } from "@prisma/client";
+import { AssetWallet, OrderStatus, Prisma, User } from "@prisma/client";
 import { DuplicateUserException, IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
 import { emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
@@ -39,10 +40,13 @@ import {
     DuplicateVerificationException,
 } from "../../auth/errors";
 import { Ticker } from "@/libs/quidax/types/trade";
+import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
+import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 
 @Injectable()
 export class UserService {
     private uploadService: ImagekitService | CloudinaryService;
+    private readonly logger = new Logger(UserService.name);
 
     constructor(
         private prisma: PrismaService,
@@ -50,7 +54,9 @@ export class UserService {
         private authService: AuthService,
         private emailService: EmailService,
         private uploadFactory: UploadFactory,
-        private readonly quidaxCacheService: QuidaxCacheService
+        private readonly quidaxCacheService: QuidaxCacheService,
+        private readonly tierService: TierService,
+        private readonly coinGeckoCacheService: CoinGeckoCacheService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -78,7 +84,12 @@ export class UserService {
                 isPasswordCreated: true,
                 isBvnVerified: true,
                 isDocumentVerified: true,
+                isAddressVerified: true,
+                isBiometricVerified: true,
+                isIncomeVerified: true,
+                tier: true,
                 businessRecordCompleted: true,
+                businessDocumentsUploaded: true,
                 businessDocumentVerificationStatus: true,
                 accountLimit: {
                     select: {
@@ -100,6 +111,9 @@ export class UserService {
                 },
             },
         });
+
+        // Calculate tier info
+        const tierInfo = this.tierService.getTierInfo(profile);
 
         const defaultWallet = await this.prisma.assetWallet.findFirst({
             where: {
@@ -126,6 +140,64 @@ export class UserService {
                 ...profile,
                 recoveryEmail: profile.recoveryEmail || null, 
                 assetWallet: defaultWallet,
+                // Tier info
+                tier: tierInfo.tier,
+                withdrawalLimit: tierInfo.withdrawalLimit,
+                canTransact: tierInfo.canTransact,
+            },
+        };
+    }
+
+    /**
+     * Get the user's daily withdrawal usage for the frontend
+     * Returns the amount used today and the daily limit based on tier
+     */
+    async getWithdrawalUsage(user: User) {
+        const tierInfo = this.tierService.getTierInfo(user);
+        
+        // Calculate daily total from the last 24 hours
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+        const orders = await this.prisma.order.findMany({
+            where: {
+                userId: user.id,
+                createdAt: { gte: oneDayAgo },
+                status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
+            },
+            select: { amount: true, currency: true, rateAtConversion: true },
+        });
+
+        // Calculate totals in USD
+        let usedToday = 0;
+        for (const order of orders) {
+            if (order.amount) {
+                let usdAmount = 0;
+                if (order.rateAtConversion) {
+                    usdAmount = order.amount * order.rateAtConversion;
+                } else if (order.currency) {
+                    const rate = await this.coinGeckoCacheService.getPriceInUSD(
+                        order.currency.toLowerCase() as SupportedAssets
+                    );
+                    usdAmount = order.amount * (rate || 0);
+                }
+                usedToday += usdAmount;
+            }
+        }
+
+        const dailyLimit = tierInfo.withdrawalLimit === "unlimited" ? -1 : tierInfo.withdrawalLimit;
+        const remainingToday = dailyLimit === -1 ? -1 : Math.max(0, dailyLimit - usedToday);
+        const percentUsed = dailyLimit === -1 ? 0 : Math.min(100, (usedToday / dailyLimit) * 100);
+
+        return {
+            message: "Withdrawal usage retrieved",
+            data: {
+                usedToday: Math.round(usedToday * 100) / 100,
+                dailyLimit,
+                remainingToday: remainingToday === -1 ? -1 : Math.round(remainingToday * 100) / 100,
+                percentUsed: Math.round(percentUsed * 100) / 100,
+                tier: tierInfo.tier,
+                canTransact: tierInfo.canTransact,
             },
         };
     }

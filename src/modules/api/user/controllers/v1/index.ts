@@ -49,6 +49,13 @@ export class UserController {
         return await this.userService.getProfile(user);
     }
 
+    @ApiOperation({ summary: "Get user daily withdrawal usage and limits" })
+    @ApiBearerAuth("access-token")
+    @Get("withdrawal-usage")
+    async getWithdrawalUsage(@User() user: UserModel) {
+        return await this.userService.getWithdrawalUsage(user);
+    }
+
     @ApiOperation({ summary: "Update user details" })
     @ApiBearerAuth("access-token")
     @ApiConsumes("multipart/form-data")

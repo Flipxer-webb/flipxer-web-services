@@ -1,4 +1,4 @@
-# API Documentation - Resolve Web Services
+# API Documentation - Flipxer Web Services
 
 ## Table of Contents
 - [Getting Started](#getting-started)
@@ -700,7 +700,7 @@ if (isTokenExpired(token)) {
 For API support or to report issues:
 
 - **Email**: ibukunolaoluwa402@gmail.com
-- **GitHub Issues**: [https://github.com/OmeriHQ/resolve-web-services/issues](https://github.com/OmeriHQ/resolve-web-services/issues)
+- **GitHub Issues**: [https://github.com/OmeriHQ/flipxer-web-services/issues](https://github.com/OmeriHQ/flipxer-web-services/issues)
 
 For real-time API status and updates, check the Swagger documentation at `/api`.
 

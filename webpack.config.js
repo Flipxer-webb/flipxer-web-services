@@ -1,8 +1,12 @@
 const path = require("path");
 const TerserPlugin = require("terser-webpack-plugin");
 const nodeExternals = require("webpack-node-externals");
-const NodemonPlugin = require("nodemon-webpack-plugin");
 const TsconfigPathsPlugin = require("tsconfig-paths-webpack-plugin");
+
+const isProduction = process.env.NODE_ENV === "production";
+
+// Only load nodemon-webpack-plugin in development mode
+const NodemonPlugin = isProduction ? null : require("nodemon-webpack-plugin");
 
 module.exports = {
     mode: process.env.NODE_ENV, //process.env.NODE_ENV,
@@ -33,10 +37,11 @@ module.exports = {
         errorDetails: true,
     },
     plugins: [
-        new NodemonPlugin({
+        // Only use NodemonPlugin in development mode
+        ...(isProduction ? [] : [new NodemonPlugin({
             stdin: false,
             watch: [path.resolve("./dist"), ".env"],
-        }),
+        })]),
     ],
     optimization: {
         minimize: true,

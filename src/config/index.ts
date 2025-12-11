@@ -91,73 +91,6 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
 
-    //clodinary
-    {
-        name: "CLOUDINARY_CLOUD_NAME",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "CLOUDINARY_API_KEY",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "CLOUDINARY_API_SECRET",
-        type: RequiredEnvironmentTypes.String,
-    },
-    //imagekit
-    {
-        name: "IMAGEKIT_PUBLIC_KEY",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "IMAGEKIT_PRIVATE_KEY",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "IMAGEKIT_URL",
-        type: RequiredEnvironmentTypes.String,
-    },
-    //dojah
-    {
-        name: "DOJAH_BASE_URL",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "DOJAH_APP_ID",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "DOJAH_PUBLIC_KEY",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "DOJAH_SECRET_KEY",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "DOJAH_TOKEN_ID",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "QUIDAX_BASE_URL",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "QUIDAX_API_PUBLIC",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "QUIDAX_API_SECRET",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "QUIDAX_WEBHOOK_KEY",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "QUIDAX_RAMP_BASEURL",
-        type: RequiredEnvironmentTypes.String,
-    },
     //server environment
     {
         name: "ENVIRONMENT",
@@ -181,30 +114,50 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "REDIS_PASSWORD",
         type: RequiredEnvironmentTypes.String,
     },
-    //paystack
-    {
-        name: "PAYSTACK_SECRET_KEY",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "PAYSTACK_BASE_URL",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "PAYSTACK_CANCEL_ACTION",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "PAYSTACK_CALLBACK_URL",
-        type: RequiredEnvironmentTypes.String,
-    },
-    {
-        name: "BLOCKED_COUNTRIES",
-        type: RequiredEnvironmentTypes.String,
-    },
+
+    // Note: The following are now OPTIONAL (not validated at startup):
+    // - Cloudinary (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET)
+    // - ImageKit (IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, IMAGEKIT_URL)
+    // - Dojah (DOJAH_BASE_URL, DOJAH_APP_ID, DOJAH_PUBLIC_KEY, DOJAH_SECRET_KEY, DOJAH_TOKEN_ID)
+    // - Quidax (QUIDAX_BASE_URL, QUIDAX_API_PUBLIC, QUIDAX_API_SECRET, QUIDAX_WEBHOOK_KEY, QUIDAX_RAMP_BASEURL)
+    // - Paystack (PAYSTACK_SECRET_KEY, PAYSTACK_BASE_URL, PAYSTACK_CANCEL_ACTION, PAYSTACK_CALLBACK_URL)
+    // - BLOCKED_COUNTRIES
 ];
 
-validate(runtimeEnvironment);
+// Log which environment variables are present/missing before validation
+const missingVars: string[] = [];
+const presentVars: string[] = [];
+for (const envVar of runtimeEnvironment) {
+    if (process.env[envVar.name]) {
+        presentVars.push(envVar.name);
+    } else {
+        missingVars.push(envVar.name);
+    }
+}
+
+console.log("=== Environment Variable Check ===");
+console.log(`Present (${presentVars.length}):`, presentVars.join(", "));
+console.log(`Missing (${missingVars.length}):`, missingVars.join(", "));
+console.log("==================================");
+
+if (missingVars.length > 0) {
+    console.error(
+        `\n❌ FATAL: Missing required environment variables:\n${missingVars.map((v) => `  - ${v}`).join("\n")}\n`
+    );
+    console.error(
+        "Please add these variables to your Render Environment tab.\n"
+    );
+    // Exit gracefully instead of throwing to get a clean error message
+    process.exit(1);
+}
+
+try {
+    validate(runtimeEnvironment);
+} catch (error) {
+    console.error("\n❌ Environment validation failed:");
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+}
 
 // App
 export const allowedDomains =
@@ -273,26 +226,26 @@ export interface Configuration {
     frontendDevOrigin: RegExp[];
 }
 
-//cloudinary
+//cloudinary (optional - features requiring this will not work without credentials)
 export const cloudinaryConfig: ConfigOptions = {
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "",
+    api_key: process.env.CLOUDINARY_API_KEY || "",
+    api_secret: process.env.CLOUDINARY_API_SECRET || "",
 };
 
-//imagekit
+//imagekit (optional - features requiring this will not work without credentials)
 export interface ImagekitConfig {
     public_key: string;
     private_key: string;
     url: string;
 }
 export const imagekitConfig: ImagekitConfig = {
-    public_key: process.env.IMAGEKIT_PUBLIC_KEY,
-    private_key: process.env.IMAGEKIT_PRIVATE_KEY,
-    url: process.env.IMAGEKIT_URL,
+    public_key: process.env.IMAGEKIT_PUBLIC_KEY || "",
+    private_key: process.env.IMAGEKIT_PRIVATE_KEY || "",
+    url: process.env.IMAGEKIT_URL || "",
 };
 
-//dojah
+//dojah (optional - identity verification will not work without credentials)
 export interface DojahConfig {
     baseUrl: string;
     app_id: string;
@@ -302,11 +255,11 @@ export interface DojahConfig {
 }
 
 export const dojahConfig: DojahConfig = {
-    baseUrl: process.env.DOJAH_BASE_URL,
-    app_id: process.env.DOJAH_APP_ID,
-    public_key: process.env.DOJAH_PUBLIC_KEY,
-    secret_key: process.env.DOJAH_SECRET_KEY,
-    token_id: process.env.DOJAH_TOKEN_ID,
+    baseUrl: process.env.DOJAH_BASE_URL || "",
+    app_id: process.env.DOJAH_APP_ID || "",
+    public_key: process.env.DOJAH_PUBLIC_KEY || "",
+    secret_key: process.env.DOJAH_SECRET_KEY || "",
+    token_id: process.env.DOJAH_TOKEN_ID || "",
 };
 
 export interface IdentityComplianceConfig {
@@ -317,7 +270,7 @@ export const identityComplianceConfig: IdentityComplianceConfig = {
     dojah: dojahConfig,
 };
 
-//quidax
+//quidax (optional - crypto trading will not work without credentials)
 export interface QuidaxConfig {
     baseUrl: string;
     rampBaseUrl: string;
@@ -326,11 +279,11 @@ export interface QuidaxConfig {
     webhook_key: string;
 }
 export const quidaxConfig: QuidaxConfig = {
-    baseUrl: process.env.QUIDAX_BASE_URL,
-    rampBaseUrl: process.env.QUIDAX_RAMP_BASEURL,
-    api_public: process.env.QUIDAX_API_PUBLIC,
-    api_secret: process.env.QUIDAX_API_SECRET,
-    webhook_key: process.env.QUIDAX_WEBHOOK_KEY,
+    baseUrl: process.env.QUIDAX_BASE_URL || "",
+    rampBaseUrl: process.env.QUIDAX_RAMP_BASEURL || "",
+    api_public: process.env.QUIDAX_API_PUBLIC || "",
+    api_secret: process.env.QUIDAX_API_SECRET || "",
+    webhook_key: process.env.QUIDAX_WEBHOOK_KEY || "",
 };
 
 export interface TradingConfig {
@@ -361,14 +314,14 @@ export const redisConfig: RedisConfig = {
     },
 };
 
-//payment
-export const paystackSecretKey: string = process.env.PAYSTACK_SECRET_KEY;
+//payment (optional - payment features will not work without credentials)
+export const paystackSecretKey: string = process.env.PAYSTACK_SECRET_KEY || "";
 
 export const paystackOptions: PaystackOptions = {
-    baseUrl: process.env.PAYSTACK_BASE_URL,
-    secretKey: process.env.PAYSTACK_SECRET_KEY,
-    cancel_action: process.env.PAYSTACK_CANCEL_ACTION,
-    callback_url: process.env.PAYSTACK_CALLBACK_URL,
+    baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
+    secretKey: process.env.PAYSTACK_SECRET_KEY || "",
+    cancel_action: process.env.PAYSTACK_CANCEL_ACTION || "",
+    callback_url: process.env.PAYSTACK_CALLBACK_URL || "",
 };
 
 export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES

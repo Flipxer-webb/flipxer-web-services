@@ -6,6 +6,24 @@ import { roles } from "./role"; // Assumed roles array file
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
+const passwordAlphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@#$%^&*";
+const generateSeedPassword = customAlphabet(passwordAlphabet, 16);
+
+const getSeedPassword = (envKey: string, label: string): string => {
+    const envPassword = (process.env[envKey] || process.env.SEED_DEFAULT_PASSWORD || "").trim();
+
+    if (envPassword.length >= 12) {
+        return envPassword;
+    }
+
+    const generated = generateSeedPassword();
+    logger.warn(
+        `${label} password not provided via ${envKey} or SEED_DEFAULT_PASSWORD; generated a temporary value.`
+    );
+    logger.info(`${label} temporary password: ${generated}`);
+    return generated;
+};
 
 async function main() {
     logger.info("Starting database seeding...");
@@ -66,24 +84,27 @@ async function main() {
         where: { slug: "super-admin" },
     });
     if (adminRole) {
-        const plainAdminPassword = "pass123";
+        const plainAdminPassword = getSeedPassword(
+            "SEED_ADMIN_PASSWORD",
+            "Admin"
+        );
         const hashedAdminPassword = await bcrypt.hash(
             plainAdminPassword,
             SALT_ROUNDS
         );
         const admin = await prisma.user.upsert({
-            where: { email: "admin@resolve.com" },
+            where: { email: "hello@flipxer.com" },
             update: {},
             create: {
-                email: "admin@resolve.com",
+                email: "hello@flipxer.com",
                 phone: "09010000000",
                 userType: UserType.ADMIN,
                 identifier: "8jhPCbsdSKxKwfgi",
                 password: hashedAdminPassword,
                 roleId: adminRole.id,
-                firstName: "Resolve",
+                firstName: "Flipxer",
                 lastName: "Admin",
-                recoveryEmail: "admin.recovery@resolve.com",
+                recoveryEmail: "hello.recovery@flipxer.com",
                 accountLimit: {
                     create: {
                         sellTokenFiat: 50000,
@@ -97,7 +118,7 @@ async function main() {
                     create: [
                         {
                             bankName: "Zenith Bank",
-                            accountName: "Resolve Admin",
+                            accountName: "Flipxer Admin",
                             accountNumber: "1234567891",
                         },
                     ],
@@ -114,7 +135,7 @@ async function main() {
             },
             create: {
                 userId: admin.id,
-                email: "admin.recovery@resolve.com",
+                email: "admin.recovery@flipxer.com",
                 code: generateVerificationCode(),
                 isVerified: false,
             },
@@ -129,7 +150,10 @@ async function main() {
         where: { slug: "individual" },
     });
     if (individualRole) {
-        const plainIndividualPassword = "pass123";
+        const plainIndividualPassword = getSeedPassword(
+            "SEED_INDIVIDUAL_PASSWORD",
+            "John Doe"
+        );
         const hashedIndividualPassword = await bcrypt.hash(
             plainIndividualPassword,
             SALT_ROUNDS
@@ -187,7 +211,10 @@ async function main() {
     // Seed INDIVIDUAL user (Chidi Nwabeke)
     logger.info("Seeding Chidi Nwabeke user...");
     if (individualRole) {
-        const plainChidiPassword = "pass123";
+        const plainChidiPassword = getSeedPassword(
+            "SEED_CHIDI_PASSWORD",
+            "Chidi Nwabeke"
+        );
         const hashedChidiPassword = await bcrypt.hash(
             plainChidiPassword,
             SALT_ROUNDS
@@ -245,7 +272,10 @@ async function main() {
     // Seed VERIFIED INDIVIDUAL user (Jane Smith)
     logger.info("Seeding Jane Smith user (fully verified with document)...");
     if (individualRole) {
-        const plainJanePassword = "pass123";
+        const plainJanePassword = getSeedPassword(
+            "SEED_JANE_PASSWORD",
+            "Jane Smith"
+        );
         const hashedJanePassword = await bcrypt.hash(plainJanePassword, SALT_ROUNDS);
         const jane = await prisma.user.upsert({
             where: { email: "jane.smith@example.com" },
@@ -319,7 +349,10 @@ async function main() {
         where: { slug: "business" },
     });
     if (businessRole) {
-        const plainBusinessPassword = "pass123";
+        const plainBusinessPassword = getSeedPassword(
+            "SEED_BUSINESS_PASSWORD",
+            "Acme Corp"
+        );
         const hashedBusinessPassword = await bcrypt.hash(
             plainBusinessPassword,
             SALT_ROUNDS

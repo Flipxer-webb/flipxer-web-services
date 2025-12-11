@@ -17,7 +17,27 @@ import {
 } from "../dtos";
 import { TransactionFeeCategory, User } from "@prisma/client";
 import { UserForbiddenException } from "../../auth";
-import * as ip from "ip";
+import * as ipaddr from "ipaddr.js";
+
+const NON_PUBLIC_IP_RANGES = new Set([
+    "unspecified",
+    "linkLocal",
+    "loopback",
+    "uniqueLocal",
+    "broadcast",
+    "carrierGradeNat",
+    "private",
+    "reserved",
+    "multicast",
+]);
+
+const isPublicIp = (address: string) => {
+    if (!ipaddr.isValid(address)) {
+        return false;
+    }
+    const parsed = ipaddr.parse(address);
+    return !NON_PUBLIC_IP_RANGES.has(parsed.range());
+};
 
 @Injectable()
 export class SettingService {
@@ -42,7 +62,7 @@ export class SettingService {
     }
 
     async addAllowedIp(user: User, dto: AddAllowedIpDto) {
-        if (!ip.isPublic(dto.ip)) {
+        if (!isPublicIp(dto.ip)) {
             throw new GenericAllowedIpException(
                 "Only public IPs are allowed.",
                 HttpStatus.BAD_REQUEST

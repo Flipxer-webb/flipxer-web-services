@@ -1,6 +1,6 @@
 # Environment Variables Documentation
 
-Complete reference for all environment variables used in Resolve Web Services.
+Complete reference for all environment variables used in Flipxer Web Services.
 
 ## Table of Contents
 - [Quick Start](#quick-start)
@@ -81,13 +81,13 @@ Complete reference for all environment variables used in Resolve Web Services.
 - **Type**: PostgreSQL connection string
 - **Format**: `postgresql://USERNAME:PASSWORD@HOST:PORT/DATABASE?sslmode=require`
 - **Description**: Main database connection
-- **Example**: `postgresql://user:pass@db.example.com:5432/resolve_prod?sslmode=require`
+- **Example**: `postgresql://user:pass@db.example.com:5432/flipxer_prod?sslmode=require`
 - **Important**: Always use `sslmode=require` in production!
 
 ### `SHADOW_DATABASE_URL` ⚠️
 - **Type**: PostgreSQL connection string
 - **Description**: Shadow database for Prisma migrations (development only)
-- **Example**: `postgresql://user:pass@db.example.com:5432/resolve_shadow?sslmode=require`
+- **Example**: `postgresql://user:pass@db.example.com:5432/flipxer_shadow?sslmode=require`
 - **Note**: Can use same credentials as DATABASE_URL, different database name
 
 ---
@@ -186,15 +186,15 @@ Complete reference for all environment variables used in Resolve Web Services.
 
 #### `PROFILE_DIR`
 - **Type**: String
-- **Default**: `ResolveProfile`
+- **Default**: `FlipxerProfile`
 - **Description**: Directory name for user profile images
-- **Example**: `ResolveProfile`
+- **Example**: `FlipxerProfile`
 
 #### `DOCUMENT_DIR`
 - **Type**: String
-- **Default**: `ResolveDocument`
+- **Default**: `FlipxerDocument`
 - **Description**: Directory name for user documents (KYC)
-- **Example**: `ResolveDocument`
+- **Example**: `FlipxerDocument`
 
 ### Dojah (KYC/Identity Verification)
 
@@ -402,6 +402,17 @@ ALLOWED_DOMAINS=https://app.yourdomain.com,https://www.yourdomain.com
 DOJAH_BASE_URL=https://api.dojah.io/
 PAYSTACK_SECRET_KEY=sk_live_...
 ```
+
+### Seeded Account Passwords (development/testing)
+
+- `SEED_DEFAULT_PASSWORD` (optional): Shared password for all seeded users (minimum 12 characters).
+- `SEED_ADMIN_PASSWORD` (optional): Overrides admin seed password.
+- `SEED_INDIVIDUAL_PASSWORD` (optional): Overrides John Doe seed password.
+- `SEED_CHIDI_PASSWORD` (optional): Overrides Chidi Nwabeke seed password.
+- `SEED_JANE_PASSWORD` (optional): Overrides Jane Smith seed password.
+- `SEED_BUSINESS_PASSWORD` (optional): Overrides Acme Corp seed password.
+
+If an env value is missing or too short, a random secure password is generated at seed time and logged once for reference. All passwords are stored hashed in the database.
 
 ---
 

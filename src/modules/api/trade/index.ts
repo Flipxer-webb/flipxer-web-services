@@ -4,8 +4,9 @@ import { TradingController } from "./controllers/v1";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
 import { BullModule } from "@nestjs/bull";
-import { BullBoardModule } from "@bull-board/nestjs";
-import { quidaxBoardQueueConfig, quidaxQueueConfig } from "./queues";
+// Bull Board disabled due to path-to-regexp compatibility issue with Express 4.x
+// import { BullBoardModule } from "@bull-board/nestjs";
+import { quidaxQueueConfig } from "./queues";
 import { CryptoAccountQueueProducer } from "./queues/producers/producer.service";
 import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processors/account_init_processor";
 import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
@@ -20,13 +21,15 @@ import { TransactionAmountGuard } from "@/modules/api/auth/guard";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { TransactionService } from "../auth/services/transaction.service";
+import { TierService } from "../auth/services/tier.service";
 export * from "./interfaces";
 export * from "./errors";
 
 @Module({
     imports: [
         BullModule.registerQueue(...quidaxQueueConfig),
-        BullBoardModule.forFeature(...quidaxBoardQueueConfig),
+        // Bull Board disabled due to path-to-regexp compatibility issue with Express 4.x
+        // BullBoardModule.forFeature(...quidaxBoardQueueConfig),
         TradingFactoryModule,
         BankFactoryModule,
         forwardRef(() => UserModule),
@@ -44,6 +47,7 @@ export * from "./errors";
         WsGateway,
         WsService,
         TransactionService,
+        TierService,
         TransactionAmountGuard,
         {
             provide: TradingInjectionToken.COINGECKO,
@@ -56,6 +60,7 @@ export * from "./errors";
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,
         WsService,
+        TierService,
     ],
 })
 export class TradingModule {}

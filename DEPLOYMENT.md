@@ -1,4 +1,4 @@
-# Deployment Guide - Resolve Web Services
+# Deployment Guide - Flipxer Web Services
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
@@ -41,8 +41,8 @@ You'll need accounts and API credentials for:
 
 ```bash
 # Clone the repository
-git clone https://github.com/OmeriHQ/resolve-web-services.git
-cd resolve-web-services
+git clone https://github.com/OmeriHQ/flipxer-web-services.git
+cd flipxer-web-services
 
 # Install dependencies
 pnpm install
@@ -111,16 +111,16 @@ You need TWO databases:
 
 ```sql
 -- Example SQL commands
-CREATE DATABASE resolve_production;
-CREATE DATABASE resolve_shadow_production;
+CREATE DATABASE flipxer_production;
+CREATE DATABASE flipxer_shadow_production;
 ```
 
 ### 2. Configure Database URLs
 
 In `.env`:
 ```env
-DATABASE_URL="postgresql://user:password@host:5432/resolve_production?sslmode=require"
-SHADOW_DATABASE_URL="postgresql://user:password@host:5432/resolve_shadow_production?sslmode=require"
+DATABASE_URL="postgresql://user:password@host:5432/flipxer_production?sslmode=require"
+SHADOW_DATABASE_URL="postgresql://user:password@host:5432/flipxer_shadow_production?sslmode=require"
 ```
 
 ### 3. Run Migrations
@@ -170,8 +170,8 @@ npm install -g pm2
 
 ```bash
 # Clone repository
-git clone https://github.com/OmeriHQ/resolve-web-services.git
-cd resolve-web-services
+git clone https://github.com/OmeriHQ/flipxer-web-services.git
+cd flipxer-web-services
 
 # Install dependencies
 pnpm install
@@ -189,7 +189,7 @@ pnpm db:migrate:prod
 pnpm build
 
 # Start with PM2
-pm2 start dist/server.js --name "resolve-api"
+pm2 start dist/server.js --name "flipxer-api"
 pm2 save
 pm2 startup
 ```
@@ -197,7 +197,7 @@ pm2 startup
 #### Step 3: Configure Nginx (Reverse Proxy)
 
 ```nginx
-# /etc/nginx/sites-available/resolve-api
+# /etc/nginx/sites-available/flipxer-api
 server {
     listen 80;
     server_name api.yourdomain.com;
@@ -218,7 +218,7 @@ server {
 
 ```bash
 # Enable site
-sudo ln -s /etc/nginx/sites-available/resolve-api /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/flipxer-api /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 
@@ -235,10 +235,10 @@ sudo certbot --nginx -d api.yourdomain.com
 
 ```bash
 # Build the image
-docker build -t resolve-web-services:latest .
+docker build -t flipxer-web-services:latest .
 
 # Test locally
-docker run -p 3500:3500 --env-file .env resolve-web-services:latest
+docker run -p 3500:3500 --env-file .env flipxer-web-services:latest
 ```
 
 #### Step 2: Deploy with Docker Compose
@@ -250,7 +250,7 @@ version: '3.8'
 
 services:
   api:
-    image: resolve-web-services:latest
+    image: flipxer-web-services:latest
     ports:
       - "3500:3500"
     environment:
@@ -261,7 +261,7 @@ services:
     depends_on:
       - redis
     networks:
-      - resolve-network
+      - flipxer-network
 
   redis:
     image: redis:7-alpine
@@ -269,13 +269,13 @@ services:
     volumes:
       - redis-data:/data
     networks:
-      - resolve-network
+      - flipxer-network
 
 volumes:
   redis-data:
 
 networks:
-  resolve-network:
+  flipxer-network:
     driver: bridge
 ```
 
@@ -295,7 +295,7 @@ docker-compose -f docker-compose.prod.yml up -d
 ```yaml
 services:
   - type: web
-    name: resolve-api
+    name: flipxer-api
     env: node
     buildCommand: pnpm install && pnpm build
     startCommand: node dist/server.js
@@ -304,7 +304,7 @@ services:
         value: production
       - key: DATABASE_URL
         fromDatabase:
-          name: resolve-db
+          name: flipxer-db
           property: connectionString
 ```
 
@@ -330,7 +330,7 @@ open https://api.yourdomain.com/api
 
 ```bash
 # PM2 logs
-pm2 logs resolve-api
+pm2 logs flipxer-api
 
 # Docker logs
 docker-compose logs -f api
@@ -351,7 +351,7 @@ Consider integrating:
 
 ```bash
 # Set up daily PostgreSQL backups
-0 2 * * * pg_dump -U username -h host -d resolve_production > /backups/resolve_$(date +\%Y\%m\%d).sql
+0 2 * * * pg_dump -U username -h host -d flipxer_production > /backups/flipxer_$(date +\%Y\%m\%d).sql
 ```
 
 ### 5. SSL Certificate Renewal
@@ -383,7 +383,7 @@ sudo certbot renew --dry-run
 
 4. **Review logs**:
    ```bash
-   pm2 logs resolve-api --lines 100
+  pm2 logs flipxer-api --lines 100
    ```
 
 ### Build Failures
@@ -431,15 +431,15 @@ If deployment fails:
 
 ```bash
 # Using PM2
-pm2 stop resolve-api
+pm2 stop flipxer-api
 git checkout <previous-commit>
 pnpm install
 pnpm build
-pm2 restart resolve-api
+pm2 restart flipxer-api
 
 # Using Docker
 docker-compose down
-docker pull resolve-web-services:previous-tag
+docker pull flipxer-web-services:previous-tag
 docker-compose up -d
 ```
 
