@@ -371,3 +371,34 @@ export class PurchaseLimitBuyDto {
 //     token_amount: string;
 //     token_network: string;
 // }
+
+export class GetMarketChartDto {
+    @ApiProperty({ 
+        example: "BTC",
+        description: "Asset symbol (e.g., BTC, ETH, USDT)" 
+    })
+    @IsNotEmpty()
+    @IsString()
+    asset: string;
+
+    @ApiProperty({ 
+        example: 7,
+        description: "Number of days of data (1, 7, 30, 90, 365)",
+        default: 7
+    })
+    @IsOptional()
+    @Transform(({ value }) => +value)
+    @IsNumber()
+    @IsPositive()
+    days?: number = 7;
+}
+
+export class GetBatchSparklinesDto {
+    @ApiProperty({ 
+        example: "BTC,ETH,USDT",
+        description: "Comma-separated list of asset symbols" 
+    })
+    @IsNotEmpty()
+    @IsString()
+    assets: string;
+}

@@ -4,6 +4,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
+import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { GetUserWalletResponse, IPaymentAddress } from "@/libs/quidax";
 import {
     AccountCreationException,
@@ -144,7 +145,9 @@ export class TradingService {
         private readonly paystackService: PaystackBank,
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
-        private readonly wsGateway: WsGateway
+        private readonly wsGateway: WsGateway,
+        @Inject(TradingInjectionToken.COINGECKO)
+        private readonly coinGeckoService: CoinGeckoService
     ) {}
 
     getSupportedAssets() {
@@ -2144,5 +2147,34 @@ export class TradingService {
             amount: amount * rate,
             rate: rate,
         };
+    }
+
+    /**
+     * Get market chart data for an asset including price history and market statistics
+     */
+    async getMarketChart(asset: string, days: number = 7) {
+        const chartData = await this.coinGeckoService.getMarketChart(asset, days);
+
+        return buildResponse({
+            message: "Market chart data retrieved",
+            data: {
+                asset: asset.toUpperCase(),
+                days,
+                prices: chartData.prices,
+                market_data: chartData.market_data,
+            },
+        });
+    }
+
+    /**
+     * Get sparkline data (7-day mini charts) for multiple assets
+     */
+    async getBatchSparklines(assets: string[]) {
+        const sparklines = await this.coinGeckoService.getBatchSparklines(assets);
+
+        return buildResponse({
+            message: "Sparkline data retrieved",
+            data: sparklines,
+        });
     }
 }

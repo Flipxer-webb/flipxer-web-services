@@ -37,6 +37,8 @@ import {
     SupportedPaymentMethodDto,
     VerifyWalletAddressDto,
     WithdrawerRequestDto,
+    GetMarketChartDto,
+    GetBatchSparklinesDto,
 } from "../../dtos";
 
 @UseGuards(CountryBlockGuard)
@@ -256,5 +258,20 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.cancelWithdrawerRequest(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get market chart data for an asset" })
+    @Get("market-chart")
+    async getMarketChart(@Query() dto: GetMarketChartDto) {
+        return await this.tradingService.getMarketChart(dto.asset, dto.days);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get sparkline data for multiple assets" })
+    @Get("sparklines")
+    async getBatchSparklines(@Query() dto: GetBatchSparklinesDto) {
+        const assets = dto.assets.split(",").map((a) => a.trim());
+        return await this.tradingService.getBatchSparklines(assets);
     }
 }

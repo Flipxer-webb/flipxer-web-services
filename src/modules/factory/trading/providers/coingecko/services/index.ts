@@ -150,4 +150,191 @@ export class CoinGeckoService {
 
         return result;
     }
+
+    /**
+     * Get market chart data for an asset (price history)
+     * @param asset Asset symbol (e.g., 'btc', 'eth')
+     * @param days Number of days of data (1, 7, 30, 90, 365)
+     * @returns Array of [timestamp, price] data points
+     */
+    async getMarketChart(
+        asset: string,
+        days: number = 7,
+        retries = 3,
+        delay = 1000
+    ): Promise<{ prices: [number, number][]; market_data?: any }> {
+        console.log(`📊 Fetching market chart for ${asset} (${days} days)`);
+
+        const cacheKey = `coingecko:chart:${asset.toLowerCase()}:${days}d`;
+        const cachedData = await this.redisCacheService.get<{ prices: [number, number][]; market_data?: any }>(cacheKey);
+        if (cachedData) {
+            console.log(`✅ Cache hit for ${asset} chart data`);
+            return cachedData;
+        }
+
+        const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
+        if (!coinGeckoId) {
+            throw new GeneralTransactionException(
+                `No CoinGecko ID mapping for ${asset}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                console.log(`🌍 Requesting CoinGecko market chart for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
+                
+                // Fetch chart data
+                const chartResponse = await axios.get(
+                    `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart`,
+                    {
+                        params: {
+                            vs_currency: "usd",
+                            days: days,
+                            interval: days <= 1 ? undefined : "daily",
+                        },
+                    }
+                );
+
+                // Fetch additional market data
+                const marketResponse = await axios.get(
+                    `https://api.coingecko.com/api/v3/coins/${coinGeckoId}`,
+                    {
+                        params: {
+                            localization: false,
+                            tickers: false,
+                            community_data: false,
+                            developer_data: false,
+                        },
+                    }
+                );
+
+                const result = {
+                    prices: chartResponse.data.prices as [number, number][],
+                    market_data: {
+                        current_price: marketResponse.data.market_data?.current_price?.usd,
+                        market_cap: marketResponse.data.market_data?.market_cap?.usd,
+                        total_volume: marketResponse.data.market_data?.total_volume?.usd,
+                        high_24h: marketResponse.data.market_data?.high_24h?.usd,
+                        low_24h: marketResponse.data.market_data?.low_24h?.usd,
+                        price_change_24h: marketResponse.data.market_data?.price_change_24h,
+                        price_change_percentage_24h: marketResponse.data.market_data?.price_change_percentage_24h,
+                        price_change_percentage_7d: marketResponse.data.market_data?.price_change_percentage_7d_in_currency?.usd,
+                        price_change_percentage_30d: marketResponse.data.market_data?.price_change_percentage_30d_in_currency?.usd,
+                        circulating_supply: marketResponse.data.market_data?.circulating_supply,
+                        max_supply: marketResponse.data.market_data?.max_supply,
+                        ath: marketResponse.data.market_data?.ath?.usd,
+                        ath_date: marketResponse.data.market_data?.ath_date?.usd,
+                        atl: marketResponse.data.market_data?.atl?.usd,
+                        atl_date: marketResponse.data.market_data?.atl_date?.usd,
+                    },
+                };
+
+                // Cache for 5 minutes for short periods, 30 minutes for longer periods
+                const cacheDuration = days <= 1 ? 2 * 60 : 30 * 60;
+                await this.redisCacheService.set(cacheKey, result, cacheDuration);
+                
+                console.log(`📊 Chart data for ${asset}: ${result.prices.length} data points`);
+                return result;
+            } catch (error) {
+                console.error(`❌ Chart fetch attempt ${attempt} failed for ${asset}:`, {
+                    message: error.message,
+                    status: error.response?.status,
+                    data: error.response?.data,
+                });
+                if (attempt === retries) {
+                    throw new GeneralTransactionException(
+                        `Failed to fetch market chart for ${asset} after ${retries} attempts: ${error.message}`,
+                        HttpStatus.INTERNAL_SERVER_ERROR
+                    );
+                }
+                await setTimeout(delay * attempt);
+            }
+        }
+    }
+
+    /**
+     * Get sparkline data (7 day mini chart) for multiple assets
+     * @param assets Array of asset symbols
+     * @returns Object mapping asset symbols to sparkline arrays
+     */
+    async getBatchSparklines(
+        assets: string[],
+        retries = 3,
+        delay = 1000
+    ): Promise<Record<string, number[]>> {
+        console.log(`✨ Fetching sparklines for: ${assets.join(", ")}`);
+
+        const result: Record<string, number[]> = {};
+        const uncachedAssets: string[] = [];
+
+        // Check cache first
+        for (const asset of assets) {
+            const cacheKey = `coingecko:sparkline:${asset.toLowerCase()}`;
+            const cached = await this.redisCacheService.get<number[]>(cacheKey);
+            if (cached) {
+                result[asset.toLowerCase()] = cached;
+            } else {
+                uncachedAssets.push(asset);
+            }
+        }
+
+        if (uncachedAssets.length === 0) {
+            console.log(`✅ All sparklines from cache`);
+            return result;
+        }
+
+        const coinGeckoIds = uncachedAssets
+            .map((asset) => this.coinGeckoIdMap[asset.toLowerCase()])
+            .filter((id) => id);
+
+        if (coinGeckoIds.length === 0) {
+            return result;
+        }
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                console.log(`🌍 Requesting CoinGecko markets for sparklines, attempt ${attempt}`);
+                const response = await axios.get(
+                    "https://api.coingecko.com/api/v3/coins/markets",
+                    {
+                        params: {
+                            vs_currency: "usd",
+                            ids: coinGeckoIds.join(","),
+                            sparkline: true,
+                        },
+                    }
+                );
+
+                for (const coin of response.data) {
+                    const assetSymbol = Object.entries(this.coinGeckoIdMap).find(
+                        ([, id]) => id === coin.id
+                    )?.[0];
+                    
+                    if (assetSymbol && coin.sparkline_in_7d?.price) {
+                        const sparkline = coin.sparkline_in_7d.price;
+                        result[assetSymbol] = sparkline;
+                        
+                        const cacheKey = `coingecko:sparkline:${assetSymbol}`;
+                        await this.redisCacheService.set(cacheKey, sparkline, 30 * 60);
+                    }
+                }
+
+                console.log(`✨ Sparklines fetched for ${Object.keys(result).length} assets`);
+                return result;
+            } catch (error) {
+                console.error(`❌ Sparkline fetch attempt ${attempt} failed:`, {
+                    message: error.message,
+                    status: error.response?.status,
+                });
+                if (attempt === retries) {
+                    console.warn(`⚠️ Failed to fetch sparklines, returning partial data`);
+                    return result;
+                }
+                await setTimeout(delay * attempt);
+            }
+        }
+
+        return result;
+    }
 }
