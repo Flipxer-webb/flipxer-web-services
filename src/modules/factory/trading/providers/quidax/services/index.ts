@@ -1,851 +1,217 @@
-import * as QD from "@/libs/quidax";
-import { HttpStatus, Logger } from "@nestjs/common";
-import * as t from "../types";
-import * as e from "../errors";
+/**
+ * Quidax Service - Main facade that composes all domain-specific services
+ * 
+ * This file has been refactored to reduce cyclomatic complexity and file size.
+ * The implementation is split into domain-specific services:
+ * - AccountService: Sub-account operations
+ * - WalletService: Wallet and payment address operations
+ * - WithdrawalService: Withdrawal operations
+ * - OrderService: Buy/sell order operations
+ * - SwapService: Instant swap operations
+ * - MarketService: Market data operations
+ * - PurchaseService: Purchase limits, quotes, and payment methods
+ */
 
+import * as QD from "@/libs/quidax";
+import { Logger } from "@nestjs/common";
+import * as t from "../types";
+
+// Import domain services
+import { QuidaxAccountService } from "./account.service";
+import { QuidaxWalletService } from "./wallet.service";
+import { QuidaxWithdrawalService } from "./withdrawal.service";
+import { QuidaxOrderService } from "./order.service";
+import { QuidaxSwapService } from "./swap.service";
+import { QuidaxMarketService } from "./market.service";
+import { QuidaxPurchaseService } from "./purchase.service";
+
+/**
+ * Main Quidax Service facade - maintains backward compatibility
+ * while delegating to domain-specific services
+ */
 export class QuidaxService {
     private readonly logger = new Logger(QuidaxService.name);
-    constructor(private readonly quidax: QD.QuidaxLib) {}
+    
+    // Composed services
+    private readonly accountService: QuidaxAccountService;
+    private readonly walletService: QuidaxWalletService;
+    private readonly withdrawalService: QuidaxWithdrawalService;
+    private readonly orderService: QuidaxOrderService;
+    private readonly swapService: QuidaxSwapService;
+    private readonly marketService: QuidaxMarketService;
+    private readonly purchaseService: QuidaxPurchaseService;
 
-    /**
-     * Find an existing sub-account by email address
-     * Returns null if not found (does not throw)
-     */
-    async findSubAccountByEmail(email: string): Promise<QD.IAccount | null> {
-        return this.quidax.findSubAccountByEmail(email);
+    constructor(private readonly quidax: QD.QuidaxLib) {
+        this.accountService = new QuidaxAccountService(quidax);
+        this.walletService = new QuidaxWalletService(quidax);
+        this.withdrawalService = new QuidaxWithdrawalService(quidax);
+        this.orderService = new QuidaxOrderService(quidax);
+        this.swapService = new QuidaxSwapService(quidax);
+        this.marketService = new QuidaxMarketService(quidax);
+        this.purchaseService = new QuidaxPurchaseService(quidax);
     }
 
-    /**
-     * Create a new sub-account, or return existing one if email already registered
-     */
+    // ============ Account Operations ============
+    
+    async findSubAccountByEmail(email: string): Promise<QD.IAccount | null> {
+        return this.accountService.findSubAccountByEmail(email);
+    }
+
     async createOrFindSubAccount(
         options: t.CreateSubAccountOptions
     ): Promise<QD.QuidaxResponse<QD.CreateSubAccountResponse>> {
-        // First, try to find an existing sub-account with this email
-        const existingAccount = await this.findSubAccountByEmail(options.email);
-        if (existingAccount) {
-            this.logger.log(`Found existing Quidax sub-account for ${options.email}: ${existingAccount.id}`);
-            return {
-                status: "success",
-                message: "Existing sub-account found",
-                data: existingAccount as QD.CreateSubAccountResponse,
-            };
-        }
-
-        // If not found, create a new one
-        return this.createSubAccount(options);
+        return this.accountService.createOrFindSubAccount(options);
     }
 
     async createSubAccount(
         options: t.CreateSubAccountOptions
     ): Promise<QD.QuidaxResponse<QD.CreateSubAccountResponse>> {
-        try {
-            const resp = await this.quidax.createSubAccount(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to create account`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to create account. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to create account",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.accountService.createSubAccount(options);
     }
 
     async getAccountDetail(
         options: t.GetAccountDetailOptions
     ): Promise<QD.QuidaxResponse<QD.GetAccountDetailResponse>> {
-        try {
-            const resp = await this.quidax.getAccountDetail(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get account`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get account. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get account",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.accountService.getAccountDetail(options);
     }
+
+    // ============ Wallet Operations ============
 
     async getUserWalletList(
         options: t.GetUserWalletListOptions
     ): Promise<QD.QuidaxResponse<QD.GetUserWalletListResponse>> {
-        try {
-            const resp = await this.quidax.getUserWalletList(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get wallet list`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get wallet list. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get wallet list",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.walletService.getUserWalletList(options);
     }
 
     async getUserWallet(
         options: t.GetUserWalletOptions
     ): Promise<QD.QuidaxResponse<QD.GetUserWalletResponse>> {
-        try {
-            const resp = await this.quidax.getUserWallet(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get wallet`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get wallet. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get wallet",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.walletService.getUserWallet(options);
     }
 
     async getPaymentAddress(
         options: t.GetUserWalletOptions
     ): Promise<QD.QuidaxResponse<QD.GetUserWalletResponse>> {
-        try {
-            const resp = await this.quidax.getPaymentAddress(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get address`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get address. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get address",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.walletService.getPaymentAddress(options);
     }
 
     async getPaymentAddressList(
         options: t.GetUserWalletOptions
     ): Promise<QD.QuidaxResponse<QD.GetPaymentAddressListResponse>> {
-        try {
-            const resp = await this.quidax.getPaymentAddressList(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get address list`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get address list. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get address list",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.walletService.getPaymentAddressList(options);
     }
 
     async getPaymentAddressById(
         options: t.GetPaymentAddressByIdOptions
     ): Promise<QD.QuidaxResponse<QD.GetPaymentAddressByIdResponse>> {
-        try {
-            const resp = await this.quidax.getPaymentAddressById(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get address`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get address. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get address",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.walletService.getPaymentAddressById(options);
     }
 
     async createPaymentAddress(
         options: t.CreatePaymentAddressOptions
     ): Promise<QD.QuidaxResponse<QD.CreatePaymentAddressResponse>> {
-        try {
-            const resp = await this.quidax.createPaymentAddress(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to create payment address`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to create payment address. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to create payment address",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.walletService.createPaymentAddress(options);
     }
 
     async verifyAddress(
         options: t.VerifyAddressOptions
     ): Promise<QD.QuidaxResponse<QD.VerifyAddressResponse>> {
-        try {
-            const resp = await this.quidax.verifyAddress(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to verify address`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to verify address. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to verify address",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.walletService.verifyAddress(options);
     }
+
+    // ============ Withdrawal Operations ============
 
     async createWithdrawerRequest(
         options: t.CreateWithdrawerRequestOptions
     ): Promise<QD.QuidaxResponse<QD.CreateWithdrawerRequestResponse>> {
-        try {
-            const resp = await this.quidax.createWithdrawerRequest(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to create withdrawer`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to create withdrawer. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to create withdrawer",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.withdrawalService.createWithdrawerRequest(options);
     }
 
     async cancelWithdrawerRequest(
         options: t.CancelWithdrawerRequestOptions
     ): Promise<QD.QuidaxResponse<QD.CancelWithdrawerRequestResponse>> {
-        try {
-            const resp = await this.quidax.cancelWithdrawerRequest(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to cancel withdrawer`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to cancel withdrawer. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to cancel withdrawer",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.withdrawalService.cancelWithdrawerRequest(options);
     }
 
     async getWithdrawerList(
         user_id: string,
         options: t.WithdrawalListOptions
     ): Promise<QD.QuidaxResponse<QD.WithdrawalListResponse>> {
-        try {
-            const resp = await this.quidax.getWithdrawerList(user_id, options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to withdrawer list`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to withdrawer list. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to withdrawer list",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.withdrawalService.getWithdrawerList(user_id, options);
     }
 
     async getWithdrawerDetail(
         options: t.WithdrawerDetailOptions
     ): Promise<QD.QuidaxResponse<QD.WithdrawerDetailResponse>> {
-        try {
-            const resp = await this.quidax.getWithdrawerDetail(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to withdrawer detail`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to withdrawer detail. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to withdrawer detail",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.withdrawalService.getWithdrawerDetail(options);
     }
 
     async getWithdrawerByReference(
         options: t.WithdrawerRecordByReferenceOptions
     ): Promise<QD.QuidaxResponse<QD.WithdrawerRecordByReferenceResponse>> {
-        try {
-            const resp = await this.quidax.getWithdrawerByReference(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get withdrawer`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get withdrawer. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get withdrawer",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.withdrawalService.getWithdrawerByReference(options);
     }
 
     async getWithdrawerFees(
         options: t.WithdrawerFeesOptions
     ): Promise<QD.QuidaxResponse<QD.WithdrawerFeesResponse>> {
-        try {
-            const resp = await this.quidax.getWithdrawerFees(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get withdrawer fee`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get withdrawer fee. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get withdrawer fee",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.withdrawalService.getWithdrawerFees(options);
     }
+
+    // ============ Order Operations ============
 
     async buyOrSellOrderRequest(
         user_id: string,
         options: t.SellOrBuyOrderRequestOptions
     ): Promise<QD.QuidaxResponse<QD.SellOrBuyOrderRequestResponse>> {
-        try {
-            const resp = await this.quidax.buyOrSellOrderRequest(
-                user_id,
-                options
-            );
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to place request`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to place request. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to place request",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.orderService.buyOrSellOrderRequest(user_id, options);
     }
 
     async cancelBuyOrSellOrderRequest(
         user_id: string,
         options: t.CancelSellOrBuyOrderRequestOptions
     ): Promise<QD.QuidaxResponse<QD.SellOrBuyOrderRequestResponse>> {
-        try {
-            const resp = await this.quidax.cancelBuyOrSellOrderRequest(
-                user_id,
-                options
-            );
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to place request`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to place request. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to place request",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.orderService.cancelBuyOrSellOrderRequest(user_id, options);
     }
 
     async getAllOrders(
         user_id: string,
         options: t.GetOrderListOptions
     ): Promise<QD.QuidaxResponse<QD.GetOrderListResponse>> {
-        try {
-            const resp = await this.quidax.getAllOrders(user_id, options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get order list`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get order list. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get order list",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.orderService.getAllOrders(user_id, options);
     }
 
     async getOrderRecord(
         options: t.GetOrderRecordOptions
     ): Promise<QD.QuidaxResponse<QD.GetOrderRecordResponse>> {
-        try {
-            const resp = await this.quidax.getOrderRecord(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get order`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get order. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get order",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.orderService.getOrderRecord(options);
     }
+
+    async getOrderBookItemsForAMarket(
+        options: t.GetOrderBookItemsForAMarketOptions
+    ): Promise<QD.QuidaxResponse<QD.GetOrderBookItemsForAMarketResponse>> {
+        return this.orderService.getOrderBookItemsForAMarket(options);
+    }
+
+    async instantOrdersRequery(
+        options: t.InstantOrdersRequeryOptions
+    ): Promise<QD.QuidaxResponse<QD.InstantOrderResponse>> {
+        return this.orderService.instantOrdersRequery(options);
+    }
+
+    // ============ Swap Operations ============
 
     async createInstantSwapRequest(
         user_id: string,
         options: t.CreateInstantSwapRequestOptions
     ): Promise<QD.QuidaxResponse<QD.CreateInstantSwapRequestResponse>> {
-        try {
-            const resp = await this.quidax.createInstantSwapRequest(
-                user_id,
-                options
-            );
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to create instant swap`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to create instant swap. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to create instant swap",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.swapService.createInstantSwapRequest(user_id, options);
     }
 
     async confirmInstantSwap(
         options: t.ConfirmInstantSwapOptions
     ): Promise<QD.QuidaxResponse<QD.ConfirmInstantSwapRequestResponse>> {
-        try {
-            const resp = await this.quidax.confirmInstantSwap(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to confirm instant swap`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to confirm instant swap. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to confirm instant swap",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.swapService.confirmInstantSwap(options);
     }
 
     async refreshInstantSwapQuote(
@@ -853,493 +219,76 @@ export class QuidaxService {
         quotation_id: string,
         options: t.RefreshInstantSwapOptions
     ): Promise<QD.QuidaxResponse<QD.RefreshInstantSwapResponse>> {
-        try {
-            const resp = await this.quidax.refreshInstantSwapQuote(
-                user_id,
-                quotation_id,
-                options
-            );
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to refresh instant swap`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to refresh instant swap. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to refresh instant swap",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.swapService.refreshInstantSwapQuote(user_id, quotation_id, options);
     }
 
     async getSwapTransaction(
         options: t.GetSwapTransactionOptions
     ): Promise<QD.QuidaxResponse<QD.GetSwapTransactionResponse>> {
-        try {
-            const resp = await this.quidax.getSwapTransaction(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get swap transaction`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get swap transaction. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get swap transaction",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.swapService.getSwapTransaction(options);
     }
 
     async getSwapTransactionList(
         user_id: string
     ): Promise<QD.QuidaxResponse<QD.GetSwapTransactionListResponse>> {
-        try {
-            const resp = await this.quidax.getSwapTransactionList(user_id);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get swap transaction list`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get swap transaction list. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get swap transaction list",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.swapService.getSwapTransactionList(user_id);
     }
 
-    async getMarketList(): Promise<
-        QD.QuidaxResponse<QD.GetMarketListResponse>
-    > {
-        try {
-            const resp = await this.quidax.getMarketList();
+    // ============ Market Operations ============
 
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get market list`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get market list. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get market list",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+    async getMarketList(): Promise<QD.QuidaxResponse<QD.GetMarketListResponse>> {
+        return this.marketService.getMarketList();
     }
 
-    async getMarketTickers(): Promise<
-        QD.QuidaxResponse<QD.GetMarketTickersResponse>
-    > {
-        try {
-            const resp = await this.quidax.getMarketTickers();
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get market ticker`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get market ticker. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get market ticker",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+    async getMarketTickers(): Promise<QD.QuidaxResponse<QD.GetMarketTickersResponse>> {
+        return this.marketService.getMarketTickers();
     }
 
     async getSingleMarketTicker(
         currency: string
     ): Promise<QD.QuidaxResponse<QD.GetMarketTickerResponse>> {
-        try {
-            const resp = await this.quidax.getSingleMarketTicker(currency);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get market ticker`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get market ticker. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get market ticker",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.marketService.getSingleMarketTicker(currency);
     }
 
-    async getOrderBookItemsForAMarket(
-        options: t.GetOrderBookItemsForAMarketOptions
-    ): Promise<QD.QuidaxResponse<QD.GetOrderBookItemsForAMarketResponse>> {
-        try {
-            const resp = await this.quidax.getOrderBookItemsForAMarket(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to get order book items`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to get order book items. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to get order book items",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
-    }
-
-    async instantOrdersRequery(
-        options: t.InstantOrdersRequeryOptions
-    ): Promise<QD.QuidaxResponse<QD.InstantOrderResponse>> {
-        try {
-            const resp = await this.quidax.instantOrdersRequery(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to retrieve order record`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to retrieve order record. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to retrieve order record",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
-    }
+    // ============ Purchase Operations ============
 
     async getPaymentMethods(
         options: t.PaymentMethodsOptions
     ): Promise<QD.QuidaxResponse<any>> {
-        try {
-            const resp = await this.quidax.getPaymentMethods(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to retrieve payment methods`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to payment methods. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to payment methods",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.purchaseService.getPaymentMethods(options);
     }
 
     async getPurchaseLimitForBuy(
         options: t.PurchaseLimitBuyOptions
     ): Promise<QD.QuidaxResponse<any>> {
-        try {
-            const resp = await this.quidax.getPurchaseLimitForBuy(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to retrieve purchase limit`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to purchase limit. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to purchase limit",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.purchaseService.getPurchaseLimitForBuy(options);
     }
 
     async getPurchaseLimitForSell(
         options: t.PurchaseLimitSellOptions
     ): Promise<QD.QuidaxResponse<any>> {
-        try {
-            const resp = await this.quidax.getPurchaseLimitForSell(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to retrieve purchase limit`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to purchase limit. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to purchase limit",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.purchaseService.getPurchaseLimitForSell(options);
     }
 
     async getPurchaseQuoteForBuy(
         options: t.PurchaseQuoteBuyOptions
     ): Promise<QD.QuidaxResponse<any>> {
-        try {
-            const resp = await this.quidax.getPurchaseQuoteForBuy(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to retrieve purchase quote`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to purchase quote. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to purchase quote",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.purchaseService.getPurchaseQuoteForBuy(options);
     }
 
     async getPurchaseQuoteForSell(
         options: t.PurchaseQuoteSellOptions
     ): Promise<QD.QuidaxResponse<any>> {
-        try {
-            const resp = await this.quidax.getPurchaseQuoteForSell(options);
-
-            if (!resp) {
-                throw new e.QuidaxException(
-                    `Unable to retrieve purchase quote`,
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            return resp;
-        } catch (error) {
-            this.logger.error(error);
-            switch (true) {
-                case error instanceof QD.QuidaxError: {
-                    throw new e.QuidaxException(
-                        error.message ??
-                            "Failed to purchase quote. Please try again",
-                        error.status ?? HttpStatus.BAD_REQUEST
-                    );
-                }
-                case error instanceof e.QuidaxException: {
-                    throw error;
-                }
-
-                default: {
-                    throw new e.QuidaxException(
-                        "Failed to purchase quote",
-                        HttpStatus.NOT_IMPLEMENTED
-                    );
-                }
-            }
-        }
+        return this.purchaseService.getPurchaseQuoteForSell(options);
     }
 }
+
+// Re-export domain services for direct usage if needed
+export { QuidaxAccountService } from "./account.service";
+export { QuidaxWalletService } from "./wallet.service";
+export { QuidaxWithdrawalService } from "./withdrawal.service";
+export { QuidaxOrderService } from "./order.service";
+export { QuidaxSwapService } from "./swap.service";
+export { QuidaxMarketService } from "./market.service";
+export { QuidaxPurchaseService } from "./purchase.service";
+export { handleQuidaxError, executeQuidaxCall } from "./error-handler";
