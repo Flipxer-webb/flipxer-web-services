@@ -1458,26 +1458,26 @@ export class TradingService {
         try {
             let cryptoSubAccountId = user.cryptoSubAccountId;
 
-            // If user doesn't have a crypto sub-account, create one
+            // If user doesn't have a crypto sub-account, create or find existing one
             if (!cryptoSubAccountId) {
-                this.logger.log(`Creating crypto account for user ${user.id}`);
+                this.logger.log(`Creating/finding crypto account for user ${user.id} (${user.email})`);
                 
-                // Create sub-account
+                // Use createOrFindSubAccount to handle existing accounts gracefully
                 let result;
                 try {
-                    result = await this.quidaxService.createSubAccount({
+                    result = await this.quidaxService.createOrFindSubAccount({
                         email: user.email,
                         first_name: user.firstName,
                         last_name: user.lastName,
                     });
                 } catch (quidaxError) {
-                    this.logger.error(`Quidax createSubAccount failed: ${quidaxError?.message}`, quidaxError?.stack);
+                    this.logger.error(`Quidax createOrFindSubAccount failed: ${quidaxError?.message}`, quidaxError?.stack);
                     throw new Error(`Quidax API error: ${quidaxError?.message}`);
                 }
 
                 if (result.status !== "success") {
-                    this.logger.error(`Sub-account creation failed: ${JSON.stringify(result)}`);
-                    throw new Error("Failed to create sub-account");
+                    this.logger.error(`Sub-account creation/lookup failed: ${JSON.stringify(result)}`);
+                    throw new Error("Failed to create or find sub-account");
                 }
 
                 cryptoSubAccountId = result.data.id;

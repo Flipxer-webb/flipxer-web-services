@@ -102,6 +102,57 @@ export class QuidaxLib {
     }
 
     /**
+     * @returns list of all sub-accounts
+     * @description Get all sub-accounts for the authenticated master account
+     */
+    async getAllSubAccounts(): Promise<t.QuidaxResponse<t.IAccount[]>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/users`,
+                method: "GET",
+            };
+            const resp = await this.mainAxios<t.QuidaxResponse<t.IAccount[]>>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to get sub-accounts");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     * @param email email address to search for
+     * @returns sub-account with matching email or null
+     * @description Find a sub-account by email address
+     */
+    async findSubAccountByEmail(email: string): Promise<t.IAccount | null> {
+        try {
+            const result = await this.getAllSubAccounts();
+            if (result.status === "success" && result.data) {
+                const account = result.data.find(
+                    (acc) => acc.email?.toLowerCase() === email.toLowerCase()
+                );
+                return account || null;
+            }
+            return null;
+        } catch (error) {
+            // Log but don't throw - return null to allow fallback to creation
+            console.error("Error finding sub-account by email:", error);
+            return null;
+        }
+    }
+
+    /**
      *
      * @param options query options
      * @returns account detail
