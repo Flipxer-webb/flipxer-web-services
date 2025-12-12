@@ -1390,6 +1390,49 @@ export class TradingService {
         });
     }
 
+    async cancelOrder(user: User, orderId: number) {
+        // Find the order
+        const order = await this.prisma.order.findFirst({
+            where: {
+                id: orderId,
+                userId: user.id,
+            },
+        });
+
+        if (!order) {
+            throw new TransactionNotFoundException(
+                "Order not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        // Check if order is pending
+        if (order.streamlinedStatus !== "pending") {
+            throw new GeneralTransactionException(
+                "Only pending orders can be cancelled",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Update order status to cancelled
+        const updatedOrder = await this.prisma.order.update({
+            where: { id: orderId },
+            data: {
+                status: OrderStatus.cancelled,
+                streamlinedStatus: "cancelled",
+            },
+        });
+
+        return buildResponse({
+            message: "Order cancelled successfully",
+            data: {
+                orderId: updatedOrder.id,
+                status: updatedOrder.status,
+                streamlinedStatus: updatedOrder.streamlinedStatus,
+            },
+        });
+    }
+
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(

@@ -326,6 +326,13 @@ export class CancelWithdrawerRequestDto {
     withdrawal_id: string;
 }
 
+export class CancelOrderDto {
+    @ApiProperty({ description: "The ID of the order to cancel" })
+    @IsNotEmpty()
+    @IsNumber()
+    orderId: number;
+}
+
 export enum RampSide {
     on_ramp = "on_ramp",
     off_ramp = "off_ramp",
