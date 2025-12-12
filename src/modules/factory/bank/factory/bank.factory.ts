@@ -1,20 +1,23 @@
 import * as t from "../types";
-import { paystackOptions } from "@/config";
-import { PaystackLib } from "@/libs/paystack";
-import { PaystackBank } from "../providers/paystack.provider";
+import { fincraOptions } from "@/config";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { FincraLib } from "@/libs/fincra";
+import { FincraBank } from "../providers/fincra.provider";
 
 export class BankFactory<P extends t.BankProvider> {
     constructor(private readonly prisma: PrismaService) {}
     build<T extends P>(options: t.FactoryBuilderOptions<T>) {
         switch (options.provider) {
-            case "paystack": {
-                const paystack = new PaystackLib({
-                    baseUrl: paystackOptions.baseUrl,
-                    secretKey: paystackOptions.secretKey,
+            case "fincra": {
+                const fincra = new FincraLib({
+                    baseUrl: fincraOptions.baseUrl,
+                    secretKey: fincraOptions.secretKey,
+                    publicKey: fincraOptions.publicKey,
+                    businessId: fincraOptions.businessId,
+                    webhookSecret: fincraOptions.webhookSecret,
                 });
 
-                return new PaystackBank(paystack, this.prisma);
+                return new FincraBank(fincra, this.prisma);
             }
 
             default:

@@ -44,10 +44,6 @@ export interface DocumentVerificationFileInterface {
     documentImage2?: Express.Multer.File[];
 }
 
-interface PaystackHeader {
-    ["x-paystack-signature"]: string;
-}
-
 export interface VerificationStatus {
     isEmailVerified: boolean;
     isPhoneVerified: boolean;
@@ -79,8 +75,6 @@ export interface SignInUser {
     businessRecordCompleted: boolean;
     businessDocumentVerificationStatus: DocumentVerificationStatus | null;
 }
-
-export type RequestFromPaystack = Request & { headers: PaystackHeader };
 
 export const DocumentMetaMap = {
     cacImage: "CAC",

@@ -1,9 +1,9 @@
-export * as TPaystack from "./paystack";
+export * as TFincra from "./fincra";
 
-export type BankProvider = "paystack";
+export type BankProvider = "fincra";
 
 export type BankProviderMap = {
-    paystack: IPaystackBank;
+    fincra: IFincraBank;
 };
 
 export type TBankFactory<P extends BankProvider> =
@@ -14,10 +14,10 @@ export type FactoryBuilderOptions<T extends BankProvider> = {
 };
 
 export enum BankInjectionToken {
-    PAYSTACK = "PAYSTACK",
+    FINCRA = "FINCRA",
 }
 
-//paystack
-export interface IPaystackBank {
+//fincra
+export interface IFincraBank {
     name?: string;
 }

@@ -21,7 +21,6 @@ import {
 } from "../errors";
 import {
     DataStoredInToken,
-    RequestFromPaystack,
     RequestFromQuidax,
     RequestWithUser,
 } from "../interfaces";
@@ -50,7 +49,6 @@ import {
     blockedCountries,
     isProduction,
     jwtSecret,
-    paystackSecretKey,
     quidaxConfig,
 } from "@/config";
 
@@ -188,23 +186,26 @@ export class QuidaxWebhookGuard implements CanActivate {
 }
 
 @Injectable()
-export class PaystackWebhookGuard implements CanActivate {
+export class FincraWebhookGuard implements CanActivate {
     canActivate(
         context: ExecutionContext
     ): boolean | Promise<boolean> | Observable<boolean> {
         const request = context
             .switchToHttp()
-            .getRequest() as RequestFromPaystack;
+            .getRequest() as Request;
 
-        const hash = createHmac("sha512", paystackSecretKey)
+        const signature = request.headers["x-fincra-signature"] as string;
+        const secret = process.env.FINCRA_WEBHOOK_SECRET;
+
+        if (!signature || !secret) {
+            return false;
+        }
+
+        const computed = createHmac("sha512", secret)
             .update(JSON.stringify(request.body))
             .digest("hex");
 
-        if (hash == request.headers["x-paystack-signature"]) {
-            return true;
-        } else {
-            return false;
-        }
+        return computed === signature;
     }
 }
 

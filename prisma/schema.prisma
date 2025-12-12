@@ -639,7 +639,7 @@ enum TransactionFeeCategory {
 }
 
 enum PaymentMethod {
-  PAYSTACK
+  FINCRA
 }
 
 enum TransactionStatus {

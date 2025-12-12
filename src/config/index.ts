@@ -4,7 +4,6 @@ import validate, {
     RequiredEnvironmentTypes,
 } from "@boxpositron/vre";
 import { ConfigOptions } from "cloudinary";
-import { PaystackOptions } from "@/libs/paystack";
 import { SendchampOptions } from "@/libs/sendchamp";
 
 export * from "./constants";
@@ -315,14 +314,23 @@ export const redisConfig: RedisConfig = {
     },
 };
 
-//payment (optional - payment features will not work without credentials)
-export const paystackSecretKey: string = process.env.PAYSTACK_SECRET_KEY || "";
+// fincra
+export interface FincraOptions {
+    baseUrl: string;
+    secretKey: string;
+    publicKey: string;
+    businessId?: string;
+    redirectUrl?: string;
+    webhookSecret?: string;
+}
 
-export const paystackOptions: PaystackOptions = {
-    baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
-    secretKey: process.env.PAYSTACK_SECRET_KEY || "",
-    cancel_action: process.env.PAYSTACK_CANCEL_ACTION || "",
-    callback_url: process.env.PAYSTACK_CALLBACK_URL || "",
+export const fincraOptions: FincraOptions = {
+    baseUrl: process.env.FINCRA_BASE_URL || "https://api.fincra.com",
+    secretKey: process.env.FINCRA_SECRET_KEY || "",
+    publicKey: process.env.FINCRA_PUBLIC_KEY || "",
+    businessId: process.env.FINCRA_BUSINESS_ID || "",
+    redirectUrl: process.env.FINCRA_REDIRECT_URL || process.env.PAYSTACK_CALLBACK_URL || "",
+    webhookSecret: process.env.FINCRA_WEBHOOK_SECRET || "",
 };
 
 export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
@@ -356,5 +364,5 @@ export interface Configuration {
     imagekitConfig: ImagekitConfig;
     mailConfig: EMailConfig;
     emailTemplateConfig: EMailTemplateConfig;
-    paystackConfig: PaystackOptions;
+    fincraConfig: FincraOptions;
 }

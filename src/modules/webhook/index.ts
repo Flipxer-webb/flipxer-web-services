@@ -1,12 +1,12 @@
 import { Module } from "@nestjs/common";
 import { RouterModule } from "@nestjs/core";
 import { QuidaxWebhookModule } from "./quidax";
-import { PaystackWebhookModule } from "./paystack";
+import { FincraWebhookModule } from "./fincra";
 
 @Module({
     imports: [
         QuidaxWebhookModule,
-        PaystackWebhookModule,
+        FincraWebhookModule,
         RouterModule.register([
             {
                 path: "webhook",
@@ -14,7 +14,7 @@ import { PaystackWebhookModule } from "./paystack";
             },
             {
                 path: "webhook",
-                module: PaystackWebhookModule,
+                module: FincraWebhookModule,
             },
         ]),
     ],

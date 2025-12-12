@@ -14,7 +14,7 @@ import {
 } from "../dtos";
 import { ApiResponse, buildResponse, generateId } from "@/utils";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { PaystackBank } from "@/modules/factory/bank/providers/paystack.provider";
+import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
 import {
     DuplicateTransactionException,
     TransactionRefNotFoundException,
@@ -41,14 +41,14 @@ import { TransferFailedHandlerOptions } from "../interfaces";
 export class BankService {
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(BankInjectionToken.PAYSTACK)
-        private readonly paystackService: PaystackBank,
+        @Inject(BankInjectionToken.FINCRA)
+        private readonly fincraService: FincraBank,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService
     ) {}
 
     async getListOfBanks() {
-        const banks = await this.paystackService.getBanks();
+        const banks = await this.fincraService.getBanks();
         return buildResponse({
             message: "banks successfully retrieved",
             data: banks,
@@ -56,7 +56,7 @@ export class BankService {
     }
 
     async verifyBankAccount(options: VerifyBankAccountDto) {
-        const account = await this.paystackService.resolveBankAccount({
+        const account = await this.fincraService.resolveBankAccount({
             account_number: options.accountNumber,
             bank_code: options.bankCode,
         });
@@ -64,8 +64,8 @@ export class BankService {
         return buildResponse({
             message: "account successfully verified",
             data: {
-                accountName: account.data.account_name,
-                accountNumber: account.data.account_number,
+                accountName: account.data.accountName,
+                accountNumber: account.data.accountNumber,
             },
         });
     }
@@ -192,8 +192,8 @@ export class BankService {
         });
     }
 
-    async verifyPaystackTransactionHandler(reference: string) {
-        const result = await this.paystackService.verifyTransaction(reference);
+    async verifyFincraTransactionHandler(reference: string) {
+        const result = await this.fincraService.verifyTransaction(reference);
         return result;
     }
     async validateTransactionRef(ref: string) {

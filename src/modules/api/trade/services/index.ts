@@ -70,8 +70,8 @@ import { CryptoAccountQueueProducer } from "../queues/producers/producer.service
 import { GetPaymentAddressByIdOptions } from "@/libs/quidax";
 import { generateId } from "@/utils";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { PaystackBank } from "@/modules/factory/bank/providers/paystack.provider";
-import { PastackInitiationResponseResultType } from "@/modules/factory/bank/types/paystack";
+import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
+import { FincraInitiationResponseResultType } from "@/modules/factory/bank/types/fincra";
 import { COMPANY_NAME } from "@/config";
 import {
     CryptoRateNotFoundException,
@@ -156,8 +156,8 @@ export class TradingService {
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
-        @Inject(BankInjectionToken.PAYSTACK)
-        private readonly paystackService: PaystackBank,
+        @Inject(BankInjectionToken.FINCRA)
+        private readonly fincraService: FincraBank,
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
@@ -899,16 +899,17 @@ export class TradingService {
             firstName: user.firstName,
             lastName: user.lastName,
             email: user.email,
+            phoneNumber: user.phone,
         };
 
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
-        const { data } = await this.paystackService.initializePaystackPayment(
+        const { data } = await this.fincraService.initializePayment(
             userData,
             amount
         );
 
-        const result = data as unknown as PastackInitiationResponseResultType;
+        const result = data as unknown as FincraInitiationResponseResultType;
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -948,7 +949,7 @@ export class TradingService {
                         type: TransactionType.P2P_PAYMENT,
                         status: TransactionStatus.PENDING,
                         paymentStatus: TransactionStatus.PENDING,
-                        paymentMethod: PaymentMethod.PAYSTACK,
+                        paymentMethod: PaymentMethod.FINCRA,
                         sessionId: generateId({ type: "sessionId" }),
                         transactionId: generateId({ type: "transaction" }),
                         title: `${COMPANY_NAME} p2p buy order payment`,
@@ -969,7 +970,10 @@ export class TradingService {
                 "Order placed successfully, Please proceed to make payment",
             data: {
                 order: order,
-                paymentInfo: data,
+                paymentInfo: {
+                    ...data,
+                    authorization_url: data.link,
+                },
             },
         });
     }
@@ -1132,7 +1136,7 @@ export class TradingService {
             totalToChargeInCrypto,
             totalToChargeViaPaymentGateway,
             currency: "NGN",
-            paymentGateway: PaymentMethod.PAYSTACK,
+            paymentGateway: PaymentMethod.FINCRA,
             depositAddress: assetExist.depositAddress,
             destinationTag: assetExist.destinationTag,
         };
@@ -2194,14 +2198,13 @@ export class TradingService {
             options.status === OrderStatus.done &&
             transaction.orderCategory === OrderCategory.SELL
         ) {
-            await this.paystackService.initializeTransfer({
+            await this.fincraService.initializeTransfer({
                 accountName: transaction.destinationBankAccountName,
                 accountNumber: transaction.destinationBankAccountNumber,
                 amount: transaction.totalToReceiveInFiat,
                 bankCode: transaction.destinationBankCode,
                 bankName: transaction.destinationBankName,
                 serviceCharge: 0,
-                userType: transaction.user.userType,
                 userId: transaction.userId,
                 orderId: transaction.id,
                 reference: generateId({ type: "reference" }),
