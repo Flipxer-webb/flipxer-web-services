@@ -185,34 +185,40 @@ export class CoinGeckoService {
             try {
                 console.log(`🌍 Requesting CoinGecko market chart for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
                 
-                // Fetch chart data
-                const chartResponse = await axios.get(
-                    `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart`,
-                    {
-                        params: {
-                            vs_currency: "usd",
-                            days: days,
-                            interval: days <= 1 ? undefined : "daily",
-                        },
-                    }
-                );
-
-                // Fetch additional market data
-                const marketResponse = await axios.get(
-                    `https://api.coingecko.com/api/v3/coins/${coinGeckoId}`,
-                    {
-                        params: {
-                            localization: false,
-                            tickers: false,
-                            community_data: false,
-                            developer_data: false,
-                        },
-                    }
-                );
+                // Fetch chart data and market data in parallel to reduce wait time
+                const [chartResponse, marketResponse] = await Promise.all([
+                    axios.get(
+                        `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart`,
+                        {
+                            params: {
+                                vs_currency: "usd",
+                                days: days,
+                                interval: days <= 1 ? undefined : "daily",
+                            },
+                            timeout: 10000, // 10 second timeout
+                        }
+                    ),
+                    axios.get(
+                        `https://api.coingecko.com/api/v3/coins/${coinGeckoId}`,
+                        {
+                            params: {
+                                localization: false,
+                                tickers: false,
+                                community_data: false,
+                                developer_data: false,
+                            },
+                            timeout: 10000, // 10 second timeout
+                        }
+                    ).catch(err => {
+                        // If market data fails, continue with just chart data
+                        console.warn(`⚠️ Market data fetch failed for ${asset}, continuing with chart only:`, err.message);
+                        return null;
+                    })
+                ]);
 
                 const result = {
                     prices: chartResponse.data.prices as [number, number][],
-                    market_data: {
+                    market_data: marketResponse ? {
                         current_price: marketResponse.data.market_data?.current_price?.usd,
                         market_cap: marketResponse.data.market_data?.market_cap?.usd,
                         total_volume: marketResponse.data.market_data?.total_volume?.usd,
@@ -228,11 +234,33 @@ export class CoinGeckoService {
                         ath_date: marketResponse.data.market_data?.ath_date?.usd,
                         atl: marketResponse.data.market_data?.atl?.usd,
                         atl_date: marketResponse.data.market_data?.atl_date?.usd,
+                    } : {
+                        // Fallback: calculate current price from last price point
+                        current_price: chartResponse.data.prices?.length > 0 
+                            ? chartResponse.data.prices[chartResponse.data.prices.length - 1][1] 
+                            : null,
+                        market_cap: null,
+                        total_volume: null,
+                        high_24h: null,
+                        low_24h: null,
+                        price_change_24h: null,
+                        price_change_percentage_24h: chartResponse.data.prices?.length >= 2
+                            ? ((chartResponse.data.prices[chartResponse.data.prices.length - 1][1] - 
+                                chartResponse.data.prices[0][1]) / chartResponse.data.prices[0][1]) * 100
+                            : null,
+                        price_change_percentage_7d: null,
+                        price_change_percentage_30d: null,
+                        circulating_supply: null,
+                        max_supply: null,
+                        ath: null,
+                        ath_date: null,
+                        atl: null,
+                        atl_date: null,
                     },
                 };
 
-                // Cache for 5 minutes for short periods, 30 minutes for longer periods
-                const cacheDuration = days <= 1 ? 2 * 60 : 30 * 60;
+                // Cache for 10 minutes for short periods, 1 hour for longer periods (increased from 5/30 min)
+                const cacheDuration = days <= 1 ? 10 * 60 : 60 * 60;
                 await this.redisCacheService.set(cacheKey, result, cacheDuration);
                 
                 console.log(`📊 Chart data for ${asset}: ${result.prices.length} data points`);
