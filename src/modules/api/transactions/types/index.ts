@@ -18,6 +18,7 @@ export const shapeTransaction = (
     filter = false
 ) => {
     return {
+        orderId: t.id,
         transactionId: t.transactionId,
         name: `${t.user.lastName} ${t.user.firstName}`,
         walletAddress: t?.recipient,
