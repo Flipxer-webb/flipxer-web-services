@@ -1493,7 +1493,22 @@ export class TradingService {
             }
 
             // Check if AssetWallet records already exist for all currencies
-            const currencies = ["btc", "usdt", "usdc"];
+            // Supported cryptocurrencies with full Quidax wallet support
+            const currencies = [
+                "btc",   // Bitcoin
+                "eth",   // Ethereum
+                "usdt",  // Tether
+                "usdc",  // USD Coin
+                "bnb",   // Binance Coin
+                "sol",   // Solana
+                "xrp",   // Ripple
+                "ada",   // Cardano
+                "doge",  // Dogecoin
+                "matic", // Polygon
+                "ltc",   // Litecoin
+                "trx",   // Tron
+                "shib",  // Shiba Inu
+            ];
             const existingWallets = await this.prisma.assetWallet.findMany({
                 where: {
                     userId: user.id,

@@ -30,7 +30,23 @@ async function main() {
 
     // Seed transaction fees
     logger.info("Seeding transaction fees...");
-    const currencies = ["BTC", "USDT", "USDC"];
+    // Supported cryptocurrencies with full Quidax wallet support
+    // (can create wallet addresses, buy, sell, send, receive)
+    const currencies = [
+        "BTC",   // Bitcoin
+        "ETH",   // Ethereum
+        "USDT",  // Tether
+        "USDC",  // USD Coin
+        "BNB",   // Binance Coin
+        "SOL",   // Solana
+        "XRP",   // Ripple
+        "ADA",   // Cardano
+        "DOGE",  // Dogecoin
+        "MATIC", // Polygon
+        "LTC",   // Litecoin
+        "TRX",   // Tron
+        "SHIB",  // Shiba Inu
+    ];
     const feeCategories = Object.values(TransactionFeeCategory);
     for (const category of feeCategories) {
         for (const currency of currencies) {
