@@ -77,6 +77,7 @@ model User {
   userDocument                       UserDocument?
   sessions                           Session[]
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  auditLogs                          AuditLog[]                        @relation("AdminAuditLogs")
 
   @@index([id, bvn])
   @@map("Users")
@@ -556,6 +557,13 @@ enum DocumentType {
 
 enum PermissionGroup {
   USERS
+  TRANSACTIONS
+  SETTINGS
+  ANALYTICS
+  KYC
+  NOTIFICATIONS
+  ROLES
+  SYSTEM
 }
 
 enum CryptoWalletStatus {
@@ -681,4 +689,62 @@ enum NotificationBeneficiary {
 enum UserNotificationTarget {
   ALL
   SINGLE
+}
+
+// ==================== ADMIN AUDIT LOG ====================
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  adminId    Int?
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  admin      User?    @relation("AdminAuditLogs", fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+  @@map("AuditLogs")
+}
+
+// ==================== KYC VERIFICATION ====================
+
+model KycVerification {
+  id             Int                  @id @default(autoincrement())
+  userId         Int
+  verificationType KycVerificationType
+  status         KycStatus            @default(PENDING)
+  reviewerId     Int?
+  reviewNote     String?
+  documentUrl    String?
+  submittedAt    DateTime             @default(now())
+  reviewedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([verificationType])
+  @@map("KycVerifications")
+}
+
+enum KycVerificationType {
+  BVN
+  NIN
+  DOCUMENT
+  ADDRESS
+  BIOMETRIC
+  INCOME
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ESCALATED
 }

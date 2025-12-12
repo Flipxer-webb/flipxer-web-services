@@ -89,3 +89,113 @@ export class GeneralReportDownloadDto {
     @IsDateString()
     endDate: string;
 }
+
+// ==================== ADMIN TRANSACTION DTOs ====================
+
+export class UpdateTransactionStatusDto {
+    @ApiProperty({
+        enum: OrderStreamlinedStatus,
+        description: "New status to set",
+    })
+    @IsEnum(OrderStreamlinedStatus)
+    status: OrderStreamlinedStatus;
+
+    @ApiProperty({
+        description: "Reason for status change",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    reason?: string;
+
+    @ApiProperty({
+        description: "Additional notes",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    note?: string;
+}
+
+export class ManualApproveTransactionDto {
+    @ApiProperty({
+        description: "Confirmation that admin verified the transaction",
+        required: true,
+    })
+    confirmed: boolean;
+
+    @ApiProperty({
+        description: "Verification note",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    verificationNote?: string;
+
+    @ApiProperty({
+        description: "Override amount (if different from original)",
+        required: false,
+    })
+    @IsOptional()
+    @IsNumberString()
+    overrideAmount?: string;
+}
+
+export class RefundTransactionDto {
+    @ApiProperty({
+        description: "Reason for refund",
+        required: true,
+    })
+    @IsString()
+    reason: string;
+
+    @ApiProperty({
+        description: "Refund amount (defaults to full amount)",
+        required: false,
+    })
+    @IsOptional()
+    @IsNumberString()
+    amount?: string;
+
+    @ApiProperty({
+        description: "Type of refund",
+        enum: ["full", "partial"],
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    type?: "full" | "partial";
+}
+
+export class GetTransactionAuditLogsDto {
+    @ApiProperty({
+        description: "Transaction ID",
+        required: true,
+    })
+    @IsString()
+    transactionId: string;
+}
+
+export class BulkTransactionActionDto {
+    @ApiProperty({
+        description: "Array of transaction IDs",
+        type: [String],
+    })
+    transactionIds: string[];
+
+    @ApiProperty({
+        enum: OrderStreamlinedStatus,
+        description: "New status to set",
+    })
+    @IsEnum(OrderStreamlinedStatus)
+    status: OrderStreamlinedStatus;
+
+    @ApiProperty({
+        description: "Reason for bulk action",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    reason?: string;
+}
+

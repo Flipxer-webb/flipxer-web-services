@@ -9,6 +9,9 @@ import { TransactionModule } from "./transactions";
 import { SettingModule } from "./settings";
 import { NotificationModule } from "./notification/notification.module";
 import { SessionModule } from "./session";
+import { RbacModule } from "./rbac";
+import { AnalyticsModule } from "./analytics";
+import { KycModule } from "./kyc";
 
 @Module({
     imports: [
@@ -22,6 +25,9 @@ import { SessionModule } from "./session";
         SettingModule,
         NotificationModule,
         SessionModule,
+        RbacModule,
+        AnalyticsModule,
+        KycModule,
     ],
 })
 export class APIModule {}

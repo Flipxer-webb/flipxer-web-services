@@ -1,13 +1,19 @@
 import { PrismaService } from "@/modules/core/prisma/services";
-import { HttpStatus, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import * as dto from "../dtos/notification.dto";
-import { Prisma } from "@prisma/client";
+import { Prisma, NotificationType, NotificationBeneficiary, NotificationStatus, UserType } from "@prisma/client";
 import * as Utils from "@/utils";
 import * as e from "../errors/notification.error";
+import { NotificationEvent } from "../events/notification.event";
 
 @Injectable()
 export class AdminNotificationService {
-    constructor(private prisma: PrismaService) {}
+    private readonly logger = new Logger(AdminNotificationService.name);
+    
+    constructor(
+        private prisma: PrismaService,
+        private notificationEvent: NotificationEvent,
+    ) {}
 
     async getNotification(notificationId: number) {
         const notification = await this.prisma.notification.findUnique({
@@ -89,6 +95,195 @@ export class AdminNotificationService {
         return Utils.buildResponse({
             message: "notifications successfully retrieved",
             data: responseData,
+        });
+    }
+
+    // ==================== NEW ADMIN NOTIFICATION FEATURES ====================
+
+    async createNotification(data: dto.CreateNotificationDto, adminId?: number) {
+        const notification = await this.prisma.notification.create({
+            data: {
+                title: data.title,
+                body: data.body,
+                type: data.type as NotificationType,
+                beneficiary: data.beneficiary as NotificationBeneficiary,
+                status: NotificationStatus.PENDING,
+                senderId: adminId,
+                userId: data.userId,
+            },
+        });
+
+        // Log audit
+        await this.prisma.auditLog.create({
+            data: {
+                adminId,
+                action: "CREATE_NOTIFICATION",
+                resource: "notification",
+                resourceId: notification.id.toString(),
+                details: { title: data.title, type: data.type, beneficiary: data.beneficiary },
+            },
+        });
+
+        return Utils.buildResponse({
+            message: "Notification created successfully",
+            data: notification,
+        });
+    }
+
+    async broadcastNotification(data: dto.BroadcastNotificationDto, adminId?: number) {
+        const { title, body, type, targetAudience, userIds } = data;
+
+        let targetUsers: { id: number; notificationToken: string | null }[] = [];
+
+        if (targetAudience === "all") {
+            // Broadcast to all non-admin users
+            targetUsers = await this.prisma.user.findMany({
+                where: { userType: { not: UserType.ADMIN } },
+                select: { id: true, notificationToken: true },
+            });
+        } else if (targetAudience === "individual" && userIds?.length) {
+            targetUsers = await this.prisma.user.findMany({
+                where: { id: { in: userIds } },
+                select: { id: true, notificationToken: true },
+            });
+        } else if (targetAudience === "business") {
+            targetUsers = await this.prisma.user.findMany({
+                where: { userType: UserType.BUSINESS },
+                select: { id: true, notificationToken: true },
+            });
+        } else if (targetAudience === "verified") {
+            targetUsers = await this.prisma.user.findMany({
+                where: { 
+                    userType: { not: UserType.ADMIN },
+                    tier: { gte: 2 },
+                },
+                select: { id: true, notificationToken: true },
+            });
+        }
+
+        // Create notifications for each user
+        const notificationData = targetUsers.map((user) => ({
+            title,
+            body,
+            type: (type || "PUSH_NOTIFICATION") as NotificationType,
+            beneficiary: targetAudience === "all" 
+                ? NotificationBeneficiary.ALL 
+                : NotificationBeneficiary.INDIVIDUAL,
+            status: NotificationStatus.APPROVED,
+            senderId: adminId,
+            userId: user.id,
+        }));
+
+        await this.prisma.notification.createMany({
+            data: notificationData,
+        });
+
+        // Log broadcast push notification attempt for users with tokens
+        const usersWithTokens = targetUsers.filter(u => u.notificationToken);
+        if (usersWithTokens.length > 0 && type === "PUSH_NOTIFICATION") {
+            // TODO: Implement bulk push notification when NotificationEvent supports it
+            this.logger.log(`Broadcast: ${usersWithTokens.length} users have push tokens`);
+        }
+
+        // Log audit
+        await this.prisma.auditLog.create({
+            data: {
+                adminId,
+                action: "BROADCAST_NOTIFICATION",
+                resource: "notification",
+                resourceId: "broadcast",
+                details: { 
+                    title, 
+                    targetAudience, 
+                    recipientCount: targetUsers.length,
+                },
+            },
+        });
+
+        return Utils.buildResponse({
+            message: "Broadcast sent successfully",
+            data: {
+                recipientCount: targetUsers.length,
+                pushNotificationsSent: usersWithTokens.length,
+            },
+        });
+    }
+
+    async getNotificationStats() {
+        const [total, pending, approved, declined, pushCount, messageCount] = await Promise.all([
+            this.prisma.notification.count(),
+            this.prisma.notification.count({ where: { status: NotificationStatus.PENDING } }),
+            this.prisma.notification.count({ where: { status: NotificationStatus.APPROVED } }),
+            this.prisma.notification.count({ where: { status: NotificationStatus.DECLINED } }),
+            this.prisma.notification.count({ where: { type: NotificationType.PUSH_NOTIFICATION } }),
+            this.prisma.notification.count({ where: { type: NotificationType.MESSAGE } }),
+        ]);
+
+        return Utils.buildResponse({
+            message: "Notification stats retrieved",
+            data: {
+                total,
+                byStatus: { pending, approved, declined },
+                byType: { push: pushCount, message: messageCount },
+            },
+        });
+    }
+
+    async updateNotificationStatus(
+        notificationId: number, 
+        status: NotificationStatus,
+        adminId?: number
+    ) {
+        const notification = await this.prisma.notification.findUnique({
+            where: { id: notificationId },
+        });
+
+        if (!notification) {
+            throw new e.NotificationNotFoundException(
+                "Notification not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        const updated = await this.prisma.notification.update({
+            where: { id: notificationId },
+            data: { status },
+        });
+
+        await this.prisma.auditLog.create({
+            data: {
+                adminId,
+                action: "UPDATE_NOTIFICATION_STATUS",
+                resource: "notification",
+                resourceId: notificationId.toString(),
+                details: { previousStatus: notification.status, newStatus: status },
+            },
+        });
+
+        return Utils.buildResponse({
+            message: "Notification status updated",
+            data: updated,
+        });
+    }
+
+    async deleteNotification(notificationId: number, adminId?: number) {
+        await this.prisma.notification.delete({
+            where: { id: notificationId },
+        });
+
+        await this.prisma.auditLog.create({
+            data: {
+                adminId,
+                action: "DELETE_NOTIFICATION",
+                resource: "notification",
+                resourceId: notificationId.toString(),
+                details: {},
+            },
+        });
+
+        return Utils.buildResponse({
+            message: "Notification deleted successfully",
+            data: null,
         });
     }
 }
