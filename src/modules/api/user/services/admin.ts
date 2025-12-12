@@ -43,10 +43,20 @@ export class AdminUserService {
 
         const [totalTransactionVolume, transactionsThisMonth] =
             await Promise.all([
-                this.prisma.order.aggregate({ _sum: { amountInFiat: true } }),
                 this.prisma.order.aggregate({
                     _sum: { amountInFiat: true },
                     where: {
+                        streamLinedStatus: {
+                            in: ['completed', 'done', 'filled'],
+                        },
+                    },
+                }),
+                this.prisma.order.aggregate({
+                    _sum: { amountInFiat: true },
+                    where: {
+                        streamLinedStatus: {
+                            in: ['completed', 'done', 'filled'],
+                        },
                         createdAt: {
                             gte: startOfCurrentMonth,
                             lte: endOfCurrentMonth,
