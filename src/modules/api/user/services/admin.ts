@@ -46,17 +46,13 @@ export class AdminUserService {
                 this.prisma.order.aggregate({
                     _sum: { amountInFiat: true },
                     where: {
-                        streamlinedStatus: {
-                            in: ['completed', 'done', 'filled'],
-                        },
+                        streamlinedStatus: 'completed',
                     },
                 }),
                 this.prisma.order.aggregate({
                     _sum: { amountInFiat: true },
                     where: {
-                        streamlinedStatus: {
-                            in: ['completed', 'done', 'filled'],
-                        },
+                        streamlinedStatus: 'completed',
                         createdAt: {
                             gte: startOfCurrentMonth,
                             lte: endOfCurrentMonth,
