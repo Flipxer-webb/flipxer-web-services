@@ -6,7 +6,22 @@ import { AppModule } from "@/modules";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingService } from "@/modules/api/trade/services";
 
-const SUPPORTED_ASSETS = ["BTC", "USDT", "USDC"] as const;
+// Supported cryptocurrencies with full Quidax wallet support
+const SUPPORTED_ASSETS = [
+    "BTC",   // Bitcoin
+    "ETH",   // Ethereum
+    "USDT",  // Tether
+    "USDC",  // USD Coin
+    "BNB",   // Binance Coin
+    "SOL",   // Solana
+    "XRP",   // Ripple
+    "ADA",   // Cardano
+    "DOGE",  // Dogecoin
+    "MATIC", // Polygon
+    "LTC",   // Litecoin
+    "TRX",   // Tron
+    "SHIB",  // Shiba Inu
+] as const;
 type SupportedAsset = typeof SUPPORTED_ASSETS[number];
 
 interface CliOptions {

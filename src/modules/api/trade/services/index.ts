@@ -118,7 +118,22 @@ const NETWORK_ALIAS_MAP: Record<string, NetworkTypes> = {
 
 const NETWORK_SEGMENT_SPLITTER = /[\s/_-]+/;
 
-const SUPPORTED_ASSETS = new Set(["BTC", "USDT", "USDC"]);
+// Supported cryptocurrencies with full Quidax wallet support
+const SUPPORTED_ASSETS = new Set([
+    "BTC",   // Bitcoin
+    "ETH",   // Ethereum
+    "USDT",  // Tether
+    "USDC",  // USD Coin
+    "BNB",   // Binance Coin
+    "SOL",   // Solana
+    "XRP",   // Ripple
+    "ADA",   // Cardano
+    "DOGE",  // Dogecoin
+    "MATIC", // Polygon
+    "LTC",   // Litecoin
+    "TRX",   // Tron
+    "SHIB",  // Shiba Inu
+]);
 
 @Injectable()
 export class TradingService {
