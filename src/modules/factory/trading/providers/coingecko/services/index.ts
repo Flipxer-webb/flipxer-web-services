@@ -20,6 +20,7 @@ export class CoinGeckoService {
         dot: "polkadot",
         doge: "dogecoin",
         shib: "shiba-inu",
+        trx: "tron",
         matic: "matic-network",
         link: "chainlink",
         ltc: "litecoin",
