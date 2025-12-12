@@ -366,4 +366,89 @@ export class CoinGeckoService {
 
         return result;
     }
+
+    /**
+     * Get ATH/ATL data ONLY - heavily cached for 7 days
+     * This is used in the hybrid approach where LiveCoinWatch provides most data
+     * @param asset Asset symbol (e.g., 'btc', 'eth')
+     * @returns ATH/ATL data
+     */
+    async getAthAtl(
+        asset: string,
+        retries = 3,
+        delay = 1000
+    ): Promise<{
+        ath: number | null;
+        ath_date: string | null;
+        atl: number | null;
+        atl_date: string | null;
+    }> {
+        console.log(`🏆 [CG] Fetching ATH/ATL for ${asset} (7-day cache)`);
+
+        const cacheKey = `coingecko:ath_atl:${asset.toLowerCase()}`;
+        const cachedData = await this.redisCacheService.get<{
+            ath: number | null;
+            ath_date: string | null;
+            atl: number | null;
+            atl_date: string | null;
+        }>(cacheKey);
+        
+        if (cachedData) {
+            console.log(`✅ [CG] Cache hit for ${asset} ATH/ATL (7-day cache)`);
+            return cachedData;
+        }
+
+        const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
+        if (!coinGeckoId) {
+            console.warn(`⚠️ [CG] No CoinGecko ID mapping for ${asset}`);
+            return { ath: null, ath_date: null, atl: null, atl_date: null };
+        }
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                console.log(`🌍 [CG] Requesting ATH/ATL for ${asset}, attempt ${attempt}`);
+                
+                const response = await axios.get(
+                    `https://api.coingecko.com/api/v3/coins/${coinGeckoId}`,
+                    {
+                        params: {
+                            localization: false,
+                            tickers: false,
+                            community_data: false,
+                            developer_data: false,
+                            sparkline: false,
+                        },
+                        timeout: 10000,
+                    }
+                );
+
+                const marketData = response.data.market_data;
+                const result = {
+                    ath: marketData?.ath?.usd || null,
+                    ath_date: marketData?.ath_date?.usd || null,
+                    atl: marketData?.atl?.usd || null,
+                    atl_date: marketData?.atl_date?.usd || null,
+                };
+
+                // Cache for 7 days (604800 seconds)
+                const SEVEN_DAYS = 7 * 24 * 60 * 60;
+                await this.redisCacheService.set(cacheKey, result, SEVEN_DAYS);
+                
+                console.log(`🏆 [CG] ATH/ATL for ${asset}: ATH=$${result.ath}, ATL=$${result.atl}`);
+                return result;
+            } catch (error) {
+                console.error(`❌ [CG] ATH/ATL fetch attempt ${attempt} failed for ${asset}:`, {
+                    message: error.message,
+                    status: error.response?.status,
+                });
+                if (attempt === retries) {
+                    console.warn(`⚠️ [CG] Failed to fetch ATH/ATL for ${asset}, returning nulls`);
+                    return { ath: null, ath_date: null, atl: null, atl_date: null };
+                }
+                await setTimeout(delay * attempt);
+            }
+        }
+
+        return { ath: null, ath_date: null, atl: null, atl_date: null };
+    }
 }

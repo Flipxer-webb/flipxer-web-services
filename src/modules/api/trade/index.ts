@@ -19,6 +19,7 @@ import { PrismaModule } from "@/modules/core/prisma";
 import { EmailModule } from "@/modules/core/email";
 import { TransactionAmountGuard } from "@/modules/api/auth/guard";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
+import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { TransactionService } from "../auth/services/transaction.service";
 import { TierService } from "../auth/services/tier.service";
@@ -53,6 +54,10 @@ export * from "./errors";
             provide: TradingInjectionToken.COINGECKO,
             useClass: CoinGeckoService,
         },
+        {
+            provide: TradingInjectionToken.LIVECOINWATCH,
+            useClass: LiveCoinWatchService,
+        },
     ],
     exports: [
         TradingService,
@@ -64,3 +69,4 @@ export * from "./errors";
     ],
 })
 export class TradingModule {}
+

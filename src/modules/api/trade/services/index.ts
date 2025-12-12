@@ -5,6 +5,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
+import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { GetUserWalletResponse, IPaymentAddress } from "@/libs/quidax";
 import {
     AccountCreationException,
@@ -161,7 +162,9 @@ export class TradingService {
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
         @Inject(TradingInjectionToken.COINGECKO)
-        private readonly coinGeckoService: CoinGeckoService
+        private readonly coinGeckoService: CoinGeckoService,
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
+        private readonly liveCoinWatchService: LiveCoinWatchService
     ) {}
 
     getSupportedAssets() {
@@ -2324,26 +2327,69 @@ export class TradingService {
 
     /**
      * Get market chart data for an asset including price history and market statistics
+     * HYBRID APPROACH: LiveCoinWatch for prices/charts, CoinGecko for ATH/ATL only (7-day cache)
      */
     async getMarketChart(asset: string, days: number = 7) {
-        const chartData = await this.coinGeckoService.getMarketChart(asset, days);
+        console.log(`📊 [Hybrid] Getting market chart for ${asset} (${days} days)`);
+
+        // Fetch from LiveCoinWatch and CoinGecko (ATH/ATL only) in parallel
+        const [lcwMarketData, lcwHistory, athAtlData] = await Promise.all([
+            this.liveCoinWatchService.getMarketData(asset).catch(err => {
+                console.warn(`⚠️ [LCW] Market data fetch failed:`, err.message);
+                return null;
+            }),
+            this.liveCoinWatchService.getHistoricalData(asset, days).catch(err => {
+                console.warn(`⚠️ [LCW] History fetch failed:`, err.message);
+                return null;
+            }),
+            this.coinGeckoService.getAthAtl(asset).catch(err => {
+                console.warn(`⚠️ [CG] ATH/ATL fetch failed:`, err.message);
+                return { ath: null, ath_date: null, atl: null, atl_date: null };
+            }),
+        ]);
+
+        // Build market_data from LiveCoinWatch + CoinGecko ATH/ATL
+        const market_data = {
+            current_price: lcwMarketData?.rate || null,
+            market_cap: lcwMarketData?.cap || null,
+            total_volume: lcwMarketData?.volume || null,
+            high_24h: lcwHistory?.high24h || null,
+            low_24h: lcwHistory?.low24h || null,
+            price_change_percentage_24h: lcwMarketData?.delta?.day 
+                ? (lcwMarketData.delta.day - 1) * 100 
+                : null,
+            price_change_percentage_7d: lcwMarketData?.delta?.week 
+                ? (lcwMarketData.delta.week - 1) * 100 
+                : null,
+            price_change_percentage_30d: lcwMarketData?.delta?.month 
+                ? (lcwMarketData.delta.month - 1) * 100 
+                : null,
+            circulating_supply: lcwMarketData?.circulatingSupply || null,
+            max_supply: lcwMarketData?.maxSupply || null,
+            // ATH/ATL from CoinGecko (7-day cache)
+            ath: athAtlData.ath,
+            ath_date: athAtlData.ath_date,
+            atl: athAtlData.atl,
+            atl_date: athAtlData.atl_date,
+        };
 
         return buildResponse({
             message: "Market chart data retrieved",
             data: {
                 asset: asset.toUpperCase(),
                 days,
-                prices: chartData.prices,
-                market_data: chartData.market_data,
+                prices: lcwHistory?.prices || [],
+                market_data,
             },
         });
     }
 
     /**
      * Get sparkline data (7-day mini charts) for multiple assets
+     * Uses LiveCoinWatch for sparklines
      */
     async getBatchSparklines(assets: string[]) {
-        const sparklines = await this.coinGeckoService.getBatchSparklines(assets);
+        const sparklines = await this.liveCoinWatchService.getBatchSparklines(assets);
 
         return buildResponse({
             message: "Sparkline data retrieved",
