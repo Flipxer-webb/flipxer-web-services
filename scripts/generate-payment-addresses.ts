@@ -17,7 +17,6 @@ const SUPPORTED_ASSETS = [
     "XRP",   // Ripple
     "ADA",   // Cardano
     "DOGE",  // Dogecoin
-    "MATIC", // Polygon
     "LTC",   // Litecoin
     "TRX",   // Tron
     "SHIB",  // Shiba Inu

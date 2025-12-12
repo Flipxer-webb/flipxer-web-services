@@ -129,7 +129,6 @@ const SUPPORTED_ASSETS = new Set([
     "XRP",   // Ripple
     "ADA",   // Cardano
     "DOGE",  // Dogecoin
-    "MATIC", // Polygon
     "LTC",   // Litecoin
     "TRX",   // Tron
     "SHIB",  // Shiba Inu
@@ -1519,7 +1518,6 @@ export class TradingService {
                 "xrp",   // Ripple
                 "ada",   // Cardano
                 "doge",  // Dogecoin
-                "matic", // Polygon
                 "ltc",   // Litecoin
                 "trx",   // Tron
                 "shib",  // Shiba Inu
@@ -1529,25 +1527,33 @@ export class TradingService {
                     userId: user.id,
                     assetCurrency: { in: currencies.map(c => c.toUpperCase()) },
                 },
-                select: { assetCurrency: true },
+                select: { assetCurrency: true, addressSynced: true },
             });
             const existingCurrencies = new Set(existingWallets.map(w => w.assetCurrency.toLowerCase()));
             
-            // Only process currencies that don't have AssetWallet records yet
+            // Find currencies that don't have AssetWallet records yet
             const missingCurrencies = currencies.filter(c => !existingCurrencies.has(c));
             
-            if (missingCurrencies.length === 0) {
-                this.logger.log(`User ${user.id} already has all AssetWallet records, skipping`);
+            // Find currencies that have wallets but no addresses synced
+            const walletsNeedingAddresses = existingWallets
+                .filter(w => !w.addressSynced)
+                .map(w => w.assetCurrency.toLowerCase());
+            
+            // Combine: create new wallets + generate addresses for existing wallets without addresses
+            const currenciesToProcess = [...new Set([...missingCurrencies, ...walletsNeedingAddresses])];
+            
+            if (currenciesToProcess.length === 0) {
+                this.logger.log(`User ${user.id} already has all AssetWallet records with addresses, skipping`);
                 return buildResponse({
                     message: `account already fully set up`,
                     data: { walletResults: currencies.map(c => ({ currency: c, success: true, existing: true })) },
                 });
             }
             
-            this.logger.log(`User ${user.id} missing wallets for: ${missingCurrencies.join(', ')}`);
+            this.logger.log(`User ${user.id} needs processing for: ${currenciesToProcess.join(', ')}`);
             const walletResults = [];
 
-            for (const currency of missingCurrencies) {
+            for (const currency of currenciesToProcess) {
                 try {
                     this.logger.log(`Creating wallet for ${currency.toUpperCase()}...`);
                     const addresses = await this.ensureWalletPaymentAddresses({

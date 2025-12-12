@@ -42,7 +42,6 @@ async function main() {
         "XRP",   // Ripple
         "ADA",   // Cardano
         "DOGE",  // Dogecoin
-        "MATIC", // Polygon
         "LTC",   // Litecoin
         "TRX",   // Tron
         "SHIB",  // Shiba Inu
