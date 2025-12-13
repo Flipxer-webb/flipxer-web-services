@@ -259,37 +259,21 @@ export class AdminNotificationService {
             data: { status },
         });
 
-        // If notification is approved and targets ALL users, distribute to each user
+        // For ALL beneficiary notifications, users will see the original notification
+        // via the query that includes beneficiary='ALL' notifications.
+        // We only need to handle push notifications here if applicable.
         if (status === NotificationStatus.APPROVED && notification.beneficiary === NotificationBeneficiary.ALL) {
-            const users = await this.prisma.user.findMany({
-                where: { userType: { not: UserType.ADMIN } },
+            const usersWithTokens = await this.prisma.user.findMany({
+                where: { 
+                    userType: { not: UserType.ADMIN },
+                    notificationToken: { not: null },
+                },
                 select: { id: true, notificationToken: true },
             });
 
-            // Create individual notification records for each user
-            const userNotifications = users.map((user) => ({
-                title: notification.title,
-                body: notification.body,
-                type: notification.type,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                status: NotificationStatus.APPROVED,
-                senderId: adminId,
-                userId: user.id,
-            }));
-
-            if (userNotifications.length > 0) {
-                await this.prisma.notification.createMany({
-                    data: userNotifications,
-                });
-
-                this.logger.log(`Distributed notification #${notificationId} to ${users.length} users`);
-
+            if (usersWithTokens.length > 0 && notification.type === NotificationType.PUSH_NOTIFICATION) {
                 // TODO: Implement push notifications when infrastructure is ready
-                const usersWithTokens = users.filter(u => u.notificationToken);
-                if (usersWithTokens.length > 0 && notification.type === NotificationType.PUSH_NOTIFICATION) {
-                    // Push notification infrastructure not yet implemented
-                    this.logger.log(`${usersWithTokens.length} users have push tokens (push not yet implemented)`);
-                }
+                this.logger.log(`Notification #${notificationId} approved for all users. ${usersWithTokens.length} users have push tokens.`);
             }
         }
 
