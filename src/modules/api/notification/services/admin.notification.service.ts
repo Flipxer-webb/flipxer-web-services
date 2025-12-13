@@ -47,49 +47,90 @@ export class AdminNotificationService {
                 ? Utils.defaultPagination.pageSize
                 : query.pageSize;
 
-        const queryOptions: Prisma.NotificationFindManyArgs = {
-            orderBy: { createdAt: sortBy },
-            where: {},
-        };
-
-        if (query.searchText) {
-            queryOptions.where.title = { search: query.searchText };
-            queryOptions.where.body = { search: query.searchText };
-        }
-
-        const [notifications, count] = await Promise.all([
-            this.prisma.notification.findMany({
-                ...queryOptions,
-                select: {
-                    id: true,
-                    type: true,
-                    title: true,
-                    body: true,
-                    beneficiary: true,
-                    isRead: true,
-                    receiver: { select: { firstName: true, lastName: true } },
-                    status: true,
-                    createdAt: true,
-                    updatedAt: true,
-                },
-                ...(query.paginated === "true" && {
-                    skip: (resolvedPageNumber - 1) * resolvedPageSize,
-                    take: resolvedPageSize,
+        // For broadcast notifications (beneficiary=ALL), we want to group them
+        // to avoid showing duplicate entries. We'll use a raw query to get distinct 
+        // notifications by title + body + createdAt (within same second)
+        
+        // Get broadcast notifications grouped by content
+        const broadcastNotifications = await this.prisma.notification.findMany({
+            where: {
+                beneficiary: "ALL",
+                ...(query.searchText && {
+                    OR: [
+                        { title: { contains: query.searchText, mode: "insensitive" } },
+                        { body: { contains: query.searchText, mode: "insensitive" } },
+                    ],
                 }),
-            }),
-            this.prisma.notification.count({ where: queryOptions.where }),
-        ]);
+            },
+            distinct: ["title", "body", "senderId"],
+            orderBy: { createdAt: sortBy },
+            select: {
+                id: true,
+                type: true,
+                title: true,
+                body: true,
+                beneficiary: true,
+                isRead: true,
+                status: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        // Get individual notifications (not broadcast)
+        const individualNotifications = await this.prisma.notification.findMany({
+            where: {
+                beneficiary: { not: "ALL" },
+                ...(query.searchText && {
+                    OR: [
+                        { title: { contains: query.searchText, mode: "insensitive" } },
+                        { body: { contains: query.searchText, mode: "insensitive" } },
+                    ],
+                }),
+            },
+            orderBy: { createdAt: sortBy },
+            select: {
+                id: true,
+                type: true,
+                title: true,
+                body: true,
+                beneficiary: true,
+                isRead: true,
+                receiver: { select: { firstName: true, lastName: true } },
+                status: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        // Combine and sort by createdAt
+        const allNotifications = [...broadcastNotifications, ...individualNotifications]
+            .sort((a, b) => {
+                const dateA = new Date(a.createdAt).getTime();
+                const dateB = new Date(b.createdAt).getTime();
+                return sortBy === "desc" ? dateB - dateA : dateA - dateB;
+            });
+
+        const totalCount = allNotifications.length;
+
+        // Apply pagination
+        const paginatedNotifications = query.paginated === "true"
+            ? allNotifications.slice(
+                (resolvedPageNumber - 1) * resolvedPageSize,
+                resolvedPageNumber * resolvedPageSize
+              )
+            : allNotifications;
 
         const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: Utils.buildPaginationMeta(
                     resolvedPageNumber,
                     resolvedPageSize,
-                    count,
-                    notifications.length
+                    totalCount,
+                    paginatedNotifications.length
                 ),
             }),
-            records: notifications,
+            records: paginatedNotifications,
         };
 
         return Utils.buildResponse({

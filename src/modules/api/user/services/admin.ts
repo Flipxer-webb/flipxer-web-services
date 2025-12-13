@@ -9,7 +9,7 @@ import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { endOfMonth, startOfMonth } from "date-fns";
 import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../dtos"; // Added FlagUserDto
-import { Prisma, User } from "@prisma/client";
+import { Prisma, User, UserType } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
 import {
     shapeTransaction,
@@ -89,6 +89,7 @@ export class AdminUserService {
         const dbQuery: Prisma.UserFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
+                userType: { not: UserType.ADMIN },
                 ...(query.status && { status: query.status }),
                 ...(query.accountType && { userType: query.accountType }),
                 ...(query.searchText && {
