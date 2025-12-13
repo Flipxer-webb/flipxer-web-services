@@ -1,9 +1,62 @@
-import { PrismaClient, UserType, TransactionFeeCategory } from "@prisma/client";
+import { PrismaClient, UserType, TransactionFeeCategory, PermissionGroup } from "@prisma/client";
 import logger from "moment-logger"; // Assuming this is your custom logger
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
 import { roles } from "./role"; // Assumed roles array file
 import { SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH } from "./constants";
+
+// Permission names matching the PermissionNames constant in the RBAC module
+const PermissionNames = {
+    // Users
+    USERS_CREATE: "users.create",
+    USERS_READ: "users.read",
+    USERS_UPDATE: "users.update",
+    USERS_DELETE: "users.delete",
+    USERS_BLOCK: "users.block",
+    USERS_UNBLOCK: "users.unblock",
+    USERS_EXPORT: "users.export",
+    USERS_BULK_ACTION: "users.bulk_action",
+
+    // Transactions
+    TRANSACTIONS_READ: "transactions.read",
+    TRANSACTIONS_UPDATE: "transactions.update",
+    TRANSACTIONS_REFUND: "transactions.refund",
+    TRANSACTIONS_EXPORT: "transactions.export",
+    TRANSACTIONS_MANUAL_APPROVE: "transactions.manual_approve",
+
+    // Settings
+    SETTINGS_READ: "settings.read",
+    SETTINGS_UPDATE: "settings.update",
+    SETTINGS_RATES: "settings.rates",
+    SETTINGS_FEES: "settings.fees",
+
+    // Analytics
+    ANALYTICS_READ: "analytics.read",
+    ANALYTICS_EXPORT: "analytics.export",
+
+    // KYC
+    KYC_READ: "kyc.read",
+    KYC_APPROVE: "kyc.approve",
+    KYC_REJECT: "kyc.reject",
+    KYC_ESCALATE: "kyc.escalate",
+
+    // Notifications
+    NOTIFICATIONS_READ: "notifications.read",
+    NOTIFICATIONS_CREATE: "notifications.create",
+    NOTIFICATIONS_BROADCAST: "notifications.broadcast",
+
+    // Roles & Permissions
+    ROLES_READ: "roles.read",
+    ROLES_CREATE: "roles.create",
+    ROLES_UPDATE: "roles.update",
+    ROLES_DELETE: "roles.delete",
+    PERMISSIONS_MANAGE: "permissions.manage",
+
+    // System
+    SYSTEM_CONFIG: "system.config",
+    SYSTEM_MAINTENANCE: "system.maintenance",
+    SYSTEM_AUDIT_LOGS: "system.audit_logs",
+} as const;
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
@@ -79,6 +132,29 @@ async function main() {
             },
         });
     }
+
+    // Seed permissions
+    logger.info("Seeding permissions...");
+    const permissionsList = Object.entries(PermissionNames).map(([key, name]) => {
+        const [group] = name.split(".");
+        return {
+            name,
+            description: key.replace(/_/g, " ").toLowerCase(),
+            group: group.toUpperCase(),
+        };
+    });
+    for (const perm of permissionsList) {
+        await prisma.permission.upsert({
+            where: { name: perm.name },
+            update: {},
+            create: {
+                name: perm.name,
+                description: perm.description,
+                group: perm.group as any,
+            },
+        });
+    }
+    logger.info(`Seeded ${permissionsList.length} permissions`);
 
     // Seed roles
     logger.info("Seeding roles...");

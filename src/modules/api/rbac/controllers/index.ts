@@ -103,6 +103,15 @@ export class RbacController {
         return await this.rbacService.getAllPermissions();
     }
 
+    @ApiOperation({ summary: "Seed permissions from defined constants (Super Admin only)" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.PERMISSIONS_MANAGE])
+    @Post("permissions/seed")
+    async seedPermissions() {
+        await this.rbacService.seedPermissions();
+        return await this.rbacService.getAllPermissions();
+    }
+
     // ==================== ADMIN USERS ====================
 
     @ApiOperation({ summary: "Get all admin users" })
