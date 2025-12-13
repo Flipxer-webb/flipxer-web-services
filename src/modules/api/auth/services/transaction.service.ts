@@ -3,7 +3,8 @@ import {
     Logger,
     HttpStatus,
 } from "@nestjs/common";
-import { PrismaClient, User, OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
+import { User, OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
+import { PrismaService } from "@/modules/core/prisma/services";
 import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
 import { EmailService } from "@/modules/core/email/services";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
@@ -12,13 +13,12 @@ import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { TierService } from "./tier.service";
 
-const prisma = new PrismaClient();
-
 @Injectable()
 export class TransactionService {
     private readonly logger = new Logger(TransactionService.name);
 
     constructor(
+        private readonly prisma: PrismaService,
         private readonly coinGeckoCacheService: CoinGeckoCacheService,
         private readonly emailService: EmailService,
         private readonly tierService: TierService
@@ -34,7 +34,7 @@ export class TransactionService {
         this.logger.log(`validateTransaction called with user: ${user.id}, currency: ${currency}, amount: ${amount}, path: ${path}`);
 
         // Check flagged status
-        const flagged = await prisma.flagged.findUnique({
+        const flagged = await this.prisma.flagged.findUnique({
             where: { userId: user.id },
         });
 
@@ -114,7 +114,7 @@ export class TransactionService {
         let reason: string | undefined;
 
         // Fetch all relevant orders once
-        const orders = await prisma.order.findMany({
+        const orders = await this.prisma.order.findMany({
             where: {
                 userId: user.id,
                 createdAt: { gte: thirtyDaysAgo },
@@ -186,7 +186,7 @@ export class TransactionService {
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
 
             // Flag user for monthly limit violation
-            const flaggedRecord = await prisma.flagged.upsert({
+            const flaggedRecord = await this.prisma.flagged.upsert({
                 where: { userId: user.id },
                 create: {
                     userId: user.id,
@@ -203,7 +203,7 @@ export class TransactionService {
             });
 
             // Verify flagged record
-            const verifiedFlagged = await prisma.flagged.findUnique({
+            const verifiedFlagged = await this.prisma.flagged.findUnique({
                 where: { userId: user.id },
             });
             if (!verifiedFlagged || !verifiedFlagged.flagged || verifiedFlagged.reason !== reason) {
@@ -211,7 +211,7 @@ export class TransactionService {
             }
 
             // Update user.flaggedId
-            await prisma.user.update({
+            await this.prisma.user.update({
                 where: { id: user.id },
                 data: { flaggedId: flaggedRecord.id },
                 select: { id: true, flaggedId: true },
@@ -248,7 +248,7 @@ export class TransactionService {
         reason: string,
         path: string,
         transactionId: string,
-        tx: any = prisma
+        tx: any = this.prisma
     ): Promise<void> {
         let orderCategory: OrderCategory;
         if (path.includes("buy/order") || path.includes("buy/quote")) {

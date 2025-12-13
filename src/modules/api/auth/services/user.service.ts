@@ -3,16 +3,16 @@ import {
     NotFoundException,
     UnauthorizedException,
 } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import { PrismaService } from "@/modules/core/prisma/services";
 import * as bcrypt from "bcryptjs";
-
-const prisma = new PrismaClient();
 
 @Injectable()
 export class UserService {
+    constructor(private readonly prisma: PrismaService) {}
+
     async validateUser(email: string, password: string) {
         // Find the user by email, including their role
-        const user = await prisma.user.findUnique({
+        const user = await this.prisma.user.findUnique({
             where: { email },
             include: { role: true }, // Include the role details
         });
@@ -34,7 +34,7 @@ export class UserService {
         }
 
         // Update last login time and increment login count
-        await prisma.user.update({
+        await this.prisma.user.update({
             where: { id: user.id },
             data: { lastLogin: new Date(), loginCount: user.loginCount + 1 },
         });
