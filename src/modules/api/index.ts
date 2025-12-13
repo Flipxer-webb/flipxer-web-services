@@ -12,6 +12,7 @@ import { SessionModule } from "./session";
 import { RbacModule } from "./rbac";
 import { AnalyticsModule } from "./analytics";
 import { KycModule } from "./kyc";
+import { HealthModule } from "./health";
 
 @Module({
     imports: [
@@ -28,6 +29,7 @@ import { KycModule } from "./kyc";
         RbacModule,
         AnalyticsModule,
         KycModule,
+        HealthModule,
     ],
 })
 export class APIModule {}
