@@ -466,21 +466,52 @@ export class KycService {
     async getKycStats(query: GetKycStatsDto): Promise<ApiResponse> {
         const { startDate, endDate } = this.getDateRange(query.period || "month");
 
+        // Fetch all non-admin users to calculate tiers dynamically
+        const allUsers = await this.prisma.user.findMany({
+            where: { userType: { not: UserType.ADMIN } },
+            select: {
+                id: true,
+                userType: true,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: true,
+                isBiometricVerified: true,
+                isIncomeVerified: true,
+                businessRecordCompleted: true,
+                businessDocumentsUploaded: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        const totalUsers = allUsers.length;
+
+        // Calculate tier distribution dynamically
+        let tier0Count = 0;
+        let tier1Count = 0;
+        let tier2Count = 0;
+        let tier3Count = 0;
+
+        for (const user of allUsers) {
+            const calculatedTier = this.tierService.calculateTier(user);
+            switch (calculatedTier) {
+                case 0: tier0Count++; break;
+                case 1: tier1Count++; break;
+                case 2: tier2Count++; break;
+                case 3: tier3Count++; break;
+            }
+        }
+
         const [
-            totalUsers,
             pendingKyc,
-            tier0Count,
-            tier1Count,
-            tier2Count,
-            tier3Count,
             bvnVerified,
             ninVerified,
             documentVerified,
             newUsersInPeriod,
-            kycCompletedInPeriod,
         ] = await Promise.all([
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN } } }),
-            
             this.prisma.user.count({
                 where: {
                     userType: { not: UserType.ADMIN },
@@ -492,11 +523,6 @@ export class KycService {
                 },
             }),
             
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, tier: 0 } }),
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, tier: 1 } }),
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, tier: 2 } }),
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, tier: 3 } }),
-            
             this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isBvnVerified: true } }),
             this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isNinVerified: true } }),
             this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isDocumentVerified: true } }),
@@ -507,15 +533,12 @@ export class KycService {
                     createdAt: { gte: startDate, lte: endDate },
                 },
             }),
-            
-            this.prisma.user.count({
-                where: {
-                    userType: { not: UserType.ADMIN },
-                    tier: { gte: 2 },
-                    updatedAt: { gte: startDate, lte: endDate },
-                },
-            }),
         ]);
+
+        // Calculate KYC completed in period (users at tier >= 2 updated in period)
+        const usersUpdatedInPeriod = allUsers.filter(
+            (u) => u.updatedAt >= startDate && u.updatedAt <= endDate && this.tierService.calculateTier(u) >= 2
+        ).length;
 
         return buildResponse({
             message: "KYC statistics retrieved successfully",
@@ -540,7 +563,7 @@ export class KycService {
                 },
                 periodMetrics: {
                     newUsers: newUsersInPeriod,
-                    kycCompleted: kycCompletedInPeriod,
+                    kycCompleted: usersUpdatedInPeriod,
                     period: { start: startDate, end: endDate },
                 },
             },
