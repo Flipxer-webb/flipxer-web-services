@@ -14,7 +14,6 @@ datasource db {
 model User {
   id                                 Int                               @id @default(autoincrement())
   identifier                         String                            @unique
-  cryptoSubAccountId                 String?                           @unique
   firstName                          String?
   lastName                           String?
   username                           String?
@@ -26,42 +25,44 @@ model User {
   photo                              String?
   gender                             Gender?
   dateOfBirth                        DateTime?
-  bvn                                String?
-  bvnRegisteredPhone                 String?
-  nin                                String?
-  ninRegisteredPhone                 String?
-  country                            Country                           @default(NIGERIA)
   status                             Status                            @default(ACTIVE)
   roleId                             Int
   ipAddress                          String?
   notificationToken                  String?
-  tier                               Int                               @default(0)
-  isEmailVerified                    Boolean                           @default(false)
-  isPhoneVerified                    Boolean                           @default(false)
-  isPasswordCreated                  Boolean                           @default(false)
-  isBvnVerified                      Boolean                           @default(false)
-  isNinVerified                      Boolean                           @default(false)
-  isDocumentVerified                 Boolean                           @default(false)
-  isAddressVerified                  Boolean                           @default(false)
-  isBiometricVerified                Boolean                           @default(false)
-  isIncomeVerified                   Boolean                           @default(false)
-  businessRecordCompleted            Boolean                           @default(false)
-  businessDocumentVerificationStatus DocumentVerificationStatus?
-  isTwoFactorEnabled                 Boolean                           @default(false)
-  twoFactorSecret                    String?
   isDeleted                          Boolean                           @default(false)
   createdAt                          DateTime                          @default(now())
   updatedAt                          DateTime                          @updatedAt
   lastLogin                          DateTime?
   loginCount                         Int                               @default(0)
+  businessDocumentVerificationStatus DocumentVerificationStatus?
+  businessRecordCompleted            Boolean                           @default(false)
+  bvn                                String?
+  bvnRegisteredPhone                 String?
+  country                            Country                           @default(NIGERIA)
+  isBvnVerified                      Boolean                           @default(false)
+  isDocumentVerified                 Boolean                           @default(false)
+  isEmailVerified                    Boolean                           @default(false)
+  isPasswordCreated                  Boolean                           @default(false)
+  isPhoneVerified                    Boolean                           @default(false)
+  cryptoSubAccountId                 String?                           @unique
   refreshToken                       String?
   businessDocumentsUploaded          Boolean                           @default(false)
   recoveryEmail                      String?
   photoFileId                        String?
   flaggedId                          Int?                              @unique
+  nin                                String?
+  ninRegisteredPhone                 String?
+  isNinVerified                      Boolean                           @default(false)
+  isAddressVerified                  Boolean                           @default(false)
+  isBiometricVerified                Boolean                           @default(false)
+  isIncomeVerified                   Boolean                           @default(false)
+  isTwoFactorEnabled                 Boolean                           @default(false)
+  tier                               Int                               @default(0)
+  twoFactorSecret                    String?
   accountLimit                       AccountLimit?
   allowedIps                         AllowedIp[]
   assetWallets                       AssetWallet[]
+  auditLogs                          AuditLog[]                        @relation("AdminAuditLogs")
   bankDetails                        BankDetail[]
   businessDocument                   BusinessDocument?
   businessRecord                     BusinessRecord?
@@ -75,17 +76,16 @@ model User {
   passwordResetRequest               PasswordResetRequest?
   payments                           Payment[]
   RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest?
-  userDocument                       UserDocument?
   sessions                           Session[]
+  userDocument                       UserDocument?
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  auditLogs                          AuditLog[]                        @relation("AdminAuditLogs")
 
   @@index([id, bvn])
   @@map("Users")
 }
 
 model Session {
-  id           String    @id @default(uuid())
+  id           String   @id @default(uuid())
   userId       Int
   deviceName   String?
   deviceType   String?
@@ -93,13 +93,13 @@ model Session {
   os           String?
   ipAddress    String?
   location     String?
-  isActive     Boolean   @default(true)
-  isCurrent    Boolean   @default(false)
-  lastActiveAt DateTime  @default(now())
+  isActive     Boolean  @default(true)
+  isCurrent    Boolean  @default(false)
+  lastActiveAt DateTime @default(now())
   expiresAt    DateTime
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([isActive])
@@ -387,19 +387,19 @@ model Order {
   orderReference               String?                @unique
   createdAt                    DateTime               @default(now())
   updatedAt                    DateTime               @updatedAt
-  destinationTag               String?
-  paymentStatus                TransactionStatus?
   destinationBankAccountName   String?
   destinationBankAccountNumber String?
   destinationBankCode          String?
   destinationBankName          String?
+  destinationTag               String?
+  paymentStatus                TransactionStatus?
   totalToReceiveInFiat         Float?
-  streamlinedStatus            OrderStreamlinedStatus @default(pending)
   amountInFiat                 Float?
   rateAtConversion             Float?
   referenceFiatCurrency        ReferenceFiatCurrency  @default(NGN)
-  transactionId                String?                @unique
   sender                       String?
+  streamlinedStatus            OrderStreamlinedStatus @default(pending)
+  transactionId                String?                @unique
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
 
@@ -457,6 +457,7 @@ model Payment {
   expectedCurrency             String?
   status                       TransactionStatus
   type                         TransactionType?
+  flow                         TransactionFlow?
   paymentStatus                TransactionStatus @default(PENDING)
   transactionId                String?           @unique
   paymentMethod                PaymentMethod
@@ -465,14 +466,13 @@ model Payment {
   narration                    String
   reference                    String            @unique
   externalReference            String?
+  destinationBankAccountName   String?
+  destinationBankName          String?
+  destinationBankAccountNumber String?
+  shortDescription             String?
   isDebit                      Boolean           @default(true)
   createdAt                    DateTime          @default(now())
   updatedAt                    DateTime          @updatedAt
-  destinationBankAccountName   String?
-  destinationBankAccountNumber String?
-  destinationBankName          String?
-  flow                         TransactionFlow?
-  shortDescription             String?
   order                        Order?            @relation(fields: [orderId], references: [id])
   user                         User              @relation(fields: [userId], references: [id])
 
@@ -522,10 +522,10 @@ model Notification {
   beneficiary     NotificationBeneficiary
   type            NotificationType        @default(MESSAGE)
   status          NotificationStatus      @default(PENDING)
+  transactionType OrderCategory?
+  currency        String?
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
-  currency        String?
-  transactionType OrderCategory?
   sender          User?                   @relation("senderNotification", fields: [senderId], references: [id])
   receiver        User?                   @relation("receiverNotification", fields: [userId], references: [id])
 
@@ -533,6 +533,44 @@ model Notification {
   @@index([isRead])
   @@index([userId, isRead])
   @@map("Notifications")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  adminId    Int?
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  admin      User?    @relation("AdminAuditLogs", fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+  @@map("AuditLogs")
+}
+
+model KycVerification {
+  id               Int                 @id @default(autoincrement())
+  userId           Int
+  verificationType KycVerificationType
+  status           KycStatus           @default(PENDING)
+  reviewerId       Int?
+  reviewNote       String?
+  documentUrl      String?
+  submittedAt      DateTime            @default(now())
+  reviewedAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([verificationType])
+  @@map("KycVerifications")
 }
 
 enum UserType {
@@ -701,48 +739,6 @@ enum NotificationBeneficiary {
 enum UserNotificationTarget {
   ALL
   SINGLE
-}
-
-// ==================== ADMIN AUDIT LOG ====================
-
-model AuditLog {
-  id         Int      @id @default(autoincrement())
-  adminId    Int?
-  action     String
-  resource   String
-  resourceId String?
-  details    Json?
-  ipAddress  String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
-  admin      User?    @relation("AdminAuditLogs", fields: [adminId], references: [id], onDelete: SetNull)
-
-  @@index([adminId])
-  @@index([action])
-  @@index([resource])
-  @@index([createdAt])
-  @@map("AuditLogs")
-}
-
-// ==================== KYC VERIFICATION ====================
-
-model KycVerification {
-  id             Int                  @id @default(autoincrement())
-  userId         Int
-  verificationType KycVerificationType
-  status         KycStatus            @default(PENDING)
-  reviewerId     Int?
-  reviewNote     String?
-  documentUrl    String?
-  submittedAt    DateTime             @default(now())
-  reviewedAt     DateTime?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-
-  @@index([userId])
-  @@index([status])
-  @@index([verificationType])
-  @@map("KycVerifications")
 }
 
 enum KycVerificationType {

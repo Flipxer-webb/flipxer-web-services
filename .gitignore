@@ -48,6 +48,12 @@ lerna-debug.log*
 
 # Package Manager
 yarn.lock
+
+# Database backups (contain sensitive data)
+/backups
+*.sql
+*.sql.gz
+*.sql.zip
 bun.lockb
 bun.lock
 package-lock.json

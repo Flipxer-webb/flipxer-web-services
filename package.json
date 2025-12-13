@@ -76,7 +76,9 @@
         "db:seed": "npx prisma db seed",
         "db:pull": "npx prisma db pull",
         "db:migrate:prod": "npx prisma migrate deploy",
-        "db:studio": "npx prisma studio"
+        "db:studio": "npx prisma studio",
+        "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-database.ps1",
+        "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts"
     },
     "dependencies": {
         "@boxpositron/vre": "^1.0.0",
