@@ -250,6 +250,48 @@ export class AdminNotificationService {
             data: { status },
         });
 
+        // If notification is approved and targets ALL users, distribute to each user
+        if (status === NotificationStatus.APPROVED && notification.beneficiary === NotificationBeneficiary.ALL) {
+            const users = await this.prisma.user.findMany({
+                where: { userType: { not: UserType.ADMIN } },
+                select: { id: true, notificationToken: true },
+            });
+
+            // Create individual notification records for each user
+            const userNotifications = users.map((user) => ({
+                title: notification.title,
+                body: notification.body,
+                type: notification.type,
+                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                status: NotificationStatus.APPROVED,
+                senderId: adminId,
+                userId: user.id,
+            }));
+
+            if (userNotifications.length > 0) {
+                await this.prisma.notification.createMany({
+                    data: userNotifications,
+                });
+
+                this.logger.log(`Distributed notification #${notificationId} to ${users.length} users`);
+
+                // Trigger push notifications for users with tokens
+                const usersWithTokens = users.filter(u => u.notificationToken);
+                if (usersWithTokens.length > 0 && notification.type === NotificationType.PUSH_NOTIFICATION) {
+                    for (const user of usersWithTokens) {
+                        this.notificationEvent.pushNotification.emit({
+                            token: user.notificationToken,
+                            notification: {
+                                title: notification.title,
+                                body: notification.body || "",
+                            },
+                        });
+                    }
+                    this.logger.log(`Sent push notifications to ${usersWithTokens.length} users`);
+                }
+            }
+        }
+
         await this.prisma.auditLog.create({
             data: {
                 adminId,
