@@ -12,12 +12,16 @@ import {
     UpdateUserVerificationDto,
     GetKycStatsDto,
 } from "../dtos";
+import { TierService } from "@/modules/api/auth/services/tier.service";
 
 @Injectable()
 export class KycService {
     private readonly logger = new Logger(KycService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly tierService: TierService,
+    ) {}
 
     // ==================== KYC QUEUE ====================
 
@@ -118,9 +122,11 @@ export class KycService {
             this.prisma.user.count({ where }),
         ]);
 
-        // Enrich with verification status summary
+        // Enrich with verification status summary and calculate tier dynamically
         const enrichedUsers = users.map((user) => ({
             ...user,
+            // Calculate tier dynamically based on verification status
+            tier: this.tierService.calculateTier(user),
             verificationSummary: {
                 email: user.isEmailVerified,
                 phone: user.isPhoneVerified,
@@ -195,7 +201,7 @@ export class KycService {
                     phone: user.phone,
                     photo: user.photo,
                     userType: user.userType,
-                    tier: user.tier,
+                    tier: this.tierService.calculateTier(user),
                     status: user.status,
                     createdAt: user.createdAt,
                 },
