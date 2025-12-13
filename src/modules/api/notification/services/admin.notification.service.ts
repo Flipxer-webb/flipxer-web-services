@@ -275,19 +275,11 @@ export class AdminNotificationService {
 
                 this.logger.log(`Distributed notification #${notificationId} to ${users.length} users`);
 
-                // Trigger push notifications for users with tokens
+                // TODO: Implement push notifications when infrastructure is ready
                 const usersWithTokens = users.filter(u => u.notificationToken);
                 if (usersWithTokens.length > 0 && notification.type === NotificationType.PUSH_NOTIFICATION) {
-                    for (const user of usersWithTokens) {
-                        this.notificationEvent.pushNotification.emit({
-                            token: user.notificationToken,
-                            notification: {
-                                title: notification.title,
-                                body: notification.body || "",
-                            },
-                        });
-                    }
-                    this.logger.log(`Sent push notifications to ${usersWithTokens.length} users`);
+                    // Push notification infrastructure not yet implemented
+                    this.logger.log(`${usersWithTokens.length} users have push tokens (push not yet implemented)`);
                 }
             }
         }
