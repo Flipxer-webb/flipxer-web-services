@@ -403,6 +403,11 @@ model Order {
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
 
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([streamlinedStatus])
+  @@index([orderCategory])
   @@map("Orders")
 }
 
@@ -472,6 +477,9 @@ model Payment {
   user                         User              @relation(fields: [userId], references: [id])
 
   @@index([sessionId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
   @@map("Payments")
 }
 
@@ -521,6 +529,9 @@ model Notification {
   sender          User?                   @relation("senderNotification", fields: [senderId], references: [id])
   receiver        User?                   @relation("receiverNotification", fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([isRead])
+  @@index([userId, isRead])
   @@map("Notifications")
 }
 
