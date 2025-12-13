@@ -210,21 +210,30 @@ export class AdminNotificationService {
     }
 
     async getNotificationStats() {
-        const [total, pending, approved, declined, pushCount, messageCount] = await Promise.all([
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const [total, pending, approved, declined, sentToday] = await Promise.all([
             this.prisma.notification.count(),
             this.prisma.notification.count({ where: { status: NotificationStatus.PENDING } }),
             this.prisma.notification.count({ where: { status: NotificationStatus.APPROVED } }),
             this.prisma.notification.count({ where: { status: NotificationStatus.DECLINED } }),
-            this.prisma.notification.count({ where: { type: NotificationType.PUSH_NOTIFICATION } }),
-            this.prisma.notification.count({ where: { type: NotificationType.MESSAGE } }),
+            this.prisma.notification.count({ 
+                where: { 
+                    status: NotificationStatus.APPROVED,
+                    updatedAt: { gte: today }
+                } 
+            }),
         ]);
 
         return Utils.buildResponse({
             message: "Notification stats retrieved",
             data: {
                 total,
-                byStatus: { pending, approved, declined },
-                byType: { push: pushCount, message: messageCount },
+                pending,
+                approved,
+                declined,
+                sentToday,
             },
         });
     }

@@ -1,6 +1,7 @@
 import {
     Body,
     Controller,
+    Delete,
     Get,
     HttpCode,
     HttpStatus,
@@ -56,6 +57,20 @@ export class NotificationController {
     ) {
         return await this.notificationService.toggleNotificationReadStatus(
             notificationId
+        );
+    }
+
+    @Delete(":notificationId")
+    @ApiOperation({
+        summary: "Delete user notification",
+    })
+    async deleteUserNotification(
+        @User() user: UserModel,
+        @Param("notificationId", ParseIntPipe) notificationId: number
+    ) {
+        return await this.notificationService.deleteUserNotification(
+            notificationId,
+            user.id
         );
     }
 }

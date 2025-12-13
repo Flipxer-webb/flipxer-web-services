@@ -125,4 +125,25 @@ export class NotificationService {
             data: responseData,
         });
     }
+
+    async deleteUserNotification(notificationId: number, userId: number) {
+        const notification = await this.prisma.notification.findFirst({
+            where: { id: notificationId, userId },
+        });
+
+        if (!notification) {
+            throw new e.NotificationNotFoundException(
+                "Notification not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        await this.prisma.notification.delete({
+            where: { id: notificationId },
+        });
+
+        return Utils.buildResponse({
+            message: "Notification deleted successfully",
+        });
+    }
 }
