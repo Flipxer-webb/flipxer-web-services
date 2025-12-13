@@ -103,18 +103,6 @@ export class RbacController {
         return await this.rbacService.getAllPermissions();
     }
 
-    @ApiOperation({ summary: "Seed permissions from defined constants (requires seed key)" })
-    @Post("permissions/seed")
-    async seedPermissions(@Body() body: { seedKey?: string }) {
-        // Simple protection: require a seed key from environment
-        const expectedKey = process.env.SEED_KEY || "flipxer-seed-2024";
-        if (body.seedKey !== expectedKey) {
-            return { success: false, message: "Invalid seed key" };
-        }
-        await this.rbacService.seedPermissions();
-        return await this.rbacService.getAllPermissions();
-    }
-
     // ==================== ADMIN USERS ====================
 
     @ApiOperation({ summary: "Get all admin users" })
