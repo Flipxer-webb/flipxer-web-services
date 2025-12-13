@@ -48,6 +48,20 @@ export class NotificationController {
         );
     }
 
+    @Post(":notificationId/mark-read")
+    @ApiOperation({
+        summary: "Mark single notification as read",
+    })
+    async markNotificationAsRead(
+        @User() user: UserModel,
+        @Param("notificationId", ParseIntPipe) notificationId: number
+    ) {
+        return await this.notificationService.markNotificationAsRead(
+            notificationId,
+            user.id
+        );
+    }
+
     @Post(":notificationId/toggle-status")
     @ApiOperation({
         summary: "Toggle notification read status only",

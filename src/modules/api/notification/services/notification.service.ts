@@ -55,7 +55,13 @@ export class NotificationService {
 
     async markAllUserNotificationsRead(user: User) {
         const updatedNotification = await this.prisma.notification.updateMany({
-            where: { userId: user.id, isRead: false },
+            where: { 
+                OR: [
+                    { userId: user.id },
+                    { beneficiary: "ALL", status: "APPROVED" },
+                ],
+                isRead: false,
+            },
             data: {
                 isRead: true,
             },
@@ -63,6 +69,42 @@ export class NotificationService {
 
         return Utils.buildResponse({
             message: "User Notifications marked as read",
+            data: updatedNotification,
+        });
+    }
+
+    async markNotificationAsRead(notificationId: number, userId: number) {
+        const notification = await this.prisma.notification.findFirst({
+            where: { 
+                id: notificationId,
+                OR: [
+                    { userId },
+                    { beneficiary: "ALL" },
+                ],
+            },
+        });
+
+        if (!notification) {
+            throw new e.NotificationNotFoundException(
+                "Notification not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        if (notification.isRead) {
+            return Utils.buildResponse({
+                message: "Notification already read",
+                data: notification,
+            });
+        }
+
+        const updatedNotification = await this.prisma.notification.update({
+            where: { id: notificationId },
+            data: { isRead: true },
+        });
+
+        return Utils.buildResponse({
+            message: "Notification marked as read",
             data: updatedNotification,
         });
     }
@@ -86,13 +128,22 @@ export class NotificationService {
         const queryOptions: Prisma.NotificationFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
-                userId: user.id,
+                OR: [
+                    { userId: user.id },
+                    { beneficiary: "ALL", status: "APPROVED" },
+                ],
             },
         };
 
         if (query.searchText) {
-            queryOptions.where.title = { search: query.searchText };
-            queryOptions.where.body = { search: query.searchText };
+            queryOptions.where.AND = [
+                {
+                    OR: [
+                        { title: { contains: query.searchText, mode: "insensitive" } },
+                        { body: { contains: query.searchText, mode: "insensitive" } },
+                    ],
+                },
+            ];
         }
 
         const [count, notifications] = await Promise.all([
