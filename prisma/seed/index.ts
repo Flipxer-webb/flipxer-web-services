@@ -383,9 +383,12 @@ async function main() {
                 recoveryEmail: "jane.recovery@example.com",
                 bvn: "12345678901", // Sample BVN for verification
                 bvnRegisteredPhone: "09035000004", // Matching phone number
+                nin: "98765432109", // Sample NIN for verification
+                tier: 1, // Tier 1: BVN + Document verified
                 isEmailVerified: true, // Email verified
                 isPhoneVerified: true, // Phone verified
                 isBvnVerified: true, // BVN verified
+                isNinVerified: true, // NIN verified
                 isDocumentVerified: true, // Document verified
                 isPasswordCreated: true, // Password created
                 accountLimit: {
