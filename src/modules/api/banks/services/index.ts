@@ -37,8 +37,8 @@ import { UserNotFoundException } from "../../auth";
 import { BankDetailNotFoundException } from "../errors";
 import { TransferFailedHandlerOptions } from "../interfaces";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
-import { WsGateway } from "../trade/gateway/v1";
-import { NotificationEvent } from "../notification/events/notification.event";
+import { WsGateway } from "../../trade/gateway/v1";
+import { NotificationEvent } from "../../notification/events/notification.event";
 
 @Injectable()
 export class BankService {
