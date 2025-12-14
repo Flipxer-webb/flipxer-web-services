@@ -38,7 +38,7 @@ import { BankDetailNotFoundException } from "../errors";
 import { TransferFailedHandlerOptions } from "../interfaces";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "@/modules/core/websocket/ws.gateway";
-import { NotificationEvent } from "../../notification/events";
+import { NotificationEvent } from "../notification/events";
 
 @Injectable()
 export class BankService {
@@ -483,6 +483,7 @@ export class BankService {
                 if (user) {
                     const message = this.notificationMessage.sellTransactionSuccess({
                         amount: +transaction.amount,
+                        fiatAmount: +transaction.amount,
                         currency: "NGN",
                         transactionId: transaction.transactionId,
                         bankName: transaction.destinationBankAccountName,
