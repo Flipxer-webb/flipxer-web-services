@@ -119,6 +119,20 @@ export class QuidaxService {
         return this.walletService.verifyAddress(options);
     }
 
+    // ============ Deposit Operations ============
+
+    async fetchDeposits(
+        options: QD.FetchDepositsOptions
+    ): Promise<QD.QuidaxResponse<QD.FetchDepositsResponse>> {
+        return this.quidax.fetchDeposits(options);
+    }
+
+    async fetchDeposit(
+        options: QD.FetchDepositOptions
+    ): Promise<QD.QuidaxResponse<QD.FetchDepositResponse>> {
+        return this.quidax.fetchDeposit(options);
+    }
+
     // ============ Withdrawal Operations ============
 
     async createWithdrawerRequest(
