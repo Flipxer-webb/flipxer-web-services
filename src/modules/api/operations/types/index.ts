@@ -2,21 +2,21 @@ export interface WalletBalance {
     currency: string;
     name: string;
     balance: string;
-    locked: string;
-    staked: string;
     availableBalance: string;
-    valueInNGN: number;
-    valueInUSD: number;
-    network: string;
-    isCrypto: boolean;
+    lockedBalance: string;
+    usdValue?: number;
+    ngnValue?: number;
+    threshold?: number;
+    belowThreshold?: boolean;
+    network?: string;
+    isCrypto?: boolean;
 }
 
 export interface AggregatedWalletBalance {
-    totalValueNGN: number;
-    totalValueUSD: number;
+    totalUsdValue: number;
+    totalNgnValue: number;
     wallets: WalletBalance[];
-    lastUpdated: Date;
-    cachedAt: Date;
+    lastUpdated: string;
 }
 
 export interface LiquidityThreshold {

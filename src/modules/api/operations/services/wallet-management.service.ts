@@ -38,11 +38,7 @@ export class WalletManagementService {
             const cached = await this.cacheService.get<AggregatedWalletBalance>(WALLET_CACHE_KEY);
             if (cached) {
                 this.logger.debug("Returning cached wallet balances");
-                return {
-                    ...cached,
-                    cachedAt: new Date(cached.cachedAt),
-                    lastUpdated: new Date(cached.lastUpdated),
-                };
+                return cached;
             }
         }
 
@@ -53,8 +49,8 @@ export class WalletManagementService {
             const walletsResponse = await this.quidax.getUserWalletList({ user_id: "me" });
             
             let wallets: WalletBalance[] = [];
-            let totalValueNGN = 0;
-            let totalValueUSD = 0;
+            let totalNgnValue = 0;
+            let totalUsdValue = 0;
 
             if (walletsResponse.data) {
                 wallets = walletsResponse.data.map((wallet: any) => {
@@ -64,21 +60,20 @@ export class WalletManagementService {
                     const availableBalance = balance - locked - staked;
                     
                     // Get converted balance in NGN (using Quidax's converted_balance if available)
-                    const valueInNGN = parseFloat(wallet.converted_balance) || 0;
-                    const valueInUSD = valueInNGN / 1600; // Approximate USD conversion
+                    const ngnValue = parseFloat(wallet.converted_balance) || 0;
+                    const usdValue = ngnValue / 1600; // Approximate USD conversion
 
-                    totalValueNGN += valueInNGN;
-                    totalValueUSD += valueInUSD;
+                    totalNgnValue += ngnValue;
+                    totalUsdValue += usdValue;
 
                     return {
                         currency: wallet.currency,
                         name: wallet.name || wallet.currency.toUpperCase(),
                         balance: wallet.balance,
-                        locked: wallet.locked,
-                        staked: wallet.staked,
                         availableBalance: availableBalance.toString(),
-                        valueInNGN,
-                        valueInUSD,
+                        lockedBalance: wallet.locked,
+                        ngnValue,
+                        usdValue,
                         network: wallet.default_network || "N/A",
                         isCrypto: wallet.is_crypto !== false,
                     };
@@ -86,11 +81,10 @@ export class WalletManagementService {
             }
 
             const result: AggregatedWalletBalance = {
-                totalValueNGN,
-                totalValueUSD,
+                totalNgnValue,
+                totalUsdValue,
                 wallets,
-                lastUpdated: new Date(),
-                cachedAt: new Date(),
+                lastUpdated: new Date().toISOString(),
             };
 
             // Cache the result for 45 seconds
@@ -105,11 +99,7 @@ export class WalletManagementService {
             const staleCache = await this.cacheService.get<AggregatedWalletBalance>(WALLET_CACHE_KEY);
             if (staleCache) {
                 this.logger.warn("Returning stale cached data due to API error");
-                return {
-                    ...staleCache,
-                    cachedAt: new Date(staleCache.cachedAt),
-                    lastUpdated: new Date(staleCache.lastUpdated),
-                };
+                return staleCache;
             }
             
             throw error;
