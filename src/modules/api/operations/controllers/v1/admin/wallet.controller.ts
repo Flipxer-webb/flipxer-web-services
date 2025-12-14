@@ -17,6 +17,7 @@ import { UserTypes } from "@/modules/api/authorize/decorator";
 import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { LiquidityThreshold } from "../../../types";
+import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/wallets")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -31,7 +32,11 @@ export class AdminWalletController {
     async getWalletBalances(
         @Query("refresh", new ParseBoolPipe({ optional: true })) refresh?: boolean
     ) {
-        return this.walletService.getWalletBalances(refresh || false);
+        const balances = await this.walletService.getWalletBalances(refresh || false);
+        return buildResponse({
+            message: "Wallet balances retrieved successfully",
+            data: balances,
+        });
     }
 
     /**
@@ -43,10 +48,10 @@ export class AdminWalletController {
         @Query("refresh", new ParseBoolPipe({ optional: true })) refresh?: boolean
     ) {
         const balance = await this.walletService.getWalletBalance(currency, refresh || false);
-        if (!balance) {
-            return { message: "Wallet not found", data: null };
-        }
-        return { data: balance };
+        return buildResponse({
+            message: balance ? "Wallet balance retrieved successfully" : "Wallet not found",
+            data: balance,
+        });
     }
 
     /**
@@ -54,7 +59,11 @@ export class AdminWalletController {
      */
     @Get("statistics")
     async getWalletStatistics() {
-        return this.walletService.getWalletStatistics();
+        const statistics = await this.walletService.getWalletStatistics();
+        return buildResponse({
+            message: "Wallet statistics retrieved successfully",
+            data: statistics,
+        });
     }
 
     /**
@@ -62,7 +71,11 @@ export class AdminWalletController {
      */
     @Get("thresholds")
     async getLiquidityThresholds() {
-        return this.walletService.getLiquidityThresholds();
+        const thresholds = await this.walletService.getLiquidityThresholds();
+        return buildResponse({
+            message: "Liquidity thresholds retrieved successfully",
+            data: thresholds,
+        });
     }
 
     /**
@@ -73,7 +86,11 @@ export class AdminWalletController {
         @Body() thresholds: LiquidityThreshold[],
         @User() user: UserModel
     ) {
-        return this.walletService.updateLiquidityThresholds(thresholds, user.id);
+        const result = await this.walletService.updateLiquidityThresholds(thresholds, user.id);
+        return buildResponse({
+            message: "Liquidity thresholds updated successfully",
+            data: result,
+        });
     }
 
     /**
@@ -81,7 +98,11 @@ export class AdminWalletController {
      */
     @Get("thresholds/check")
     async checkLiquidityThresholds() {
-        return this.walletService.checkLiquidityThresholds();
+        const result = await this.walletService.checkLiquidityThresholds();
+        return buildResponse({
+            message: "Liquidity thresholds checked successfully",
+            data: result,
+        });
     }
 
     /**
@@ -90,6 +111,8 @@ export class AdminWalletController {
     @Post("cache/invalidate")
     async invalidateCache() {
         await this.walletService.invalidateWalletCache();
-        return { message: "Wallet cache invalidated successfully" };
+        return buildResponse({
+            message: "Wallet cache invalidated successfully",
+        });
     }
 }

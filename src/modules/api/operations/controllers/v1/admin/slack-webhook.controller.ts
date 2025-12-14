@@ -16,6 +16,7 @@ import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { CreateSlackWebhookDto, UpdateSlackWebhookDto } from "../../../types";
+import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/slack-webhooks")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -28,7 +29,11 @@ export class AdminSlackWebhookController {
      */
     @Get()
     async getWebhooks() {
-        return this.slackService.getWebhooks();
+        const webhooks = await this.slackService.getWebhooks();
+        return buildResponse({
+            message: "Slack webhooks retrieved successfully",
+            data: webhooks,
+        });
     }
 
     /**
@@ -36,7 +41,11 @@ export class AdminSlackWebhookController {
      */
     @Get(":id")
     async getWebhook(@Param("id", ParseIntPipe) id: number) {
-        return this.slackService.getWebhookById(id);
+        const webhook = await this.slackService.getWebhookById(id);
+        return buildResponse({
+            message: "Slack webhook retrieved successfully",
+            data: webhook,
+        });
     }
 
     /**
@@ -44,7 +53,11 @@ export class AdminSlackWebhookController {
      */
     @Post()
     async createWebhook(@Body() dto: CreateSlackWebhookDto) {
-        return this.slackService.createWebhook(dto);
+        const webhook = await this.slackService.createWebhook(dto);
+        return buildResponse({
+            message: "Slack webhook created successfully",
+            data: webhook,
+        });
     }
 
     /**
@@ -55,7 +68,11 @@ export class AdminSlackWebhookController {
         @Param("id", ParseIntPipe) id: number,
         @Body() dto: UpdateSlackWebhookDto
     ) {
-        return this.slackService.updateWebhook(id, dto);
+        const webhook = await this.slackService.updateWebhook(id, dto);
+        return buildResponse({
+            message: "Slack webhook updated successfully",
+            data: webhook,
+        });
     }
 
     /**
@@ -64,7 +81,9 @@ export class AdminSlackWebhookController {
     @Delete(":id")
     async deleteWebhook(@Param("id", ParseIntPipe) id: number) {
         await this.slackService.deleteWebhook(id);
-        return { message: "Webhook deleted successfully" };
+        return buildResponse({
+            message: "Webhook deleted successfully",
+        });
     }
 
     /**
@@ -72,6 +91,10 @@ export class AdminSlackWebhookController {
      */
     @Post(":id/test")
     async testWebhook(@Param("id", ParseIntPipe) id: number) {
-        return this.slackService.testWebhook(id);
+        const result = await this.slackService.testWebhook(id);
+        return buildResponse({
+            message: "Webhook test completed",
+            data: result,
+        });
     }
 }

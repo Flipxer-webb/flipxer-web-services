@@ -18,6 +18,7 @@ import { UserTypes } from "@/modules/api/authorize/decorator";
 import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { SystemSettingDto, MaintenanceModeConfig } from "../../../types";
+import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/settings/system")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -33,7 +34,11 @@ export class AdminSystemSettingsController {
      */
     @Get()
     async getAllSettings() {
-        return this.settingsService.getAllSettings();
+        const settings = await this.settingsService.getAllSettings();
+        return buildResponse({
+            message: "System settings retrieved successfully",
+            data: settings,
+        });
     }
 
     /**
@@ -42,7 +47,10 @@ export class AdminSystemSettingsController {
     @Get(":key")
     async getSetting(@Param("key") key: string) {
         const value = await this.settingsService.getSetting(key);
-        return { key, value };
+        return buildResponse({
+            message: "Setting retrieved successfully",
+            data: { key, value },
+        });
     }
 
     /**
@@ -54,7 +62,9 @@ export class AdminSystemSettingsController {
         @User() user: UserModel
     ) {
         await this.settingsService.setSetting(dto, user.id);
-        return { message: "Setting saved successfully" };
+        return buildResponse({
+            message: "Setting saved successfully",
+        });
     }
 
     /**
@@ -68,7 +78,9 @@ export class AdminSystemSettingsController {
         for (const setting of settings) {
             await this.settingsService.setSetting(setting, user.id);
         }
-        return { message: `${settings.length} settings updated successfully` };
+        return buildResponse({
+            message: `${settings.length} settings updated successfully`,
+        });
     }
 
     /**
@@ -77,7 +89,9 @@ export class AdminSystemSettingsController {
     @Delete(":key")
     async deleteSetting(@Param("key") key: string) {
         await this.settingsService.deleteSetting(key);
-        return { message: "Setting deleted successfully" };
+        return buildResponse({
+            message: "Setting deleted successfully",
+        });
     }
 
     /**
@@ -85,7 +99,11 @@ export class AdminSystemSettingsController {
      */
     @Get("maintenance/status")
     async getMaintenanceStatus() {
-        return this.maintenanceService.getMaintenanceConfig();
+        const config = await this.maintenanceService.getMaintenanceConfig();
+        return buildResponse({
+            message: "Maintenance status retrieved successfully",
+            data: config,
+        });
     }
 
     /**
@@ -96,7 +114,7 @@ export class AdminSystemSettingsController {
         @Body() body: { message: string; estimatedEndTime?: string; allowedIps?: string[] },
         @User() user: UserModel
     ) {
-        return this.maintenanceService.enableMaintenance(
+        const result = await this.maintenanceService.enableMaintenance(
             body.message,
             user.id,
             {
@@ -104,6 +122,10 @@ export class AdminSystemSettingsController {
                 allowedIps: body.allowedIps,
             }
         );
+        return buildResponse({
+            message: "Maintenance mode enabled successfully",
+            data: result,
+        });
     }
 
     /**
@@ -111,7 +133,11 @@ export class AdminSystemSettingsController {
      */
     @Post("maintenance/disable")
     async disableMaintenanceMode(@User() user: UserModel) {
-        return this.maintenanceService.disableMaintenance(user.id);
+        const result = await this.maintenanceService.disableMaintenance(user.id);
+        return buildResponse({
+            message: "Maintenance mode disabled successfully",
+            data: result,
+        });
     }
 
     /**
@@ -122,6 +148,10 @@ export class AdminSystemSettingsController {
         @Body() config: Partial<MaintenanceModeConfig>,
         @User() user: UserModel
     ) {
-        return this.maintenanceService.updateMaintenanceConfig(config, user.id);
+        const result = await this.maintenanceService.updateMaintenanceConfig(config, user.id);
+        return buildResponse({
+            message: "Maintenance configuration updated successfully",
+            data: result,
+        });
     }
 }

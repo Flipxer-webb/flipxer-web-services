@@ -17,6 +17,7 @@ export interface AggregatedWalletBalance {
     totalNgnValue: number;
     wallets: WalletBalance[];
     lastUpdated: string;
+    error?: string;
 }
 
 export interface LiquidityThreshold {

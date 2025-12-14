@@ -18,6 +18,7 @@ import { UserTypes } from "@/modules/api/authorize/decorator";
 import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { FeatureFlagDto, UpdateFeatureFlagDto, FeatureFlagEvaluationContext } from "../../../types";
+import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/feature-flags")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -30,7 +31,11 @@ export class AdminFeatureFlagController {
      */
     @Get()
     async getAllFlags() {
-        return this.flagService.getAllFlags();
+        const flags = await this.flagService.getAllFlags();
+        return buildResponse({
+            message: "Feature flags retrieved successfully",
+            data: flags,
+        });
     }
 
     /**
@@ -38,7 +43,11 @@ export class AdminFeatureFlagController {
      */
     @Get("key/:key")
     async getFlagByKey(@Param("key") key: string) {
-        return this.flagService.getFlagByKey(key);
+        const flag = await this.flagService.getFlagByKey(key);
+        return buildResponse({
+            message: "Feature flag retrieved successfully",
+            data: flag,
+        });
     }
 
     /**
@@ -49,7 +58,11 @@ export class AdminFeatureFlagController {
         @Body() dto: FeatureFlagDto,
         @User() user: UserModel
     ) {
-        return this.flagService.createFlag(dto, user.id);
+        const flag = await this.flagService.createFlag(dto, user.id);
+        return buildResponse({
+            message: "Feature flag created successfully",
+            data: flag,
+        });
     }
 
     /**
@@ -61,7 +74,11 @@ export class AdminFeatureFlagController {
         @Body() dto: UpdateFeatureFlagDto,
         @User() user: UserModel
     ) {
-        return this.flagService.updateFlag(id, dto, user.id);
+        const flag = await this.flagService.updateFlag(id, dto, user.id);
+        return buildResponse({
+            message: "Feature flag updated successfully",
+            data: flag,
+        });
     }
 
     /**
@@ -73,7 +90,9 @@ export class AdminFeatureFlagController {
         @User() user: UserModel
     ) {
         await this.flagService.deleteFlag(id, user.id);
-        return { message: "Feature flag deleted successfully" };
+        return buildResponse({
+            message: "Feature flag deleted successfully",
+        });
     }
 
     /**
@@ -84,7 +103,11 @@ export class AdminFeatureFlagController {
         @Param("id", ParseIntPipe) id: number,
         @User() user: UserModel
     ) {
-        return this.flagService.updateFlag(id, { isEnabled: true }, user.id);
+        const flag = await this.flagService.updateFlag(id, { isEnabled: true }, user.id);
+        return buildResponse({
+            message: "Feature flag enabled successfully",
+            data: flag,
+        });
     }
 
     /**
@@ -95,7 +118,11 @@ export class AdminFeatureFlagController {
         @Param("id", ParseIntPipe) id: number,
         @User() user: UserModel
     ) {
-        return this.flagService.updateFlag(id, { isEnabled: false }, user.id);
+        const flag = await this.flagService.updateFlag(id, { isEnabled: false }, user.id);
+        return buildResponse({
+            message: "Feature flag disabled successfully",
+            data: flag,
+        });
     }
 
     /**
@@ -106,7 +133,11 @@ export class AdminFeatureFlagController {
         @Param("id", ParseIntPipe) id: number,
         @Query("limit", new ParseIntPipe({ optional: true })) limit?: number
     ) {
-        return this.flagService.getAuditLog(id, limit || 50);
+        const auditLog = await this.flagService.getAuditLog(id, limit || 50);
+        return buildResponse({
+            message: "Feature flag audit log retrieved successfully",
+            data: auditLog,
+        });
     }
 
     /**
@@ -118,7 +149,10 @@ export class AdminFeatureFlagController {
         @Body() context: FeatureFlagEvaluationContext
     ) {
         const isEnabled = await this.flagService.evaluateFlag(key, context);
-        return { key, enabled: isEnabled, context };
+        return buildResponse({
+            message: "Feature flag evaluated successfully",
+            data: { key, enabled: isEnabled, context },
+        });
     }
 
     /**
@@ -129,7 +163,10 @@ export class AdminFeatureFlagController {
         @Body() body: { keys: string[]; context: FeatureFlagEvaluationContext }
     ) {
         const results = await this.flagService.evaluateFlags(body.keys, body.context);
-        return { flags: results, context: body.context };
+        return buildResponse({
+            message: "Feature flags evaluated successfully",
+            data: { flags: results, context: body.context },
+        });
     }
 
     /**
@@ -139,10 +176,13 @@ export class AdminFeatureFlagController {
     async getFlagStatistics() {
         const flags = await this.flagService.getAllFlags();
         const enabledCount = flags.filter(f => f.isEnabled).length;
-        return {
-            total: flags.length,
-            enabled: enabledCount,
-            disabled: flags.length - enabledCount,
-        };
+        return buildResponse({
+            message: "Feature flag statistics retrieved successfully",
+            data: {
+                total: flags.length,
+                enabled: enabledCount,
+                disabled: flags.length - enabledCount,
+            },
+        });
     }
 }

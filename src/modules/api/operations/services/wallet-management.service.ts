@@ -102,7 +102,15 @@ export class WalletManagementService {
                 return staleCache;
             }
             
-            throw error;
+            // Return empty wallet data instead of throwing to gracefully handle Quidax unavailability
+            this.logger.warn("No cached data available, returning empty wallet data");
+            return {
+                totalNgnValue: 0,
+                totalUsdValue: 0,
+                wallets: [],
+                lastUpdated: new Date().toISOString(),
+                error: "Failed to fetch wallet data. Please ensure Quidax credentials are configured.",
+            };
         }
     }
 
