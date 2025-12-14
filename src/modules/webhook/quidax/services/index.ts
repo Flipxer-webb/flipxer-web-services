@@ -116,78 +116,76 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     }
 
     async depositHandler(eventData: DepositTransactionEventData) {
-        switch (true) {
-            case eventData.status === OrderStatus.submitted:
-                await this.tradingService.depositHandler({
-                    referenceId: eventData.id,
-                    amount: eventData.amount,
-                    currency: eventData.currency,
-                    fee: eventData.fee,
-                    quidaxUserId: eventData.wallet.user.id,
-                    reason: eventData.reason,
-                    recipient: eventData.wallet.deposit_address,
-                    payment_address: eventData.payment_address.address,
-                    payment_address_id: eventData.payment_address.id,
-                    network: eventData.payment_address.network,
-                    type: eventData.type,
-                    txid: eventData.txid,
-                    status: OrderStatus.submitted,
-                });
-                break;
-            case eventData.status === OrderStatus.accepted:
-                await this.tradingService.depositHandler({
-                    referenceId: eventData.id,
-                    amount: eventData.amount,
-                    currency: eventData.currency,
-                    fee: eventData.fee,
-                    quidaxUserId: eventData.wallet.user.id,
-                    reason: eventData.reason,
-                    recipient: eventData.wallet.deposit_address,
-                    payment_address: eventData.payment_address.address,
-                    payment_address_id: eventData.payment_address.id,
-                    network: eventData.payment_address.network,
-                    type: eventData.type,
-                    txid: eventData.txid,
-                    status: OrderStatus.accepted,
-                });
-                break;
-            case eventData.status === OrderStatus.on_hold:
-                await this.tradingService.depositHandler({
-                    referenceId: eventData.id,
-                    amount: eventData.amount,
-                    currency: eventData.currency,
-                    fee: eventData.fee,
-                    quidaxUserId: eventData.wallet.user.id,
-                    reason: eventData.reason,
-                    recipient: eventData.wallet.deposit_address,
-                    payment_address: eventData.payment_address.address,
-                    payment_address_id: eventData.payment_address.id,
-                    network: eventData.payment_address.network,
-                    type: eventData.type,
-                    txid: eventData.txid,
-                    status: OrderStatus.on_hold,
-                });
-                break;
-            case eventData.status === "failed_aml":
-                await this.tradingService.depositHandler({
-                    referenceId: eventData.id,
-                    amount: eventData.amount,
-                    currency: eventData.currency,
-                    fee: eventData.fee,
-                    quidaxUserId: eventData.wallet.user.id,
-                    reason: eventData.reason,
-                    recipient: eventData.wallet.deposit_address,
-                    payment_address: eventData.payment_address.address,
-                    payment_address_id: eventData.payment_address.id,
-                    network: eventData.payment_address.network,
-                    type: eventData.type,
-                    txid: eventData.txid,
-                    status: OrderStatus.failed,
-                });
+        // Normalize status - Quidax sends 'successful' or 'done' for completed deposits
+        const normalizedStatus = this.normalizeDepositStatus(eventData.status);
+        
+        const depositPayload = {
+            referenceId: eventData.id,
+            amount: eventData.amount,
+            currency: eventData.currency,
+            fee: eventData.fee,
+            quidaxUserId: eventData.wallet.user.id,
+            reason: eventData.reason,
+            recipient: eventData.wallet.deposit_address,
+            payment_address: eventData.payment_address.address,
+            payment_address_id: eventData.payment_address.id,
+            network: eventData.payment_address.network,
+            type: eventData.type,
+            txid: eventData.txid,
+            status: normalizedStatus,
+        };
+
+        switch (normalizedStatus) {
+            case OrderStatus.submitted:
+            case OrderStatus.pending:
+            case OrderStatus.processing:
+            case OrderStatus.accepted:
+            case OrderStatus.completed:
+            case OrderStatus.done:
+            case OrderStatus.on_hold:
+            case OrderStatus.failed:
+                await this.tradingService.depositHandler(depositPayload);
                 break;
             default: {
+                logger.warn(
+                    `Unhandled deposit status: ${eventData.status} (normalized: ${normalizedStatus}) for deposit ${eventData.id}`
+                );
+                // Still process the deposit to ensure it's tracked
+                await this.tradingService.depositHandler(depositPayload);
                 break;
             }
+        }
+    }
+
+    /**
+     * Normalize Quidax deposit status to OrderStatus enum values
+     * Quidax sends statuses like 'successful', 'done', 'confirming' which need to be mapped
+     */
+    private normalizeDepositStatus(status: string): OrderStatus {
+        const statusLower = status?.toLowerCase();
+        switch (statusLower) {
+            case "successful":
+            case "success":
+            case "done":
+            case "completed":
+                return OrderStatus.accepted; // accepted triggers balance update and notifications
+            case "submitted":
+            case "pending":
+            case "confirming":
+            case "processing":
+                return OrderStatus.submitted;
+            case "accepted":
+                return OrderStatus.accepted;
+            case "on_hold":
+                return OrderStatus.on_hold;
+            case "failed":
+            case "failed_aml":
+            case "rejected":
+                return OrderStatus.failed;
+            default:
+                // Log unknown status and default to submitted for tracking
+                logger.warn(`Unknown deposit status from Quidax: ${status}`);
+                return OrderStatus.submitted;
         }
     }
 
