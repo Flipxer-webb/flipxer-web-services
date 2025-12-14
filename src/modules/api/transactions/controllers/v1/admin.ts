@@ -193,4 +193,15 @@ export class AdminTransactionController {
     async syncUserDeposits(@Param("userId", ParseIntPipe) userId: number) {
         return this.tradingService.syncUserDeposits(userId);
     }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Debug: Get Quidax wallet info for a user" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
+    @Get("debug-wallet/:userId/:currency")
+    async debugWallet(
+        @Param("userId", ParseIntPipe) userId: number,
+        @Param("currency") currency: string,
+    ) {
+        return this.tradingService.debugUserWallet(userId, currency);
+    }
 }

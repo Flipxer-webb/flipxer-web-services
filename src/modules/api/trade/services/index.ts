@@ -2635,4 +2635,68 @@ export class TradingService {
                 return OrderStatus.pending;
         }
     }
+
+    /**
+     * Debug: Get wallet info from both our DB and Quidax
+     */
+    async debugUserWallet(userId: number, currency: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                email: true,
+                cryptoSubAccountId: true,
+            },
+        });
+
+        if (!user || !user.cryptoSubAccountId) {
+            return { error: "User not found or no crypto sub-account" };
+        }
+
+        // Get wallet address from our DB
+        const dbWallet = await this.prisma.cryptoWalletAddress.findFirst({
+            where: { 
+                userId: user.id,
+                assetSymbol: { equals: currency.toUpperCase(), mode: 'insensitive' },
+            },
+        });
+
+        // Get wallet from Quidax
+        let quidaxWallet = null;
+        let quidaxAddress = null;
+        let quidaxDeposits = null;
+
+        try {
+            // Get wallet balance
+            const wallets = await this.quidaxService.getUserWalletList({
+                user_id: user.cryptoSubAccountId,
+            });
+            quidaxWallet = wallets?.data?.find(w => w.currency?.toLowerCase() === currency.toLowerCase());
+
+            // Get deposit address
+            quidaxAddress = await this.quidaxService.createWalletAddress({
+                user_id: user.cryptoSubAccountId,
+                currency: currency.toLowerCase() as any,
+            });
+
+            // Get deposits
+            const deposits = await this.quidaxService.fetchDeposits({
+                user_id: user.cryptoSubAccountId,
+                currency: currency.toLowerCase() as any,
+            });
+            quidaxDeposits = deposits?.data || [];
+        } catch (e) {
+            this.logger.error(`Debug wallet error: ${e.message}`);
+        }
+
+        return {
+            user: { id: user.id, email: user.email, cryptoSubAccountId: user.cryptoSubAccountId },
+            dbWallet: dbWallet || null,
+            quidax: {
+                wallet: quidaxWallet || null,
+                address: quidaxAddress?.data || null,
+                deposits: quidaxDeposits,
+            },
+        };
+    }
 }
