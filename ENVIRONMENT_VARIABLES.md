@@ -291,6 +291,29 @@ Complete reference for all environment variables used in Flipxer Web Services.
 - **Get From**: Quidax Dashboard > Webhooks
 - **Example**: `your-webhook-secret-key`
 
+### Firebase (Push Notifications)
+
+Firebase is used for sending push notifications to mobile devices.
+
+#### `FIREBASE_PROJECT_ID`
+- **Type**: String
+- **Description**: Firebase project ID
+- **Get From**: Firebase Console > Project Settings > General
+- **Example**: `flipxer-app`
+
+#### `FIREBASE_CLIENT_EMAIL`
+- **Type**: Email address
+- **Description**: Firebase service account email
+- **Get From**: Firebase Console > Project Settings > Service Accounts > Generate new private key
+- **Example**: `firebase-adminsdk-xxxxx@flipxer-app.iam.gserviceaccount.com`
+
+#### `FIREBASE_PRIVATE_KEY`
+- **Type**: String (PEM format)
+- **Description**: Firebase service account private key
+- **Get From**: Firebase Console > Project Settings > Service Accounts > Generate new private key (from the JSON file)
+- **Example**: `"-----BEGIN PRIVATE KEY-----\nMIIEvg...your-key...7dGQ==\n-----END PRIVATE KEY-----\n"`
+- **Important**: Wrap in quotes and preserve `\n` newline characters!
+
 ---
 
 ## Email Configuration

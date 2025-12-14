@@ -50,7 +50,7 @@ const PermissionNames = {
     ROLES_CREATE: "roles.create",
     ROLES_UPDATE: "roles.update",
     ROLES_DELETE: "roles.delete",
-    PERMISSIONS_MANAGE: "permissions.manage",
+    ROLES_PERMISSIONS_MANAGE: "roles.permissions_manage",
 
     // System
     SYSTEM_CONFIG: "system.config",

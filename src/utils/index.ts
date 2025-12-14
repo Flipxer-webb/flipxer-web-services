@@ -97,6 +97,27 @@ export const waitForRedis = (config: RedisConfig) => {
         username: config.user,
         password: config.password,
         port: config.port,
+        // Retry strategy with exponential backoff
+        retryStrategy: (times: number) => {
+            // Max 10 retries
+            if (times > 10) {
+                console.error(`Redis: Max retries (${times}) exceeded, giving up`);
+                return null;
+            }
+            // Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms... up to 30s
+            const delay = Math.min(Math.pow(2, times) * 100, 30000);
+            console.log(`Redis: Retry attempt ${times}, waiting ${delay}ms`);
+            return delay;
+        },
+        // Reconnect on error (including rate limiting)
+        reconnectOnError: (err: Error) => {
+            const targetErrors = ["READONLY", "Too many requests"];
+            if (targetErrors.some(e => err.message.includes(e))) {
+                console.log(`Redis: Reconnecting due to error: ${err.message}`);
+                return true;
+            }
+            return false;
+        },
     };
 
     const client = new Redis(redisOptions);

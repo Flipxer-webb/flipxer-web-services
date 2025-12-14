@@ -5,6 +5,7 @@ import { Prisma, NotificationType, NotificationBeneficiary, NotificationStatus, 
 import * as Utils from "@/utils";
 import * as e from "../errors/notification.error";
 import { NotificationEvent } from "../events/notification.event";
+import { PushNotificationService } from "./push.notification.service";
 
 @Injectable()
 export class AdminNotificationService {
@@ -13,6 +14,7 @@ export class AdminNotificationService {
     constructor(
         private prisma: PrismaService,
         private notificationEvent: NotificationEvent,
+        private pushNotificationService: PushNotificationService,
     ) {}
 
     async getNotification(notificationId: number) {
@@ -219,11 +221,24 @@ export class AdminNotificationService {
             data: notificationData,
         });
 
-        // Log broadcast push notification attempt for users with tokens
+        // Send push notifications to users with tokens
         const usersWithTokens = targetUsers.filter(u => u.notificationToken);
-        if (usersWithTokens.length > 0 && type === "PUSH_NOTIFICATION") {
-            // TODO: Implement bulk push notification when NotificationEvent supports it
-            this.logger.log(`Broadcast: ${usersWithTokens.length} users have push tokens`);
+        let pushResult = { successCount: 0, failureCount: 0 };
+        
+        if (usersWithTokens.length > 0 && (type === "PUSH_NOTIFICATION" || !type)) {
+            const tokens = usersWithTokens
+                .map(u => u.notificationToken)
+                .filter((t): t is string => t !== null);
+            
+            if (tokens.length > 0) {
+                pushResult = await this.pushNotificationService.sendToMultipleDevices(
+                    tokens,
+                    { title, body }
+                );
+                this.logger.log(
+                    `Broadcast push: ${pushResult.successCount} sent, ${pushResult.failureCount} failed`
+                );
+            }
         }
 
         // Log audit
@@ -245,7 +260,9 @@ export class AdminNotificationService {
             message: "Broadcast sent successfully",
             data: {
                 recipientCount: targetUsers.length,
-                pushNotificationsSent: usersWithTokens.length,
+                pushNotificationsAttempted: usersWithTokens.length,
+                pushNotificationsSent: pushResult.successCount,
+                pushNotificationsFailed: pushResult.failureCount,
             },
         });
     }
@@ -313,8 +330,28 @@ export class AdminNotificationService {
             });
 
             if (usersWithTokens.length > 0 && notification.type === NotificationType.PUSH_NOTIFICATION) {
-                // TODO: Implement push notifications when infrastructure is ready
-                this.logger.log(`Notification #${notificationId} approved for all users. ${usersWithTokens.length} users have push tokens.`);
+                const tokens = usersWithTokens
+                    .map(u => u.notificationToken)
+                    .filter((t): t is string => t !== null);
+                
+                if (tokens.length > 0) {
+                    const pushResult = await this.pushNotificationService.sendToMultipleDevices(
+                        tokens,
+                        { title: notification.title, body: notification.body }
+                    );
+                    this.logger.log(
+                        `Notification #${notificationId} approved: ${pushResult.successCount} push sent, ${pushResult.failureCount} failed`
+                    );
+                }
+            }
+        } else if (status === NotificationStatus.APPROVED && notification.beneficiary === NotificationBeneficiary.INDIVIDUAL && notification.userId) {
+            // Send push notification to the individual user
+            if (notification.type === NotificationType.PUSH_NOTIFICATION) {
+                await this.pushNotificationService.sendToUser(
+                    notification.userId,
+                    { title: notification.title, body: notification.body }
+                );
+                this.logger.log(`Individual notification #${notificationId} sent to user ${notification.userId}`);
             }
         }
 

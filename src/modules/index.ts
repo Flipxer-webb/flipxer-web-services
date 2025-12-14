@@ -38,6 +38,23 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
                         password: redisConfig.password,
                         host: redisConfig.host,
                         tls: redisConfig.redisOptions.tls,
+                        // Retry strategy with exponential backoff
+                        retryStrategy: (times: number) => {
+                            if (times > 10) {
+                                console.error(`Bull Redis: Max retries exceeded`);
+                                return null;
+                            }
+                            const delay = Math.min(Math.pow(2, times) * 100, 30000);
+                            console.log(`Bull Redis: Retry ${times}, waiting ${delay}ms`);
+                            return delay;
+                        },
+                        reconnectOnError: (err: Error) => {
+                            if (err.message.includes("Too many requests")) {
+                                console.log(`Bull Redis: Reconnecting due to rate limit`);
+                                return true;
+                            }
+                            return false;
+                        },
                     },
                 };
             },

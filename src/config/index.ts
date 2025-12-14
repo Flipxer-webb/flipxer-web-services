@@ -339,6 +339,19 @@ export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
       )
     : [];
 
+// Firebase (optional - push notifications will not work without credentials)
+export interface FirebaseConfig {
+    projectId: string;
+    clientEmail: string;
+    privateKey: string;
+}
+
+export const firebaseConfig: FirebaseConfig = {
+    projectId: process.env.FIREBASE_PROJECT_ID || "",
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL || "",
+    privateKey: process.env.FIREBASE_PRIVATE_KEY || "",
+};
+
 // Sendchamp SMS (optional - SMS features will not work without credentials)
 export interface SendchampConfig {
     accessKey: string;
