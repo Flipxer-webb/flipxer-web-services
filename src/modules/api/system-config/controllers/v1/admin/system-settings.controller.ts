@@ -19,7 +19,7 @@ import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { SystemSettingDto, MaintenanceModeConfig } from "../../../types";
 
-@Controller("admin/system/settings")
+@Controller("admin/settings/system")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
 export class AdminSystemSettingsController {

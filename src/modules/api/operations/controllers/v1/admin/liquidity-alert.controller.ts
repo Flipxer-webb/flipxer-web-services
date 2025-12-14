@@ -22,7 +22,7 @@ import {
     LiquidityAlertFilters 
 } from "../../../types";
 
-@Controller("admin/operations/liquidity-alerts")
+@Controller("admin/liquidity-alerts")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
 export class AdminLiquidityAlertController {

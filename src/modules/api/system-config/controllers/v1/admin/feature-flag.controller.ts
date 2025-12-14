@@ -19,7 +19,7 @@ import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { FeatureFlagDto, UpdateFeatureFlagDto, FeatureFlagEvaluationContext } from "../../../types";
 
-@Controller("admin/system/feature-flags")
+@Controller("admin/feature-flags")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
 export class AdminFeatureFlagController {

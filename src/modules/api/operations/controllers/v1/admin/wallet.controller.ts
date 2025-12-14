@@ -18,7 +18,7 @@ import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { LiquidityThreshold } from "../../../types";
 
-@Controller("admin/operations/wallets")
+@Controller("admin/wallets")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
 export class AdminWalletController {

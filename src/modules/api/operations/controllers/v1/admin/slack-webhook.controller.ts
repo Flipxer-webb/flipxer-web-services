@@ -17,7 +17,7 @@ import { UserTypes } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { CreateSlackWebhookDto, UpdateSlackWebhookDto } from "../../../types";
 
-@Controller("admin/operations/slack-webhooks")
+@Controller("admin/slack-webhooks")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
 export class AdminSlackWebhookController {
