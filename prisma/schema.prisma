@@ -756,3 +756,130 @@ enum KycStatus {
   REJECTED
   ESCALATED
 }
+
+// ==========================================
+// Admin Features: Wallet & Liquidity Management
+// ==========================================
+
+model LiquidityAlert {
+  id              Int                    @id @default(autoincrement())
+  currency        String
+  alertType       LiquidityAlertType
+  threshold       Decimal                @db.Decimal(20, 8)
+  currentValue    Decimal?               @db.Decimal(20, 8)
+  status          LiquidityAlertStatus   @default(PENDING)
+  resolvedBy      Int?
+  resolvedAt      DateTime?
+  resolvedNote    String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([currency])
+  @@index([status])
+  @@index([createdAt])
+  @@map("LiquidityAlerts")
+}
+
+enum LiquidityAlertType {
+  LOW_BALANCE
+  HIGH_BALANCE
+  UNUSUAL_ACTIVITY
+  RATE_DEVIATION
+}
+
+enum LiquidityAlertStatus {
+  PENDING
+  ACKNOWLEDGED
+  RESOLVED
+  ESCALATED
+}
+
+// ==========================================
+// Admin Features: Slack Webhook Integration
+// ==========================================
+
+model SlackWebhook {
+  id              Int                  @id @default(autoincrement())
+  name            String
+  webhookUrl      String
+  channel         String?
+  alertTypes      String[]             // Array of alert types to receive
+  isActive        Boolean              @default(true)
+  lastTriggered   DateTime?
+  failureCount    Int                  @default(0)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@map("SlackWebhooks")
+}
+
+model AlertCooldown {
+  id              Int                  @id @default(autoincrement())
+  alertKey        String               @unique   // e.g., "low_balance:btc" or "unusual_activity:eth"
+  lastAlertedAt   DateTime
+  cooldownMinutes Int                  @default(60)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([alertKey])
+  @@map("AlertCooldowns")
+}
+
+// ==========================================
+// Admin Features: System Configuration
+// ==========================================
+
+model SystemSetting {
+  id              Int                  @id @default(autoincrement())
+  key             String               @unique
+  value           Json
+  description     String?
+  updatedById     Int?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([key])
+  @@map("SystemSettings")
+}
+
+model FeatureFlag {
+  id              Int                  @id @default(autoincrement())
+  key             String               @unique
+  name            String
+  description     String?
+  isEnabled       Boolean              @default(false)
+  conditions      Json?                // Complex conditions (tier, country, percentage, etc.)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  auditLogs       FeatureFlagAuditLog[]
+
+  @@index([key])
+  @@index([isEnabled])
+  @@map("FeatureFlags")
+}
+
+model FeatureFlagAuditLog {
+  id              Int                  @id @default(autoincrement())
+  flagId          Int
+  action          FeatureFlagAction
+  previousValue   Json?
+  newValue        Json?
+  changedById     Int
+  changedByEmail  String?
+  reason          String?
+  createdAt       DateTime             @default(now())
+  flag            FeatureFlag          @relation(fields: [flagId], references: [id], onDelete: Cascade)
+
+  @@index([flagId])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("FeatureFlagAuditLogs")
+}
+
+enum FeatureFlagAction {
+  CREATED
+  ENABLED
+  DISABLED
+  CONDITIONS_UPDATED
+  DELETED
+}

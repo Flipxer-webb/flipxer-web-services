@@ -13,6 +13,9 @@ import { RbacModule } from "./rbac";
 import { AnalyticsModule } from "./analytics";
 import { KycModule } from "./kyc";
 import { HealthModule } from "./health";
+import { OperationsModule } from "./operations";
+import { ReportsModule } from "./reports";
+import { SystemConfigModule } from "./system-config";
 
 @Module({
     imports: [
@@ -30,6 +33,9 @@ import { HealthModule } from "./health";
         AnalyticsModule,
         KycModule,
         HealthModule,
+        OperationsModule,
+        ReportsModule,
+        SystemConfigModule,
     ],
 })
 export class APIModule {}

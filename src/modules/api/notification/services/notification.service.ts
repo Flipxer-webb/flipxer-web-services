@@ -56,10 +56,8 @@ export class NotificationService {
     async markAllUserNotificationsRead(user: User) {
         const updatedNotification = await this.prisma.notification.updateMany({
             where: { 
-                OR: [
-                    { userId: user.id },
-                    { beneficiary: "ALL", status: "APPROVED" },
-                ],
+                // Only update notifications that belong to this user
+                userId: user.id,
                 isRead: false,
             },
             data: {
@@ -77,10 +75,8 @@ export class NotificationService {
         const notification = await this.prisma.notification.findFirst({
             where: { 
                 id: notificationId,
-                OR: [
-                    { userId },
-                    { beneficiary: "ALL" },
-                ],
+                // Only allow marking notifications that belong to this user
+                userId,
             },
         });
 
@@ -128,10 +124,10 @@ export class NotificationService {
         const queryOptions: Prisma.NotificationFindManyArgs = {
             orderBy: { createdAt: sortBy },
             where: {
-                OR: [
-                    { userId: user.id },
-                    { beneficiary: "ALL", status: "APPROVED" },
-                ],
+                // Only show notifications that belong to this user
+                // Broadcast notifications are created with userId set for each recipient
+                userId: user.id,
+                status: "APPROVED",
             },
         };
 

@@ -30,9 +30,13 @@ export class AdminUserService {
         const endOfCurrentMonth = endOfMonth(now);
 
         const [totalUsers, usersThisMonth] = await Promise.all([
-            this.prisma.user.count(),
+            // Exclude admin users from total count
+            this.prisma.user.count({
+                where: { userType: { not: UserType.ADMIN } },
+            }),
             this.prisma.user.count({
                 where: {
+                    userType: { not: UserType.ADMIN },
                     createdAt: {
                         gte: startOfCurrentMonth,
                         lte: endOfCurrentMonth,
