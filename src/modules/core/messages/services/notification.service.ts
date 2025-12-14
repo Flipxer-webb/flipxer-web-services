@@ -30,4 +30,18 @@ export class NotificationMessageService {
             options.transactionId
         }.`;
     }
+
+    buyTransactionSuccess(options: t.IBuyTransactionSuccess) {
+        return `🛒 Purchase Successful! You bought ${+options.amount} ${options.currency.toUpperCase()}. Your crypto has been added to your wallet. Transaction ID: ${
+            options.transactionId
+        }.`;
+    }
+
+    sellTransactionSuccess(options: t.ISellTransactionSuccess) {
+        return `💰 Sale Successful! You sold ${+options.amount} ${options.currency.toUpperCase()} for ₦${+options.fiatAmount}. Funds sent to ${
+            options.bankName
+        } (${options.accountNumber}). Transaction ID: ${
+            options.transactionId
+        }.`;
+    }
 }

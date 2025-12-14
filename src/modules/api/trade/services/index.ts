@@ -926,6 +926,7 @@ export class TradingService {
                         fee: responseData.transactionFeeInCrypto,
                         total: responseData.totalToChargeInCrypto,
                         status: OrderStatus.pending,
+                        streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
                         paymentStatus: TransactionStatus.PENDING,
                         currency: dto.asset.toUpperCase(),
                         recipient: responseData.depositAddress,
@@ -1024,6 +1025,7 @@ export class TradingService {
             data: {
                 orderCategory: OrderCategory.SELL,
                 status: OrderStatus.processing,
+                streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
                 orderReference: reference,
                 transactionId: generateId({ type: "transaction" }),
                 providerOrderId: requestRes.data.id,
@@ -1345,6 +1347,7 @@ export class TradingService {
             data: {
                 orderCategory: OrderCategory.SEND,
                 status: OrderStatus.processing,
+                streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
                 orderReference: reference,
                 transactionId: generateId({ type: "transaction" }),
                 providerOrderId: requestRes.data.id,
@@ -1459,6 +1462,7 @@ export class TradingService {
                         data: {
                             orderCategory: OrderCategory.SWAP,
                             status: swapInfo.data.status,
+                            streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
                             transactionId: transactionId,
                             providerOrderId: swapInfo.data.id,
                             orderReference: generateId({
@@ -2040,7 +2044,10 @@ export class TradingService {
             } else {
                 await this.prisma.order.update({
                     where: { id: transaction.id },
-                    data: { status: options.status },
+                    data: { 
+                        status: options.status,
+                        streamlinedStatus: getStreamlinedStatus(options.status),
+                    },
                 });
 
                 if (options.status == OrderStatus.accepted && transaction.status !== OrderStatus.accepted) {

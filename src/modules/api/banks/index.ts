@@ -4,10 +4,13 @@ import { BankController } from "./controllers";
 import { PrismaService } from "../../core/prisma/services"; // Assumed existing Prisma service
 import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
 import { TradingFactoryModule } from "@/modules/factory/trading";
+import { MessageModule } from "@/modules/core/messages/message.module";
+import { WsModule } from "@/modules/core/websocket/ws.module";
+import { NotificationEvent } from "../notification/events";
 
 @Module({
-    imports: [BankFactoryModule, TradingFactoryModule],
-    providers: [BankService, PrismaService],
+    imports: [BankFactoryModule, TradingFactoryModule, MessageModule, WsModule],
+    providers: [BankService, PrismaService, NotificationEvent],
     controllers: [BankController],
     exports: [BankService],
 })

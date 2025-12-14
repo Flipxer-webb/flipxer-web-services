@@ -36,6 +36,9 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { UserNotFoundException } from "../../auth";
 import { BankDetailNotFoundException } from "../errors";
 import { TransferFailedHandlerOptions } from "../interfaces";
+import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
+import { WsGateway } from "@/modules/core/websocket/ws.gateway";
+import { NotificationEvent } from "../../notification/events";
 
 @Injectable()
 export class BankService {
@@ -44,7 +47,10 @@ export class BankService {
         @Inject(BankInjectionToken.FINCRA)
         private readonly fincraService: FincraBank,
         @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService
+        private readonly quidaxService: QuidaxService,
+        private readonly notificationMessage: NotificationMessageService,
+        private readonly wsGateway: WsGateway,
+        private readonly notificationEvent: NotificationEvent
     ) {}
 
     async getListOfBanks() {
@@ -392,6 +398,45 @@ export class BankService {
                             rateAtConversion: amtFiat?.rate,
                         },
                     });
+
+                    // Send notification for BUY order completion
+                    const message = this.notificationMessage.buyTransactionSuccess({
+                        amount: order.amount,
+                        currency: order.currency,
+                        transactionId: order.transactionId,
+                    });
+
+                    const createdNotification = await this.prisma.notification.create({
+                        data: {
+                            title: "Your purchase is complete",
+                            body: message,
+                            userId: order.user.id,
+                            target: UserNotificationTarget.SINGLE,
+                            beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                            type: NotificationType.MESSAGE,
+                            status: NotificationStatus.APPROVED,
+                            senderId: null,
+                            transactionType: OrderCategory.BUY,
+                            currency: order.currency,
+                        },
+                    });
+
+                    this.notificationEvent.emit("transaction_notification", {
+                        email: order.user.email,
+                        notice: message,
+                    });
+
+                    const notificationList = await this.prisma.notification.findMany({
+                        where: { userId: order.user.id },
+                        orderBy: { createdAt: "desc" },
+                        take: 20,
+                    });
+
+                    this.wsGateway.notifyUser(order.user.id, {
+                        type: "new_notification",
+                        notification: createdNotification,
+                        notificationList,
+                    });
                 }
             }
         } catch (error) {
@@ -430,32 +475,53 @@ export class BankService {
                 },
             });
 
-            // if (options.transferToBankStatus == TransactionStatus.SUCCESS) {
-            //     const message = this.notificationMessage.fiatPaymentSuccess({
-            //         amount: +transaction.amount,
-            //         accountNumber: transaction.destinationBankAccountNumber,
-            //         bankName: transaction.destinationBankAccountName,
-            //         transactionId: transaction.transactionId,
-            //     });
+            if (options.transferToBankStatus === TransactionStatus.SUCCESS) {
+                const user = await this.prisma.user.findUnique({
+                    where: { id: transaction.userId },
+                });
 
-            //     await this.prisma.notification.create({
-            //         data: {
-            //             title: "Your payment is sent",
-            //             body: message,
-            //             userId: transaction.userId,
-            //             target: UserNotificationTarget.SINGLE,
-            //             beneficiary: NotificationBeneficiary.INDIVIDUAL,
-            //             type: NotificationType.MESSAGE,
-            //             status: NotificationStatus.APPROVED,
-            //             senderId: null,
-            //         },
-            //     });
+                if (user) {
+                    const message = this.notificationMessage.sellTransactionSuccess({
+                        amount: +transaction.amount,
+                        currency: "NGN",
+                        transactionId: transaction.transactionId,
+                        bankName: transaction.destinationBankAccountName,
+                        accountNumber: transaction.destinationBankAccountNumber,
+                    });
 
-            //     this.notificationEvent.emit("transaction_notification", {
-            //         email: admin.email,
-            //         notice: message,
-            //     });
-            // }
+                    const createdNotification = await this.prisma.notification.create({
+                        data: {
+                            title: "Your payment is sent",
+                            body: message,
+                            userId: transaction.userId,
+                            target: UserNotificationTarget.SINGLE,
+                            beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                            type: NotificationType.MESSAGE,
+                            status: NotificationStatus.APPROVED,
+                            senderId: null,
+                            transactionType: OrderCategory.SELL,
+                            currency: "NGN",
+                        },
+                    });
+
+                    this.notificationEvent.emit("transaction_notification", {
+                        email: user.email,
+                        notice: message,
+                    });
+
+                    const notificationList = await this.prisma.notification.findMany({
+                        where: { userId: transaction.userId },
+                        orderBy: { createdAt: "desc" },
+                        take: 20,
+                    });
+
+                    this.wsGateway.notifyUser(transaction.userId, {
+                        type: "new_notification",
+                        notification: createdNotification,
+                        notificationList,
+                    });
+                }
+            }
         } catch (error) {
             logger.error(error);
         }

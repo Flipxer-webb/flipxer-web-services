@@ -26,3 +26,18 @@ export interface IFiatPaymentSuccess {
     accountNumber: string;
     transactionId: string;
 }
+
+export interface IBuyTransactionSuccess {
+    amount: number | string;
+    currency: string;
+    transactionId: string;
+}
+
+export interface ISellTransactionSuccess {
+    amount: number | string;
+    currency: string;
+    fiatAmount: number | string;
+    bankName: string;
+    accountNumber: string;
+    transactionId: string;
+}
