@@ -2621,6 +2621,7 @@ export class TradingService {
             case "successful":
             case "done":
             case "completed":
+            case "accepted":
                 return OrderStatus.accepted;
             case "processing":
             case "confirming":
