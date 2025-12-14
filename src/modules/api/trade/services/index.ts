@@ -1891,7 +1891,7 @@ export class TradingService {
             });
         }
 
-        // Validate that the payment address exists in our database
+        // Try to find payment address in our database (optional - for logging)
         const paymentAddress = await this.prisma.cryptoWalletAddress.findUnique(
             {
                 where: { walletAddressId: options.payment_address_id },
@@ -1905,32 +1905,27 @@ export class TradingService {
             }
         );
 
+        // Log if payment address not found but continue processing
+        // The Quidax userId is the source of truth for deposit ownership
         if (!paymentAddress) {
-            this.logger.error(
-                `Payment address not found in database | ${JSON.stringify({
+            this.logger.warn(
+                `Payment address not found in database, proceeding with deposit | ${JSON.stringify({
                     payment_address_id: options.payment_address_id,
                     network: options.network,
                     currency: options.currency,
                     amount: options.amount,
+                    userId: user.id,
                 })}`
             );
-            return buildResponse({
-                message: "Payment address not found in database",
-            });
-        }
-
-        // Verify the payment address belongs to this user
-        if (paymentAddress.userId !== user.id) {
-            this.logger.error(
-                `Payment address does not belong to user | ${JSON.stringify({
+        } else if (paymentAddress.userId !== user.id) {
+            // Log mismatch but still process - Quidax user ID is the source of truth
+            this.logger.warn(
+                `Payment address userId mismatch, using Quidax userId | ${JSON.stringify({
                     paymentAddressUserId: paymentAddress.userId,
-                    expectedUserId: user.id,
+                    quidaxUserId: user.id,
                     payment_address_id: options.payment_address_id,
                 })}`
             );
-            return buildResponse({
-                message: "Payment address does not belong to user",
-            });
         }
 
         this.logger.log(
