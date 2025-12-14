@@ -2480,13 +2480,19 @@ export class TradingService {
             );
         }
 
-        // Get user's crypto wallet addresses to know which currencies to check
+        // Check ALL supported currencies, not just those in wallet table
+        // This ensures we catch deposits even if wallet address record is missing
+        const ALL_SUPPORTED_CURRENCIES = ['usdt', 'btc', 'eth', 'usdc', 'sol', 'xrp', 'bnb', 'trx', 'matic', 'avax'];
+        
+        // Also get user's wallet addresses for logging
         const walletAddresses = await this.prisma.cryptoWalletAddress.findMany({
             where: { userId: user.id },
             select: { assetSymbol: true },
         });
 
-        const currencies = [...new Set(walletAddresses.map(w => w.assetSymbol.toLowerCase()))];
+        const userCurrencies = walletAddresses.map(w => w.assetSymbol.toLowerCase());
+        this.logger.log(`User ${user.email} has wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
+        this.logger.log(`Checking ALL supported currencies: ${ALL_SUPPORTED_CURRENCIES.join(', ')}`);
         
         const syncResults = {
             synced: 0,
@@ -2495,27 +2501,36 @@ export class TradingService {
             details: [] as { currency: string; depositId: string; status: string; amount: string; result: string }[],
         };
 
-        for (const currency of currencies) {
+        for (const currency of ALL_SUPPORTED_CURRENCIES) {
             try {
                 // Fetch deposits from Quidax
+                this.logger.log(`Fetching ${currency} deposits for sub-account: ${user.cryptoSubAccountId}`);
+                
                 const depositsResponse = await this.quidaxService.fetchDeposits({
                     user_id: user.cryptoSubAccountId,
                     currency: currency as any,
                 });
 
-                if (!depositsResponse?.data) {
-                    this.logger.warn(`No deposits found for ${currency}`);
+                this.logger.log(`${currency} deposits response: ${JSON.stringify(depositsResponse?.data?.length || 0)} deposits found`);
+
+                if (!depositsResponse?.data || depositsResponse.data.length === 0) {
+                    this.logger.log(`No ${currency} deposits found on Quidax`);
                     continue;
                 }
 
+                this.logger.log(`Processing ${depositsResponse.data.length} ${currency} deposits...`);
+
                 for (const deposit of depositsResponse.data) {
                     try {
+                        this.logger.log(`Checking deposit ${deposit.id}: ${deposit.amount} ${currency}, status: ${deposit.status || deposit.state}`);
+                        
                         // Check if order already exists for this deposit
                         const existingOrder = await this.prisma.order.findUnique({
                             where: { providerOrderId: deposit.id },
                         });
 
                         if (existingOrder) {
+                            this.logger.log(`Deposit ${deposit.id} already exists as order ${existingOrder.id}`);
                             syncResults.skipped++;
                             syncResults.details.push({
                                 currency,

@@ -4,7 +4,7 @@ const https = require('https');
 const USER_ID = 6;
 
 // Use the token directly
-const ACCESS_TOKEN = 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InZpc2l0b3ItYXBwbGljYXRpb24tc2VydmVyLTIwMjEwMjIifQ.eyJwaWQiOiI2ODJmNzUwYTY2OWQ4NTE5MGVhMDI3OWYiLCJ2aWQiOiI2ODJmNzUwYTY2OWQ4NTE5MGVhMDI3OWYtN01XbXFnckNqNW9VMXYwd2ZvUUpVIiwic2lkIjoiNjkzZTk4YWY4M2MwZDJjZWEyNmMwODMwIiwiaWF0IjoxNzY1NzA5OTk5LCJleHAiOjE3NjU3MTE3OTksImp0aSI6IkYycEF5ZHZDcncxckdQWXRJNFZfMyJ9.GVBPRnQwrcFLGFZdqUNcI9jIFmRAM1MVOPXz5imRGcBrNeHHTSm4flUiJco6A4CdRsdowhNFSXptFvM1--RU_g';
+const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
 
 // Call sync deposits endpoint directly
 console.log(`Calling sync-deposits for user ${USER_ID}...`);
