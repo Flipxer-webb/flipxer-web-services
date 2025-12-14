@@ -2503,7 +2503,7 @@ export class TradingService {
         for (const currency of currencies) {
             try {
                 // Fetch deposits from Quidax
-                const depositsResponse = await this.tradingService.fetchDeposits({
+                const depositsResponse = await this.quidaxService.fetchDeposits({
                     user_id: user.cryptoSubAccountId,
                     currency: currency as any,
                 });
