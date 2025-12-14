@@ -17,6 +17,7 @@ import {
 
 import { TransactionService } from "../../services";
 import { AdminTransactionService } from "../../services/admin-transaction.service";
+import { TradingService } from "@/modules/api/trade/services";
 import {
     ApiTags,
     ApiOperation,
@@ -55,6 +56,7 @@ export class AdminTransactionController {
     constructor(
         private transactionService: TransactionService,
         private adminTransactionService: AdminTransactionService,
+        private tradingService: TradingService,
     ) {}
 
     @HttpCode(HttpStatus.OK)
@@ -182,5 +184,13 @@ export class AdminTransactionController {
     @Get("export/csv")
     async exportTransactions(@Query() query: GetUserTransactionListDto) {
         return this.adminTransactionService.exportTransactions(query, "csv");
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Sync deposits from Quidax for a user" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
+    @Post("sync-deposits/:userId")
+    async syncUserDeposits(@Param("userId", ParseIntPipe) userId: number) {
+        return this.tradingService.syncUserDeposits(userId);
     }
 }

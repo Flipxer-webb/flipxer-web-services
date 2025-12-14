@@ -2461,4 +2461,168 @@ export class TradingService {
             data: sparklines,
         });
     }
+
+    /**
+     * Sync deposits from Quidax for a specific user
+     * This function fetches deposit history from Quidax and creates missing Order records
+     */
+    async syncUserDeposits(userId: number) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                cryptoSubAccountId: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+            },
+        });
+
+        if (!user || !user.cryptoSubAccountId) {
+            throw new UserNotFoundException(
+                "User not found or no crypto sub-account",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        // Get user's crypto wallet addresses to know which currencies to check
+        const walletAddresses = await this.prisma.cryptoWalletAddress.findMany({
+            where: { userId: user.id },
+            select: { assetSymbol: true },
+        });
+
+        const currencies = [...new Set(walletAddresses.map(w => w.assetSymbol.toLowerCase()))];
+        
+        const syncResults = {
+            synced: 0,
+            skipped: 0,
+            errors: 0,
+            details: [] as { currency: string; depositId: string; status: string; amount: string; result: string }[],
+        };
+
+        for (const currency of currencies) {
+            try {
+                // Fetch deposits from Quidax
+                const depositsResponse = await this.tradingService.fetchDeposits({
+                    user_id: user.cryptoSubAccountId,
+                    currency: currency as any,
+                });
+
+                if (!depositsResponse?.data) {
+                    this.logger.warn(`No deposits found for ${currency}`);
+                    continue;
+                }
+
+                for (const deposit of depositsResponse.data) {
+                    try {
+                        // Check if order already exists for this deposit
+                        const existingOrder = await this.prisma.order.findUnique({
+                            where: { providerOrderId: deposit.id },
+                        });
+
+                        if (existingOrder) {
+                            syncResults.skipped++;
+                            syncResults.details.push({
+                                currency,
+                                depositId: deposit.id,
+                                status: deposit.status,
+                                amount: deposit.amount,
+                                result: "skipped - already exists",
+                            });
+                            continue;
+                        }
+
+                        // Normalize the status
+                        const normalizedStatus = this.normalizeDepositStatus(deposit.status || deposit.state);
+
+                        // Get amount in fiat for record
+                        const amtFiat = await this.getAmountInNaira(
+                            currency,
+                            Number(deposit.amount),
+                            "buy"
+                        );
+
+                        const transactionId = generateId({ type: "transaction" });
+
+                        // Create the order
+                        await this.prisma.order.create({
+                            data: {
+                                orderCategory: OrderCategory.RECEIVE,
+                                status: normalizedStatus,
+                                transactionId: transactionId,
+                                streamlinedStatus: getStreamlinedStatus(normalizedStatus),
+                                providerOrderId: deposit.id,
+                                blockchain_txid: deposit.txid,
+                                userId: user.id,
+                                currency: currency.toUpperCase(),
+                                amount: +deposit.amount,
+                                fee: +deposit.fee,
+                                amountInFiat: amtFiat?.amount,
+                                rateAtConversion: amtFiat?.rate,
+                            },
+                        });
+
+                        syncResults.synced++;
+                        syncResults.details.push({
+                            currency,
+                            depositId: deposit.id,
+                            status: deposit.status,
+                            amount: deposit.amount,
+                            result: "synced successfully",
+                        });
+
+                        this.logger.log(
+                            `Synced deposit: ${deposit.id} - ${deposit.amount} ${currency}`
+                        );
+                    } catch (depositError) {
+                        syncResults.errors++;
+                        syncResults.details.push({
+                            currency,
+                            depositId: deposit.id,
+                            status: deposit.status,
+                            amount: deposit.amount,
+                            result: `error: ${depositError.message}`,
+                        });
+                        this.logger.error(
+                            `Error syncing deposit ${deposit.id}: ${depositError.message}`
+                        );
+                    }
+                }
+            } catch (currencyError) {
+                this.logger.error(
+                    `Error fetching deposits for ${currency}: ${currencyError.message}`
+                );
+            }
+        }
+
+        return buildResponse({
+            message: `Deposit sync completed for user ${user.email}`,
+            data: syncResults,
+        });
+    }
+
+    /**
+     * Normalize deposit status from Quidax to OrderStatus
+     */
+    private normalizeDepositStatus(status: string): OrderStatus {
+        const normalizedStatus = status?.toLowerCase();
+        
+        switch (normalizedStatus) {
+            case "successful":
+            case "done":
+            case "completed":
+                return OrderStatus.accepted;
+            case "processing":
+            case "confirming":
+            case "submitted":
+            case "pending":
+                return OrderStatus.pending;
+            case "rejected":
+            case "failed":
+            case "aml_deposit_hold":
+                return OrderStatus.rejected;
+            default:
+                return OrderStatus.pending;
+        }
+    }
 }

@@ -406,3 +406,42 @@ export interface QuidaxResponse<
     message: string;
     data: D;
 }
+
+// Deposit Types
+export type DepositState = "processing" | "done" | "submitted" | "rejected" | "aml_deposit_hold" | "confirming" | "pending" | "successful" | "completed";
+
+export interface IQuidaxDeposit {
+    id: string;
+    reference: string | null;
+    currency: string;
+    amount: string;
+    fee: string;
+    total: string;
+    txid: string | null;
+    state: DepositState;
+    confirmations: number;
+    status: string;
+    created_at: string;
+    completed_at: string | null;
+    done_at: string | null;
+    network: string | null;
+    user: IAccount;
+    wallet: Wallet;
+}
+
+export interface FetchDepositsOptions {
+    user_id: string;
+    currency: CurrencyName;
+    state?: DepositState;
+    order_by?: "asc" | "desc";
+}
+
+export type FetchDepositsResponse = IQuidaxDeposit[];
+
+export interface FetchDepositOptions {
+    user_id: string;
+    currency: CurrencyName;
+    deposit_id: string;
+}
+
+export type FetchDepositResponse = IQuidaxDeposit;

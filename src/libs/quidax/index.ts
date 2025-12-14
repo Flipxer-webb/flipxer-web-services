@@ -1012,7 +1012,80 @@ export class QuidaxLib {
         }
     }
 
-    /*********************** Market ****************************/
+    /*********************** Deposits ****************************/
+
+    /**
+     *
+     * @param options query options
+     * @returns deposit list
+     * @description Fetch all deposits for a user's wallet
+     */
+    async fetchDeposits(
+        options: t.FetchDepositsOptions
+    ): Promise<t.QuidaxResponse<t.FetchDepositsResponse>> {
+        try {
+            const params: Record<string, any> = {};
+            if (options.state) params.state = options.state;
+            if (options.order_by) params.order_by = options.order_by;
+
+            const requestOptions: AxiosRequestConfig = {
+                url: `/users/${options.user_id}/wallets/${options.currency}/deposits`,
+                method: "GET",
+                params,
+            };
+            const resp = await this.mainAxios<
+                t.QuidaxResponse<t.FetchDepositsResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to fetch deposits");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /**
+     *
+     * @param options query options
+     * @returns deposit detail
+     * @description Fetch a single deposit detail by id
+     */
+    async fetchDeposit(
+        options: t.FetchDepositOptions
+    ): Promise<t.QuidaxResponse<t.FetchDepositResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/users/${options.user_id}/wallets/${options.currency}/deposits/${options.deposit_id}`,
+                method: "GET",
+            };
+            const resp = await this.mainAxios<
+                t.QuidaxResponse<t.FetchDepositResponse>
+            >(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to fetch deposit");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
+    /*********************** Market *****************************/
     /* 
         The Market API collection enables users to have access to current market-related data such as tickers, 
         k-line (HLOC) data, order book items, and market depth.
