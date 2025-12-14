@@ -201,7 +201,7 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Generate instant swap quote (valid for 15s)" })
+    @ApiOperation({ summary: "Generate instant swap quote (valid for 25s)" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("request-instant-swap-quote")

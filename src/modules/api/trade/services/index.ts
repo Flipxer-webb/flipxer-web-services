@@ -1284,9 +1284,15 @@ export class TradingService {
             }
         );
 
+        // Extend quote expiration time to 25 seconds for better UX with 2FA
+        const extendedExpiresAt = new Date(Date.now() + 25 * 1000).toISOString();
+
         return buildResponse({
             message: "Swap request quote retrieved successfully",
-            data: swapInfo.data,
+            data: {
+                ...swapInfo.data,
+                expires_at: extendedExpiresAt,
+            },
         });
     }
 
@@ -1311,9 +1317,15 @@ export class TradingService {
             }
         );
 
+        // Extend quote expiration time to 25 seconds for better UX with 2FA
+        const extendedExpiresAt = new Date(Date.now() + 25 * 1000).toISOString();
+
         return buildResponse({
             message: "Swap request quote retrieved successfully",
-            data: swapInfo.data,
+            data: {
+                ...swapInfo.data,
+                expires_at: extendedExpiresAt,
+            },
         });
     }
 
