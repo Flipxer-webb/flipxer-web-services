@@ -5,19 +5,22 @@ import {
     Post,
     Body,
     Query,
+    Param,
     UseGuards,
     ParseBoolPipe,
 } from "@nestjs/common";
 import { WalletManagementService } from "../../../services/wallet-management.service";
-import { JwtAuthGuard } from "@/modules/api/auth/guards";
-import { RolesGuard } from "@/modules/api/rbac/guards";
-import { Roles } from "@/modules/api/rbac/decorators";
-import { CurrentUser } from "@/modules/api/auth/decorators";
-import { User } from "@prisma/client";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+import { User } from "@/modules/api/user";
+import { User as UserModel, UserType } from "@prisma/client";
 import { LiquidityThreshold } from "../../../types";
 
 @Controller("admin/operations/wallets")
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
+@UserTypes([UserType.ADMIN])
 export class AdminWalletController {
     constructor(private readonly walletService: WalletManagementService) {}
 
@@ -25,7 +28,6 @@ export class AdminWalletController {
      * Get all Quidax wallet balances (cached for 45s)
      */
     @Get()
-    @Roles("view_wallets", "manage_wallets")
     async getWalletBalances(
         @Query("refresh", new ParseBoolPipe({ optional: true })) refresh?: boolean
     ) {
@@ -35,10 +37,9 @@ export class AdminWalletController {
     /**
      * Get a specific wallet balance
      */
-    @Get(":currency")
-    @Roles("view_wallets", "manage_wallets")
+    @Get("balance/:currency")
     async getWalletBalance(
-        @Query("currency") currency: string,
+        @Param("currency") currency: string,
         @Query("refresh", new ParseBoolPipe({ optional: true })) refresh?: boolean
     ) {
         const balance = await this.walletService.getWalletBalance(currency, refresh || false);
@@ -52,7 +53,6 @@ export class AdminWalletController {
      * Get platform-wide wallet statistics
      */
     @Get("statistics")
-    @Roles("view_wallets", "manage_wallets", "view_analytics")
     async getWalletStatistics() {
         return this.walletService.getWalletStatistics();
     }
@@ -61,7 +61,6 @@ export class AdminWalletController {
      * Get liquidity thresholds configuration
      */
     @Get("thresholds")
-    @Roles("view_wallets", "manage_wallets")
     async getLiquidityThresholds() {
         return this.walletService.getLiquidityThresholds();
     }
@@ -70,10 +69,9 @@ export class AdminWalletController {
      * Update liquidity thresholds
      */
     @Put("thresholds")
-    @Roles("manage_wallets")
     async updateLiquidityThresholds(
         @Body() thresholds: LiquidityThreshold[],
-        @CurrentUser() user: User
+        @User() user: UserModel
     ) {
         return this.walletService.updateLiquidityThresholds(thresholds, user.id);
     }
@@ -82,7 +80,6 @@ export class AdminWalletController {
      * Check liquidity thresholds and return any breaches
      */
     @Get("thresholds/check")
-    @Roles("view_wallets", "manage_wallets")
     async checkLiquidityThresholds() {
         return this.walletService.checkLiquidityThresholds();
     }
@@ -91,7 +88,6 @@ export class AdminWalletController {
      * Invalidate wallet cache
      */
     @Post("cache/invalidate")
-    @Roles("manage_wallets")
     async invalidateCache() {
         await this.walletService.invalidateWalletCache();
         return { message: "Wallet cache invalidated successfully" };

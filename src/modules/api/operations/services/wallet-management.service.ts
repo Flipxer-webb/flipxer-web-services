@@ -22,7 +22,8 @@ export class WalletManagementService {
         private readonly cacheService: RedisCacheService,
     ) {
         this.quidax = new QuidaxLib({
-            api_secret: quidaxConfig.secretKey,
+            api_public: quidaxConfig.api_public,
+            api_secret: quidaxConfig.api_secret,
             baseURL: quidaxConfig.baseUrl,
             rampBaseURL: quidaxConfig.rampBaseUrl,
         });

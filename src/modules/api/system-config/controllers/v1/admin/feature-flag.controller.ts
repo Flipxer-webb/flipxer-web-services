@@ -11,15 +11,17 @@ import {
     UseGuards,
 } from "@nestjs/common";
 import { FeatureFlagService } from "../../../services/feature-flag.service";
-import { JwtAuthGuard } from "@/modules/api/auth/guards";
-import { RolesGuard } from "@/modules/api/rbac/guards";
-import { Roles } from "@/modules/api/rbac/decorators";
-import { CurrentUser } from "@/modules/api/auth/decorators";
-import { User } from "@prisma/client";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+import { User } from "@/modules/api/user";
+import { User as UserModel, UserType } from "@prisma/client";
 import { FeatureFlagDto, UpdateFeatureFlagDto, FeatureFlagEvaluationContext } from "../../../types";
 
 @Controller("admin/system/feature-flags")
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
+@UserTypes([UserType.ADMIN])
 export class AdminFeatureFlagController {
     constructor(private readonly flagService: FeatureFlagService) {}
 
@@ -27,7 +29,6 @@ export class AdminFeatureFlagController {
      * Get all feature flags
      */
     @Get()
-    @Roles("view_system_settings", "manage_feature_flags")
     async getAllFlags() {
         return this.flagService.getAllFlags();
     }
@@ -36,7 +37,6 @@ export class AdminFeatureFlagController {
      * Get a feature flag by key
      */
     @Get("key/:key")
-    @Roles("view_system_settings", "manage_feature_flags")
     async getFlagByKey(@Param("key") key: string) {
         return this.flagService.getFlagByKey(key);
     }
@@ -45,107 +45,63 @@ export class AdminFeatureFlagController {
      * Create a new feature flag
      */
     @Post()
-    @Roles("manage_feature_flags")
     async createFlag(
         @Body() dto: FeatureFlagDto,
-        @CurrentUser() user: User
+        @User() user: UserModel
     ) {
-        return this.flagService.createFlag(dto, user.id, user.email);
+        return this.flagService.createFlag(dto, user.id);
     }
 
     /**
      * Update a feature flag
      */
     @Put(":id")
-    @Roles("manage_feature_flags")
     async updateFlag(
         @Param("id", ParseIntPipe) id: number,
-        @Body() body: UpdateFeatureFlagDto & { reason?: string },
-        @CurrentUser() user: User
+        @Body() dto: UpdateFeatureFlagDto,
+        @User() user: UserModel
     ) {
-        const { reason, ...dto } = body;
-        return this.flagService.updateFlag(id, dto, user.id, user.email, reason);
-    }
-
-    /**
-     * Enable a feature flag
-     */
-    @Post(":id/enable")
-    @Roles("manage_feature_flags")
-    async enableFlag(
-        @Param("id", ParseIntPipe) id: number,
-        @Body() body: { reason?: string },
-        @CurrentUser() user: User
-    ) {
-        return this.flagService.updateFlag(
-            id,
-            { isEnabled: true },
-            user.id,
-            user.email,
-            body.reason
-        );
-    }
-
-    /**
-     * Disable a feature flag
-     */
-    @Post(":id/disable")
-    @Roles("manage_feature_flags")
-    async disableFlag(
-        @Param("id", ParseIntPipe) id: number,
-        @Body() body: { reason?: string },
-        @CurrentUser() user: User
-    ) {
-        return this.flagService.updateFlag(
-            id,
-            { isEnabled: false },
-            user.id,
-            user.email,
-            body.reason
-        );
+        return this.flagService.updateFlag(id, dto, user.id);
     }
 
     /**
      * Delete a feature flag
      */
     @Delete(":id")
-    @Roles("manage_feature_flags")
     async deleteFlag(
         @Param("id", ParseIntPipe) id: number,
-        @CurrentUser() user: User
+        @User() user: UserModel
     ) {
-        await this.flagService.deleteFlag(id, user.id, user.email);
+        await this.flagService.deleteFlag(id, user.id);
         return { message: "Feature flag deleted successfully" };
     }
 
     /**
-     * Evaluate a feature flag for a specific context
+     * Enable a feature flag
      */
-    @Post("evaluate")
-    @Roles("view_system_settings", "manage_feature_flags")
-    async evaluateFlag(
-        @Body() body: { key: string; context: FeatureFlagEvaluationContext }
+    @Put(":id/enable")
+    async enableFlag(
+        @Param("id", ParseIntPipe) id: number,
+        @User() user: UserModel
     ) {
-        const result = await this.flagService.evaluateFlag(body.key, body.context);
-        return { key: body.key, enabled: result };
+        return this.flagService.updateFlag(id, { isEnabled: true }, user.id);
     }
 
     /**
-     * Bulk evaluate multiple feature flags
+     * Disable a feature flag
      */
-    @Post("evaluate/bulk")
-    @Roles("view_system_settings", "manage_feature_flags")
-    async evaluateFlags(
-        @Body() body: { keys: string[]; context: FeatureFlagEvaluationContext }
+    @Put(":id/disable")
+    async disableFlag(
+        @Param("id", ParseIntPipe) id: number,
+        @User() user: UserModel
     ) {
-        return this.flagService.evaluateFlags(body.keys, body.context);
+        return this.flagService.updateFlag(id, { isEnabled: false }, user.id);
     }
 
     /**
-     * Get audit log for a specific flag
+     * Get feature flag audit log
      */
-    @Get(":id/audit-log")
-    @Roles("view_system_settings", "manage_feature_flags")
+    @Get(":id/audit")
     async getFlagAuditLog(
         @Param("id", ParseIntPipe) id: number,
         @Query("limit", new ParseIntPipe({ optional: true })) limit?: number
@@ -154,13 +110,39 @@ export class AdminFeatureFlagController {
     }
 
     /**
-     * Get all audit logs
+     * Evaluate a feature flag for a specific context
      */
-    @Get("audit-log/all")
-    @Roles("view_system_settings", "manage_feature_flags")
-    async getAllAuditLogs(
-        @Query("limit", new ParseIntPipe({ optional: true })) limit?: number
+    @Post("evaluate/:key")
+    async evaluateFlag(
+        @Param("key") key: string,
+        @Body() context: FeatureFlagEvaluationContext
     ) {
-        return this.flagService.getAllAuditLogs(limit || 100);
+        const isEnabled = await this.flagService.evaluateFlag(key, context);
+        return { key, enabled: isEnabled, context };
+    }
+
+    /**
+     * Evaluate multiple feature flags at once
+     */
+    @Post("evaluate-batch")
+    async evaluateFlagsBatch(
+        @Body() body: { keys: string[]; context: FeatureFlagEvaluationContext }
+    ) {
+        const results = await this.flagService.evaluateFlags(body.keys, body.context);
+        return { flags: results, context: body.context };
+    }
+
+    /**
+     * Get feature flag statistics overview
+     */
+    @Get("statistics/overview")
+    async getFlagStatistics() {
+        const flags = await this.flagService.getAllFlags();
+        const enabledCount = flags.filter(f => f.isEnabled).length;
+        return {
+            total: flags.length,
+            enabled: enabledCount,
+            disabled: flags.length - enabledCount,
+        };
     }
 }

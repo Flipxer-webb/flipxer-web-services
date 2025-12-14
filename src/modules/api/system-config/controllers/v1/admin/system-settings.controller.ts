@@ -11,15 +11,17 @@ import {
 } from "@nestjs/common";
 import { SystemSettingsService } from "../../../services/system-settings.service";
 import { MaintenanceModeService } from "../../../services/maintenance-mode.service";
-import { JwtAuthGuard } from "@/modules/api/auth/guards";
-import { RolesGuard } from "@/modules/api/rbac/guards";
-import { Roles } from "@/modules/api/rbac/decorators";
-import { CurrentUser } from "@/modules/api/auth/decorators";
-import { User } from "@prisma/client";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+import { User } from "@/modules/api/user";
+import { User as UserModel, UserType } from "@prisma/client";
 import { SystemSettingDto, MaintenanceModeConfig } from "../../../types";
 
 @Controller("admin/system/settings")
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
+@UserTypes([UserType.ADMIN])
 export class AdminSystemSettingsController {
     constructor(
         private readonly settingsService: SystemSettingsService,
@@ -30,7 +32,6 @@ export class AdminSystemSettingsController {
      * Get all system settings
      */
     @Get()
-    @Roles("view_system_settings", "manage_system_settings")
     async getAllSettings() {
         return this.settingsService.getAllSettings();
     }
@@ -39,7 +40,6 @@ export class AdminSystemSettingsController {
      * Get a specific setting by key
      */
     @Get(":key")
-    @Roles("view_system_settings", "manage_system_settings")
     async getSetting(@Param("key") key: string) {
         const value = await this.settingsService.getSetting(key);
         return { key, value };
@@ -48,50 +48,42 @@ export class AdminSystemSettingsController {
     /**
      * Create or update a setting
      */
-    @Put(":key")
-    @Roles("manage_system_settings")
+    @Post()
     async setSetting(
-        @Param("key") key: string,
-        @Body() body: { value: any; description?: string },
-        @CurrentUser() user: User
+        @Body() dto: SystemSettingDto,
+        @User() user: UserModel
     ) {
-        await this.settingsService.setSetting(
-            { key, value: body.value, description: body.description },
-            user.id
-        );
-        return { message: "Setting updated successfully" };
+        await this.settingsService.setSetting(dto, user.id);
+        return { message: "Setting saved successfully" };
+    }
+
+    /**
+     * Bulk update settings
+     */
+    @Put("bulk")
+    async bulkUpdateSettings(
+        @Body() settings: SystemSettingDto[],
+        @User() user: UserModel
+    ) {
+        for (const setting of settings) {
+            await this.settingsService.setSetting(setting, user.id);
+        }
+        return { message: `${settings.length} settings updated successfully` };
     }
 
     /**
      * Delete a setting
      */
     @Delete(":key")
-    @Roles("manage_system_settings")
     async deleteSetting(@Param("key") key: string) {
         await this.settingsService.deleteSetting(key);
         return { message: "Setting deleted successfully" };
     }
 
     /**
-     * Bulk update settings
-     */
-    @Post("bulk")
-    @Roles("manage_system_settings")
-    async bulkUpdateSettings(
-        @Body() settings: SystemSettingDto[],
-        @CurrentUser() user: User
-    ) {
-        await this.settingsService.bulkUpdateSettings(settings, user.id);
-        return { message: `${settings.length} settings updated successfully` };
-    }
-
-    // === Maintenance Mode Endpoints ===
-
-    /**
      * Get current maintenance mode status
      */
     @Get("maintenance/status")
-    @Roles("view_system_settings", "manage_system_settings")
     async getMaintenanceStatus() {
         return this.maintenanceService.getMaintenanceConfig();
     }
@@ -100,15 +92,17 @@ export class AdminSystemSettingsController {
      * Enable maintenance mode
      */
     @Post("maintenance/enable")
-    @Roles("manage_system_settings")
-    async enableMaintenance(
+    async enableMaintenanceMode(
         @Body() body: { message: string; estimatedEndTime?: string; allowedIps?: string[] },
-        @CurrentUser() user: User
+        @User() user: UserModel
     ) {
         return this.maintenanceService.enableMaintenance(
             body.message,
             user.id,
-            { estimatedEndTime: body.estimatedEndTime, allowedIps: body.allowedIps }
+            {
+                estimatedEndTime: body.estimatedEndTime,
+                allowedIps: body.allowedIps,
+            }
         );
     }
 
@@ -116,20 +110,18 @@ export class AdminSystemSettingsController {
      * Disable maintenance mode
      */
     @Post("maintenance/disable")
-    @Roles("manage_system_settings")
-    async disableMaintenance(@CurrentUser() user: User) {
+    async disableMaintenanceMode(@User() user: UserModel) {
         return this.maintenanceService.disableMaintenance(user.id);
     }
 
     /**
      * Update maintenance mode configuration
      */
-    @Put("maintenance/config")
-    @Roles("manage_system_settings")
+    @Put("maintenance")
     async updateMaintenanceConfig(
-        @Body() body: Partial<MaintenanceModeConfig>,
-        @CurrentUser() user: User
+        @Body() config: Partial<MaintenanceModeConfig>,
+        @User() user: UserModel
     ) {
-        return this.maintenanceService.updateMaintenanceConfig(body, user.id);
+        return this.maintenanceService.updateMaintenanceConfig(config, user.id);
     }
 }

@@ -10,11 +10,12 @@ import {
     UseGuards,
 } from "@nestjs/common";
 import { LiquidityAlertService } from "../../../services/liquidity-alert.service";
-import { JwtAuthGuard } from "@/modules/api/auth/guards";
-import { RolesGuard } from "@/modules/api/rbac/guards";
-import { Roles } from "@/modules/api/rbac/decorators";
-import { CurrentUser } from "@/modules/api/auth/decorators";
-import { User } from "@prisma/client";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+import { User } from "@/modules/api/user";
+import { User as UserModel, UserType } from "@prisma/client";
 import { 
     CreateLiquidityAlertDto, 
     ResolveLiquidityAlertDto, 
@@ -22,7 +23,8 @@ import {
 } from "../../../types";
 
 @Controller("admin/operations/liquidity-alerts")
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
+@UserTypes([UserType.ADMIN])
 export class AdminLiquidityAlertController {
     constructor(private readonly alertService: LiquidityAlertService) {}
 
@@ -30,7 +32,6 @@ export class AdminLiquidityAlertController {
      * Get all liquidity alerts with filters
      */
     @Get()
-    @Roles("view_wallets", "manage_wallets")
     async getAlerts(
         @Query("status") status?: string,
         @Query("currency") currency?: string,
@@ -57,7 +58,6 @@ export class AdminLiquidityAlertController {
      * Get pending alerts summary
      */
     @Get("summary/pending")
-    @Roles("view_wallets", "manage_wallets")
     async getPendingAlertsSummary() {
         return this.alertService.getPendingAlertsSummary();
     }
@@ -66,7 +66,6 @@ export class AdminLiquidityAlertController {
      * Get alert statistics
      */
     @Get("statistics")
-    @Roles("view_wallets", "manage_wallets", "view_analytics")
     async getAlertStatistics(
         @Query("days", new ParseIntPipe({ optional: true })) days?: number
     ) {
@@ -77,7 +76,6 @@ export class AdminLiquidityAlertController {
      * Create a new liquidity alert manually
      */
     @Post()
-    @Roles("manage_wallets")
     async createAlert(@Body() dto: CreateLiquidityAlertDto) {
         return this.alertService.createAlert(dto);
     }
@@ -86,7 +84,6 @@ export class AdminLiquidityAlertController {
      * Run automated liquidity check
      */
     @Post("check")
-    @Roles("manage_wallets")
     async runLiquidityCheck() {
         return this.alertService.runLiquidityCheck();
     }
@@ -95,10 +92,9 @@ export class AdminLiquidityAlertController {
      * Acknowledge an alert
      */
     @Put(":id/acknowledge")
-    @Roles("manage_wallets")
     async acknowledgeAlert(
         @Param("id", ParseIntPipe) id: number,
-        @CurrentUser() user: User
+        @User() user: UserModel
     ) {
         return this.alertService.acknowledgeAlert(id, user.id);
     }
@@ -107,10 +103,9 @@ export class AdminLiquidityAlertController {
      * Resolve an alert
      */
     @Put(":id/resolve")
-    @Roles("manage_wallets")
     async resolveAlert(
         @Param("id", ParseIntPipe) id: number,
-        @CurrentUser() user: User,
+        @User() user: UserModel,
         @Body() dto: ResolveLiquidityAlertDto
     ) {
         return this.alertService.resolveAlert(id, user.id, dto);
@@ -120,7 +115,6 @@ export class AdminLiquidityAlertController {
      * Escalate an alert
      */
     @Put(":id/escalate")
-    @Roles("manage_wallets")
     async escalateAlert(@Param("id", ParseIntPipe) id: number) {
         return this.alertService.escalateAlert(id);
     }

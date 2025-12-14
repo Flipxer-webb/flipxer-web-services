@@ -29,7 +29,7 @@ export class MaintenanceModeService {
             where: { key: "maintenance_mode" },
         });
 
-        const config: MaintenanceModeConfig = setting?.value as MaintenanceModeConfig || {
+        const config: MaintenanceModeConfig = (setting?.value as unknown as MaintenanceModeConfig) || {
             enabled: false,
             message: "We are currently performing maintenance. Please try again later.",
             bypassAdmins: true,

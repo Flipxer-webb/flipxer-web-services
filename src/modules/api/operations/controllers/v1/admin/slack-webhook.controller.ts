@@ -10,13 +10,16 @@ import {
     UseGuards,
 } from "@nestjs/common";
 import { SlackWebhookService } from "../../../services/slack-webhook.service";
-import { JwtAuthGuard } from "@/modules/api/auth/guards";
-import { RolesGuard } from "@/modules/api/rbac/guards";
-import { Roles } from "@/modules/api/rbac/decorators";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserType } from "@prisma/client";
 import { CreateSlackWebhookDto, UpdateSlackWebhookDto } from "../../../types";
 
 @Controller("admin/operations/slack-webhooks")
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
+@UserTypes([UserType.ADMIN])
 export class AdminSlackWebhookController {
     constructor(private readonly slackService: SlackWebhookService) {}
 
@@ -24,7 +27,6 @@ export class AdminSlackWebhookController {
      * Get all Slack webhooks
      */
     @Get()
-    @Roles("view_system_settings", "manage_system_settings")
     async getWebhooks() {
         return this.slackService.getWebhooks();
     }
@@ -33,7 +35,6 @@ export class AdminSlackWebhookController {
      * Get a specific Slack webhook
      */
     @Get(":id")
-    @Roles("view_system_settings", "manage_system_settings")
     async getWebhook(@Param("id", ParseIntPipe) id: number) {
         return this.slackService.getWebhookById(id);
     }
@@ -42,7 +43,6 @@ export class AdminSlackWebhookController {
      * Create a new Slack webhook
      */
     @Post()
-    @Roles("manage_system_settings")
     async createWebhook(@Body() dto: CreateSlackWebhookDto) {
         return this.slackService.createWebhook(dto);
     }
@@ -51,7 +51,6 @@ export class AdminSlackWebhookController {
      * Update a Slack webhook
      */
     @Put(":id")
-    @Roles("manage_system_settings")
     async updateWebhook(
         @Param("id", ParseIntPipe) id: number,
         @Body() dto: UpdateSlackWebhookDto
@@ -63,16 +62,15 @@ export class AdminSlackWebhookController {
      * Delete a Slack webhook
      */
     @Delete(":id")
-    @Roles("manage_system_settings")
     async deleteWebhook(@Param("id", ParseIntPipe) id: number) {
-        return this.slackService.deleteWebhook(id);
+        await this.slackService.deleteWebhook(id);
+        return { message: "Webhook deleted successfully" };
     }
 
     /**
      * Test a Slack webhook
      */
     @Post(":id/test")
-    @Roles("manage_system_settings")
     async testWebhook(@Param("id", ParseIntPipe) id: number) {
         return this.slackService.testWebhook(id);
     }
