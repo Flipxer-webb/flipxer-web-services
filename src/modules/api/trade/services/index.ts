@@ -2667,31 +2667,41 @@ export class TradingService {
         let quidaxDeposits = null;
         let quidaxError = null;
 
+        // Get wallet balance
         try {
-            // Get wallet balance
             const wallets = await this.quidaxService.getUserWalletList({
                 user_id: user.cryptoSubAccountId,
             });
-            this.logger.log(`Quidax wallets response: ${JSON.stringify(wallets?.data?.length)} wallets`);
+            this.logger.log(`Quidax wallets response: ${wallets?.data?.length} wallets`);
             quidaxWallet = wallets?.data?.find(w => w.currency?.toLowerCase() === currency.toLowerCase());
+        } catch (e) {
+            this.logger.error(`Error fetching wallets: ${e.message}`);
+            quidaxError = e.message;
+        }
 
-            // Get deposit address
+        // Get deposit address (don't let this block deposits fetch)
+        try {
             quidaxAddress = await this.quidaxService.createPaymentAddress({
                 user_id: user.cryptoSubAccountId,
                 currency: currency.toLowerCase() as any,
             });
             this.logger.log(`Quidax address response: ${JSON.stringify(quidaxAddress?.data)}`);
+        } catch (e) {
+            this.logger.warn(`Address fetch warning: ${e.message}`);
+            // Not a critical error - address may already exist
+        }
 
-            // Get deposits
+        // Get deposits - this is the important one
+        try {
             const deposits = await this.quidaxService.fetchDeposits({
                 user_id: user.cryptoSubAccountId,
                 currency: currency.toLowerCase() as any,
             });
-            this.logger.log(`Quidax deposits response: ${JSON.stringify(deposits?.data?.length)} deposits`);
+            this.logger.log(`Quidax deposits response: ${deposits?.data?.length} deposits`);
             quidaxDeposits = deposits?.data || [];
         } catch (e) {
-            this.logger.error(`Debug wallet error: ${e.message}`);
-            quidaxError = e.message;
+            this.logger.error(`Error fetching deposits: ${e.message}`);
+            if (!quidaxError) quidaxError = e.message;
         }
 
         return {
