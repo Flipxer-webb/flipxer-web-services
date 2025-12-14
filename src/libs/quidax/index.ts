@@ -1025,11 +1025,14 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.FetchDepositsResponse>> {
         try {
             const params: Record<string, any> = {};
+            // Currency is a query param, not part of the path
+            if (options.currency) params.currency = options.currency;
             if (options.state) params.state = options.state;
             if (options.order_by) params.order_by = options.order_by;
 
             const requestOptions: AxiosRequestConfig = {
-                url: `/users/${options.user_id}/wallets/${options.currency}/deposits`,
+                // Correct endpoint: /users/{user_id}/deposits?currency={currency}
+                url: `/users/${options.user_id}/deposits`,
                 method: "GET",
                 params,
             };
@@ -1063,7 +1066,8 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.FetchDepositResponse>> {
         try {
             const requestOptions: AxiosRequestConfig = {
-                url: `/users/${options.user_id}/wallets/${options.currency}/deposits/${options.deposit_id}`,
+                // Correct endpoint: /users/{user_id}/deposits/{deposit_id}
+                url: `/users/${options.user_id}/deposits/${options.deposit_id}`,
                 method: "GET",
             };
             const resp = await this.mainAxios<
