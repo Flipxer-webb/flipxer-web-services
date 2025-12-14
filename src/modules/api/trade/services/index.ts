@@ -2674,7 +2674,7 @@ export class TradingService {
             quidaxWallet = wallets?.data?.find(w => w.currency?.toLowerCase() === currency.toLowerCase());
 
             // Get deposit address
-            quidaxAddress = await this.quidaxService.createWalletAddress({
+            quidaxAddress = await this.quidaxService.createPaymentAddress({
                 user_id: user.cryptoSubAccountId,
                 currency: currency.toLowerCase() as any,
             });
