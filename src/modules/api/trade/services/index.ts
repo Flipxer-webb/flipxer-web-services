@@ -2665,12 +2665,14 @@ export class TradingService {
         let quidaxWallet = null;
         let quidaxAddress = null;
         let quidaxDeposits = null;
+        let quidaxError = null;
 
         try {
             // Get wallet balance
             const wallets = await this.quidaxService.getUserWalletList({
                 user_id: user.cryptoSubAccountId,
             });
+            this.logger.log(`Quidax wallets response: ${JSON.stringify(wallets?.data?.length)} wallets`);
             quidaxWallet = wallets?.data?.find(w => w.currency?.toLowerCase() === currency.toLowerCase());
 
             // Get deposit address
@@ -2678,15 +2680,18 @@ export class TradingService {
                 user_id: user.cryptoSubAccountId,
                 currency: currency.toLowerCase() as any,
             });
+            this.logger.log(`Quidax address response: ${JSON.stringify(quidaxAddress?.data)}`);
 
             // Get deposits
             const deposits = await this.quidaxService.fetchDeposits({
                 user_id: user.cryptoSubAccountId,
                 currency: currency.toLowerCase() as any,
             });
+            this.logger.log(`Quidax deposits response: ${JSON.stringify(deposits?.data?.length)} deposits`);
             quidaxDeposits = deposits?.data || [];
         } catch (e) {
             this.logger.error(`Debug wallet error: ${e.message}`);
+            quidaxError = e.message;
         }
 
         return {
@@ -2696,6 +2701,7 @@ export class TradingService {
                 wallet: quidaxWallet || null,
                 address: quidaxAddress?.data || null,
                 deposits: quidaxDeposits,
+                error: quidaxError,
             },
         };
     }
