@@ -354,6 +354,65 @@ export class ReportsService {
     }
 
     /**
+     * Preview a report (returns summary and sample data)
+     */
+    async previewReport(config: ReportConfig): Promise<{
+        totalRecords: number;
+        estimatedSize: string;
+        sampleData: any[];
+        columns: string[];
+    }> {
+        this.logger.log(`Generating preview for ${config.type} report`);
+
+        let data: any[];
+        let columns: string[];
+
+        switch (config.type) {
+            case "transactions":
+                data = await this.getTransactionData(config.filters || {});
+                columns = ["id", "date", "userEmail", "userName", "orderCategory", "fromCurrency", "toCurrency", "amount", "fee", "total", "status"];
+                break;
+            case "users":
+                data = await this.getUserData(config.filters || {});
+                columns = ["id", "email", "firstName", "lastName", "createdAt", "verificationTier", "country", "status"];
+                break;
+            case "revenue":
+                data = await this.getRevenueData(config.filters || {});
+                columns = ["date", "category", "currency", "transactionCount", "totalVolume", "totalFees"];
+                break;
+            case "tax":
+                data = await this.getTaxData(config.filters || {});
+                columns = ["userId", "userEmail", "userName", "totalTransactions", "totalVolume", "totalFees"];
+                break;
+            default:
+                throw new Error(`Unknown report type: ${config.type}`);
+        }
+
+        // Estimate size (rough calculation)
+        const sampleSize = Math.min(10, data.length);
+        const sampleData = data.slice(0, sampleSize);
+        const sampleJson = JSON.stringify(sampleData);
+        const avgRowSize = sampleSize > 0 ? sampleJson.length / sampleSize : 100;
+        const estimatedBytes = avgRowSize * data.length;
+        
+        let estimatedSize: string;
+        if (estimatedBytes < 1024) {
+            estimatedSize = `${estimatedBytes.toFixed(0)} B`;
+        } else if (estimatedBytes < 1024 * 1024) {
+            estimatedSize = `${(estimatedBytes / 1024).toFixed(1)} KB`;
+        } else {
+            estimatedSize = `${(estimatedBytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        return {
+            totalRecords: data.length,
+            estimatedSize,
+            sampleData,
+            columns,
+        };
+    }
+
+    /**
      * Get available report types
      */
     getAvailableReports() {

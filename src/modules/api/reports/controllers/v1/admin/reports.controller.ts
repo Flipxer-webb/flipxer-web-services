@@ -14,6 +14,7 @@ import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { ReportConfig, ReportFilters } from "../../../types";
+import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/reports")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -26,11 +27,61 @@ export class AdminReportsController {
      */
     @Get()
     async getAvailableReports() {
-        return this.reportsService.getAvailableReports();
+        const reports = await this.reportsService.getAvailableReports();
+        return buildResponse({
+            message: "Available reports retrieved successfully",
+            data: reports,
+        });
     }
 
     /**
-     * Generate and download a report
+     * Preview a report (returns summary and sample data)
+     */
+    @Post("preview")
+    async previewReport(@Body() config: ReportConfig) {
+        // Parse date strings to Date objects if present
+        if (config.filters?.startDate && typeof config.filters.startDate === "string") {
+            config.filters.startDate = new Date(config.filters.startDate);
+        }
+        if (config.filters?.endDate && typeof config.filters.endDate === "string") {
+            config.filters.endDate = new Date(config.filters.endDate);
+        }
+
+        const preview = await this.reportsService.previewReport(config);
+        return buildResponse({
+            message: "Report preview generated successfully",
+            data: preview,
+        });
+    }
+
+    /**
+     * Generate and download a report (main endpoint for frontend)
+     */
+    @Post()
+    async downloadReport(
+        @Body() config: ReportConfig,
+        @Res() res: Response
+    ) {
+        // Parse date strings to Date objects if present
+        if (config.filters?.startDate && typeof config.filters.startDate === "string") {
+            config.filters.startDate = new Date(config.filters.startDate);
+        }
+        if (config.filters?.endDate && typeof config.filters.endDate === "string") {
+            config.filters.endDate = new Date(config.filters.endDate);
+        }
+
+        const result = await this.reportsService.generateReport(config);
+
+        res.setHeader("Content-Type", result.contentType);
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${result.filename}"`
+        );
+        res.send(result.data);
+    }
+
+    /**
+     * Generate and download a report (alternate endpoint)
      */
     @Post("generate")
     async generateReport(
