@@ -289,15 +289,15 @@ export class WithdrawerRequestDto {
     @IsPositive()
     amount: number;
 
-    @ApiProperty({ description: "notes for the recipient" })
-    @IsNotEmpty()
+    @ApiProperty({ description: "notes for the recipient", required: false })
+    @IsOptional()
     @IsString()
-    transaction_note: string;
+    transaction_note?: string;
 
-    @ApiProperty({ description: "narration for the recipient" })
-    @IsNotEmpty()
+    @ApiProperty({ description: "narration for the recipient", required: false })
+    @IsOptional()
     @IsString()
-    narration: string;
+    narration?: string;
 
     @ApiProperty({ description: "crypto address" })
     @IsNotEmpty()
@@ -317,6 +317,11 @@ export class WithdrawerRequestDto {
     @IsOptional()
     @IsString()
     destinationTag?: string; //destination tag
+
+    @ApiProperty({ description: "2FA verification code", required: false })
+    @IsOptional()
+    @IsString()
+    twoFactorCode?: string;
 }
 
 export class CancelWithdrawerRequestDto {
