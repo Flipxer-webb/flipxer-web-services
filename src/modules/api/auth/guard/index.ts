@@ -154,21 +154,34 @@ export class EnabledAccountGuard implements CanActivate {
 
 @Injectable()
 export class QuidaxWebhookGuard implements CanActivate {
+    private readonly logger = new Logger("QuidaxWebhookGuard");
+
     canActivate(
         context: ExecutionContext
     ): boolean | Promise<boolean> | Observable<boolean> {
         const request = context
             .switchToHttp()
             .getRequest() as RequestFromQuidax;
-        const [timestampSection, signatureSection] =
-            request.headers["quidax-signature"].split(",");
+
+        const quidaxSignature = request.headers["quidax-signature"];
+        
+        if (!quidaxSignature) {
+            this.logger.error("[WEBHOOK AUTH] Missing quidax-signature header");
+            this.logger.debug(`[WEBHOOK AUTH] Headers: ${JSON.stringify(request.headers)}`);
+            return false;
+        }
+
+        const [timestampSection, signatureSection] = quidaxSignature.split(",");
+
+        if (!timestampSection || !signatureSection) {
+            this.logger.error(`[WEBHOOK AUTH] Invalid signature format: ${quidaxSignature}`);
+            return false;
+        }
 
         const [timestampPrefix, timestamp] = timestampSection.split("=");
-
         const [signaturePrefix, signature] = signatureSection.split("=");
 
         const requestBody = JSON.stringify(request.body);
-
         const payload = `${timestamp}.${requestBody}`;
 
         const created_signature = crypto
@@ -178,8 +191,11 @@ export class QuidaxWebhookGuard implements CanActivate {
             .toString("hex");
 
         if (signature === created_signature) {
+            this.logger.log(`[WEBHOOK AUTH] Signature verified for event: ${request.body?.event}`);
             return true;
         } else {
+            this.logger.error(`[WEBHOOK AUTH] Signature mismatch for event: ${request.body?.event}`);
+            this.logger.debug(`[WEBHOOK AUTH] Expected: ${created_signature}, Received: ${signature}`);
             return false;
         }
     }

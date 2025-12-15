@@ -116,9 +116,9 @@ export class ManageOrdersSchedulerService {
         }
     }
 
-    @Cron("0 */1 * * *", { timeZone: "Africa/Lagos" })
+    @Cron("*/5 * * * *", { timeZone: "Africa/Lagos" })
     async verifyWithdrawerTransaction() {
-        this.logger.debug("Cron job triggered!");
+        this.logger.debug("Withdrawal sync cron job triggered!");
 
         // Use the mutex to ensure only one execution at a time
         const release = await this.mutex.acquire();
