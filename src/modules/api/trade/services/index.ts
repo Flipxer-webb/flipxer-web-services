@@ -256,6 +256,44 @@ export class TradingService {
         return null;
     }
 
+    private async syncWallet(userId: number, currency: string) {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: { cryptoSubAccountId: true },
+            });
+
+            if (!user?.cryptoSubAccountId) return;
+
+            const { data } = await this.quidaxService.getUserWallet({
+                user_id: user.cryptoSubAccountId,
+                currency: currency.toLowerCase(),
+            });
+
+            if (data) {
+                await this.prisma.assetWallet.update({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: userId,
+                            assetCurrency: currency.toUpperCase(),
+                        },
+                    },
+                    data: {
+                        balance: data.balance,
+                        locked: data.locked,
+                        staked: data.staked,
+                        convertedBalance: data.converted_balance,
+                        updatedAt: new Date(),
+                    },
+                });
+            }
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync wallet for ${currency}: ${error.message}`
+            );
+        }
+    }
+
     private extractDepositEnabledNetworkMap(
         wallet: GetUserWalletResponse
     ): Map<NetworkTypes, string> {
@@ -1085,6 +1123,9 @@ export class TradingService {
             },
         });
 
+        // Sync wallet with Quidax to ensure balance is up to date
+        await this.syncWallet(user.id, dto.asset);
+
         // Emit wallet update for sell order (balance changes with sell)
         this.wsGateway.notifyWalletUpdate(user.id);
 
@@ -1432,6 +1473,9 @@ export class TradingService {
             },
         });
 
+        // Sync wallet with Quidax to ensure balance is up to date
+        await this.syncWallet(user.id, dto.currency);
+
         // Emit wallet update since balance changes immediately with send
         this.wsGateway.notifyWalletUpdate(user.id);
 
@@ -1616,6 +1660,9 @@ export class TradingService {
             },
         });
 
+        // Sync wallet with Quidax to ensure balance is up to date
+        await this.syncWallet(user.id, updatedOrder.currency);
+
         // Emit wallet update to refresh balance after cancellation
         this.wsGateway.notifyWalletUpdate(user.id);
 
@@ -1697,6 +1744,12 @@ export class TradingService {
                     updatedAt: new Date(),
                 },
             });
+
+            // Sync both wallets involved in the swap
+            await Promise.all([
+                this.syncWallet(user.id, swapInfo.data.from_currency),
+                this.syncWallet(user.id, swapInfo.data.to_currency),
+            ]);
 
             // Emit wallet update for swap (balance changes with swap)
             this.wsGateway.notifyWalletUpdate(user.id);
