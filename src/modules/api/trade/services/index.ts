@@ -2552,6 +2552,9 @@ export class TradingService {
                         // Normalize the status
                         const normalizedStatus = this.normalizeDepositStatus(deposit.status || deposit.state);
 
+                        // Log the deposit data for debugging timestamps
+                        this.logger.log(`Deposit ${deposit.id} timestamps: created_at=${deposit.created_at}, done_at=${deposit.done_at}, completed_at=${deposit.completed_at}`);
+
                         // Get amount in fiat for record
                         const amtFiat = await this.getAmountInNaira(
                             currency,
