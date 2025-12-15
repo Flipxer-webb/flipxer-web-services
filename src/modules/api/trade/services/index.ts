@@ -1761,7 +1761,8 @@ export class TradingService {
         );
         const transactionId = generateId({ type: "transaction" });
         if (swapInfo.data) {
-            this.prisma.$transaction(
+            // CRITICAL: Must await the transaction to ensure order is created before continuing
+            await this.prisma.$transaction(
                 async (tx) => {
                     await tx.order.create({
                         data: {
@@ -1810,14 +1811,10 @@ export class TradingService {
                 },
             });
 
-            // Sync both wallets involved in the swap
-            await Promise.all([
-                this.syncWallet(user.id, swapInfo.data.from_currency),
-                this.syncWallet(user.id, swapInfo.data.to_currency),
-            ]);
-
-            // Emit wallet update for swap (balance changes with swap)
-            this.wsGateway.notifyWalletUpdate(user.id);
+            // NOTE: Do NOT sync wallets immediately after swap confirmation
+            // The swap is still processing on Quidax - syncing now would show incorrect locked balances
+            // The webhook (swapTransactionHandler) will sync wallets when the swap actually completes
+            // This prevents the "balance goes down then up" UI issue
 
             // Create and send notification for processing
             const message = `Your swap of ${swapInfo.data.from_amount} ${swapInfo.data.from_currency.toUpperCase()} to ${swapInfo.data.to_currency.toUpperCase()} is processing. Transaction ID: ${transactionId}`;

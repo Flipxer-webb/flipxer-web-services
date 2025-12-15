@@ -1182,20 +1182,27 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-        // Create session for user logins
+        // Create session for user logins with error handling
+        // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
         if (loginPlatform === LoginPlatform.USER) {
-            const sessionInfo: SessionInfo = {
-                deviceName: options.deviceName,
-                deviceType: options.deviceType,
-                browser: options.browser,
-                os: options.os,
-                ipAddress: ip,
-            };
-            sessionId = await this.sessionService.createSession(
-                user.id,
-                sessionInfo
-            );
+            try {
+                const sessionInfo: SessionInfo = {
+                    deviceName: options.deviceName,
+                    deviceType: options.deviceType,
+                    browser: options.browser,
+                    os: options.os,
+                    ipAddress: ip,
+                };
+                sessionId = await this.sessionService.createSession(
+                    user.id,
+                    sessionInfo
+                );
+            } catch (sessionError) {
+                // Log the error but don't fail the login
+                Logger.error(`Failed to create session for user ${user.id}: ${sessionError.message}`);
+                // Session creation is non-critical, login should still succeed
+            }
         }
 
         await this.prisma.user.update({
@@ -1354,20 +1361,27 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-        // Create session for user logins (2FA complete)
+        // Create session for user logins (2FA complete) with error handling
+        // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
         if (payload.platform === LoginPlatform.USER) {
-            const sessionInfo: SessionInfo = {
-                deviceName: dto.deviceName,
-                deviceType: dto.deviceType,
-                browser: dto.browser,
-                os: dto.os,
-                ipAddress: ip,
-            };
-            sessionId = await this.sessionService.createSession(
-                user.id,
-                sessionInfo
-            );
+            try {
+                const sessionInfo: SessionInfo = {
+                    deviceName: dto.deviceName,
+                    deviceType: dto.deviceType,
+                    browser: dto.browser,
+                    os: dto.os,
+                    ipAddress: ip,
+                };
+                sessionId = await this.sessionService.createSession(
+                    user.id,
+                    sessionInfo
+                );
+            } catch (sessionError) {
+                // Log the error but don't fail the login
+                Logger.error(`Failed to create 2FA session for user ${user.id}: ${sessionError.message}`);
+                // Session creation is non-critical, login should still succeed
+            }
         }
 
         await this.prisma.user.update({

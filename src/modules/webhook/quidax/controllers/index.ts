@@ -1,7 +1,8 @@
-import { QuidaxWebhookGuard } from "@/modules/api/auth/guard";
+import { QuidaxWebhookGuard, AuthGuard } from "@/modules/api/auth/guard";
 import {
     Body,
     Controller,
+    Get,
     Post,
     Res,
     UseGuards,
@@ -11,8 +12,10 @@ import {
 import { Response } from "express";
 import { QuidaxWebhookEvent } from "../events";
 import { EventBody } from "../interfaces";
+import { QuidaxWebhookService } from "../services";
+import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 
-@UseGuards(QuidaxWebhookGuard)
+@ApiTags("Webhooks")
 @Controller({
     path: "quidax",
     version: VERSION_NEUTRAL,
@@ -20,8 +23,12 @@ import { EventBody } from "../interfaces";
 export class QuidaxWebhookController {
     private readonly logger = new Logger("QuidaxWebhook");
     
-    constructor(private readonly quidaxWebhookEvent: QuidaxWebhookEvent) {}
+    constructor(
+        private readonly quidaxWebhookEvent: QuidaxWebhookEvent,
+        private readonly quidaxWebhookService: QuidaxWebhookService,
+    ) {}
 
+    @UseGuards(QuidaxWebhookGuard)
     @Post()
     async processWebhook(@Body() eventBody: EventBody, @Res() res: Response) {
         // Log all incoming webhooks with detailed information
@@ -36,5 +43,17 @@ export class QuidaxWebhookController {
             this.logger.error(`[WEBHOOK ERROR] Event: ${eventBody.event} - Error: ${error.message}`);
             res.sendStatus(500);
         }
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth()
+    @Get("metrics")
+    @ApiOperation({ summary: "Get webhook processing metrics (Admin only)" })
+    getMetrics() {
+        return {
+            success: true,
+            message: "Webhook metrics retrieved",
+            data: this.quidaxWebhookService.getMetrics(),
+        };
     }
 }

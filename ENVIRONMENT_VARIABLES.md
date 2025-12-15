@@ -79,10 +79,18 @@ Complete reference for all environment variables used in Flipxer Web Services.
 
 ### `DATABASE_URL` ⚠️
 - **Type**: PostgreSQL connection string
-- **Format**: `postgresql://USERNAME:PASSWORD@HOST:PORT/DATABASE?sslmode=require`
+- **Format**: `postgresql://USERNAME:PASSWORD@HOST:PORT/DATABASE?sslmode=require&connection_limit=10&pool_timeout=30`
 - **Description**: Main database connection
-- **Example**: `postgresql://user:pass@db.example.com:5432/flipxer_prod?sslmode=require`
+- **Example**: `postgresql://user:pass@db.example.com:5432/flipxer_prod?sslmode=require&connection_limit=10&pool_timeout=30`
 - **Important**: Always use `sslmode=require` in production!
+- **Connection Pool Parameters** (recommended for stability):
+  - `connection_limit=10`: Maximum number of connections in the pool (adjust based on server capacity)
+  - `pool_timeout=30`: Maximum time (seconds) to wait for a connection from the pool
+  - `connect_timeout=10`: Maximum time (seconds) to wait for initial connection
+- **Pool Sizing Guide**:
+  - Development: `connection_limit=5`
+  - Production (small): `connection_limit=10`
+  - Production (high traffic): `connection_limit=20` (ensure DB supports this)
 
 ### `SHADOW_DATABASE_URL` ⚠️
 - **Type**: PostgreSQL connection string

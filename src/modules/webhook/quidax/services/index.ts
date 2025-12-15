@@ -14,19 +14,104 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingService } from "@/modules/api/trade/services";
 import { OrderStatus } from "@prisma/client";
 
+interface WebhookMetrics {
+    totalReceived: number;
+    successfullyProcessed: number;
+    failed: number;
+    byEventType: Record<string, { received: number; processed: number; failed: number; avgProcessingMs: number }>;
+    lastEventAt: Date | null;
+    lastErrorAt: Date | null;
+    lastError: string | null;
+}
+
 @Injectable()
 export class QuidaxWebhookService implements QuidaxWebhook {
     private readonly logger = new Logger("QuidaxWebhookService");
+    
+    // Webhook metrics for monitoring
+    private metrics: WebhookMetrics = {
+        totalReceived: 0,
+        successfullyProcessed: 0,
+        failed: 0,
+        byEventType: {},
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastError: null,
+    };
     
     constructor(
         private prisma: PrismaService,
         private tradingService: TradingService
     ) {}
 
+    /**
+     * Get webhook processing metrics for monitoring
+     */
+    getMetrics(): WebhookMetrics {
+        return { ...this.metrics };
+    }
+
+    /**
+     * Reset metrics (useful for testing or periodic resets)
+     */
+    resetMetrics(): void {
+        this.metrics = {
+            totalReceived: 0,
+            successfullyProcessed: 0,
+            failed: 0,
+            byEventType: {},
+            lastEventAt: null,
+            lastErrorAt: null,
+            lastError: null,
+        };
+    }
+
+    private trackMetric(eventType: string, processingTimeMs: number, success: boolean, error?: string): void {
+        this.metrics.totalReceived++;
+        this.metrics.lastEventAt = new Date();
+        
+        if (success) {
+            this.metrics.successfullyProcessed++;
+        } else {
+            this.metrics.failed++;
+            this.metrics.lastErrorAt = new Date();
+            this.metrics.lastError = error || "Unknown error";
+        }
+
+        if (!this.metrics.byEventType[eventType]) {
+            this.metrics.byEventType[eventType] = {
+                received: 0,
+                processed: 0,
+                failed: 0,
+                avgProcessingMs: 0,
+            };
+        }
+
+        const eventMetric = this.metrics.byEventType[eventType];
+        eventMetric.received++;
+        
+        if (success) {
+            eventMetric.processed++;
+            // Rolling average for processing time
+            eventMetric.avgProcessingMs = 
+                (eventMetric.avgProcessingMs * (eventMetric.processed - 1) + processingTimeMs) / eventMetric.processed;
+        } else {
+            eventMetric.failed++;
+        }
+    }
+
     async processWebhookEvent(eventBody: EventBody) {
+        const startTime = Date.now();
+        const eventType = eventBody.event;
+        
+        // Log webhook receipt with full context for debugging
+        this.logger.log(
+            `[WEBHOOK_RECEIVED] Event: ${eventType} | ` +
+            `Timestamp: ${new Date().toISOString()} | ` +
+            `Data ID: ${(eventBody.data as any)?.id || 'N/A'}`
+        );
+        
         try {
-            this.logger.log(`[HANDLER] Processing event: ${eventBody.event}`);
-            
             switch (eventBody.event) {
                 case Event.WalletAddressGenerated: {
                     await this.walletAddressGeneratedHandler(
@@ -111,11 +196,33 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     break;
 
                 default:
-                    this.logger.warn(`[HANDLER] Unhandled event type: ${eventBody.event}`);
+                    this.logger.warn(`[WEBHOOK_UNHANDLED] Unhandled event type: ${eventType}`);
                     break;
             }
+            
+            // Track successful processing
+            const processingTime = Date.now() - startTime;
+            this.trackMetric(eventType, processingTime, true);
+            
+            this.logger.log(
+                `[WEBHOOK_PROCESSED] Event: ${eventType} | ` +
+                `Processing time: ${processingTime}ms | ` +
+                `Total processed: ${this.metrics.successfullyProcessed}`
+            );
         } catch (error) {
-            this.logger.error(`[HANDLER] Error processing event ${eventBody.event}: ${error.message}`, error.stack);
+            const processingTime = Date.now() - startTime;
+            this.trackMetric(eventType, processingTime, false, error.message);
+            
+            this.logger.error(
+                `[WEBHOOK_ERROR] Event: ${eventType} | ` +
+                `Error: ${error.message} | ` +
+                `Processing time: ${processingTime}ms | ` +
+                `Total failed: ${this.metrics.failed}`,
+                error.stack
+            );
+            
+            // Re-throw if you want the webhook endpoint to return an error status
+            // For now, we swallow the error to acknowledge receipt to Quidax
         }
     }
 
