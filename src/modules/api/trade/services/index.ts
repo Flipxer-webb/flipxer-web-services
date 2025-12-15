@@ -1347,6 +1347,7 @@ export class TradingService {
             fund_uid: dto.recipientWalletAddress, //receiving wallet address
             fund_uid2: dto.destinationTag, // destination tag
             reference: reference,
+            network: dto.network, // blockchain network for the transaction
         });
 
         const amtFiat = await this.getAmountInNaira(
