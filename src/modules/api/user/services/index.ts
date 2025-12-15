@@ -169,18 +169,16 @@ export class UserService {
         });
 
         // Calculate totals in USD
+        // NOTE: rateAtConversion is stored in NGN (Naira), NOT USD!
+        // We must use the current USD rate instead
         let usedToday = 0;
         for (const order of orders) {
-            if (order.amount) {
-                let usdAmount = 0;
-                if (order.rateAtConversion) {
-                    usdAmount = order.amount * order.rateAtConversion;
-                } else if (order.currency) {
-                    const rate = await this.coinGeckoCacheService.getPriceInUSD(
-                        order.currency.toLowerCase() as SupportedAssets
-                    );
-                    usdAmount = order.amount * (rate || 0);
-                }
+            if (order.amount && order.currency) {
+                // Always use current USD rate - rateAtConversion is in NGN!
+                const rate = await this.coinGeckoCacheService.getPriceInUSD(
+                    order.currency.toLowerCase() as SupportedAssets
+                );
+                const usdAmount = order.amount * (rate || 0);
                 usedToday += usdAmount;
             }
         }

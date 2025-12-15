@@ -147,12 +147,14 @@ export class TransactionService {
         }
 
         // Calculate daily total (last 24 hours)
+        // NOTE: rateAtConversion is stored in NGN (Naira), NOT USD!
+        // We must use the current USD rate from rateCache instead
         let currentDailyTotal = 0;
         for (const order of orders) {
-            if (order.createdAt >= oneDayAgo && order.amount) {
-                const usdAmount = order.rateAtConversion
-                    ? order.amount * order.rateAtConversion
-                    : order.amount * rateCache[order.currency];
+            if (order.createdAt >= oneDayAgo && order.amount && order.currency) {
+                // Always use current USD rate - rateAtConversion is in NGN!
+                const usdRate = rateCache[order.currency] || 0;
+                const usdAmount = order.amount * usdRate;
                 currentDailyTotal += usdAmount || 0;
             }
         }
@@ -174,12 +176,13 @@ export class TransactionService {
         }
 
         // Calculate monthly total (last 30 days)
+        // NOTE: rateAtConversion is stored in NGN (Naira), NOT USD!
         let currentMonthlyTotal = 0;
         for (const order of orders) {
-            if (order.amount) {
-                const usdAmount = order.rateAtConversion
-                    ? order.amount * order.rateAtConversion
-                    : order.amount * rateCache[order.currency];
+            if (order.amount && order.currency) {
+                // Always use current USD rate - rateAtConversion is in NGN!
+                const usdRate = rateCache[order.currency] || 0;
+                const usdAmount = order.amount * usdRate;
                 currentMonthlyTotal += usdAmount || 0;
             }
         }

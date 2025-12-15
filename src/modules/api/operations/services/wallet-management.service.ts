@@ -1,6 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
 import { QuidaxLib } from "@/libs/quidax";
 import { quidaxConfig } from "@/config";
 import { 
@@ -11,6 +12,8 @@ import {
 
 const WALLET_CACHE_KEY = "admin:quidax:wallets";
 const WALLET_CACHE_TTL = 45; // 45 seconds as per Quidax rate limits
+const NGN_USD_RATE_CACHE_KEY = "exchange:ngn:usd";
+const NGN_USD_RATE_CACHE_TTL = 300; // 5 minutes
 
 @Injectable()
 export class WalletManagementService {
@@ -20,6 +23,7 @@ export class WalletManagementService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly cacheService: RedisCacheService,
+        private readonly coinGeckoCache: CoinGeckoCacheService,
     ) {
         this.quidax = new QuidaxLib({
             api_public: quidaxConfig.api_public,
@@ -27,6 +31,42 @@ export class WalletManagementService {
             baseURL: quidaxConfig.baseUrl,
             rampBaseURL: quidaxConfig.rampBaseUrl,
         });
+    }
+
+    /**
+     * Get current NGN to USD exchange rate with caching
+     * Falls back to a reasonable estimate if API fails
+     */
+    private async getNgnUsdRate(): Promise<number> {
+        // Check cache first
+        const cached = await this.cacheService.get<number>(NGN_USD_RATE_CACHE_KEY);
+        if (cached) return cached;
+
+        try {
+            // Get USDT price in USD (should be ~1) and NGN
+            // Then calculate NGN/USD rate from the crypto rates
+            const usdtPriceUsd = await this.coinGeckoCache.getPriceInUSD("usdt");
+            if (usdtPriceUsd) {
+                // Get USDT/NGN rate from Quidax
+                const marketData = await this.quidax.getSingleMarketTicker("usdtngn");
+                const usdtNgnRate = parseFloat(marketData.data?.ticker?.last || "0");
+                
+                if (usdtNgnRate > 0) {
+                    // NGN/USD = (USDT/USD) / (USDT/NGN)
+                    const ngnUsdRate = usdtPriceUsd / usdtNgnRate;
+                    await this.cacheService.set(NGN_USD_RATE_CACHE_KEY, ngnUsdRate, NGN_USD_RATE_CACHE_TTL);
+                    this.logger.debug(`Calculated NGN/USD rate: ${ngnUsdRate} (1 NGN = $${ngnUsdRate})`);
+                    return ngnUsdRate;
+                }
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to fetch dynamic NGN/USD rate: ${error.message}`);
+        }
+
+        // Fallback to a reasonable estimate (will be updated on next successful call)
+        const fallbackRate = 1 / 1600; // ~0.000625
+        this.logger.warn(`Using fallback NGN/USD rate: ${fallbackRate}`);
+        return fallbackRate;
     }
 
     /**
@@ -48,6 +88,9 @@ export class WalletManagementService {
             // Fetch main account wallets from Quidax using "me" as user_id
             const walletsResponse = await this.quidax.getUserWalletList({ user_id: "me" });
             
+            // Get dynamic NGN/USD rate
+            const ngnUsdRate = await this.getNgnUsdRate();
+            
             let wallets: WalletBalance[] = [];
             let totalNgnValue = 0;
             let totalUsdValue = 0;
@@ -61,7 +104,8 @@ export class WalletManagementService {
                     
                     // Get converted balance in NGN (using Quidax's converted_balance if available)
                     const ngnValue = parseFloat(wallet.converted_balance) || 0;
-                    const usdValue = ngnValue / 1600; // Approximate USD conversion
+                    // Use dynamic NGN/USD rate instead of hardcoded value
+                    const usdValue = ngnValue * ngnUsdRate;
 
                     totalNgnValue += ngnValue;
                     totalUsdValue += usdValue;
