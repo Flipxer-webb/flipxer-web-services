@@ -370,6 +370,8 @@ export class SettingService {
 
     /**
      * Setup 2FA - Generate secret and return QR code URL
+     * NOTE: This only stores the secret, does NOT enable 2FA yet.
+     * User must verify the code via enable2FA to activate 2FA.
      */
     async setup2FA(user: User) {
         // Check if already enabled
@@ -395,13 +397,13 @@ export class SettingService {
         // Generate QR code as data URL
         const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-        // Store the secret and enable 2FA immediately
-        // This ensures the user has 2FA active as soon as they set up the secret
+        // Store the secret but DO NOT enable 2FA yet
+        // 2FA will only be enabled after user verifies the code in enable2FA
         await this.prisma.user.update({
             where: { id: user.id },
             data: { 
                 twoFactorSecret: secret,
-                isTwoFactorEnabled: true,
+                isTwoFactorEnabled: false,
             },
         });
 
@@ -415,8 +417,9 @@ export class SettingService {
     }
 
     /**
-     * Enable 2FA - Verify the code and confirm 2FA for the user
-     * Note: 2FA is now enabled during setup, this just verifies the code works
+     * Enable 2FA - Verify the code and enable 2FA for the user
+     * This is the step that actually activates 2FA after the user proves
+     * they have configured their authenticator app correctly.
      */
     async enable2FA(user: User, dto: Enable2FADto) {
         // Get user with secret
@@ -433,7 +436,22 @@ export class SettingService {
         }
 
         // If already enabled, just verify the code works and return success
-        // Verify the TOTP code
+        if (userWithSecret.isTwoFactorEnabled) {
+            const isValid = authenticator.verify({
+                token: dto.code,
+                secret: userWithSecret.twoFactorSecret,
+            });
+
+            if (!isValid) {
+                throw new UserForbiddenException("Invalid verification code", HttpStatus.FORBIDDEN);
+            }
+
+            return buildResponse({
+                message: "Two-factor authentication is already enabled",
+            });
+        }
+
+        // Verify the TOTP code before enabling
         const isValid = authenticator.verify({
             token: dto.code,
             secret: userWithSecret.twoFactorSecret,
@@ -443,13 +461,11 @@ export class SettingService {
             throw new UserForbiddenException("Invalid verification code", HttpStatus.FORBIDDEN);
         }
 
-        // Ensure 2FA is enabled (in case it wasn't already)
-        if (!userWithSecret.isTwoFactorEnabled) {
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: { isTwoFactorEnabled: true },
-            });
-        }
+        // Now enable 2FA since the code is verified
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { isTwoFactorEnabled: true },
+        });
 
         return buildResponse({
             message: "Two-factor authentication has been enabled successfully",
