@@ -16,14 +16,6 @@ import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { TierService } from "./tier.service";
 
-// Stablecoin prices - pegged to $1.00 USD
-const STABLECOIN_USD_PRICES: Record<string, number> = {
-    usdt: 1.0,
-    usdc: 1.0,
-    dai: 1.0,
-    busd: 1.0,
-};
-
 @Injectable()
 export class TransactionService {
     private readonly logger = new Logger(TransactionService.name);
@@ -246,17 +238,7 @@ export class TransactionService {
 
         const normalizedAsset = asset.toLowerCase();
 
-        // Tier 1: Check if it's a stablecoin - use hardcoded $1.00 price
-        if (STABLECOIN_USD_PRICES[normalizedAsset] !== undefined) {
-            const rate = STABLECOIN_USD_PRICES[normalizedAsset];
-            this.logger.log(`Using hardcoded stablecoin price for ${asset}: $${rate}`);
-            return {
-                amount: amount * rate,
-                rate,
-            };
-        }
-
-        // Tier 2: Try LiveCoinWatch as primary API
+        // Primary: Try LiveCoinWatch
         try {
             const rate = await this.liveCoinWatchService.getPriceInUSD(normalizedAsset);
             if (rate) {
@@ -270,7 +252,7 @@ export class TransactionService {
             this.logger.warn(`LiveCoinWatch failed for ${asset}: ${error.message}, falling back to CoinGecko`);
         }
 
-        // Tier 3: Fall back to CoinGecko
+        // Backup: Fall back to CoinGecko
         try {
             const rate = await this.coinGeckoCacheService.getPriceInUSD(normalizedAsset as SupportedAssets);
             if (rate) {
