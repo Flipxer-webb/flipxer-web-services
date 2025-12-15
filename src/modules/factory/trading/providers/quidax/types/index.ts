@@ -54,6 +54,7 @@ export interface CreateWithdrawerRequestOptions {
     fund_uid: string; // wallet address
     fund_uid2?: string; //destination tag
     reference: string; //<your_unique_reference>
+    network?: string; // blockchain network for the transaction
 }
 
 export interface CancelWithdrawerRequestOptions {
