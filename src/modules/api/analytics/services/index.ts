@@ -46,7 +46,7 @@ export class AnalyticsService {
             activeUsersCount,
             totalTransactions,
             transactionVolume,
-            totalRevenue,
+            revenueOrders,
             kycPendingCount,
         ] = await Promise.all([
             // Total users
@@ -86,12 +86,16 @@ export class AnalyticsService {
                 },
             }),
             
-            // Total fees collected (revenue)
-            this.prisma.order.aggregate({
-                _sum: { fee: true },
+            // Fetch orders with fee and rate to calculate revenue in fiat
+            this.prisma.order.findMany({
                 where: {
                     createdAt: { gte: startDate, lte: endDate },
                     streamlinedStatus: OrderStreamlinedStatus.completed,
+                    fee: { not: null },
+                },
+                select: {
+                    fee: true,
+                    rateAtConversion: true,
                 },
             }),
             
@@ -108,12 +112,19 @@ export class AnalyticsService {
             }),
         ]);
 
+        // Calculate total revenue in fiat (fee * rateAtConversion for each order)
+        const totalRevenue = revenueOrders.reduce((sum, order) => {
+            const fee = order.fee || 0;
+            const rate = order.rateAtConversion || 0;
+            return sum + (fee * rate);
+        }, 0);
+
         // Calculate previous period for comparison
         const periodDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
         const prevStartDate = subDays(startDate, periodDays);
         const prevEndDate = subDays(endDate, periodDays);
 
-        const [prevNewUsers, prevTransactionVolume, prevRevenue] = await Promise.all([
+        const [prevNewUsers, prevTransactionVolume, prevRevenueOrders] = await Promise.all([
             this.prisma.user.count({
                 where: {
                     userType: { not: UserType.ADMIN },
@@ -127,14 +138,25 @@ export class AnalyticsService {
                     streamlinedStatus: OrderStreamlinedStatus.completed,
                 },
             }),
-            this.prisma.order.aggregate({
-                _sum: { fee: true },
+            this.prisma.order.findMany({
                 where: {
                     createdAt: { gte: prevStartDate, lte: prevEndDate },
                     streamlinedStatus: OrderStreamlinedStatus.completed,
+                    fee: { not: null },
+                },
+                select: {
+                    fee: true,
+                    rateAtConversion: true,
                 },
             }),
         ]);
+
+        // Calculate previous period revenue in fiat
+        const prevRevenue = prevRevenueOrders.reduce((sum, order) => {
+            const fee = order.fee || 0;
+            const rate = order.rateAtConversion || 0;
+            return sum + (fee * rate);
+        }, 0);
 
         // Calculate percentage changes
         const volumeChange = this.calculatePercentageChange(
@@ -142,8 +164,8 @@ export class AnalyticsService {
             transactionVolume._sum.amountInFiat || 0
         );
         const revenueChange = this.calculatePercentageChange(
-            prevRevenue._sum.fee || 0,
-            totalRevenue._sum.fee || 0
+            prevRevenue,
+            totalRevenue
         );
         const usersChange = this.calculatePercentageChange(prevNewUsers, newUsersCount);
 
@@ -164,7 +186,7 @@ export class AnalyticsService {
                         currency: "NGN",
                     },
                     revenue: {
-                        amount: totalRevenue._sum.fee || 0,
+                        amount: totalRevenue,
                         change: revenueChange,
                         currency: "NGN",
                     },
@@ -188,7 +210,7 @@ export class AnalyticsService {
             ? { orderCategory: query.category as OrderCategory }
             : {};
 
-        // Get transaction data grouped by date
+        // Get transaction data grouped by date (include rateAtConversion for fee calculation)
         const transactions = await this.prisma.order.findMany({
             where: {
                 createdAt: { gte: startDate, lte: endDate },
@@ -199,12 +221,18 @@ export class AnalyticsService {
                 createdAt: true,
                 amountInFiat: true,
                 fee: true,
+                rateAtConversion: true,
                 orderCategory: true,
             },
         });
 
         // Generate date intervals
         const intervals = this.generateIntervals(startDate, endDate, granularity);
+
+        // Helper function to calculate fee in fiat
+        const calculateFeeInFiat = (t: { fee: number | null; rateAtConversion: number | null }) => {
+            return (t.fee || 0) * (t.rateAtConversion || 0);
+        };
 
         // Aggregate data by interval
         const chartData = intervals.map((interval) => {
@@ -218,7 +246,7 @@ export class AnalyticsService {
                 timestamp: interval.toISOString(),
                 volume: intervalTransactions.reduce((sum, t) => sum + (t.amountInFiat || 0), 0),
                 count: intervalTransactions.length,
-                fees: intervalTransactions.reduce((sum, t) => sum + (t.fee || 0), 0),
+                fees: intervalTransactions.reduce((sum, t) => sum + calculateFeeInFiat(t), 0),
             };
         });
 
@@ -245,7 +273,7 @@ export class AnalyticsService {
                 summary: {
                     totalVolume: transactions.reduce((sum, t) => sum + (t.amountInFiat || 0), 0),
                     totalTransactions: transactions.length,
-                    totalFees: transactions.reduce((sum, t) => sum + (t.fee || 0), 0),
+                    totalFees: transactions.reduce((sum, t) => sum + calculateFeeInFiat(t), 0),
                     averageTransactionSize: transactions.length > 0
                         ? transactions.reduce((sum, t) => sum + (t.amountInFiat || 0), 0) / transactions.length
                         : 0,
@@ -450,10 +478,16 @@ export class AnalyticsService {
             select: {
                 createdAt: true,
                 fee: true,
+                rateAtConversion: true,
                 orderCategory: true,
                 currency: true,
             },
         });
+
+        // Helper function to calculate fee in fiat
+        const calculateFeeInFiat = (t: { fee: number | null; rateAtConversion: number | null }) => {
+            return (t.fee || 0) * (t.rateAtConversion || 0);
+        };
 
         const intervals = this.generateIntervals(startDate, endDate, granularity);
 
@@ -465,36 +499,42 @@ export class AnalyticsService {
 
             return {
                 date: format(interval, "yyyy-MM-dd"),
-                revenue: intervalTransactions.reduce((sum, t) => sum + (t.fee || 0), 0),
+                revenue: intervalTransactions.reduce((sum, t) => sum + calculateFeeInFiat(t), 0),
                 transactionCount: intervalTransactions.length,
             };
         });
 
-        // Revenue by category
-        const revenueByCategory = await this.prisma.order.groupBy({
-            by: ["orderCategory"],
-            where: {
-                createdAt: { gte: startDate, lte: endDate },
-                streamlinedStatus: OrderStreamlinedStatus.completed,
-            },
-            _sum: { fee: true },
-            _count: true,
+        // Calculate total revenue in fiat
+        const totalRevenue = transactions.reduce((sum, t) => sum + calculateFeeInFiat(t), 0);
+
+        // Calculate revenue by category (need to fetch individual transactions for accurate conversion)
+        const categoryRevenueMap = new Map<string, { revenue: number; count: number }>();
+        transactions.forEach((t) => {
+            const category = t.orderCategory;
+            const feeInFiat = calculateFeeInFiat(t);
+            if (categoryRevenueMap.has(category)) {
+                const existing = categoryRevenueMap.get(category)!;
+                existing.revenue += feeInFiat;
+                existing.count += 1;
+            } else {
+                categoryRevenueMap.set(category, { revenue: feeInFiat, count: 1 });
+            }
         });
 
-        const totalRevenue = transactions.reduce((sum, t) => sum + (t.fee || 0), 0);
+        const categoryBreakdown = Array.from(categoryRevenueMap.entries()).map(([category, data]) => ({
+            category,
+            revenue: data.revenue,
+            transactionCount: data.count,
+            percentage: totalRevenue > 0
+                ? ((data.revenue / totalRevenue) * 100).toFixed(2)
+                : 0,
+        }));
 
         return buildResponse({
             message: "Revenue analytics retrieved successfully",
             data: {
                 chartData,
-                categoryBreakdown: revenueByCategory.map((c) => ({
-                    category: c.orderCategory,
-                    revenue: c._sum.fee || 0,
-                    transactionCount: c._count,
-                    percentage: totalRevenue > 0
-                        ? (((c._sum.fee || 0) / totalRevenue) * 100).toFixed(2)
-                        : 0,
-                })),
+                categoryBreakdown,
                 summary: {
                     totalRevenue,
                     averageFeePerTransaction: transactions.length > 0

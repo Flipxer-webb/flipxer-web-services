@@ -116,7 +116,7 @@ export class AdminTransactionService {
             pendingCount,
             failedCount,
             totalVolume,
-            totalFees,
+            completedOrdersForFees,
             volumeByCategory,
         ] = await Promise.all([
             this.prisma.order.count({
@@ -147,11 +147,16 @@ export class AdminTransactionService {
                     streamlinedStatus: OrderStreamlinedStatus.completed,
                 },
             }),
-            this.prisma.order.aggregate({
-                _sum: { fee: true },
+            // Fetch completed orders with fee and rate to calculate fees in fiat
+            this.prisma.order.findMany({
                 where: {
                     createdAt: { gte: startDate, lte: endDate },
                     streamlinedStatus: OrderStreamlinedStatus.completed,
+                    fee: { not: null },
+                },
+                select: {
+                    fee: true,
+                    rateAtConversion: true,
                 },
             }),
             this.prisma.order.groupBy({
@@ -164,6 +169,13 @@ export class AdminTransactionService {
                 _count: true,
             }),
         ]);
+
+        // Calculate total fees in fiat (fee * rateAtConversion for each order)
+        const totalFeesInFiat = completedOrdersForFees.reduce((sum, order) => {
+            const fee = order.fee || 0;
+            const rate = order.rateAtConversion || 0;
+            return sum + (fee * rate);
+        }, 0);
 
         return buildResponse({
             message: "Transaction stats retrieved",
@@ -179,7 +191,7 @@ export class AdminTransactionService {
                 },
                 volume: {
                     total: totalVolume._sum.amountInFiat || 0,
-                    fees: totalFees._sum.fee || 0,
+                    fees: totalFeesInFiat,
                     currency: "NGN",
                 },
                 byCategory: volumeByCategory.map((c) => ({
