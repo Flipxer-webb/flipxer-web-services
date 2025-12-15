@@ -136,6 +136,9 @@ export class AdminUserService {
                           },
                       }
                     : {}),
+                ...(query.tier !== undefined && query.tier !== '' && {
+                    tier: parseInt(query.tier as any, 10),
+                }),
             },
             select: {
                 id: true,
@@ -146,6 +149,7 @@ export class AdminUserService {
                 photo: true,
                 status: true,
                 userType: true,
+                tier: true,
                 createdAt: true,
                 flaggedRecord: {
                     select: {

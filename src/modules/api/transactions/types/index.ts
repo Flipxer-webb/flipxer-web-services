@@ -17,21 +17,26 @@ export const shapeTransaction = (
     t: TransactionIncludeOptions,
     filter = false
 ) => {
+    // For swaps, use fromAmount and fromCurrency as the primary amount
+    const isSwap = t.orderCategory === OrderCategory.SWAP;
+    const displayAmount = isSwap ? (t?.fromAmount ?? t?.amount) : t?.amount;
+    const displayCurrency = isSwap ? (t?.fromCurrency ?? t?.currency) : t?.currency;
+
     return {
         orderId: t.id,
         transactionId: t.transactionId,
         name: `${t.user.lastName} ${t.user.firstName}`,
         walletAddress: t?.recipient,
         transactionType: t.orderCategory,
-        amount: t?.amount,
-        currency: t?.currency,
+        amount: displayAmount,
+        currency: displayCurrency,
         status: t.status,
         streamLinedStatus: getStreamlinedStatus(
             filter ? t.streamlinedStatus : t.status
         ) as string,
         date: t.createdAt,
         swap:
-            t.orderCategory === OrderCategory.SWAP
+            isSwap
                 ? {
                       quotationId: t?.quotationId,
                       fromCurrency: t?.fromCurrency,

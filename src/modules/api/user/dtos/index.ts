@@ -155,6 +155,14 @@ export class GetUserListDto extends PaginationQueryDto {
     @IsOptional()
     @IsString()
     searchText?: string;
+
+    @ApiProperty({
+        description: "filter users by tier level (0-3)",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    tier?: string;
 }
 export class UpdateProfilePasswordDto {
     @ApiProperty({

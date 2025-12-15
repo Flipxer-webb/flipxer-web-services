@@ -169,9 +169,32 @@ export class AnalyticsService {
         );
         const usersChange = this.calculatePercentageChange(prevNewUsers, newUsersCount);
 
+        // Count verified users (tier >= 2 or all verifications complete)
+        const verifiedUsers = await this.prisma.user.count({
+            where: {
+                userType: { not: UserType.ADMIN },
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+            },
+        });
+
         return buildResponse({
             message: "Dashboard overview retrieved successfully",
             data: {
+                // Flat structure expected by frontend
+                totalUsers,
+                activeUsers: activeUsersCount,
+                totalTransactions,
+                totalVolume: transactionVolume._sum.amountInFiat || 0,
+                pendingKyc: kycPendingCount,
+                verifiedUsers,
+                growth: {
+                    users: usersChange,
+                    transactions: 0, // Calculated separately if needed
+                    volume: volumeChange,
+                },
+                // Also include nested for backwards compatibility
                 overview: {
                     totalUsers,
                     newUsers: {
