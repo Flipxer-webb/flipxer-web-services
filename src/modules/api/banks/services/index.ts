@@ -357,6 +357,22 @@ export class BankService {
                     },
                 });
 
+                // Emit transaction update for Buy Order confirmation
+                this.wsGateway.notifyTransactionUpdate(order.user.id, {
+                    type: "transaction_update",
+                    transaction: {
+                        id: order.id,
+                        transactionId: order.transactionId,
+                        status: OrderStatus.confirmed,
+                        streamlinedStatus: OrderStreamlinedStatus.completed,
+                        orderCategory: order.orderCategory,
+                        amount: order.amount,
+                        currency: order.currency,
+                        createdAt: order.createdAt,
+                        updatedAt: new Date(),
+                    },
+                });
+
                 if (order.orderCategory === OrderCategory.BUY) {
                     //admin sends asset to user wallet
                     const reference = generateId({ type: "reference" });

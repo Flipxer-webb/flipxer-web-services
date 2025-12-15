@@ -1025,6 +1025,36 @@ export class TradingService {
         // Emit wallet update for buy order initiation
         this.wsGateway.notifyWalletUpdate(user.id);
 
+        // Create and send notification for processing
+        const message = `Your buy order of ${order.amount} ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId}`;
+        
+        const createdNotification = await this.prisma.notification.create({
+            data: {
+                title: "Buy order initiated",
+                body: message,
+                userId: user.id,
+                target: UserNotificationTarget.SINGLE,
+                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                type: NotificationType.MESSAGE,
+                status: NotificationStatus.APPROVED,
+                senderId: null,
+                transactionType: OrderCategory.BUY,
+                currency: order.currency,
+            },
+        });
+
+        const notificationList = await this.prisma.notification.findMany({
+            where: { userId: user.id },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+        });
+
+        this.wsGateway.notifyUser(user.id, {
+            type: "new_notification",
+            notification: createdNotification,
+            notificationList,
+        });
+
         return buildResponse({
             message:
                 "Order placed successfully, Please proceed to make payment",
@@ -1133,6 +1163,36 @@ export class TradingService {
 
         // Emit wallet update for sell order (balance changes with sell)
         this.wsGateway.notifyWalletUpdate(user.id);
+
+        // Create and send notification for processing
+        const message = `Your sell order of ${order.amount} ${order.currency.toUpperCase()} is processing. Transaction ID: ${order.transactionId}`;
+        
+        const createdNotification = await this.prisma.notification.create({
+            data: {
+                title: "Sell order initiated",
+                body: message,
+                userId: user.id,
+                target: UserNotificationTarget.SINGLE,
+                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                type: NotificationType.MESSAGE,
+                status: NotificationStatus.APPROVED,
+                senderId: null,
+                transactionType: OrderCategory.SELL,
+                currency: order.currency,
+            },
+        });
+
+        const notificationList = await this.prisma.notification.findMany({
+            where: { userId: user.id },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+        });
+
+        this.wsGateway.notifyUser(user.id, {
+            type: "new_notification",
+            notification: createdNotification,
+            notificationList,
+        });
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
@@ -1758,6 +1818,36 @@ export class TradingService {
 
             // Emit wallet update for swap (balance changes with swap)
             this.wsGateway.notifyWalletUpdate(user.id);
+
+            // Create and send notification for processing
+            const message = `Your swap of ${swapInfo.data.from_amount} ${swapInfo.data.from_currency.toUpperCase()} to ${swapInfo.data.to_currency.toUpperCase()} is processing. Transaction ID: ${transactionId}`;
+            
+            const createdNotification = await this.prisma.notification.create({
+                data: {
+                    title: "Swap transaction initiated",
+                    body: message,
+                    userId: user.id,
+                    target: UserNotificationTarget.SINGLE,
+                    beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                    type: NotificationType.MESSAGE,
+                    status: NotificationStatus.APPROVED,
+                    senderId: null,
+                    transactionType: OrderCategory.SWAP,
+                    currency: swapInfo.data.from_currency.toUpperCase(),
+                },
+            });
+
+            const notificationList = await this.prisma.notification.findMany({
+                where: { userId: user.id },
+                orderBy: { createdAt: "desc" },
+                take: 20,
+            });
+
+            this.wsGateway.notifyUser(user.id, {
+                type: "new_notification",
+                notification: createdNotification,
+                notificationList,
+            });
         }
 
         return buildResponse({
@@ -2275,6 +2365,9 @@ export class TradingService {
                             data: { balance: newBalance },
                         });
 
+                        // Sync wallet with Quidax to ensure balance is up to date
+                        await this.syncWallet(user.id, options.currency);
+
                         this.logger.log(
                             `Wallet balance updated | ${JSON.stringify({
                                 userId: user.id,
@@ -2377,6 +2470,9 @@ export class TradingService {
                             where: { id: assetWallet.id },
                             data: { balance: newBalance },
                         });
+
+                        // Sync wallet with Quidax to ensure balance is up to date
+                        await this.syncWallet(user.id, options.currency);
 
                         this.logger.log(
                             `Wallet balance updated | ${JSON.stringify({
@@ -2490,10 +2586,16 @@ export class TradingService {
             },
         });
 
-        // Emit wallet update
-        this.wsGateway.notifyWalletUpdate(transaction.user.id);
-
         if (options.status == OrderStatus.completed) {
+            // Sync both wallets involved in the swap
+            await Promise.all([
+                this.syncWallet(transaction.user.id, transaction.fromCurrency),
+                this.syncWallet(transaction.user.id, transaction.toCurrency),
+            ]);
+
+            // Emit wallet update after sync
+            this.wsGateway.notifyWalletUpdate(transaction.user.id);
+
             const message = this.notificationMessage.swapTransactionSuccess({
                 fromAmount: transaction.fromAmount,
                 fromCurrency: transaction.fromCurrency,
@@ -2588,9 +2690,6 @@ export class TradingService {
             },
         });
 
-        // Emit wallet update
-        this.wsGateway.notifyWalletUpdate(transaction.user.id);
-
         //asset has been moved to admin wallet for a buy and seller needs to be paid
         if (
             options.status === OrderStatus.done &&
@@ -2612,6 +2711,12 @@ export class TradingService {
         }
 
         if (options.status == OrderStatus.done) {
+            // Sync wallet with Quidax to ensure balance is up to date
+            await this.syncWallet(transaction.user.id, transaction.currency);
+            
+            // Emit wallet update after sync
+            this.wsGateway.notifyWalletUpdate(transaction.user.id);
+
             const message = this.notificationMessage.sendTransactionSuccess({
                 amount: transaction.amount,
                 currency: transaction.currency,
@@ -2651,6 +2756,10 @@ export class TradingService {
                 notificationList,
             });
         } else if (options.status == OrderStatus.failed) {
+            // Sync wallet on failure too (in case funds were returned)
+            await this.syncWallet(transaction.user.id, transaction.currency);
+            this.wsGateway.notifyWalletUpdate(transaction.user.id);
+
             // Send notification for failed transaction
             const message = `Your send of ${transaction.amount} ${transaction.currency.toUpperCase()} failed. Transaction ID: ${transaction.transactionId}`;
 

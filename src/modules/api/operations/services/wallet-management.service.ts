@@ -202,13 +202,7 @@ export class WalletManagementService {
         return thresholds;
     }
 
-    /**
-     * Invalidate wallet cache (useful after manual operations)
-     */
-    async invalidateWalletCache(): Promise<void> {
-        await this.cacheService.del(WALLET_CACHE_KEY);
-        this.logger.log("Wallet cache invalidated");
-    }
+
 
     /**
      * Get platform-wide wallet statistics
