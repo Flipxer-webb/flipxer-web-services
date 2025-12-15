@@ -524,7 +524,7 @@ async function main() {
                 isNinVerified: true,
                 isDocumentVerified: true,
                 isAddressVerified: true,
-                isTwoFactorEnabled: false, // Disabled for easy testing
+                // NOTE: Do NOT reset isTwoFactorEnabled here - preserve user's 2FA settings
                 tier: 3,
             },
             create: {
