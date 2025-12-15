@@ -18,7 +18,7 @@ import {
     Disable2FADto,
 } from "../dtos";
 import { TransactionFeeCategory, User } from "@prisma/client";
-import { UserForbiddenException } from "../../auth";
+import { UserForbiddenException, AuthGenericException } from "../../auth";
 import * as ipaddr from "ipaddr.js";
 import { authenticator } from "otplib";
 import * as QRCode from "qrcode";
