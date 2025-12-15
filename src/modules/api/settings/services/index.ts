@@ -382,10 +382,14 @@ export class SettingService {
         // Generate QR code as data URL
         const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-        // Temporarily store the secret (will be confirmed when user enables 2FA)
+        // Store the secret and enable 2FA immediately
+        // This ensures the user has 2FA active as soon as they set up the secret
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { twoFactorSecret: secret },
+            data: { 
+                twoFactorSecret: secret,
+                isTwoFactorEnabled: true,
+            },
         });
 
         return buildResponse({
@@ -398,7 +402,8 @@ export class SettingService {
     }
 
     /**
-     * Enable 2FA - Verify the code and enable 2FA for the user
+     * Enable 2FA - Verify the code and confirm 2FA for the user
+     * Note: 2FA is now enabled during setup, this just verifies the code works
      */
     async enable2FA(user: User, dto: Enable2FADto) {
         // Get user with secret
@@ -414,10 +419,7 @@ export class SettingService {
             );
         }
 
-        if (userWithSecret.isTwoFactorEnabled) {
-            throw new UserForbiddenException("2FA is already enabled", HttpStatus.FORBIDDEN);
-        }
-
+        // If already enabled, just verify the code works and return success
         // Verify the TOTP code
         const isValid = authenticator.verify({
             token: dto.code,
@@ -428,11 +430,13 @@ export class SettingService {
             throw new UserForbiddenException("Invalid verification code", HttpStatus.FORBIDDEN);
         }
 
-        // Enable 2FA
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: { isTwoFactorEnabled: true },
-        });
+        // Ensure 2FA is enabled (in case it wasn't already)
+        if (!userWithSecret.isTwoFactorEnabled) {
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: { isTwoFactorEnabled: true },
+            });
+        }
 
         return buildResponse({
             message: "Two-factor authentication has been enabled successfully",
