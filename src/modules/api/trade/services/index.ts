@@ -3209,4 +3209,194 @@ export class TradingService {
             },
         };
     }
+
+    /**
+     * Refresh transaction status from Quidax provider
+     * This allows users to manually trigger a status check for pending transactions
+     */
+    async refreshTransactionStatus(user: User, transactionId: string) {
+        // Find the transaction
+        const transaction = await this.prisma.order.findFirst({
+            where: {
+                transactionId,
+                userId: user.id,
+            },
+        });
+
+        if (!transaction) {
+            throw new TransactionNotFoundException(
+                "Transaction not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        // Only refresh pending/processing transactions
+        if (transaction.status === OrderStatus.done || 
+            transaction.status === OrderStatus.completed ||
+            transaction.status === OrderStatus.failed ||
+            transaction.status === OrderStatus.cancelled) {
+            return buildResponse({
+                message: "Transaction status is already final",
+                data: {
+                    transactionId: transaction.transactionId,
+                    status: transaction.status,
+                    streamlinedStatus: transaction.streamlinedStatus,
+                },
+            });
+        }
+
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Account setup incomplete",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Handle based on transaction category
+        if (transaction.orderCategory === OrderCategory.SEND || 
+            transaction.orderCategory === OrderCategory.SELL) {
+            // Withdrawal transaction - check by reference
+            if (!transaction.orderReference) {
+                throw new GeneralTransactionException(
+                    "Transaction reference not found",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            try {
+                const response = await this.getWithdrawerTransactionByReference(
+                    transaction.orderReference,
+                    user.cryptoSubAccountId
+                );
+
+                const quidaxStatus = response.data?.status?.toLowerCase();
+
+                if (quidaxStatus === OrderStatus.done) {
+                    await this.withdrawerTransactionHandler({
+                        orderReference: transaction.orderReference,
+                        status: OrderStatus.done,
+                    });
+                    
+                    return buildResponse({
+                        message: "Transaction completed successfully",
+                        data: {
+                            transactionId: transaction.transactionId,
+                            status: OrderStatus.done,
+                            streamlinedStatus: "completed",
+                        },
+                    });
+                } else if (quidaxStatus === OrderStatus.rejected) {
+                    await this.withdrawerTransactionHandler({
+                        orderReference: transaction.orderReference,
+                        status: OrderStatus.rejected,
+                    });
+                    
+                    return buildResponse({
+                        message: "Transaction was rejected",
+                        data: {
+                            transactionId: transaction.transactionId,
+                            status: OrderStatus.rejected,
+                            streamlinedStatus: "failed",
+                        },
+                    });
+                }
+
+                return buildResponse({
+                    message: "Transaction is still processing",
+                    data: {
+                        transactionId: transaction.transactionId,
+                        status: transaction.status,
+                        streamlinedStatus: transaction.streamlinedStatus,
+                        providerStatus: quidaxStatus,
+                    },
+                });
+            } catch (error) {
+                this.logger.error(`Error refreshing transaction ${transactionId}: ${error.message}`);
+                return buildResponse({
+                    message: "Unable to refresh status. Please try again later.",
+                    data: {
+                        transactionId: transaction.transactionId,
+                        status: transaction.status,
+                        streamlinedStatus: transaction.streamlinedStatus,
+                    },
+                });
+            }
+        } else if (transaction.orderCategory === OrderCategory.SWAP) {
+            // Swap transaction - check by provider order ID
+            if (!transaction.providerOrderId) {
+                throw new GeneralTransactionException(
+                    "Provider order ID not found",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            try {
+                const response = await this.verifySwapQuoteTransaction(
+                    transaction.providerOrderId,
+                    user.cryptoSubAccountId
+                );
+
+                const quidaxStatus = response.data?.status;
+
+                if (quidaxStatus === OrderStatus.completed) {
+                    await this.swapTransactionHandler({
+                        orderId: transaction.providerOrderId,
+                        status: OrderStatus.completed,
+                    });
+                    
+                    return buildResponse({
+                        message: "Swap completed successfully",
+                        data: {
+                            transactionId: transaction.transactionId,
+                            status: OrderStatus.completed,
+                            streamlinedStatus: "completed",
+                        },
+                    });
+                } else if (quidaxStatus === OrderStatus.failed) {
+                    await this.swapTransactionHandler({
+                        orderId: transaction.providerOrderId,
+                        status: OrderStatus.failed,
+                    });
+                    
+                    return buildResponse({
+                        message: "Swap failed",
+                        data: {
+                            transactionId: transaction.transactionId,
+                            status: OrderStatus.failed,
+                            streamlinedStatus: "failed",
+                        },
+                    });
+                }
+
+                return buildResponse({
+                    message: "Swap is still processing",
+                    data: {
+                        transactionId: transaction.transactionId,
+                        status: transaction.status,
+                        streamlinedStatus: transaction.streamlinedStatus,
+                        providerStatus: quidaxStatus,
+                    },
+                });
+            } catch (error) {
+                this.logger.error(`Error refreshing swap ${transactionId}: ${error.message}`);
+                return buildResponse({
+                    message: "Unable to refresh status. Please try again later.",
+                    data: {
+                        transactionId: transaction.transactionId,
+                        status: transaction.status,
+                        streamlinedStatus: transaction.streamlinedStatus,
+                    },
+                });
+            }
+        }
+
+        return buildResponse({
+            message: "Transaction type does not support manual refresh",
+            data: {
+                transactionId: transaction.transactionId,
+                status: transaction.status,
+                streamlinedStatus: transaction.streamlinedStatus,
+            },
+        });
+    }
 }

@@ -16,7 +16,8 @@ export class ManageOrdersSchedulerService {
     ) {}
 
     //every 1hr "0 */1 * * *"
-    @Cron("0/2 * * * *", { timeZone: "Africa/Lagos" })
+    // Reduced from 5 min to 2 min for faster swap transaction verification
+    @Cron("*/2 * * * *", { timeZone: "Africa/Lagos" })
     async verifySwapTransaction() {
         this.logger.debug("Cron job triggered!");
 
@@ -116,7 +117,9 @@ export class ManageOrdersSchedulerService {
         }
     }
 
-    @Cron("*/5 * * * *", { timeZone: "Africa/Lagos" })
+    // Reduced from 5 min to 1 min for faster withdrawal status updates
+    // This provides a fallback when webhooks are delayed or missed
+    @Cron("*/1 * * * *", { timeZone: "Africa/Lagos" })
     async verifyWithdrawerTransaction() {
         this.logger.debug("Withdrawal sync cron job triggered!");
 

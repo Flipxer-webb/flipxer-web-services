@@ -287,4 +287,16 @@ export class TradingController {
         const assets = dto.assets.split(",").map((a) => a.trim());
         return await this.tradingService.getBatchSparklines(assets);
     }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Refresh transaction status from provider" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("refresh-transaction-status")
+    async refreshTransactionStatus(
+        @Body() dto: { transactionId: string },
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.refreshTransactionStatus(user, dto.transactionId);
+    }
 }
