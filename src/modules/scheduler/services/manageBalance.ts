@@ -168,13 +168,13 @@ export class AssetBalanceSchedulerService {
     }
 
     /**
-     * Fallback deposit sync - runs every 30 minutes to catch any deposits
+     * Fallback deposit sync - runs every 5 minutes to catch any deposits
      * that may have been missed due to webhook failures
      * 
      * This is a safety net to ensure all deposits are eventually recorded
      * even if webhooks fail or are delayed
      */
-    @Cron("*/30 * * * *", { timeZone: "Africa/Lagos" })
+    @Cron("*/5 * * * *", { timeZone: "Africa/Lagos" })
     async syncMissedDeposits() {
         this.logger.debug("[DEPOSIT SYNC] Fallback deposit sync triggered");
 

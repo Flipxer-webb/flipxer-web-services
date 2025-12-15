@@ -299,4 +299,13 @@ export class TradingController {
     ) {
         return await this.tradingService.refreshTransactionStatus(user, dto.transactionId);
     }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Sync deposits from provider to catch any missed transactions" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("sync-deposits")
+    async syncDeposits(@User() user: UserModel) {
+        return await this.tradingService.syncUserDeposits(user.id);
+    }
 }
