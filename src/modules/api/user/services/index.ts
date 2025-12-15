@@ -279,35 +279,42 @@ export class UserService {
         user: User,
         photo?: Express.Multer.File
     ) {
-        if (!photo) {
-            throw new AuthGenericException(
-                "Profile photo is required to update user details",
-                HttpStatus.BAD_REQUEST
-            );
-        }
 
-        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {};
+        const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {
+            ...options,
+            dateOfBirth: options.dateOfBirth
+                ? new Date(options.dateOfBirth)
+                : undefined,
+        };
 
-        try {
-            const uploadResponse = await this.uploadProfileImage(photo);
-            if (user?.photoFileId) {
-                try {
-                    await this.uploadService.removeImage({
-                        fileId: user.photoFileId,
-                        key: process.env.IMAGEKIT_PRIVATE_KEY,
-                    });
-                } catch (error) {
-                    Logger.error(`Failed to delete image ${user.photoFileId}:`, error);
+        if (photo) {
+            try {
+                const uploadResponse = await this.uploadProfileImage(photo);
+                if (user?.photoFileId) {
+                    try {
+                        await this.uploadService.removeImage({
+                            fileId: user.photoFileId,
+                            key: process.env.IMAGEKIT_PRIVATE_KEY,
+                        });
+                    } catch (error) {
+                        Logger.error(
+                            `Failed to delete image ${user.photoFileId}:`,
+                            error
+                        );
+                    }
                 }
+                profileUpdateOptions.photo = uploadResponse.url;
+                profileUpdateOptions.photoFileId = uploadResponse.fileId;
+            } catch (error) {
+                Logger.error(
+                    `Failed to upload profile image for user ${user.id}:`,
+                    error
+                );
+                throw new AuthGenericException(
+                    "Failed to update profile image",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
             }
-            profileUpdateOptions.photo = uploadResponse.url;
-            profileUpdateOptions.photoFileId = uploadResponse.fileId;
-        } catch (error) {
-            Logger.error(`Failed to upload profile image for user ${user.id}:`, error);
-            throw new AuthGenericException(
-                "Failed to update profile image",
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
         }
 
         const updatedUser = await this.prisma.user.update({
@@ -328,7 +335,7 @@ export class UserService {
         });
 
         return {
-            message: "Profile photo updated successfully",
+            message: "Profile details updated successfully",
             data: {
                 ...updatedUser,
                 recoveryEmail: updatedUser.recoveryEmail || null,

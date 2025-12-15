@@ -372,6 +372,19 @@ export class SettingService {
      * Setup 2FA - Generate secret and return QR code URL
      */
     async setup2FA(user: User) {
+        // Check if already enabled
+        const existingUser = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { isTwoFactorEnabled: true },
+        });
+
+        if (existingUser?.isTwoFactorEnabled) {
+            throw new AuthGenericException(
+                "2FA is already enabled. Please disable it first if you want to re-configure it.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         // Generate a new secret
         const secret = authenticator.generateSecret();
         
