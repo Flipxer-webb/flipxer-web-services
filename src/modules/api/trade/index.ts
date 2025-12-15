@@ -23,6 +23,7 @@ import { LiveCoinWatchService } from "@/modules/factory/trading/providers/liveco
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { TransactionService } from "../auth/services/transaction.service";
 import { TierService } from "../auth/services/tier.service";
+import { OperationsModule } from "../operations";
 export * from "./interfaces";
 export * from "./errors";
 
@@ -37,6 +38,7 @@ export * from "./errors";
         forwardRef(() => AuthModule),
         PrismaModule,
         EmailModule,
+        OperationsModule,
     ],
     controllers: [TradingController],
     providers: [

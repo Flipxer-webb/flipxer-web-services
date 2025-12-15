@@ -115,6 +115,14 @@ export class WalletManagementService {
     }
 
     /**
+     * Invalidate the wallet balance cache to force a refresh on next request
+     */
+    async invalidateWalletCache(): Promise<void> {
+        await this.cacheService.del(WALLET_CACHE_KEY);
+        this.logger.log("Invalidated wallet balance cache");
+    }
+
+    /**
      * Get wallet balance for a specific currency
      */
     async getWalletBalance(currency: string, forceRefresh: boolean = false): Promise<WalletBalance | null> {

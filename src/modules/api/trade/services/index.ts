@@ -81,6 +81,7 @@ import { BankDetailNotFoundException } from "../../banks/errors";
 import { NotificationEvent } from "../../notification/events/notification.event";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../gateway/v1";
+import { WalletManagementService } from "../../operations/services/wallet-management.service";
 
 const NETWORK_ALIAS_MAP: Record<string, NetworkTypes> = {
     trc20: NetworkTypes.trc20,
@@ -164,7 +165,8 @@ export class TradingService {
         @Inject(TradingInjectionToken.COINGECKO)
         private readonly coinGeckoService: CoinGeckoService,
         @Inject(TradingInjectionToken.LIVECOINWATCH)
-        private readonly liveCoinWatchService: LiveCoinWatchService
+        private readonly liveCoinWatchService: LiveCoinWatchService,
+        private readonly walletManagementService: WalletManagementService
     ) {}
 
     getSupportedAssets() {
@@ -1125,6 +1127,9 @@ export class TradingService {
 
         // Sync wallet with Quidax to ensure balance is up to date
         await this.syncWallet(user.id, dto.asset);
+
+        // Invalidate admin wallet cache since company wallet received funds
+        await this.walletManagementService.invalidateWalletCache();
 
         // Emit wallet update for sell order (balance changes with sell)
         this.wsGateway.notifyWalletUpdate(user.id);
