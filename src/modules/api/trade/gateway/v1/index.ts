@@ -17,7 +17,7 @@ import { UserTypes } from "@/modules/api/authorize/decorator";
 import { WsValidatorPipeInstance } from "@/core/exception/ws/pipe";
 import { SocketAuthGuard } from "@/modules/api/auth/guard";
 import { SocketRoleGuard } from "@/modules/api/authorize/guards/role.guard";
-import { IWsNewNotification } from "../../interfaces/trade";
+import { IWsNewNotification, IWsTransactionUpdate } from "../../interfaces/trade";
 import { GetUserAssetsDto } from "@/modules/api/user/dtos";
 
 @UseGuards(SocketAuthGuard)
@@ -47,6 +47,14 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     notifyUser(userId: number, payload: IWsNewNotification) {
         this.wsService.emitNotificationToUser(userId, payload, this.server);
+    }
+
+    notifyTransactionUpdate(userId: number, payload: IWsTransactionUpdate) {
+        this.wsService.emitTransactionUpdateToUser(userId, payload, this.server);
+    }
+
+    notifyWalletUpdate(userId: number) {
+        this.wsService.emitWalletUpdateToUser(userId, this.server);
     }
 
     broadcastWalletUpdatesToUser() {

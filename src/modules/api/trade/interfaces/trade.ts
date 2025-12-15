@@ -225,3 +225,23 @@ export interface IWsNewNotification {
     notification: Notification;
     notificationList: Notification[];
 }
+
+export interface IWsTransactionUpdate {
+    type: "transaction_update";
+    transaction: {
+        id: number;
+        transactionId: string;
+        status: string;
+        streamlinedStatus: string;
+        orderCategory: string;
+        amount: number;
+        currency: string;
+        createdAt: Date;
+        updatedAt: Date;
+    };
+}
+
+export interface IWsWalletUpdate {
+    type: "wallet_update";
+    wallets: any[];
+}

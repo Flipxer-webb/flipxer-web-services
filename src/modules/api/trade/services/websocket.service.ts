@@ -6,7 +6,7 @@ import { Socket } from "socket.io";
 
 import { User, UserType } from "@prisma/client";
 import { Server } from "socket.io";
-import { IWsNewNotification } from "../interfaces/trade";
+import { IWsNewNotification, IWsTransactionUpdate } from "../interfaces/trade";
 import { GetUserAssetsDto } from "../../user/dtos";
 import { UserService } from "../../user/services";
 
@@ -60,6 +60,51 @@ export class WsService {
             );
         } else {
             Logger.warn(`User ${userId} is not connected`);
+        }
+    }
+
+    emitTransactionUpdateToUser(
+        userId: number,
+        payload: IWsTransactionUpdate,
+        server: Server
+    ) {
+        const socketId = this.userSocketMap.get(userId.toString());
+        if (socketId) {
+            server.to(socketId).emit(
+                "transactionUpdate",
+                Utils.buildResponse({
+                    message: "transaction updated",
+                    data: payload,
+                })
+            );
+            Logger.log(`Transaction update sent to user ${userId}`);
+        } else {
+            Logger.warn(`User ${userId} is not connected for transaction update`);
+        }
+    }
+
+    async emitWalletUpdateToUser(userId: number, server: Server) {
+        const socketId = this.userSocketMap.get(userId.toString());
+        if (socketId) {
+            try {
+                const walletData = await this.userService.getUserWallets(
+                    userId,
+                    {} as GetUserAssetsDto
+                );
+                
+                server.to(socketId).emit(
+                    "walletAssetsUpdate",
+                    Utils.buildResponse({
+                        message: "wallet assets update",
+                        data: walletData.data,
+                    })
+                );
+                Logger.log(`Wallet update sent to user ${userId}`);
+            } catch (err) {
+                Logger.error(`Error sending wallet update to user ${userId}`, err);
+            }
+        } else {
+            Logger.warn(`User ${userId} is not connected for wallet update`);
         }
     }
 

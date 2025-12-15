@@ -1378,6 +1378,55 @@ export class TradingService {
             },
         });
 
+        // Emit transaction update immediately so UI shows the new transaction
+        this.wsGateway.notifyTransactionUpdate(user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: createdOrder.id,
+                transactionId: createdOrder.transactionId,
+                status: createdOrder.status,
+                streamlinedStatus: createdOrder.streamlinedStatus,
+                orderCategory: createdOrder.orderCategory,
+                amount: createdOrder.amount,
+                currency: createdOrder.currency,
+                createdAt: createdOrder.createdAt,
+                updatedAt: createdOrder.updatedAt,
+            },
+        });
+
+        // Emit wallet update since balance changes immediately with send
+        this.wsGateway.notifyWalletUpdate(user.id);
+
+        // Create and send notification for processing
+        const message = `Your send of ${createdOrder.amount} ${createdOrder.currency.toUpperCase()} is being processed. Transaction ID: ${createdOrder.transactionId}`;
+        
+        const createdNotification = await this.prisma.notification.create({
+            data: {
+                title: "Send transaction initiated",
+                body: message,
+                userId: user.id,
+                target: UserNotificationTarget.SINGLE,
+                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                type: NotificationType.MESSAGE,
+                status: NotificationStatus.APPROVED,
+                senderId: null,
+                transactionType: OrderCategory.SEND,
+                currency: createdOrder.currency,
+            },
+        });
+
+        const notificationList = await this.prisma.notification.findMany({
+            where: { userId: user.id },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+        });
+
+        this.wsGateway.notifyUser(user.id, {
+            type: "new_notification",
+            notification: createdNotification,
+            notificationList,
+        });
+
         return buildResponse({
             message: "Withdrawer request placed successfully",
             data: {
@@ -1958,7 +2007,7 @@ export class TradingService {
                 const depositCreatedAt = options.created_at ? new Date(options.created_at) : new Date();
                 const depositCompletedAt = options.done_at ? new Date(options.done_at) : null;
                 
-                await this.prisma.order.create({
+                const createdOrder = await this.prisma.order.create({
                     data: {
                         orderCategory: OrderCategory.RECEIVE,
                         status: options.status,
@@ -1978,6 +2027,22 @@ export class TradingService {
                         rateAtConversion: amtFiat?.rate,
                         createdAt: depositCreatedAt,
                         updatedAt: depositCompletedAt || depositCreatedAt,
+                    },
+                });
+
+                // Emit transaction update immediately
+                this.wsGateway.notifyTransactionUpdate(user.id, {
+                    type: "transaction_update",
+                    transaction: {
+                        id: createdOrder.id,
+                        transactionId: createdOrder.transactionId,
+                        status: createdOrder.status,
+                        streamlinedStatus: createdOrder.streamlinedStatus,
+                        orderCategory: createdOrder.orderCategory,
+                        amount: createdOrder.amount,
+                        currency: createdOrder.currency,
+                        createdAt: createdOrder.createdAt,
+                        updatedAt: createdOrder.updatedAt,
                     },
                 });
 
@@ -2055,13 +2120,32 @@ export class TradingService {
                         notification: createdNotification,
                         notificationList,
                     });
+
+                    // Emit wallet update after deposit
+                    this.wsGateway.notifyWalletUpdate(user.id);
                 }
             } else {
-                await this.prisma.order.update({
+                const updatedOrder = await this.prisma.order.update({
                     where: { id: transaction.id },
                     data: { 
                         status: options.status,
                         streamlinedStatus: getStreamlinedStatus(options.status),
+                    },
+                });
+
+                // Emit transaction update for existing transaction status change
+                this.wsGateway.notifyTransactionUpdate(user.id, {
+                    type: "transaction_update",
+                    transaction: {
+                        id: updatedOrder.id,
+                        transactionId: updatedOrder.transactionId,
+                        status: updatedOrder.status,
+                        streamlinedStatus: updatedOrder.streamlinedStatus,
+                        orderCategory: updatedOrder.orderCategory,
+                        amount: updatedOrder.amount,
+                        currency: updatedOrder.currency,
+                        createdAt: updatedOrder.createdAt,
+                        updatedAt: updatedOrder.updatedAt,
                     },
                 });
 
@@ -2139,6 +2223,9 @@ export class TradingService {
                         notification: createdNotification,
                         notificationList,
                     });
+
+                    // Emit wallet update after deposit
+                    this.wsGateway.notifyWalletUpdate(user.id);
                 }
             }
         }
@@ -2171,13 +2258,32 @@ export class TradingService {
         if (transaction.status === options.status) {
             return;
         }
-        await this.prisma.order.update({
+        const updatedOrder = await this.prisma.order.update({
             where: { id: transaction.id },
             data: {
                 status: options.status,
                 streamlinedStatus: getStreamlinedStatus(options.status),
             },
         });
+
+        // Emit transaction update immediately
+        this.wsGateway.notifyTransactionUpdate(transaction.user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: updatedOrder.id,
+                transactionId: updatedOrder.transactionId,
+                status: updatedOrder.status,
+                streamlinedStatus: updatedOrder.streamlinedStatus,
+                orderCategory: updatedOrder.orderCategory,
+                amount: updatedOrder.amount,
+                currency: updatedOrder.currency,
+                createdAt: updatedOrder.createdAt,
+                updatedAt: updatedOrder.updatedAt,
+            },
+        });
+
+        // Emit wallet update
+        this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
         if (options.status == OrderStatus.completed) {
             const message = this.notificationMessage.swapTransactionSuccess({
@@ -2250,13 +2356,32 @@ export class TradingService {
             return;
         }
 
-        await this.prisma.order.update({
+        const updatedOrder = await this.prisma.order.update({
             where: { id: transaction.id },
             data: {
                 status: options.status,
                 streamlinedStatus: getStreamlinedStatus(options.status),
             },
         });
+
+        // Emit transaction update immediately so UI reflects status change
+        this.wsGateway.notifyTransactionUpdate(transaction.user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: updatedOrder.id,
+                transactionId: updatedOrder.transactionId,
+                status: updatedOrder.status,
+                streamlinedStatus: updatedOrder.streamlinedStatus,
+                orderCategory: updatedOrder.orderCategory,
+                amount: updatedOrder.amount,
+                currency: updatedOrder.currency,
+                createdAt: updatedOrder.createdAt,
+                updatedAt: updatedOrder.updatedAt,
+            },
+        });
+
+        // Emit wallet update
+        this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
         //asset has been moved to admin wallet for a buy and seller needs to be paid
         if (
@@ -2289,6 +2414,41 @@ export class TradingService {
             const createdNotification = await this.prisma.notification.create({
                 data: {
                     title: "Your send transaction is done",
+                    body: message,
+                    userId: transaction.user.id,
+                    target: UserNotificationTarget.SINGLE,
+                    beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                    type: NotificationType.MESSAGE,
+                    status: NotificationStatus.APPROVED,
+                    senderId: null,
+                    transactionType: transaction.orderCategory,
+                    currency: transaction.currency,
+                },
+            });
+
+            this.notificationEvent.emit("transaction_notification", {
+                email: transaction.user.email,
+                notice: message,
+            });
+
+            const notificationList = await this.prisma.notification.findMany({
+                where: { userId: transaction.user.id },
+                orderBy: { createdAt: "desc" },
+                take: 20,
+            });
+
+            this.wsGateway.notifyUser(transaction.user.id, {
+                type: "new_notification",
+                notification: createdNotification,
+                notificationList,
+            });
+        } else if (options.status == OrderStatus.failed) {
+            // Send notification for failed transaction
+            const message = `Your send of ${transaction.amount} ${transaction.currency.toUpperCase()} failed. Transaction ID: ${transaction.transactionId}`;
+
+            const createdNotification = await this.prisma.notification.create({
+                data: {
+                    title: "Send transaction failed",
                     body: message,
                     userId: transaction.user.id,
                     target: UserNotificationTarget.SINGLE,
