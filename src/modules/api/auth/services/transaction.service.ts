@@ -2,16 +2,27 @@ import {
     Injectable,
     Logger,
     HttpStatus,
+    Inject,
 } from "@nestjs/common";
 import { User, OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
+import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { EmailService } from "@/modules/core/email/services";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import { v4 as uuidv4 } from "uuid";
 import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { TierService } from "./tier.service";
+
+// Stablecoin prices - pegged to $1.00 USD
+const STABLECOIN_USD_PRICES: Record<string, number> = {
+    usdt: 1.0,
+    usdc: 1.0,
+    dai: 1.0,
+    busd: 1.0,
+};
 
 @Injectable()
 export class TransactionService {
@@ -20,6 +31,8 @@ export class TransactionService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly coinGeckoCacheService: CoinGeckoCacheService,
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
+        private readonly liveCoinWatchService: LiveCoinWatchService,
         private readonly emailService: EmailService,
         private readonly tierService: TierService
     ) {}
@@ -230,15 +243,49 @@ export class TransactionService {
             this.logger.error(`Invalid asset provided to getAmountInUSD: ${asset}`);
             return null;
         }
-        const rate = await this.coinGeckoCacheService.getPriceInUSD(asset.toLowerCase() as SupportedAssets);
-        if (!rate) {
-            this.logger.error(`Failed to fetch USD price for ${asset}`);
-            return null;
+
+        const normalizedAsset = asset.toLowerCase();
+
+        // Tier 1: Check if it's a stablecoin - use hardcoded $1.00 price
+        if (STABLECOIN_USD_PRICES[normalizedAsset] !== undefined) {
+            const rate = STABLECOIN_USD_PRICES[normalizedAsset];
+            this.logger.log(`Using hardcoded stablecoin price for ${asset}: $${rate}`);
+            return {
+                amount: amount * rate,
+                rate,
+            };
         }
-        return {
-            amount: amount * rate,
-            rate,
-        };
+
+        // Tier 2: Try LiveCoinWatch as primary API
+        try {
+            const rate = await this.liveCoinWatchService.getPriceInUSD(normalizedAsset);
+            if (rate) {
+                this.logger.log(`LiveCoinWatch price for ${asset}: $${rate}`);
+                return {
+                    amount: amount * rate,
+                    rate,
+                };
+            }
+        } catch (error) {
+            this.logger.warn(`LiveCoinWatch failed for ${asset}: ${error.message}, falling back to CoinGecko`);
+        }
+
+        // Tier 3: Fall back to CoinGecko
+        try {
+            const rate = await this.coinGeckoCacheService.getPriceInUSD(normalizedAsset as SupportedAssets);
+            if (rate) {
+                this.logger.log(`CoinGecko fallback price for ${asset}: $${rate}`);
+                return {
+                    amount: amount * rate,
+                    rate,
+                };
+            }
+        } catch (error) {
+            this.logger.error(`CoinGecko fallback also failed for ${asset}: ${error.message}`);
+        }
+
+        this.logger.error(`All price sources failed for ${asset}`);
+        return null;
     }
 
     async recordFailedTransaction(
