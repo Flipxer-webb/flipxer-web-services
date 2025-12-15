@@ -966,6 +966,25 @@ export class TradingService {
             { maxWait: 5000, timeout: 40000 }
         );
 
+        // Emit transaction update for new buy order
+        this.wsGateway.notifyTransactionUpdate(user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: order.id,
+                transactionId: order.transactionId,
+                status: order.status,
+                streamlinedStatus: order.streamlinedStatus,
+                orderCategory: order.orderCategory,
+                amount: order.amount,
+                currency: order.currency,
+                createdAt: order.createdAt,
+                updatedAt: order.updatedAt,
+            },
+        });
+
+        // Emit wallet update for buy order initiation
+        this.wsGateway.notifyWalletUpdate(user.id);
+
         return buildResponse({
             message:
                 "Order placed successfully, Please proceed to make payment",
@@ -1049,6 +1068,25 @@ export class TradingService {
         });
 
         //step 2: once step 1 is successfully completed (webhook listener), send fund to user bank account from paystack main account
+
+        // Emit transaction update for new sell order
+        this.wsGateway.notifyTransactionUpdate(user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: order.id,
+                transactionId: order.transactionId,
+                status: order.status,
+                streamlinedStatus: order.streamlinedStatus,
+                orderCategory: order.orderCategory,
+                amount: order.amount,
+                currency: order.currency,
+                createdAt: order.createdAt,
+                updatedAt: order.updatedAt,
+            },
+        });
+
+        // Emit wallet update for sell order (balance changes with sell)
+        this.wsGateway.notifyWalletUpdate(user.id);
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
@@ -1471,12 +1509,86 @@ export class TradingService {
             );
         }
 
-        // Check if order is pending
-        if (order.streamlinedStatus !== "pending") {
+        // Check if order is pending or processing
+        if (order.streamlinedStatus !== "pending" && order.status !== OrderStatus.processing) {
             throw new GeneralTransactionException(
-                "Only pending orders can be cancelled",
+                "Only pending or processing orders can be cancelled",
                 HttpStatus.BAD_REQUEST
             );
+        }
+
+        // For SEND orders, we need to check Quidax status first and cancel there if possible
+        if (order.orderCategory === OrderCategory.SEND && order.providerOrderId) {
+            try {
+                // Check current status on Quidax
+                const withdrawalDetail = await this.quidaxService.getWithdrawerDetail({
+                    user_id: user.cryptoSubAccountId,
+                    withdrawal_id: order.providerOrderId,
+                });
+
+                const quidaxStatus = withdrawalDetail.data?.status?.toLowerCase();
+                
+                // If already done/completed on Quidax, cannot cancel
+                if (quidaxStatus === 'done' || quidaxStatus === 'completed' || quidaxStatus === 'successful') {
+                    // Update local status to match Quidax
+                    await this.prisma.order.update({
+                        where: { id: orderId },
+                        data: {
+                            status: OrderStatus.done,
+                            streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
+                        },
+                    });
+
+                    // Emit wallet update to refresh balance
+                    this.wsGateway.notifyWalletUpdate(user.id);
+
+                    throw new GeneralTransactionException(
+                        "Transaction has already been completed on the blockchain and cannot be cancelled",
+                        HttpStatus.BAD_REQUEST
+                    );
+                }
+
+                // If still pending/processing on Quidax, attempt to cancel
+                if (quidaxStatus === 'pending' || quidaxStatus === 'processing' || quidaxStatus === 'submitted') {
+                    try {
+                        await this.quidaxService.cancelWithdrawerRequest({
+                            user_id: user.cryptoSubAccountId,
+                            withdrawal_id: order.providerOrderId,
+                        });
+                        this.logger.log(`Successfully cancelled withdrawal ${order.providerOrderId} on Quidax`);
+                    } catch (cancelError) {
+                        this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError.message}`);
+                        // Re-check status after cancel attempt
+                        const recheckDetail = await this.quidaxService.getWithdrawerDetail({
+                            user_id: user.cryptoSubAccountId,
+                            withdrawal_id: order.providerOrderId,
+                        });
+                        const recheckStatus = recheckDetail.data?.status?.toLowerCase();
+                        
+                        if (recheckStatus === 'done' || recheckStatus === 'completed' || recheckStatus === 'successful') {
+                            await this.prisma.order.update({
+                                where: { id: orderId },
+                                data: {
+                                    status: OrderStatus.done,
+                                    streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
+                                },
+                            });
+                            this.wsGateway.notifyWalletUpdate(user.id);
+                            throw new GeneralTransactionException(
+                                "Transaction completed while attempting to cancel. Your funds have been sent.",
+                                HttpStatus.BAD_REQUEST
+                            );
+                        }
+                    }
+                }
+            } catch (error) {
+                // If error is already a GeneralTransactionException, rethrow it
+                if (error instanceof GeneralTransactionException) {
+                    throw error;
+                }
+                this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error.message}`);
+                // Continue with local cancellation if Quidax check fails
+            }
         }
 
         // Update order status to cancelled
@@ -1487,6 +1599,25 @@ export class TradingService {
                 streamlinedStatus: "cancelled",
             },
         });
+
+        // Emit transaction update
+        this.wsGateway.notifyTransactionUpdate(user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: updatedOrder.id,
+                transactionId: updatedOrder.transactionId,
+                status: updatedOrder.status,
+                streamlinedStatus: updatedOrder.streamlinedStatus,
+                orderCategory: updatedOrder.orderCategory,
+                amount: updatedOrder.amount,
+                currency: updatedOrder.currency,
+                createdAt: updatedOrder.createdAt,
+                updatedAt: updatedOrder.updatedAt,
+            },
+        });
+
+        // Emit wallet update to refresh balance after cancellation
+        this.wsGateway.notifyWalletUpdate(user.id);
 
         return buildResponse({
             message: "Order cancelled successfully",
@@ -1550,6 +1681,25 @@ export class TradingService {
                 },
                 { maxWait: 5000, timeout: 20000 }
             );
+
+            // Emit transaction update for swap
+            this.wsGateway.notifyTransactionUpdate(user.id, {
+                type: "transaction_update",
+                transaction: {
+                    id: 0, // Will be updated by webhook
+                    transactionId: transactionId,
+                    status: swapInfo.data.status,
+                    streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
+                    orderCategory: OrderCategory.SWAP,
+                    amount: +swapInfo.data?.from_amount,
+                    currency: swapInfo.data.from_currency.toUpperCase(),
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            });
+
+            // Emit wallet update for swap (balance changes with swap)
+            this.wsGateway.notifyWalletUpdate(user.id);
         }
 
         return buildResponse({
