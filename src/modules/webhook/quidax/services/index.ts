@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
     EventBody,
     Event,
@@ -9,7 +9,6 @@ import {
     WithdrawerEventData,
     DepositTransactionEventData,
 } from "../interfaces";
-import logger from "moment-logger";
 
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingService } from "@/modules/api/trade/services";
@@ -17,6 +16,8 @@ import { OrderStatus } from "@prisma/client";
 
 @Injectable()
 export class QuidaxWebhookService implements QuidaxWebhook {
+    private readonly logger = new Logger("QuidaxWebhookService");
+    
     constructor(
         private prisma: PrismaService,
         private tradingService: TradingService
@@ -24,6 +25,8 @@ export class QuidaxWebhookService implements QuidaxWebhook {
 
     async processWebhookEvent(eventBody: EventBody) {
         try {
+            this.logger.log(`[HANDLER] Processing event: ${eventBody.event}`);
+            
             switch (eventBody.event) {
                 case Event.WalletAddressGenerated: {
                     await this.walletAddressGeneratedHandler(
@@ -108,16 +111,21 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     break;
 
                 default:
+                    this.logger.warn(`[HANDLER] Unhandled event type: ${eventBody.event}`);
                     break;
             }
         } catch (error) {
-            logger.error(error);
+            this.logger.error(`[HANDLER] Error processing event ${eventBody.event}: ${error.message}`, error.stack);
         }
     }
 
     async depositHandler(eventData: DepositTransactionEventData) {
         // Normalize status - Quidax sends 'successful' or 'done' for completed deposits
         const normalizedStatus = this.normalizeDepositStatus(eventData.status);
+        
+        this.logger.log(
+            `[DEPOSIT] Processing deposit: ${eventData.id} | Amount: ${eventData.amount} ${eventData.currency} | Status: ${eventData.status} -> ${normalizedStatus}`
+        );
         
         const depositPayload = {
             referenceId: eventData.id,
@@ -133,6 +141,8 @@ export class QuidaxWebhookService implements QuidaxWebhook {
             type: eventData.type,
             txid: eventData.txid,
             status: normalizedStatus,
+            created_at: eventData.created_at,
+            done_at: eventData.done_at,
         };
 
         switch (normalizedStatus) {
@@ -145,10 +155,11 @@ export class QuidaxWebhookService implements QuidaxWebhook {
             case OrderStatus.on_hold:
             case OrderStatus.failed:
                 await this.tradingService.depositHandler(depositPayload);
+                this.logger.log(`[DEPOSIT] Deposit ${eventData.id} processed successfully`);
                 break;
             default: {
-                logger.warn(
-                    `Unhandled deposit status: ${eventData.status} (normalized: ${normalizedStatus}) for deposit ${eventData.id}`
+                this.logger.warn(
+                    `[DEPOSIT] Unhandled deposit status: ${eventData.status} (normalized: ${normalizedStatus}) for deposit ${eventData.id}`
                 );
                 // Still process the deposit to ensure it's tracked
                 await this.tradingService.depositHandler(depositPayload);
@@ -184,7 +195,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 return OrderStatus.failed;
             default:
                 // Log unknown status and default to submitted for tracking
-                logger.warn(`Unknown deposit status from Quidax: ${status}`);
+                this.logger.warn(`[STATUS] Unknown deposit status from Quidax: ${status}`);
                 return OrderStatus.submitted;
         }
     }
@@ -271,7 +282,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 totalPayments: eventData.total_payments,
             });
         } catch (error) {
-            logger.error(error);
+            this.logger.error(`[WALLET_ADDRESS] Error processing wallet address: ${error.message}`, error.stack);
         }
     }
 }

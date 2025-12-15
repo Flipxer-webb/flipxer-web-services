@@ -1,11 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { EventEmitter } from "events";
-import logger from "moment-logger";
 import { EventBody, WebhookEventMap } from "../interfaces";
 import { QuidaxWebhookService } from "../services";
 
 @Injectable()
 export class QuidaxWebhookEvent extends EventEmitter {
+    private readonly logger = new Logger("QuidaxWebhookEvent");
+    
     constructor(private quidaxWebhookService: QuidaxWebhookService) {
         super();
         // Use arrow function or bind to preserve 'this' context
@@ -26,12 +27,18 @@ export class QuidaxWebhookEvent extends EventEmitter {
     }
 
     async processor(eventBody: EventBody) {
+        const startTime = Date.now();
         try {
-            logger.log(`Processing webhook event: ${eventBody.event}`);
+            this.logger.log(`[PROCESSING] Event: ${eventBody.event}`);
             await this.quidaxWebhookService.processWebhookEvent(eventBody);
-            logger.log(`Webhook event processed successfully: ${eventBody.event}`);
+            const duration = Date.now() - startTime;
+            this.logger.log(`[COMPLETED] Event: ${eventBody.event} - Duration: ${duration}ms`);
         } catch (error) {
-            logger.error(`Error processing webhook event: ${eventBody.event}`, error);
+            const duration = Date.now() - startTime;
+            this.logger.error(
+                `[FAILED] Event: ${eventBody.event} - Duration: ${duration}ms - Error: ${error.message}`,
+                error.stack
+            );
         }
     }
 }

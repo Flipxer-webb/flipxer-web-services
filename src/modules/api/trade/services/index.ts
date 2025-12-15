@@ -1952,6 +1952,11 @@ export class TradingService {
                 );
 
                 const transactionId = generateId({ type: "transaction" });
+                
+                // Use the original deposit timestamp from Quidax
+                const depositCreatedAt = options.created_at ? new Date(options.created_at) : new Date();
+                const depositCompletedAt = options.done_at ? new Date(options.done_at) : null;
+                
                 await this.prisma.order.create({
                     data: {
                         orderCategory: OrderCategory.RECEIVE,
@@ -1970,6 +1975,8 @@ export class TradingService {
                         sourceType: options.type,
                         amountInFiat: amtFiat?.amount,
                         rateAtConversion: amtFiat?.rate,
+                        createdAt: depositCreatedAt,
+                        updatedAt: depositCompletedAt || depositCreatedAt,
                     },
                 });
 
@@ -2554,7 +2561,13 @@ export class TradingService {
 
                         const transactionId = generateId({ type: "transaction" });
 
-                        // Create the order
+                        // Use the original deposit timestamp from Quidax
+                        const depositCreatedAt = deposit.created_at ? new Date(deposit.created_at) : new Date();
+                        const depositCompletedAt = deposit.completed_at || deposit.done_at 
+                            ? new Date(deposit.completed_at || deposit.done_at) 
+                            : null;
+
+                        // Create the order with the original Quidax timestamp
                         await this.prisma.order.create({
                             data: {
                                 orderCategory: OrderCategory.RECEIVE,
@@ -2569,6 +2582,8 @@ export class TradingService {
                                 fee: +deposit.fee,
                                 amountInFiat: amtFiat?.amount,
                                 rateAtConversion: amtFiat?.rate,
+                                createdAt: depositCreatedAt,
+                                updatedAt: depositCompletedAt || depositCreatedAt,
                             },
                         });
 

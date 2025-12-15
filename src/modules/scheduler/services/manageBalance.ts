@@ -10,6 +10,7 @@ import { TradingService } from "@/modules/api/trade/services";
 export class AssetBalanceSchedulerService {
     private readonly logger = new Logger("ManageBalanceScheduler");
     private mutex = new Mutex(); // Create a Mutex instance
+    private depositSyncMutex = new Mutex(); // Separate mutex for deposit sync
 
     constructor(
         private prisma: PrismaService,
@@ -164,5 +165,104 @@ export class AssetBalanceSchedulerService {
         }
 
         return allUserIds;
+    }
+
+    /**
+     * Fallback deposit sync - runs every 30 minutes to catch any deposits
+     * that may have been missed due to webhook failures
+     * 
+     * This is a safety net to ensure all deposits are eventually recorded
+     * even if webhooks fail or are delayed
+     */
+    @Cron("*/30 * * * *", { timeZone: "Africa/Lagos" })
+    async syncMissedDeposits() {
+        this.logger.debug("[DEPOSIT SYNC] Fallback deposit sync triggered");
+
+        const release = await this.depositSyncMutex.acquire();
+        try {
+            this.logger.debug("[DEPOSIT SYNC] Acquired lock: Running fallback deposit sync");
+
+            // Get users who have had recent activity (logged in within last 7 days)
+            // to avoid syncing deposits for inactive accounts
+            const recentlyActiveUsers = await this.getRecentlyActiveUsersWithSubAccounts();
+            
+            if (recentlyActiveUsers.length === 0) {
+                this.logger.debug("[DEPOSIT SYNC] No recently active users found");
+                return;
+            }
+
+            this.logger.log(`[DEPOSIT SYNC] Checking deposits for ${recentlyActiveUsers.length} active users`);
+
+            const batchSize = 10; // Process 10 users at a time to avoid rate limits
+            let totalSynced = 0;
+            let totalErrors = 0;
+
+            for (let i = 0; i < recentlyActiveUsers.length; i += batchSize) {
+                const batch = recentlyActiveUsers.slice(i, i + batchSize);
+                
+                const results = await Promise.allSettled(
+                    batch.map(async (userId) => {
+                        try {
+                            const result = await this.tradingService.syncUserDeposits(userId);
+                            if (result.data?.synced > 0) {
+                                this.logger.log(
+                                    `[DEPOSIT SYNC] User ${userId}: Synced ${result.data.synced} deposits`
+                                );
+                                return result.data.synced;
+                            }
+                            return 0;
+                        } catch (error) {
+                            this.logger.error(
+                                `[DEPOSIT SYNC] Error syncing deposits for user ${userId}: ${error.message}`
+                            );
+                            throw error;
+                        }
+                    })
+                );
+
+                // Count results
+                for (const result of results) {
+                    if (result.status === "fulfilled") {
+                        totalSynced += result.value;
+                    } else {
+                        totalErrors++;
+                    }
+                }
+
+                // Add a small delay between batches to avoid overwhelming the API
+                if (i + batchSize < recentlyActiveUsers.length) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+
+            this.logger.log(
+                `[DEPOSIT SYNC] Completed - Synced: ${totalSynced} deposits, Errors: ${totalErrors}`
+            );
+        } catch (error) {
+            this.logger.error("[DEPOSIT SYNC] Error in fallback deposit sync:", error);
+        } finally {
+            release();
+            this.logger.debug("[DEPOSIT SYNC] Lock released: Job completed");
+        }
+    }
+
+    /**
+     * Get users who have logged in within the last 7 days and have crypto sub-accounts
+     */
+    async getRecentlyActiveUsersWithSubAccounts(): Promise<number[]> {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const users = await this.prisma.user.findMany({
+            where: {
+                cryptoSubAccountId: { not: null },
+                lastLogin: { gte: sevenDaysAgo },
+            },
+            orderBy: { lastLogin: "desc" },
+            select: { id: true },
+            take: 500, // Limit to 500 most recently active users
+        });
+
+        return users.map((u) => u.id);
     }
 }

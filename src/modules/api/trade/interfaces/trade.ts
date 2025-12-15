@@ -146,6 +146,8 @@ export interface DepositTransaction {
     quidaxUserId: string;
     currency: string;
     reason: string;
+    created_at?: string;
+    done_at?: string | null;
 }
 
 export interface BuyQuoteResponse {
