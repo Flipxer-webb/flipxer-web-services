@@ -90,13 +90,14 @@ export class FincraBank implements TFincra.IFincraBank {
             const bankCode = data?.bankCode || data?.bank_code;
 
             // Validate that data and required fields exist
+            // Fincra returns success:true but data:null when account is not found
             if (!data || !accountNumber || !accountName) {
                 logger.error(
                     { result: JSON.stringify(result) },
                     "****RESOLVE ACCOUNT INVALID DATA****** FINCRA"
                 );
                 throw new e.FINCRABankException(
-                    "Invalid account details received from bank",
+                    "Account not found. Please verify your account number and selected bank.",
                     HttpStatus.BAD_REQUEST
                 );
             }
