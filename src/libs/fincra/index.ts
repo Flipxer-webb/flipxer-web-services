@@ -1,4 +1,5 @@
 import Axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from "axios";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 export interface FincraOptions {
     baseUrl: string;
@@ -6,6 +7,7 @@ export interface FincraOptions {
     publicKey: string;
     businessId?: string;
     webhookSecret?: string;
+    proxyUrl?: string; // Optional proxy URL for IP whitelisting (e.g., from Quotaguard)
 }
 
 export interface FincraPayInPayload {
@@ -140,14 +142,24 @@ export class FincraLib {
     private axios: AxiosInstance;
 
     constructor(private readonly options: FincraOptions) {
-        this.axios = Axios.create({
+        const axiosConfig: any = {
             baseURL: options.baseUrl,
             headers: {
                 "api-key": options.secretKey,
                 "x-pub-key": options.publicKey,
                 "Content-Type": "application/json",
             },
-        });
+        };
+
+        // Add proxy agent if proxy URL is configured (for IP whitelisting)
+        if (options.proxyUrl) {
+            const proxyAgent = new HttpsProxyAgent(options.proxyUrl);
+            axiosConfig.httpsAgent = proxyAgent;
+            axiosConfig.proxy = false; // Disable axios's built-in proxy to use our agent
+            console.log("****FINCRA PROXY ENABLED****", options.proxyUrl.replace(/:[^:@]+@/, ":***@")); // Log with hidden password
+        }
+
+        this.axios = Axios.create(axiosConfig);
     }
 
     private handleError(error: AxiosError<any>) {

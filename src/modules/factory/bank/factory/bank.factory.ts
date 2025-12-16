@@ -15,6 +15,7 @@ export class BankFactory<P extends t.BankProvider> {
                     publicKey: fincraOptions.publicKey,
                     businessId: fincraOptions.businessId,
                     webhookSecret: fincraOptions.webhookSecret,
+                    proxyUrl: fincraOptions.proxyUrl, // Proxy for IP whitelisting
                 });
 
                 return new FincraBank(fincra, this.prisma);

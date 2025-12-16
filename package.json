@@ -115,6 +115,7 @@
         "firebase-admin": "^13.6.0",
         "geoip-lite": "^1.4.10",
         "helmet": "^6.0.1",
+        "https-proxy-agent": "^7.0.6",
         "imagekit": "^6.0.0",
         "ioredis": "^5.4.1",
         "ipaddr.js": "^2.2.0",

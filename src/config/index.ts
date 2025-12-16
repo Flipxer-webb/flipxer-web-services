@@ -322,6 +322,7 @@ export interface FincraOptions {
     businessId?: string;
     redirectUrl?: string;
     webhookSecret?: string;
+    proxyUrl?: string; // Optional proxy URL for IP whitelisting
 }
 
 export const fincraOptions: FincraOptions = {
@@ -331,6 +332,7 @@ export const fincraOptions: FincraOptions = {
     businessId: process.env.FINCRA_BUSINESS_ID || "",
     redirectUrl: process.env.FINCRA_REDIRECT_URL || process.env.PAYSTACK_CALLBACK_URL || "",
     webhookSecret: process.env.FINCRA_WEBHOOK_SECRET || "",
+    proxyUrl: process.env.FINCRA_PROXY_URL || "", // e.g., http://user:pass@proxy.quotaguard.com:9293
 };
 
 export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
