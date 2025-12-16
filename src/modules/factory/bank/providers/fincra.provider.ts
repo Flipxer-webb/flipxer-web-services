@@ -68,7 +68,7 @@ export class FincraBank implements TFincra.IFincraBank {
                 accountNumber: options.account_number,
                 bankCode: options.bank_code,
                 currency: "NGN",
-                type: "bank_account",
+                // type defaults to "nuban" for Nigerian bank accounts
             });
 
             logger.info(

@@ -222,7 +222,8 @@ export class FincraLib {
             const requestData = {
                 ...payload,
                 currency: payload.currency || "NGN",
-                type: payload.type || "bank_account",
+                // Use "nuban" for Nigerian bank accounts (NUBAN = Nigerian Uniform Bank Account Number)
+                type: payload.type || "nuban",
             };
             console.log("****FINCRA RESOLVE REQUEST PAYLOAD****", JSON.stringify(requestData));
             console.log("****FINCRA BASE URL****", this.options.baseUrl);
