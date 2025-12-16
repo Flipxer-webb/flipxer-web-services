@@ -2,6 +2,7 @@ import {
     Injectable,
     ForbiddenException,
     NotFoundException,
+    BadRequestException,
     Inject,
     HttpStatus,
 } from "@nestjs/common";
@@ -66,6 +67,10 @@ export class BankService {
             account_number: options.accountNumber,
             bank_code: options.bankCode,
         });
+
+        if (!account || !account.data) {
+            throw new BadRequestException("Failed to verify bank account");
+        }
 
         return buildResponse({
             message: "account successfully verified",

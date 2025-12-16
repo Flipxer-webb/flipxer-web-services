@@ -73,6 +73,14 @@ export class FincraBank implements TFincra.IFincraBank {
                 );
             }
 
+            // Validate that data and required fields exist
+            if (!result.data || !result.data.accountNumber || !result.data.accountName) {
+                throw new e.FINCRABankException(
+                    "Invalid account details received from bank",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
             return {
                 status: true,
                 data: {
