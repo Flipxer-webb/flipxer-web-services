@@ -59,6 +59,11 @@ export class FincraBank implements TFincra.IFincraBank {
         options: ResolveBankAccountOptions
     ): Promise<{ status: boolean; data: ResolveBankAccountResponse }> {
         try {
+            logger.info(
+                { accountNumber: options.account_number, bankCode: options.bank_code },
+                "****RESOLVE ACCOUNT REQUEST****** FINCRA"
+            );
+
             const result = await this.fincra.resolveBankAccount({
                 accountNumber: options.account_number,
                 bankCode: options.bank_code,
@@ -66,15 +71,30 @@ export class FincraBank implements TFincra.IFincraBank {
                 type: "bank_account",
             });
 
+            logger.info(
+                { result: JSON.stringify(result) },
+                "****RESOLVE ACCOUNT RESPONSE****** FINCRA"
+            );
+
             if (!result || !result.success) {
                 throw new e.FINCRABankException(
-                    "Failed to resolve bank account",
+                    result?.message || "Failed to resolve bank account",
                     HttpStatus.BAD_REQUEST
                 );
             }
 
+            // Handle both camelCase and snake_case response formats from Fincra
+            const data = result.data as any;
+            const accountNumber = data?.accountNumber || data?.account_number;
+            const accountName = data?.accountName || data?.account_name;
+            const bankCode = data?.bankCode || data?.bank_code;
+
             // Validate that data and required fields exist
-            if (!result.data || !result.data.accountNumber || !result.data.accountName) {
+            if (!data || !accountNumber || !accountName) {
+                logger.error(
+                    { result: JSON.stringify(result) },
+                    "****RESOLVE ACCOUNT INVALID DATA****** FINCRA"
+                );
                 throw new e.FINCRABankException(
                     "Invalid account details received from bank",
                     HttpStatus.BAD_REQUEST
@@ -84,9 +104,9 @@ export class FincraBank implements TFincra.IFincraBank {
             return {
                 status: true,
                 data: {
-                    accountNumber: result.data.accountNumber,
-                    accountName: result.data.accountName,
-                    bankCode: result.data.bankCode,
+                    accountNumber,
+                    accountName,
+                    bankCode,
                 },
             };
         } catch (error) {

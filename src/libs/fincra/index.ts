@@ -217,7 +217,7 @@ export class FincraLib {
     /**
      * Resolve/verify a bank account number
      */
-    async resolveBankAccount(payload: FincraResolveAccountPayload) {
+    async resolveBankAccount(payload: FincraResolveAccountPayload): Promise<FincraResolveAccountResponse> {
         try {
             const requestOptions: AxiosRequestConfig<FincraResolveAccountPayload> = {
                 method: "POST",
@@ -234,6 +234,7 @@ export class FincraLib {
             return data;
         } catch (error) {
             this.handleError(error as AxiosError);
+            throw error; // This ensures TypeScript knows we always throw
         }
     }
 
