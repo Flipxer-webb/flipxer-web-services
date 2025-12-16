@@ -219,20 +219,25 @@ export class FincraLib {
      */
     async resolveBankAccount(payload: FincraResolveAccountPayload): Promise<FincraResolveAccountResponse> {
         try {
+            const requestData = {
+                ...payload,
+                currency: payload.currency || "NGN",
+                type: payload.type || "bank_account",
+            };
+            console.log("****FINCRA RESOLVE REQUEST PAYLOAD****", JSON.stringify(requestData));
+            console.log("****FINCRA BASE URL****", this.options.baseUrl);
+            
             const requestOptions: AxiosRequestConfig<FincraResolveAccountPayload> = {
                 method: "POST",
                 url: "/core/accounts/resolve",
-                data: {
-                    ...payload,
-                    currency: payload.currency || "NGN",
-                    type: payload.type || "bank_account",
-                },
+                data: requestData,
             };
             const { data } = await this.axios<FincraResolveAccountResponse>(
                 requestOptions
             );
             return data;
         } catch (error) {
+            console.log("****FINCRA RESOLVE ERROR****", error);
             this.handleError(error as AxiosError);
             throw error; // This ensures TypeScript knows we always throw
         }
