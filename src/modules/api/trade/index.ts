@@ -7,6 +7,9 @@ import { SellOrderService } from "./services/sell-order.service";
 import { SwapService } from "./services/swap.service";
 import { SendService } from "./services/send.service";
 import { WebhookHandlerService } from "./services/webhook-handler.service";
+import { DepositWebhookHandler } from "./services/webhook-handlers/deposit-webhook.handler";
+import { SwapWebhookHandler } from "./services/webhook-handlers/swap-webhook.handler";
+import { WithdrawalWebhookHandler } from "./services/webhook-handlers/withdrawal-webhook.handler";
 import { TradingController } from "./controllers/v1";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
@@ -57,6 +60,9 @@ export * from "./errors";
         SwapService,
         SendService,
         WebhookHandlerService,
+        DepositWebhookHandler,
+        SwapWebhookHandler,
+        WithdrawalWebhookHandler,
         TradingEvent,
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,

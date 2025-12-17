@@ -21,9 +21,11 @@
         "noFallthroughCasesInSwitch": false,
         "esModuleInterop": true,
         "paths": {
-            "@/*": ["src/*"]
+            "@/*": ["src/*"],
+            "csv-writer": ["src/@types/csv-writer.d.ts"]
         },
         "typeRoots": ["node_modules/@types", "src/@types"]
     },
-    "include": ["src/**/*"]
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/__tests__/**"]
 }

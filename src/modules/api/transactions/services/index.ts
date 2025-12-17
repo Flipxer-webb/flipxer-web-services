@@ -319,7 +319,7 @@ export class TransactionService {
 
         return (
             csvStringifier.getHeaderString() +
-            csvStringifier.stringifyRecords(dbData)
+            csvStringifier.stringifyRecords(dbData as unknown as Record<string, unknown>[])
         );
     }
 }

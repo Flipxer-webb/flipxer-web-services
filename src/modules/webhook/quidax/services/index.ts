@@ -14,7 +14,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingService } from "@/modules/api/trade/services";
 import { OrderStatus } from "@prisma/client";
 
-interface WebhookMetrics {
+export interface WebhookMetrics {
     totalReceived: number;
     successfullyProcessed: number;
     failed: number;
