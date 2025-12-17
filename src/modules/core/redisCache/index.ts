@@ -1,5 +1,6 @@
 import { Global, Module, forwardRef } from "@nestjs/common";
 import { RedisCacheService } from "./services/redis-cache.service";
+import { DistributedLockService } from "./services/distributed-lock.service";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { QuidaxCacheService } from "./services/quidax-cache.service";
 import { CoinGeckoCacheService } from "./services/coingecko-cache.service";
@@ -18,6 +19,7 @@ import { EmailModule } from "@/modules/core/email";
     ],
     providers: [
         RedisCacheService,
+        DistributedLockService,
         QuidaxCacheService,
         CoinGeckoCacheService,
         {
@@ -31,6 +33,7 @@ import { EmailModule } from "@/modules/core/email";
     ],
     exports: [
         RedisCacheService,
+        DistributedLockService,
         QuidaxCacheService,
         CoinGeckoCacheService,
         TradingInjectionToken.COINGECKO,

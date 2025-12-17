@@ -1,5 +1,12 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { TradingService } from "./services";
+import { TradeHelpersService } from "./services/trade-helpers.service";
+import { WalletAddressService } from "./services/wallet-address.service";
+import { BuyOrderService } from "./services/buy-order.service";
+import { SellOrderService } from "./services/sell-order.service";
+import { SwapService } from "./services/swap.service";
+import { SendService } from "./services/send.service";
+import { WebhookHandlerService } from "./services/webhook-handler.service";
 import { TradingController } from "./controllers/v1";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
@@ -43,6 +50,13 @@ export * from "./errors";
     controllers: [TradingController],
     providers: [
         TradingService,
+        TradeHelpersService,
+        WalletAddressService,
+        BuyOrderService,
+        SellOrderService,
+        SwapService,
+        SendService,
+        WebhookHandlerService,
         TradingEvent,
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
@@ -63,6 +77,13 @@ export * from "./errors";
     ],
     exports: [
         TradingService,
+        TradeHelpersService,
+        WalletAddressService,
+        BuyOrderService,
+        SellOrderService,
+        SwapService,
+        SendService,
+        WebhookHandlerService,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,

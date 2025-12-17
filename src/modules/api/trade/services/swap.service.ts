@@ -1,0 +1,127 @@
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { PrismaService } from "@/modules/core/prisma/services";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
+import { buildResponse } from "@/utils/api-response-util";
+import { User } from "@prisma/client";
+import { IncompleteAccountSetupException } from "../errors";
+import {
+    PlaceInstantSwapRequestDto,
+    RefreshInstantSwapRequestDto,
+    ConfirmInstantSwapQuoteDto,
+} from "../dtos";
+import { QUOTE_EXPIRY_MS } from "../constants";
+
+/**
+ * Swap Service
+ * 
+ * Handles all crypto-to-crypto swap operations including:
+ * - Creating instant swap quotes
+ * - Refreshing swap quotes
+ * - Confirming swap transactions
+ */
+@Injectable()
+export class SwapService {
+    private readonly logger = new Logger("SwapService");
+
+    constructor(
+        private readonly prisma: PrismaService,
+        @Inject(TradingInjectionToken.QUIDAX)
+        private readonly quidaxService: QuidaxService
+    ) {}
+
+    /**
+     * Creates an instant swap quote request
+     */
+    async createInstantSwap(user: User, dto: PlaceInstantSwapRequestDto) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const swapInfo = await this.quidaxService.createInstantSwapRequest(
+            user.cryptoSubAccountId,
+            {
+                from_currency: dto.from_currency,
+                to_currency: dto.to_currency,
+                ...(dto.from_amount && {
+                    from_amount: dto.from_amount.toString(),
+                }),
+                ...(dto.to_amount && { to_amount: dto.to_amount?.toString() }),
+            }
+        );
+
+        // Extend quote expiration time for better UX with 2FA
+        const extendedExpiresAt = new Date(Date.now() + QUOTE_EXPIRY_MS).toISOString();
+
+        return buildResponse({
+            message: "Swap request quote retrieved successfully",
+            data: {
+                ...swapInfo.data,
+                expires_at: extendedExpiresAt,
+            },
+        });
+    }
+
+    /**
+     * Refreshes an existing swap quote
+     */
+    async refreshInstantSwap(user: User, dto: RefreshInstantSwapRequestDto) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const swapInfo = await this.quidaxService.refreshInstantSwapQuote(
+            user.cryptoSubAccountId,
+            dto.quotation_id,
+            {
+                from_currency: dto.from_currency,
+                to_currency: dto.to_currency,
+                ...(dto.from_amount && {
+                    from_amount: dto.from_amount.toString(),
+                }),
+                ...(dto.to_amount && { to_amount: dto.to_amount?.toString() }),
+            }
+        );
+
+        // Extend quote expiration time for better UX with 2FA
+        const extendedExpiresAt = new Date(Date.now() + QUOTE_EXPIRY_MS).toISOString();
+
+        return buildResponse({
+            message: "Swap request quote retrieved successfully",
+            data: {
+                ...swapInfo.data,
+                expires_at: extendedExpiresAt,
+            },
+        });
+    }
+
+    /**
+     * Confirms and executes a swap quote
+     * Note: This method delegates to the existing confirmInstantSwap in QuidaxService
+     * which handles the full swap execution including notifications and wallet updates
+     */
+    async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const swapInfo = await this.quidaxService.confirmInstantSwap({
+            user_id: user.cryptoSubAccountId,
+            quotation_id: dto.quotationId,
+        });
+
+        return buildResponse({
+            message: "Swap confirmed successfully",
+            data: swapInfo.data,
+        });
+    }
+}
