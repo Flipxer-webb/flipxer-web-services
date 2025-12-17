@@ -27,7 +27,11 @@ module.exports = {
         rules: [
             {
                 test: /\.ts?$/,
+                exclude: /(__tests__|\.spec\.ts$|\.test\.ts$)/,
                 loader: "ts-loader",
+                options: {
+                    configFile: "tsconfig.build.json",
+                },
             },
         ],
     },
