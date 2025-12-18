@@ -39,7 +39,9 @@ export class QuidaxLib {
                 );
             }
             case error.response?.status == 400: {
-                throw new e.QuidaxValidationError(error.response.data.message);
+                // Preserve the Quidax error code for better debugging
+                const errorCode = error.response?.data?.data?.code;
+                throw new e.QuidaxValidationError(error.response.data.message, errorCode);
             }
 
             case error.response?.status == 404: {
@@ -136,18 +138,27 @@ export class QuidaxLib {
      * @description Find a sub-account by email address
      */
     async findSubAccountByEmail(email: string): Promise<t.IAccount | null> {
+        const logger = new Logger("QuidaxLib");
         try {
+            logger.log(`Finding sub-account by email: ${email}`);
             const result = await this.getAllSubAccounts();
             if (result.status === "success" && result.data) {
+                logger.log(`getAllSubAccounts returned ${result.data.length} accounts`);
                 const account = result.data.find(
                     (acc) => acc.email?.toLowerCase() === email.toLowerCase()
                 );
+                if (account) {
+                    logger.log(`Found matching account: ${account.id}`);
+                } else {
+                    logger.log(`No matching account found for email: ${email}`);
+                }
                 return account || null;
             }
+            logger.warn(`getAllSubAccounts returned status: ${result.status}`);
             return null;
         } catch (error) {
             // Log but don't throw - return null to allow fallback to creation
-            console.error("Error finding sub-account by email:", error);
+            logger.error(`Error finding sub-account by email: ${error instanceof Error ? error.message : String(error)}`);
             return null;
         }
     }

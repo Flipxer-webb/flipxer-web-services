@@ -16,6 +16,12 @@ export class QuidaxAuthorizationError extends QuidaxError {
 export class QuidaxValidationError extends QuidaxError {
     name = "QuidaxValidationError";
     status = 400;
+    code?: string; // E.g., E0101 for "user already exists"
+    
+    constructor(message: string, code?: string) {
+        super(message);
+        this.code = code;
+    }
 }
 
 export class QuidaxNotFoundError extends QuidaxError {
