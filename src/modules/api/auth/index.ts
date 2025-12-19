@@ -15,7 +15,7 @@ import { EmailModule } from "@/modules/core/email";
 import { SessionModule } from "../session";
 import { UploadModule } from "@/modules/core/upload";
 import { CachingModule } from "@/modules/core/redisCache";
-import { SettingsModule } from "../settings";
+import { SettingModule } from "../settings";
 
 export * from "./interfaces";
 export * from "./errors";
@@ -34,7 +34,7 @@ export * from "./errors";
         SessionModule,
         UploadModule,
         CachingModule,
-        forwardRef(() => SettingsModule),
+        forwardRef(() => SettingModule),
     ],
     controllers: [AuthController, AdminAuthController],
     providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService],
