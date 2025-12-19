@@ -443,35 +443,38 @@ export class TwoFactorGuard implements CanActivate {
             select: { twoFactorSecret: true, isTwoFactorEnabled: true },
         });
 
-        if (!userData?.isTwoFactorEnabled || !userData?.twoFactorSecret) {
-            throw new UserForbiddenException(
-                "Two-factor authentication must be enabled to perform this action",
-                HttpStatus.FORBIDDEN
-            );
+        // IMPORTANT: 2FA is optional for transactions
+        // If user has 2FA enabled, verify the code
+        // If 2FA is not enabled, allow the transaction
+        if (userData?.isTwoFactorEnabled && userData?.twoFactorSecret) {
+            // Get 2FA code from request body or header
+            const code = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+
+            if (!code) {
+                throw new UserForbiddenException(
+                    "Two-factor authentication code is required. You have 2FA enabled on your account.",
+                    HttpStatus.FORBIDDEN
+                );
+            }
+
+            // Verify with time window for clock skew tolerance
+            const isValid = authenticator.verify({
+                token: code,
+                secret: userData.twoFactorSecret,
+                window: 1, // Allow 30 seconds time skew
+            });
+
+            if (!isValid) {
+                throw new UserForbiddenException(
+                    "Invalid 2FA code. Please enter the current code from your authenticator app.",
+                    HttpStatus.FORBIDDEN
+                );
+            }
         }
 
-        // Get 2FA code from request body or header
-        const code = request.body?.twoFactorCode || request.headers["x-2fa-code"];
-
-        if (!code) {
-            throw new UserForbiddenException(
-                "Two-factor authentication code is required for this transaction",
-                HttpStatus.FORBIDDEN
-            );
-        }
-
-        const isValid = authenticator.verify({
-            token: code,
-            secret: userData.twoFactorSecret,
-        });
-
-        if (!isValid) {
-            throw new UserForbiddenException(
-                "Invalid two-factor authentication code",
-                HttpStatus.FORBIDDEN
-            );
-        }
-
+        // Allow transaction if:
+        // 1. User doesn't have 2FA enabled (optional security feature)
+        // 2. User has 2FA and provided valid code
         return true;
     }
 }

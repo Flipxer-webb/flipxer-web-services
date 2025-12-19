@@ -1189,7 +1189,8 @@ export class AuthService {
         }
 
         // Check if 2FA is enabled - return temporary token for 2FA verification
-        if (user.isTwoFactorEnabled && user.twoFactorSecret && loginPlatform === LoginPlatform.USER) {
+        // Apply to BOTH user and admin logins for enhanced security
+        if (user.isTwoFactorEnabled && user.twoFactorSecret) {
             const tempToken = await this.jwtService.signAsync(
                 { sub: user.id, type: "2fa_pending", platform: loginPlatform },
                 { secret: jwtSecret, expiresIn: "5m" }
@@ -1200,6 +1201,7 @@ export class AuthService {
                 data: {
                     requiresTwoFactor: true,
                     tempToken: tempToken,
+                    email: user.email, // Help user identify which account
                 },
             });
         }
