@@ -26,6 +26,8 @@ import {
     UpdateUserTierDto,
     UpdateUserVerificationDto,
     GetKycStatsDto,
+    ApproveDocumentDto,
+    RejectDocumentDto,
 } from "../dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -101,5 +103,23 @@ export class KycController {
     ) {
         const adminId = req.user?.id;
         return await this.kycService.updateUserVerification(userId, dto, adminId);
+    }
+
+    @ApiOperation({ summary: "Approve address or income document" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.KYC_APPROVE])
+    @Post("approve-document")
+    async approveDocument(@Body() dto: ApproveDocumentDto, @Req() req: any) {
+        const adminId = req.user?.id;
+        return await this.kycService.approveDocument(dto, adminId);
+    }
+
+    @ApiOperation({ summary: "Reject address or income document" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.KYC_APPROVE])
+    @Post("reject-document")
+    async rejectDocument(@Body() dto: RejectDocumentDto, @Req() req: any) {
+        const adminId = req.user?.id;
+        return await this.kycService.rejectDocument(dto, adminId);
     }
 }

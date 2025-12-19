@@ -11,8 +11,11 @@ import {
     UpdateUserTierDto,
     UpdateUserVerificationDto,
     GetKycStatsDto,
+    ApproveDocumentDto,
+    RejectDocumentDto,
 } from "../dtos";
 import { TierService } from "@/modules/api/auth/services/tier.service";
+import { TierVerificationService } from "@/modules/api/auth/services/tier-verification.service";
 
 @Injectable()
 export class KycService {
@@ -21,6 +24,7 @@ export class KycService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly tierService: TierService,
+        private readonly tierVerificationService: TierVerificationService,
     ) {}
 
     // ==================== KYC QUEUE ====================
@@ -616,5 +620,17 @@ export class KycService {
             default:
                 return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
         }
+    }
+
+    // ==================== DOCUMENT APPROVAL ====================
+
+    async approveDocument(dto: ApproveDocumentDto, adminId: number): Promise<ApiResponse> {
+        this.logger.log(`Admin ${adminId} approving ${dto.documentType} document for user ${dto.userId}`);
+        return await this.tierVerificationService.approveDocument(dto.userId, dto.documentType);
+    }
+
+    async rejectDocument(dto: RejectDocumentDto, adminId: number): Promise<ApiResponse> {
+        this.logger.log(`Admin ${adminId} rejecting ${dto.documentType} document for user ${dto.userId}: ${dto.reason}`);
+        return await this.tierVerificationService.rejectDocument(dto.userId, dto.documentType, dto.reason);
     }
 }

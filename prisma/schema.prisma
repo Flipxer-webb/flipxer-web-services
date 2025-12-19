@@ -59,6 +59,15 @@ model User {
   isTwoFactorEnabled                 Boolean                           @default(false)
   tier                               Int                               @default(0)
   twoFactorSecret                    String?
+  // Tier 2/3 verification fields
+  biometricVerifiedAt                DateTime?
+  biometricCredentialId              String?
+  biometricPublicKey                 String?
+  addressVerificationStatus          DocumentVerificationStatus?
+  addressDocumentUrl                 String?
+  incomeVerificationStatus           DocumentVerificationStatus?
+  incomeDocumentUrl                  String?
+  tradingPassword                    String?
   accountLimit                       AccountLimit?
   allowedIps                         AllowedIp[]
   assetWallets                       AssetWallet[]

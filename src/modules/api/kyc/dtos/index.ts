@@ -156,3 +156,38 @@ export class GetKycStatsDto {
     @IsString()
     period?: string;
 }
+
+export class ApproveDocumentDto {
+    @ApiProperty({ description: "User ID" })
+    @IsNumber()
+    @Type(() => Number)
+    userId: number;
+
+    @ApiProperty({
+        description: "Document type to approve",
+        enum: ["address", "income"],
+    })
+    @IsString()
+    @IsIn(["address", "income"])
+    documentType: "address" | "income";
+}
+
+export class RejectDocumentDto {
+    @ApiProperty({ description: "User ID" })
+    @IsNumber()
+    @Type(() => Number)
+    userId: number;
+
+    @ApiProperty({
+        description: "Document type to reject",
+        enum: ["address", "income"],
+    })
+    @IsString()
+    @IsIn(["address", "income"])
+    documentType: "address" | "income";
+
+    @ApiProperty({ description: "Reason for rejection" })
+    @IsString()
+    @IsNotEmpty()
+    reason: string;
+}

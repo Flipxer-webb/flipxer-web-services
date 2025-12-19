@@ -455,3 +455,106 @@ export class RefreshTokenDto {
     @IsString()
     refreshToken: string;
 }
+
+// ==================== Tier 2/3 Verification DTOs ====================
+
+export class VerifyAddressUploadFormDto {
+    @ApiProperty({ type: "string", format: "binary", description: "Address proof document (utility bill, bank statement)" })
+    document: Express.Multer.File;
+}
+
+export class VerifyIncomeUploadFormDto {
+    @ApiProperty({ type: "string", format: "binary", description: "Income proof document (payslip, bank statement, tax document)" })
+    document: Express.Multer.File;
+}
+
+export class RegisterBiometricDto {
+    @ApiProperty({ description: "WebAuthn credential ID (base64 encoded)" })
+    @IsNotEmpty()
+    @IsString()
+    credentialId: string;
+
+    @ApiProperty({ description: "WebAuthn public key (base64 encoded)" })
+    @IsNotEmpty()
+    @IsString()
+    publicKey: string;
+
+    @ApiProperty({ description: "Device name for identification", required: false })
+    @IsOptional()
+    @IsString()
+    deviceName?: string;
+}
+
+export class VerifyBiometricDto {
+    @ApiProperty({ description: "WebAuthn credential ID (base64 encoded)", required: false })
+    @IsOptional()
+    @IsString()
+    credentialId?: string;
+
+    @ApiProperty({ description: "WebAuthn signature (base64 encoded)", required: false })
+    @IsOptional()
+    @IsString()
+    signature?: string;
+
+    @ApiProperty({ description: "WebAuthn authenticator data (base64 encoded)", required: false })
+    @IsOptional()
+    @IsString()
+    authenticatorData?: string;
+
+    @ApiProperty({ description: "WebAuthn client data JSON (base64 encoded)", required: false })
+    @IsOptional()
+    @IsString()
+    clientDataJSON?: string;
+
+    @ApiProperty({ description: "Trading password as fallback for biometric", required: false })
+    @IsOptional()
+    @IsString()
+    @MinLength(6, { message: "Trading password must be at least 6 characters" })
+    tradingPassword?: string;
+
+    @ApiProperty({ description: "Use trading password instead of biometric", required: false })
+    @IsOptional()
+    useTradingPassword?: boolean;
+}
+
+export class CreateTradingPasswordDto {
+    @ApiProperty({ description: "Trading password (6+ characters)" })
+    @IsNotEmpty()
+    @IsString()
+    @MinLength(6, { message: "Trading password must be at least 6 characters" })
+    @MaxLength(50, { message: "Trading password must not exceed 50 characters" })
+    tradingPassword: string;
+
+    @ApiProperty({ description: "Confirm trading password" })
+    @IsNotEmpty()
+    @IsString()
+    confirmTradingPassword: string;
+}
+
+export class BiometricLoginDto {
+    @ApiProperty({ description: "WebAuthn credential ID (base64 encoded)" })
+    @IsNotEmpty()
+    @IsString()
+    credentialId: string;
+
+    @ApiProperty({ description: "WebAuthn signature (base64 encoded)" })
+    @IsNotEmpty()
+    @IsString()
+    signature: string;
+
+    @ApiProperty({ description: "WebAuthn authenticator data (base64 encoded)" })
+    @IsNotEmpty()
+    @IsString()
+    authenticatorData: string;
+
+    @ApiProperty({ description: "WebAuthn client data JSON (base64 encoded)" })
+    @IsNotEmpty()
+    @IsString()
+    clientDataJSON: string;
+
+    @ApiProperty({ description: "Temporary token received from login" })
+    @IsNotEmpty()
+    @IsString()
+    tempToken: string;
+}
+

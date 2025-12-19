@@ -181,6 +181,8 @@ export interface EMailTemplateConfig {
     recovery_pin: string;
     transaction_notification: string;
     transaction_failed: string;
+    document_approved: string;
+    document_rejected: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
@@ -190,6 +192,8 @@ export const emailTemplateConfig: EMailTemplateConfig = {
     recovery_pin: process.env.RECOVERY_PIN_TEMPLATE,
     transaction_notification: process.env.TRANSACTION_NOTIFICATION_TEMPLATE,
     transaction_failed: process.env.FAILED_TRANSACTION_TEMPLATE,
+    document_approved: process.env.DOCUMENT_APPROVED_TEMPLATE || "",
+    document_rejected: process.env.DOCUMENT_REJECTED_TEMPLATE || "",
 };
 
 // Email config
