@@ -457,11 +457,10 @@ export class TwoFactorGuard implements CanActivate {
                 );
             }
 
-            // Verify with time window for clock skew tolerance
+            // Verify TOTP code
             const isValid = authenticator.verify({
                 token: code,
                 secret: userData.twoFactorSecret,
-                window: 1, // Allow 30 seconds time skew
             });
 
             if (!isValid) {
