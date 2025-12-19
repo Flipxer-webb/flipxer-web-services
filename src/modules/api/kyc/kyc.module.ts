@@ -1,11 +1,16 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { KycController } from "./controllers";
 import { KycService } from "./services";
-import { TierService } from "@/modules/api/auth/services/tier.service";
+import { AuthModule } from "@/modules/api/auth";
+import { PrismaModule } from "@/modules/core/prisma";
 
 @Module({
+    imports: [
+        forwardRef(() => AuthModule),
+        PrismaModule,
+    ],
     controllers: [KycController],
-    providers: [KycService, TierService],
+    providers: [KycService],
     exports: [KycService],
 })
 export class KycModule {}
