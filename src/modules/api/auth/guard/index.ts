@@ -6,6 +6,7 @@ import {
     HttpStatus,
     Injectable,
     Logger,
+    Optional,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
@@ -429,8 +430,8 @@ export class TwoFactorGuard implements CanActivate {
     
     constructor(
         private prisma: PrismaService,
-        private twoFactorRateLimitService: any, // Will be injected via module
-        private settingService: any // Will be injected via module
+        @Optional() private twoFactorRateLimitService?: any,
+        @Optional() private settingService?: any
     ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
