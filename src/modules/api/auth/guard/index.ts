@@ -581,7 +581,7 @@ export class TwoFactorGuard implements CanActivate {
         try {
             const rate = await this.prisma.cryptoRate.findFirst({
                 where: { 
-                    asset: currency,
+                    currency: currency,
                 },
                 select: { buyRate: true },
                 orderBy: { createdAt: 'desc' },
