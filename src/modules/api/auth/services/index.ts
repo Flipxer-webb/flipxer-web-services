@@ -314,15 +314,44 @@ export class AuthService {
     }
 
     async signUp(options: SignUpDto, ip: string): Promise<ApiResponse> {
-        const user = await this.prisma.user.findUnique({
+        const existingUser = await this.prisma.user.findUnique({
             where: { email: options.email.trim() },
+            include: {
+                flaggedRecord: true
+            }
         });
 
-        if (user) {
+        // Allow re-registration if user was deleted
+        if (existingUser && !existingUser.isDeleted) {
             throw new DuplicateUserException(
                 "An account with this email already exist. Please login",
                 HttpStatus.BAD_REQUEST
             );
+        }
+
+        // Security: Prevent blocked/flagged users from bypassing bans via re-registration
+        if (existingUser && existingUser.isDeleted) {
+            // Check if user was blocked
+            if (existingUser.status === Status.BLOCKED) {
+                throw new UserAccountDisabledException(
+                    "This account has been permanently blocked. Please contact support.",
+                    HttpStatus.FORBIDDEN
+                );
+            }
+
+            // Check if user was flagged
+            if (existingUser.flaggedRecord && existingUser.flaggedRecord.flagged) {
+                throw new UserAccountDisabledException(
+                    `This account has been flagged: ${existingUser.flaggedRecord.reason || 'Policy violation'}. Please contact support.`,
+                    HttpStatus.FORBIDDEN
+                );
+            }
+
+            // Allow re-registration for non-blocked, non-flagged deleted accounts
+            Logger.log(`Removing deleted account for re-registration: ${existingUser.email}`);
+            await this.prisma.user.delete({
+                where: { id: existingUser.id },
+            });
         }
 
         const role = await this.prisma.role.findUnique({
