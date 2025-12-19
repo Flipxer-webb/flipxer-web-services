@@ -144,6 +144,10 @@ export class QuidaxLib {
             const result = await this.getAllSubAccounts();
             if (result.status === "success" && result.data) {
                 logger.log(`getAllSubAccounts returned ${result.data.length} accounts`);
+                // Log all emails for debugging E0101 issues
+                const allEmails = result.data.map(acc => acc.email || '(no email)').join(', ');
+                logger.debug(`Available account emails: ${allEmails}`);
+                
                 const account = result.data.find(
                     (acc) => acc.email?.toLowerCase() === email.toLowerCase()
                 );

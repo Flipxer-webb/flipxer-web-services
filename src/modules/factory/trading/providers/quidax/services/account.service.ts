@@ -2,6 +2,7 @@ import * as QD from "@/libs/quidax";
 import { Logger } from "@nestjs/common";
 import * as t from "../types";
 import { executeQuidaxCall } from "./error-handler";
+import { QuidaxException } from "../errors";
 
 // E0101 is Quidax's error code for "User already exists"
 const QUIDAX_USER_EXISTS_ERROR_CODE = "E0101";
@@ -44,7 +45,7 @@ export class QuidaxAccountService {
         } catch (error) {
             // If we get E0101 (user already exists), the lookup might have failed
             // Retry the lookup one more time before failing
-            if (error instanceof QD.QuidaxValidationError && error.code === QUIDAX_USER_EXISTS_ERROR_CODE) {
+            if (error instanceof QuidaxException && error.code === QUIDAX_USER_EXISTS_ERROR_CODE) {
                 this.logger.warn(`E0101 error - user may already exist. Retrying lookup for ${options.email}`);
                 
                 // Wait a moment and retry the lookup

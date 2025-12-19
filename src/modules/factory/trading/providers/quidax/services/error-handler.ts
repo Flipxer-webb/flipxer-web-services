@@ -14,9 +14,12 @@ export function handleQuidaxError(
     logger.error(error);
 
     if (error instanceof QD.QuidaxError) {
+        // Preserve the error code from QuidaxValidationError
+        const errorCode = (error as QD.QuidaxValidationError).code;
         throw new QuidaxException(
             error.message ?? `${defaultMessage}. Please try again`,
-            error.status ?? HttpStatus.BAD_REQUEST
+            error.status ?? HttpStatus.BAD_REQUEST,
+            errorCode
         );
     }
 
