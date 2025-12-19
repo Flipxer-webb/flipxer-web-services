@@ -27,7 +27,7 @@
 **Endpoints:**
 - `POST /api/v1/auth/login` - Initial login (returns tempToken if 2FA enabled)
 - `POST /api/v1/auth/verify-2fa-login` - Complete login with TOTP code
-- `POST /api/v1/auth/verify-biometric-2fa-login` - Biometric 2FA (Tier 3)
+- `POST /api/v1/auth/verify-biometric-2fa-login` - Biometric 2FA (optional enhanced security)
 
 ### 3. **2FA Transaction Protection** (Trade Module)
 ✅ **Implemented Features:**

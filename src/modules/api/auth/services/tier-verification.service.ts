@@ -216,7 +216,8 @@ export class TierVerificationService {
     }
 
     /**
-     * Register WebAuthn biometric credential
+     * Register WebAuthn biometric credential for enhanced security
+     * This is optional and provides additional protection for login and transactions
      */
     async registerBiometric(
         user: User,
@@ -244,7 +245,9 @@ export class TierVerificationService {
     }
 
     /**
-     * Verify biometric or trading password for Tier 3 verification
+     * Verify biometric or trading password for enhanced security
+     * Note: This is optional and provides additional security for login and transactions,
+     * but is not required for tier progression
      */
     async verifyBiometric(
         user: User,

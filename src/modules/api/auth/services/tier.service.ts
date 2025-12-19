@@ -51,9 +51,9 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
         check: (user) =>
             !!user.isDocumentVerified &&
             !!user.isAddressVerified &&
-            !!user.isBiometricVerified &&
-            !isBiometricExpired(user.biometricVerifiedAt) && // Check biometric hasn't expired
             !!user.isIncomeVerified,
+        // Note: Biometric verification is optional for enhanced security (login/transactions)
+        // but not required for tier progression
     },
     {
         tier: 2,

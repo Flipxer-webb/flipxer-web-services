@@ -417,7 +417,7 @@ export class AuthController {
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @Post("register-biometric")
-    @ApiOperation({ summary: "Register WebAuthn biometric credential" })
+    @ApiOperation({ summary: "Register biometric credential for enhanced security (optional)" })
     @ApiBearerAuth("access-token")
     async registerBiometric(
         @User() user: UserModel,
@@ -429,7 +429,7 @@ export class AuthController {
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @Post("verify-biometric")
-    @ApiOperation({ summary: "Verify biometric or trading password for Tier 3" })
+    @ApiOperation({ summary: "Verify biometric or trading password for enhanced security (optional)" })
     @ApiBearerAuth("access-token")
     async verifyBiometric(
         @User() user: UserModel,
