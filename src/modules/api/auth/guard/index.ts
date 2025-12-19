@@ -46,6 +46,7 @@ import {
 } from "@/modules/api/trade/errors";
 import { TransactionService } from "../services/transaction.service";
 import { authenticator } from "otplib";
+import { isTwoFactorRequiredForTransaction, convertToNGN } from "../utils/tier-threshold.util";
 import {
     blockedCountries,
     isProduction,
@@ -424,7 +425,13 @@ export class TransactionAmountGuard implements CanActivate {
 
 @Injectable()
 export class TwoFactorGuard implements CanActivate {
-    constructor(private prisma: PrismaService) {}
+    private readonly logger = new Logger('TwoFactorGuard');
+    
+    constructor(
+        private prisma: PrismaService,
+        private twoFactorRateLimitService: any, // Will be injected via module
+        private settingService: any // Will be injected via module
+    ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest<RequestWithUser>();
@@ -437,43 +444,152 @@ export class TwoFactorGuard implements CanActivate {
             );
         }
 
-        // Check if user has 2FA enabled
+        // Get user data including tier
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
-            select: { twoFactorSecret: true, isTwoFactorEnabled: true },
+            select: { 
+                twoFactorSecret: true, 
+                isTwoFactorEnabled: true,
+                tier: true 
+            },
         });
 
-        // IMPORTANT: 2FA is optional for transactions
-        // If user has 2FA enabled, verify the code
-        // If 2FA is not enabled, allow the transaction
-        if (userData?.isTwoFactorEnabled && userData?.twoFactorSecret) {
-            // Get 2FA code from request body or header
-            const code = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+        // If 2FA not enabled, allow transaction
+        if (!userData?.isTwoFactorEnabled || !userData?.twoFactorSecret) {
+            return true;
+        }
 
-            if (!code) {
-                throw new UserForbiddenException(
-                    "Two-factor authentication code is required. You have 2FA enabled on your account.",
-                    HttpStatus.FORBIDDEN
-                );
-            }
+        // Extract transaction data from request
+        const { body, path } = request;
+        const transactionData = this.extractTransactionData(body, path);
 
-            // Verify TOTP code
-            const isValid = authenticator.verify({
-                token: code,
-                secret: userData.twoFactorSecret,
-            });
+        // Determine if 2FA is required based on tier and amount
+        let is2FARequired = true; // Default to required if 2FA is enabled
 
-            if (!isValid) {
-                throw new UserForbiddenException(
-                    "Invalid 2FA code. Please enter the current code from your authenticator app.",
-                    HttpStatus.FORBIDDEN
+        if (transactionData) {
+            // Get crypto rate to convert to NGN
+            const rate = await this.getCryptoRateToNGN(transactionData.currency);
+            
+            if (rate) {
+                const amountNGN = convertToNGN(transactionData.amount, rate);
+                is2FARequired = isTwoFactorRequiredForTransaction(
+                    userData.tier,
+                    amountNGN,
+                    userData.isTwoFactorEnabled
                 );
             }
         }
 
-        // Allow transaction if:
-        // 1. User doesn't have 2FA enabled (optional security feature)
-        // 2. User has 2FA and provided valid code
+        // If 2FA is not required for this transaction (based on tier/amount), allow it
+        if (!is2FARequired) {
+            return true;
+        }
+
+        // 2FA is required - verify the code
+        const code = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+
+        if (!code) {
+            throw new UserForbiddenException(
+                "Two-factor authentication code is required for this transaction amount.",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        // Check rate limit if services are available
+        if (this.twoFactorRateLimitService) {
+            const rateLimitResult = await this.twoFactorRateLimitService.checkAttempt(
+                user.id.toString(),
+                'transaction'
+            );
+
+            if (!rateLimitResult.allowed) {
+                throw new UserForbiddenException(
+                    `Too many failed 2FA attempts. Account locked for ${rateLimitResult.lockoutDuration} seconds.`,
+                    HttpStatus.TOO_MANY_REQUESTS
+                );
+            }
+        }
+
+        // Try TOTP code first
+        let isValid = authenticator.verify({
+            token: code,
+            secret: userData.twoFactorSecret,
+        });
+
+        // If TOTP fails and settingService available, try backup code
+        if (!isValid && this.settingService) {
+            isValid = await this.settingService.verifyBackupCode(user.id, code);
+        }
+
+        if (!isValid) {
+            // Record failed attempt if service available
+            if (this.twoFactorRateLimitService) {
+                const failedResult = await this.twoFactorRateLimitService.recordFailedAttempt(
+                    user.id.toString(),
+                    'transaction'
+                );
+
+                if (failedResult.lockoutEndsAt) {
+                    throw new UserForbiddenException(
+                        `Invalid 2FA code. Account locked for ${failedResult.lockoutDuration} seconds.`,
+                        HttpStatus.TOO_MANY_REQUESTS
+                    );
+                }
+
+                throw new UserForbiddenException(
+                    `Invalid 2FA code. ${failedResult.remainingAttempts} attempts remaining before lockout.`,
+                    HttpStatus.FORBIDDEN
+                );
+            }
+
+            throw new UserForbiddenException(
+                "Invalid 2FA code. Please enter the current code from your authenticator app.",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        // Record successful attempt if service available
+        if (this.twoFactorRateLimitService) {
+            await this.twoFactorRateLimitService.recordSuccessfulAttempt(
+                user.id.toString(),
+                'transaction'
+            );
+        }
+
         return true;
+    }
+
+    private extractTransactionData(
+        body: any,
+        path: string
+    ): { amount: number; currency: string; category: OrderCategory } | null {
+        const config = TRANSACTION_ROUTE_CONFIGS.find((cfg) =>
+            cfg.patterns.some((pattern) => path.includes(pattern))
+        );
+
+        if (!config) return null;
+
+        const amount = config.getAmount(body);
+        const currency = config.getCurrency(body);
+
+        if (!amount || !currency) return null;
+
+        return { amount, currency, category: config.category };
+    }
+
+    private async getCryptoRateToNGN(currency: string): Promise<number | null> {
+        try {
+            const rate = await this.prisma.cryptoRate.findFirst({
+                where: { 
+                    asset: currency,
+                },
+                select: { buyRate: true },
+                orderBy: { createdAt: 'desc' },
+            });
+
+            return rate?.buyRate || null;
+        } catch (error) {
+            return null;
+        }
     }
 }

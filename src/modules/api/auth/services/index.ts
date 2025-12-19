@@ -84,6 +84,8 @@ import * as crypto from "crypto";
 import { SmsService } from "@/modules/core/sms/services";
 import { SessionService } from "../../session/services";
 import { SessionInfo } from "../../session/interfaces";
+import { TwoFactorRateLimitService } from "./two-factor-rate-limit.service";
+import { SettingService } from "../../settings/services";
 
 @Injectable()
 export class AuthService {
@@ -99,7 +101,9 @@ export class AuthService {
         private readonly dojahService: DojahService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
         private readonly smsService: SmsService,
-        private readonly sessionService: SessionService
+        private readonly sessionService: SessionService,
+        private readonly twoFactorRateLimitService: TwoFactorRateLimitService,
+        private readonly settingService: SettingService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -1374,15 +1378,53 @@ export class AuthService {
             );
         }
 
-        // Verify TOTP code
-        const isValid = authenticator.verify({
+        // Check rate limit before verifying code
+        const rateLimitResult = await this.twoFactorRateLimitService.checkAttempt(
+            user.id.toString(),
+            'login'
+        );
+
+        if (!rateLimitResult.allowed) {
+            throw new UserUnauthorizedException(
+                `Too many failed 2FA attempts. Account locked for ${rateLimitResult.lockoutDuration} seconds.`,
+                HttpStatus.TOO_MANY_REQUESTS
+            );
+        }
+
+        // Try TOTP code first
+        let isValid = authenticator.verify({
             token: dto.code,
             secret: user.twoFactorSecret,
         });
 
+        // If TOTP fails, try backup code
         if (!isValid) {
-            throw new InvalidCredentialException("Invalid verification code");
+            isValid = await this.settingService.verifyBackupCode(user.id, dto.code);
         }
+
+        if (!isValid) {
+            // Record failed attempt with exponential backoff
+            const failedResult = await this.twoFactorRateLimitService.recordFailedAttempt(
+                user.id.toString(),
+                'login'
+            );
+
+            if (failedResult.lockoutEndsAt) {
+                throw new InvalidCredentialException(
+                    `Invalid verification code. Account locked for ${failedResult.lockoutDuration} seconds. ${failedResult.remainingAttempts} attempts remaining.`
+                );
+            }
+
+            throw new InvalidCredentialException(
+                `Invalid verification code. ${failedResult.remainingAttempts} attempts remaining before lockout.`
+            );
+        }
+
+        // Record successful attempt (clears failure tracking)
+        await this.twoFactorRateLimitService.recordSuccessfulAttempt(
+            user.id.toString(),
+            'login'
+        );
 
         // Generate actual tokens
         const tokens = await this.generateTokens({
@@ -1639,6 +1681,40 @@ export class AuthService {
                 hasBiometric,
                 isExpired,
                 canUseBiometric: hasBiometric && !isExpired,
+            },
+        });
+    }
+
+    /**
+     * Reset 2FA rate limit for a user (Admin function)
+     */
+    async reset2FARateLimit(dto: { userId: number; context?: "login" | "transaction" }): Promise<ApiResponse> {
+        // Verify user exists
+        const user = await this.prisma.user.findUnique({
+            where: { id: dto.userId },
+            select: { id: true, email: true, isTwoFactorEnabled: true },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException("User not found");
+        }
+
+        // Reset rate limit
+        await this.twoFactorRateLimitService.resetAttempts(
+            user.id.toString(),
+            dto.context
+        );
+
+        const contextMsg = dto.context 
+            ? `${dto.context} 2FA rate limit` 
+            : "all 2FA rate limits";
+
+        return buildResponse({
+            message: `Successfully reset ${contextMsg} for user ${user.email}`,
+            data: {
+                userId: user.id,
+                email: user.email,
+                contextReset: dto.context || "all",
             },
         });
     }

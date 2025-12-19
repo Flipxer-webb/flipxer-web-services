@@ -2,6 +2,7 @@ import { forwardRef, Module } from "@nestjs/common";
 import { AuthService } from "./services";
 import { TierService } from "./services/tier.service";
 import { TierVerificationService } from "./services/tier-verification.service";
+import { TwoFactorRateLimitService } from "./services/two-factor-rate-limit.service";
 import { JwtModule } from "@nestjs/jwt";
 import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
 import { AuthController } from "./controllers/v1";
@@ -13,6 +14,8 @@ import { PrismaModule } from "@/modules/core/prisma";
 import { EmailModule } from "@/modules/core/email";
 import { SessionModule } from "../session";
 import { UploadModule } from "@/modules/core/upload";
+import { CachingModule } from "@/modules/core/redisCache";
+import { SettingsModule } from "../settings";
 
 export * from "./interfaces";
 export * from "./errors";
@@ -30,9 +33,11 @@ export * from "./errors";
         EmailModule,
         SessionModule,
         UploadModule,
+        CachingModule,
+        forwardRef(() => SettingsModule),
     ],
     controllers: [AuthController, AdminAuthController],
-    providers: [AuthService, AuthGuard, TierService, TierVerificationService],
-    exports: [AuthService, AuthGuard, TierService, TierVerificationService],
+    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService],
+    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService],
 })
 export class AuthModule {}

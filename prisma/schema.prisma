@@ -59,6 +59,7 @@ model User {
   isTwoFactorEnabled                 Boolean                           @default(false)
   tier                               Int                               @default(0)
   twoFactorSecret                    String?
+  twoFactorBackupCodes               String?                           // JSON array of hashed backup codes
   // Tier 2/3 verification fields
   biometricVerifiedAt                DateTime?
   biometricCredentialId              String?

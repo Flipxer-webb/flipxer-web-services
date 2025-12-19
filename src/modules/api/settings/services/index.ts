@@ -23,6 +23,7 @@ import * as ipaddr from "ipaddr.js";
 import { authenticator } from "otplib";
 import * as QRCode from "qrcode";
 import * as bcrypt from "bcryptjs";
+import { generateBackupCodes, hashBackupCodes, verifyBackupCode, removeUsedBackupCode } from "../../auth/utils/backup-codes.util";
 
 const NON_PUBLIC_IP_RANGES = new Set([
     "unspecified",
@@ -397,21 +398,27 @@ export class SettingService {
         // Generate QR code as data URL
         const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-        // Store the secret but DO NOT enable 2FA yet
+        // Generate backup codes (10 codes in format XXXX-XXXX-XX)
+        const plainBackupCodes = generateBackupCodes(10);
+        const hashedBackupCodes = await hashBackupCodes(plainBackupCodes);
+
+        // Store the secret and hashed backup codes but DO NOT enable 2FA yet
         // 2FA will only be enabled after user verifies the code in enable2FA
         await this.prisma.user.update({
             where: { id: user.id },
             data: { 
                 twoFactorSecret: secret,
+                twoFactorBackupCodes: JSON.stringify(hashedBackupCodes),
                 isTwoFactorEnabled: false,
             },
         });
 
         return buildResponse({
-            message: "2FA setup initiated. Scan the QR code with your authenticator app.",
+            message: "2FA setup initiated. Save your backup codes in a secure location. You won't be able to see them again.",
             data: {
                 qrCodeUrl: qrCodeDataUrl,
                 secret: secret, // Allow manual entry if QR scanning fails
+                backupCodes: plainBackupCodes, // Display once, never show again
             },
         });
     }
@@ -467,8 +474,21 @@ export class SettingService {
             data: { isTwoFactorEnabled: true },
         });
 
+        // Get backup codes count for response
+        const userData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { twoFactorBackupCodes: true },
+        });
+        
+        const backupCodesCount = userData?.twoFactorBackupCodes 
+            ? JSON.parse(userData.twoFactorBackupCodes).length 
+            : 0;
+
         return buildResponse({
             message: "Two-factor authentication has been enabled successfully",
+            data: {
+                backupCodesRemaining: backupCodesCount,
+            },
         });
     }
 
@@ -557,6 +577,48 @@ export class SettingService {
             token: code,
             secret: user.twoFactorSecret,
         });
+    }
+
+    /**
+     * Verify 2FA backup code and remove it after use
+     */
+    async verifyBackupCode(userId: number, code: string): Promise<boolean> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { 
+                twoFactorBackupCodes: true, 
+                isTwoFactorEnabled: true 
+            },
+        });
+
+        if (!user?.isTwoFactorEnabled || !user?.twoFactorBackupCodes) {
+            return false;
+        }
+
+        try {
+            const hashedCodes = JSON.parse(user.twoFactorBackupCodes) as string[];
+            const matchIndex = await verifyBackupCode(code, hashedCodes);
+
+            if (matchIndex === -1) {
+                return false; // Code not found
+            }
+
+            // Remove the used backup code
+            const updatedCodes = removeUsedBackupCode(hashedCodes, matchIndex);
+
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: { 
+                    twoFactorBackupCodes: JSON.stringify(updatedCodes) 
+                },
+            });
+
+            this.logger.log(`Backup code used for user ${userId}. ${updatedCodes.length} codes remaining.`);
+            return true;
+        } catch (error) {
+            this.logger.error(`Error verifying backup code for user ${userId}:`, error);
+            return false;
+        }
     }
 
     /**
