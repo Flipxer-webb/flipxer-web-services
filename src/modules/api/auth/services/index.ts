@@ -1378,20 +1378,7 @@ export class AuthService {
             );
         }
 
-        // Check rate limit before verifying code
-        const rateLimitResult = await this.twoFactorRateLimitService.checkAttempt(
-            user.id.toString(),
-            'login'
-        );
-
-        if (!rateLimitResult.allowed) {
-            throw new UserUnauthorizedException(
-                `Too many failed 2FA attempts. Account locked for ${rateLimitResult.lockoutDuration} seconds.`,
-                HttpStatus.TOO_MANY_REQUESTS
-            );
-        }
-
-        // Try TOTP code first
+        // Try TOTP code first (verify before checking rate limit - correct code bypasses lockout)
         let isValid = authenticator.verify({
             token: dto.code,
             secret: user.twoFactorSecret,
@@ -1402,7 +1389,26 @@ export class AuthService {
             isValid = await this.settingService.verifyBackupCode(user.id, dto.code);
         }
 
-        if (!isValid) {
+        if (isValid) {
+            // Correct code - clear any lockout and proceed
+            await this.twoFactorRateLimitService.recordSuccessfulAttempt(
+                user.id.toString(),
+                'login'
+            );
+        } else {
+            // Invalid code - check rate limit and apply lockout
+            const rateLimitResult = await this.twoFactorRateLimitService.checkAttempt(
+                user.id.toString(),
+                'login'
+            );
+
+            if (!rateLimitResult.allowed) {
+                throw new UserUnauthorizedException(
+                    `Too many failed 2FA attempts. Account locked for ${rateLimitResult.lockoutDuration} seconds.`,
+                    HttpStatus.TOO_MANY_REQUESTS
+                );
+            }
+
             // Record failed attempt with exponential backoff
             const failedResult = await this.twoFactorRateLimitService.recordFailedAttempt(
                 user.id.toString(),
@@ -1419,12 +1425,6 @@ export class AuthService {
                 `Invalid verification code. ${failedResult.remainingAttempts} attempts remaining before lockout.`
             );
         }
-
-        // Record successful attempt (clears failure tracking)
-        await this.twoFactorRateLimitService.recordSuccessfulAttempt(
-            user.id.toString(),
-            'login'
-        );
 
         // Generate actual tokens
         const tokens = await this.generateTokens({
