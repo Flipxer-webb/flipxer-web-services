@@ -75,9 +75,20 @@ export class DojahService {
 
             const parsed = this.dojah.parseDocumentData(resp.data);
 
+            // Log full Dojah response for debugging
             this.logger.log(
-                `Document analysis completed: valid=${parsed.isValid}, type=${parsed.documentType}, country=${parsed.country}`
+                `Document analysis completed: valid=${parsed.isValid}, type=${parsed.documentType}, country=${parsed.country}, reason=${parsed.reason}`
             );
+            
+            // Log raw response status for debugging invalid documents
+            if (!parsed.isValid) {
+                this.logger.warn(`Document INVALID - Full status:`, {
+                    overallStatus: resp.data?.entity?.status?.overall_status,
+                    reason: resp.data?.entity?.status?.reason,
+                    documentType: resp.data?.entity?.document_type,
+                    textDataCount: resp.data?.entity?.text_data?.length || 0,
+                });
+            }
 
             return { response: resp, parsed };
         } catch (error) {

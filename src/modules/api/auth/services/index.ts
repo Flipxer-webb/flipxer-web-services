@@ -1151,6 +1151,24 @@ export class AuthService {
                 `valid=${parsed.isValid}, type=${parsed.documentType}, reason=${parsed.reason}`
             );
 
+            // If document failed validation, log more details
+            if (!parsed.isValid) {
+                logger.warn(`Document preview INVALID for user ${user.id}:`, {
+                    reason: parsed.reason,
+                    documentType: parsed.documentType,
+                    country: parsed.country,
+                    hasPortrait: parsed.hasPortrait,
+                    hasFrontSide: parsed.hasFrontSide,
+                    hasBackSide: parsed.hasBackSide,
+                    extractedFields: {
+                        firstName: !!parsed.firstName,
+                        lastName: !!parsed.lastName,
+                        documentNumber: !!parsed.documentNumber,
+                        dateOfBirth: !!parsed.dateOfBirth,
+                    },
+                });
+            }
+
             // Return extracted data for user verification
             return {
                 success: true,
