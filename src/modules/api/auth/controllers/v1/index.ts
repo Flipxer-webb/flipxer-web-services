@@ -32,6 +32,7 @@ import {
     BusinessDocumentUploadDto,
     BusinessDocumentUploadFormDto,
     DocumentVerificationUploadFormDto,
+    DocumentVerificationBase64Dto,
     Verify2FALoginDto,
     VerifyAddressUploadFormDto,
     VerifyIncomeUploadFormDto,
@@ -270,6 +271,37 @@ export class AuthController {
             throw new RequiredFilesMissing();
         }
         return await this.authService.documentVerification(user, files, dto);
+    }
+
+    /**
+     * Document verification endpoint optimized for Dojah integration
+     * Accepts base64-encoded images directly in JSON body
+     * No FormData/multipart needed - simpler client integration
+     */
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-document-base64")
+    @ApiOperation({
+        summary: "Document verification with base64-encoded images (Dojah-optimized)",
+        description: "Upload document images as base64 strings. Removes data:image prefix before sending. Simpler than multipart/form-data.",
+    })
+    @ApiBearerAuth("access-token")
+    async documentVerificationBase64(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DocumentVerificationBase64Dto
+    ) {
+        // Validate that front image is provided
+        if (!dto.imageFrontBase64) {
+            throw new RequiredFilesMissing();
+        }
+        // For passports, require back image
+        if (
+            dto.documentType === DocumentType.INTERNATIONAL_PASSPORT &&
+            !dto.imageBackBase64
+        ) {
+            throw new RequiredFilesMissing();
+        }
+        return await this.authService.documentVerificationBase64(user, dto);
     }
 
     @UseGuards(AuthGuard)

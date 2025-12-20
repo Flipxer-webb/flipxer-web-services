@@ -12,6 +12,7 @@ import {
     VerifyPhoneOtpDto,
     SendPhoneVerificationCodeDto,
     DocumentVerificationDto,
+    DocumentVerificationBase64Dto,
     SubmitBusinessRecordDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
@@ -1034,6 +1035,200 @@ export class AuthService {
         });
 
         return result;
+    }
+
+    /**
+     * Upload a base64 image to storage and return the URL
+     * Strips data:image prefix if present
+     */
+    private async uploadBase64Image(base64String: string): Promise<{
+        url: string;
+        fileId: string;
+    }> {
+        // Strip data:image prefix if present (e.g., "data:image/jpeg;base64,")
+        const cleanBase64 = base64String.replace(/^data:image\/\w+;base64,/, "");
+        const date = Date.now();
+        const body = Buffer.from(cleanBase64, "base64");
+
+        const result = await this.uploadService.uploadCompressedImage({
+            dir: storageDirConfig.document,
+            name: `document-${date}-${generateRandomNum(5)}`,
+            format: "webp",
+            body: body,
+            quality: 100,
+            width: 989,
+        });
+
+        // Handle both Cloudinary (secure_url/public_id) and ImageKit (url/fileId) responses
+        const url = "secure_url" in result ? result.secure_url : result.url;
+        const fileId = "public_id" in result ? result.public_id : result.fileId;
+
+        return { url, fileId };
+    }
+
+    /**
+     * Document verification optimized for Dojah integration
+     * Accepts base64-encoded images directly - no FormData needed
+     * Stores images for manual review while using Dojah for auto-verification
+     */
+    async documentVerificationBase64(
+        user: User,
+        dto: DocumentVerificationBase64Dto
+    ) {
+        const logger = new Logger("DocumentVerificationBase64");
+
+        if (user.isDocumentVerified) {
+            throw new VerificationGenericException(
+                "Document has already been verified",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Check if document is already pending review
+        const existingDocument = await this.prisma.userDocument.findUnique({
+            where: { userId: user.id },
+            select: { verificationStatus: true },
+        });
+        if (existingDocument?.verificationStatus === DocumentVerificationStatus.PENDING) {
+            throw new VerificationGenericException(
+                "Document verification is pending review",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Strip data:image prefix for Dojah API (required per Dojah docs)
+        const cleanFrontBase64 = dto.imageFrontBase64.replace(/^data:image\/\w+;base64,/, "");
+        const cleanBackBase64 = dto.imageBackBase64
+            ? dto.imageBackBase64.replace(/^data:image\/\w+;base64,/, "")
+            : undefined;
+
+        // Upload images to storage (for manual review if needed) and verify with Dojah in parallel
+        const [documentImage1, documentImage2, dojahResult] = await Promise.all([
+            this.uploadBase64Image(dto.imageFrontBase64),
+            dto.imageBackBase64 ? this.uploadBase64Image(dto.imageBackBase64) : Promise.resolve(null),
+            // Call Dojah directly with base64 - no need for URL
+            (async () => {
+                try {
+                    const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
+                        {
+                            inputType: "base64",
+                            imageFrontSide: cleanFrontBase64,
+                            ...(cleanBackBase64 && { imageBackSide: cleanBackBase64 }),
+                        },
+                        user.firstName,
+                        user.lastName
+                    );
+                    return {
+                        success: true,
+                        isValid: verificationResult.isValid,
+                        nameMatches: verificationResult.nameMatches,
+                        parsed: verificationResult.parsed,
+                        raw: JSON.stringify(verificationResult),
+                    };
+                } catch (error) {
+                    logger.warn(
+                        `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error.message}`
+                    );
+                    return {
+                        success: false,
+                        isValid: false,
+                        nameMatches: false,
+                        parsed: null,
+                        raw: null,
+                    };
+                }
+            })(),
+        ]);
+
+        const { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse } = dojahResult;
+
+        logger.log(
+            `Document analysis for user ${user.id}: ` +
+            `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
+            `docType=${dojahParsed?.documentType || "unknown"}`
+        );
+
+        // Document must be valid AND name must match for auto-approval
+        const shouldAutoApprove = isDocumentValid && nameMatches;
+        const verificationStatus = shouldAutoApprove
+            ? DocumentVerificationStatus.VERIFIED
+            : DocumentVerificationStatus.PENDING;
+
+        await this.prisma.$transaction(
+            async (tx) => {
+                await tx.userDocument.upsert({
+                    where: { userId: user.id },
+                    update: {
+                        type: dto.documentType,
+                        country: dto.country,
+                        documentNumber: dto.documentNumber,
+                        documentImageUrl: documentImage1.url,
+                        documentImageFieldId: documentImage1.fileId,
+                        ...(documentImage2 && {
+                            documentImageUrl2: documentImage2.url,
+                            documentImage2FieldId: documentImage2.fileId,
+                        }),
+                        // Dojah verification fields
+                        verificationStatus,
+                        dojahVerified: isDocumentValid,
+                        dojahDocumentType: dojahParsed?.documentType || null,
+                        dojahCountryCode: dojahParsed?.countryCode || null,
+                        dojahExtractedFirstName: dojahParsed?.firstName || null,
+                        dojahExtractedLastName: dojahParsed?.lastName || null,
+                        dojahExtractedDob: dojahParsed?.dateOfBirth || null,
+                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahNameMatches: nameMatches,
+                        dojahVerifiedAt: new Date(),
+                        dojahRawResponse,
+                        updatedAt: new Date(),
+                    },
+                    create: {
+                        userId: user.id,
+                        type: dto.documentType,
+                        country: dto.country,
+                        documentNumber: dto.documentNumber,
+                        documentImageUrl: documentImage1.url,
+                        documentImageFieldId: documentImage1.fileId,
+                        ...(documentImage2 && {
+                            documentImageUrl2: documentImage2.url,
+                            documentImage2FieldId: documentImage2.fileId,
+                        }),
+                        // Dojah verification fields
+                        verificationStatus,
+                        dojahVerified: isDocumentValid,
+                        dojahDocumentType: dojahParsed?.documentType || null,
+                        dojahCountryCode: dojahParsed?.countryCode || null,
+                        dojahExtractedFirstName: dojahParsed?.firstName || null,
+                        dojahExtractedLastName: dojahParsed?.lastName || null,
+                        dojahExtractedDob: dojahParsed?.dateOfBirth || null,
+                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahNameMatches: nameMatches,
+                        dojahVerifiedAt: new Date(),
+                        dojahRawResponse,
+                    },
+                });
+
+                await tx.user.update({
+                    where: { id: user.id },
+                    data: {
+                        isDocumentVerified: shouldAutoApprove,
+                        documentVerificationStatus: verificationStatus,
+                    },
+                });
+            },
+            { timeout: 30000 }
+        );
+
+        // Return appropriate message based on verification result
+        if (shouldAutoApprove) {
+            return buildResponse({
+                message: "Document verified successfully",
+            });
+        } else {
+            return buildResponse({
+                message: "Document verification is pending review",
+            });
+        }
     }
 
     async updloadBusinessDocuments(

@@ -348,6 +348,42 @@ export class DocumentVerificationUploadFormDto {
     documentImage2?: any;
 }
 
+/**
+ * DTO for base64-encoded document verification
+ * Optimized for Dojah API integration - accepts base64 images directly
+ */
+export class DocumentVerificationBase64Dto {
+    @ApiProperty({ enum: DocumentType, enumName: "DocumentType" })
+    @IsNotEmpty()
+    @IsEnum(DocumentType)
+    documentType: DocumentType;
+
+    @ApiProperty({ enum: Country, enumName: "Country" })
+    @IsNotEmpty()
+    @IsEnum(Country)
+    country: Country;
+
+    @ApiProperty({ description: "Document number (e.g., passport number, license number)" })
+    @IsNotEmpty()
+    @IsString()
+    documentNumber: string;
+
+    @ApiProperty({
+        description: "Base64-encoded front image of the document (without data:image prefix)",
+    })
+    @IsNotEmpty()
+    @IsString()
+    imageFrontBase64: string;
+
+    @ApiProperty({
+        required: false,
+        description: "Base64-encoded back image of the document (without data:image prefix)",
+    })
+    @IsOptional()
+    @IsString()
+    imageBackBase64?: string;
+}
+
 export class BusinessDocumentUploadDto {
     @ApiProperty({ description: "A valid CAC document number" })
     @IsNotEmpty()
