@@ -384,6 +384,28 @@ export class DocumentVerificationBase64Dto {
     imageBackBase64?: string;
 }
 
+/**
+ * DTO for document preview/pre-validation
+ * Calls Dojah to analyze document WITHOUT saving to database
+ * Returns extracted data for user to verify before final submission
+ */
+export class DocumentPreviewDto {
+    @ApiProperty({
+        description: "Base64-encoded front image of the document",
+    })
+    @IsNotEmpty()
+    @IsString()
+    imageFrontBase64: string;
+
+    @ApiProperty({
+        required: false,
+        description: "Base64-encoded back image of the document",
+    })
+    @IsOptional()
+    @IsString()
+    imageBackBase64?: string;
+}
+
 export class BusinessDocumentUploadDto {
     @ApiProperty({ description: "A valid CAC document number" })
     @IsNotEmpty()

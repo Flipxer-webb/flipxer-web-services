@@ -13,6 +13,7 @@ import {
     SendPhoneVerificationCodeDto,
     DocumentVerificationDto,
     DocumentVerificationBase64Dto,
+    DocumentPreviewDto,
     SubmitBusinessRecordDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
@@ -1112,6 +1113,114 @@ export class AuthService {
         const fileId = "public_id" in result ? result.public_id : result.fileId;
 
         return { url, fileId };
+    }
+
+    /**
+     * Preview/pre-validate document using Dojah OCR
+     * Does NOT save anything to database - just returns extracted data
+     * Used for real-time validation as user uploads documents
+     */
+    async previewDocument(user: User, dto: DocumentPreviewDto) {
+        const logger = new Logger("DocumentPreview");
+
+        // Strip data:image prefix for Dojah API
+        const cleanFrontBase64 = dto.imageFrontBase64.replace(/^data:image\/\w+;base64,/, "");
+        const cleanBackBase64 = dto.imageBackBase64
+            ? dto.imageBackBase64.replace(/^data:image\/\w+;base64,/, "")
+            : undefined;
+
+        logger.log(`Document preview starting for user ${user.id}`, {
+            frontImageSize: dto.imageFrontBase64?.length || 0,
+            backImageSize: dto.imageBackBase64?.length || 0,
+        });
+
+        const startTime = Date.now();
+
+        try {
+            const result = await this.dojahService.analyzeDocument({
+                inputType: "base64",
+                imageFrontSide: cleanFrontBase64,
+                ...(cleanBackBase64 && { imageBackSide: cleanBackBase64 }),
+            });
+
+            const parsed = result.parsed;
+            const durationMs = Date.now() - startTime;
+
+            logger.log(
+                `Document preview completed in ${durationMs}ms for user ${user.id}: ` +
+                `valid=${parsed.isValid}, type=${parsed.documentType}, reason=${parsed.reason}`
+            );
+
+            // Return extracted data for user verification
+            return {
+                success: true,
+                message: parsed.isValid 
+                    ? "Document analyzed successfully" 
+                    : this.mapDojahReasonToUserMessage(parsed.reason),
+                data: {
+                    isValid: parsed.isValid,
+                    reason: parsed.reason,
+                    documentType: parsed.documentType,
+                    country: parsed.country,
+                    // Extracted personal info
+                    firstName: parsed.firstName,
+                    lastName: parsed.lastName,
+                    givenNames: parsed.givenNames,
+                    documentNumber: parsed.documentNumber,
+                    dateOfBirth: parsed.dateOfBirth,
+                    expiryDate: parsed.expiryDate,
+                    issueDate: parsed.issueDate,
+                    sex: parsed.sex,
+                    nationality: parsed.nationality,
+                    // Image quality indicators
+                    hasPortrait: parsed.hasPortrait,
+                    hasFrontSide: parsed.hasFrontSide,
+                    hasBackSide: parsed.hasBackSide,
+                },
+            };
+        } catch (error) {
+            const durationMs = Date.now() - startTime;
+            logger.error(`Document preview failed in ${durationMs}ms for user ${user.id}`, {
+                errorName: error.name,
+                errorMessage: error.message,
+            });
+
+            const userMessage = this.mapDojahErrorToUserMessage({
+                name: error.name,
+                message: error.message,
+                status: error.status,
+            });
+
+            return {
+                success: false,
+                message: userMessage,
+                data: null,
+            };
+        }
+    }
+
+    /**
+     * Map Dojah reason codes to user-friendly messages
+     */
+    private mapDojahReasonToUserMessage(reason?: string): string {
+        if (!reason) return "Document analysis completed";
+        
+        const upperReason = reason.toUpperCase();
+        
+        if (upperReason === "NOT_VALID" || upperReason === "INVALID") {
+            return "Document could not be verified. Please ensure the image is clear, all text is readable, and the document is a valid government-issued ID.";
+        }
+        if (upperReason.includes("BLUR") || upperReason.includes("UNCLEAR")) {
+            return "Document image is unclear. Please take a clearer photo with good lighting.";
+        }
+        if (upperReason.includes("EXPIRED")) {
+            return "Document appears to be expired. Please upload a valid, unexpired document.";
+        }
+        if (upperReason.includes("NOT_SUPPORTED") || upperReason.includes("UNSUPPORTED")) {
+            return "This document type is not supported. Please upload a valid passport, driver's license, or national ID.";
+        }
+        
+        return reason;
     }
 
     /**

@@ -33,6 +33,7 @@ import {
     BusinessDocumentUploadFormDto,
     DocumentVerificationUploadFormDto,
     DocumentVerificationBase64Dto,
+    DocumentPreviewDto,
     Verify2FALoginDto,
     VerifyAddressUploadFormDto,
     VerifyIncomeUploadFormDto,
@@ -302,6 +303,28 @@ export class AuthController {
             throw new RequiredFilesMissing();
         }
         return await this.authService.documentVerificationBase64(user, dto);
+    }
+
+    /**
+     * Preview/pre-validate document using Dojah OCR
+     * Does NOT save to database - just returns extracted data for user verification
+     */
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("preview-document")
+    @ApiOperation({
+        summary: "Preview document using Dojah OCR (no database save)",
+        description: "Analyzes document images and returns extracted data for user verification before final submission. Does not save anything to database.",
+    })
+    @ApiBearerAuth("access-token")
+    async previewDocument(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DocumentPreviewDto
+    ) {
+        if (!dto.imageFrontBase64) {
+            throw new RequiredFilesMissing();
+        }
+        return await this.authService.previewDocument(user, dto);
     }
 
     @UseGuards(AuthGuard)
