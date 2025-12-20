@@ -83,6 +83,7 @@ export class UserService {
                 isPhoneVerified: true,
                 isPasswordCreated: true,
                 isBvnVerified: true,
+                isNinVerified: true,
                 isDocumentVerified: true,
                 isAddressVerified: true,
                 isBiometricVerified: true,

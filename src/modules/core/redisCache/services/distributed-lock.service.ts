@@ -68,8 +68,11 @@ export class DistributedLockService {
             username: redisConfig.user,
             password: redisConfig.password,
             tls: redisConfig.redisOptions.tls,
-            connectTimeout: 10000,
-            commandTimeout: 5000,
+            connectTimeout: 15000,
+            commandTimeout: 10000,
+            keepAlive: 30000,
+            enableOfflineQueue: false, // Locks should fail fast when disconnected
+            maxRetriesPerRequest: 2,
             retryStrategy: (times: number) => {
                 if (times > 5) {
                     this.logger.error(`Lock service: Max retries (${times}) exceeded`);

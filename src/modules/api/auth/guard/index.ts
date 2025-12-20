@@ -228,6 +228,11 @@ export class FincraWebhookGuard implements CanActivate {
     }
 }
 
+// In-memory cache for GeoIP lookups to reduce Redis load
+const geoIpMemoryCache = new Map<string, { countryCode: string; expiresAt: number }>();
+const GEOIP_MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in memory
+const GEOIP_MEMORY_CACHE_MAX_SIZE = 500;
+
 @Injectable()
 export class CountryBlockGuard implements CanActivate {
     constructor(
@@ -246,6 +251,19 @@ export class CountryBlockGuard implements CanActivate {
             return true;
         }
 
+        // Check in-memory cache first (avoid Redis call)
+        const now = Date.now();
+        const memCached = geoIpMemoryCache.get(clientIp);
+        if (memCached && memCached.expiresAt > now) {
+            const countryCode = memCached.countryCode;
+            if (countryCode && blockedCountries.includes(countryCode)) {
+                throw new ForbiddenException(
+                    `Access denied from your country: ${countryCode}`
+                );
+            }
+            return true;
+        }
+
         const redisKey = `geoip:${clientIp}`;
         let countryCode = await this.redisCacheService.get<string>(redisKey);
 
@@ -257,6 +275,17 @@ export class CountryBlockGuard implements CanActivate {
                 60 * 60
             ); // 1 hour
         }
+
+        // Store in memory cache
+        if (geoIpMemoryCache.size >= GEOIP_MEMORY_CACHE_MAX_SIZE) {
+            // Clear oldest entries
+            const keysToDelete = Array.from(geoIpMemoryCache.keys()).slice(0, 100);
+            keysToDelete.forEach(k => geoIpMemoryCache.delete(k));
+        }
+        geoIpMemoryCache.set(clientIp, {
+            countryCode: countryCode ?? "",
+            expiresAt: now + GEOIP_MEMORY_CACHE_TTL
+        });
 
         if (countryCode && blockedCountries.includes(countryCode)) {
             throw new ForbiddenException(

@@ -314,7 +314,7 @@ export const redisConfig: RedisConfig = {
     port: +process.env.REDIS_PORT,
     user: process.env.REDIS_USER,
     redisOptions: {
-        tls: {},
+        tls: process.env.REDIS_TLS === "true" ? {} : undefined,
     },
 };
 

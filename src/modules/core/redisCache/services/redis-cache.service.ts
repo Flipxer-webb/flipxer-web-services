@@ -26,9 +26,14 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
             username: redisConfig.user,
             password: redisConfig.password,
             tls: redisConfig.redisOptions.tls,
-            // Connection timeout
-            connectTimeout: 10000,
-            commandTimeout: 5000,
+            // Connection timeout - increased for remote Redis
+            connectTimeout: 15000,
+            commandTimeout: 10000,
+            // Keep-alive to prevent idle disconnections
+            keepAlive: 30000,
+            // Enable offline queue to buffer commands during reconnection
+            enableOfflineQueue: true,
+            maxRetriesPerRequest: 3,
             // Retry strategy with exponential backoff
             retryStrategy: (times: number) => {
                 if (times > 10) {
@@ -40,8 +45,8 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
                 return delay;
             },
             reconnectOnError: (err: Error) => {
-                if (err.message.includes("Too many requests")) {
-                    this.logger.warn("Redis cache: Reconnecting due to rate limit");
+                if (err.message.includes("Too many requests") || err.message.includes("READONLY")) {
+                    this.logger.warn("Redis cache: Reconnecting due to error: " + err.message);
                     return true;
                 }
                 return false;
