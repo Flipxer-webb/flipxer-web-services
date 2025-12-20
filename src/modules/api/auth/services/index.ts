@@ -1181,11 +1181,24 @@ export class AuthService {
         logger.log(
             `Document analysis for user ${user.id}: ` +
             `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
-            `docType=${dojahParsed?.documentType || "unknown"}`
+            `docType=${dojahParsed?.documentType || "unknown"}, ` +
+            `reason=${dojahParsed?.reason || "unknown"}`
         );
 
-        // Document must be valid AND name must match for auto-approval
-        const shouldAutoApprove = isDocumentValid && nameMatches;
+        // If Dojah says document is NOT valid, reject with the exact reason
+        if (!isDocumentValid && dojahParsed?.reason) {
+            const rejectionReason = dojahParsed.reason === "NOT_VALID" 
+                ? "Document could not be verified. Please ensure the image is clear and all text is readable."
+                : dojahParsed.reason;
+            throw new VerificationGenericException(
+                rejectionReason,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Auto-approve if document is valid (simplified - no strict name matching required)
+        // Name matching is informational only, logged for review if needed
+        const shouldAutoApprove = isDocumentValid;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
             : DocumentVerificationStatus.PENDING;
