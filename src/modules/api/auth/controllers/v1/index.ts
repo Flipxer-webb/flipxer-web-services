@@ -34,6 +34,7 @@ import {
     DocumentVerificationUploadFormDto,
     DocumentVerificationBase64Dto,
     DocumentPreviewDto,
+    DojahWidgetVerificationDto,
     Verify2FALoginDto,
     VerifyAddressUploadFormDto,
     VerifyIncomeUploadFormDto,
@@ -325,6 +326,25 @@ export class AuthController {
             throw new RequiredFilesMissing();
         }
         return await this.authService.previewDocument(user, dto);
+    }
+
+    /**
+     * Submit Dojah Widget verification result
+     * Saves verified document data from Dojah Widget to database
+     */
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("submit-dojah-verification")
+    @ApiOperation({
+        summary: "Submit Dojah Widget verification result",
+        description: "Receives verification data from Dojah Widget and saves the verification record to the database.",
+    })
+    @ApiBearerAuth("access-token")
+    async submitDojahVerification(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DojahWidgetVerificationDto
+    ) {
+        return await this.authService.submitDojahWidgetVerification(user, dto);
     }
 
     @UseGuards(AuthGuard)

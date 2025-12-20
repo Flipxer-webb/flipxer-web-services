@@ -14,6 +14,7 @@ import {
     DocumentVerificationDto,
     DocumentVerificationBase64Dto,
     DocumentPreviewDto,
+    DojahWidgetVerificationDto,
     SubmitBusinessRecordDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
@@ -51,6 +52,8 @@ import {
     Status,
     User,
     UserType,
+    DocumentType,
+    Country,
 } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
 import {
@@ -1239,6 +1242,144 @@ export class AuthService {
         }
         
         return reason;
+    }
+
+    /**
+     * Submit Dojah Widget verification result
+     * Receives verification data from Dojah Widget and saves to database
+     */
+    async submitDojahWidgetVerification(user: User, dto: DojahWidgetVerificationDto) {
+        const logger = new Logger("DojahWidgetVerification");
+        
+        logger.log(`Dojah widget verification submission for user ${user.id}`, {
+            verificationId: dto.verificationId,
+            referenceId: dto.referenceId,
+            verificationType: dto.verificationType,
+            hasIdData: !!dto.idData,
+            hasLiveness: !!dto.liveness,
+            hasSelfie: !!dto.selfie,
+            hasFaceMatch: !!dto.faceMatch,
+        });
+
+        try {
+            // Check if already verified
+            if (user.isDocumentVerified) {
+                return buildResponse({
+                    message: "Document has already been verified",
+                    data: { verified: true },
+                });
+            }
+
+            // Map Dojah document type to internal document type
+            const dojahDocType = dto.idData?.document_type?.toLowerCase();
+            let documentType: DocumentType = DocumentType.NIN;
+            
+            if (dojahDocType?.includes("passport")) {
+                documentType = DocumentType.INTERNATIONAL_PASSPORT;
+            } else if (dojahDocType?.includes("driver") || dojahDocType?.includes("license")) {
+                documentType = DocumentType.DRIVER_LICENSE;
+            } else if (dto.documentType) {
+                // Use provided document type as fallback
+                const providedType = dto.documentType.toLowerCase();
+                if (providedType.includes("passport")) {
+                    documentType = DocumentType.INTERNATIONAL_PASSPORT;
+                } else if (providedType.includes("driver") || providedType.includes("license")) {
+                    documentType = DocumentType.DRIVER_LICENSE;
+                }
+            }
+
+            // Store Dojah widget response in userDocument
+            await this.prisma.userDocument.upsert({
+                where: { userId: user.id },
+                update: {
+                    type: documentType,
+                    country: Country.NIGERIA,
+                    documentNumber: dto.idData?.document_number || "",
+                    verificationStatus: DocumentVerificationStatus.VERIFIED,
+                    dojahVerified: true,
+                    dojahDocumentType: dto.idData?.document_type || null,
+                    dojahCountryCode: dto.idData?.country || null,
+                    dojahExtractedFirstName: dto.idData?.first_name || null,
+                    dojahExtractedLastName: dto.idData?.last_name || null,
+                    dojahExtractedDob: dto.idData?.date_of_birth || null,
+                    dojahExtractedDocNumber: dto.idData?.document_number || null,
+                    dojahNameMatches: true, // Verified via widget
+                    dojahVerifiedAt: new Date(),
+                    dojahRawResponse: JSON.stringify({
+                        verificationId: dto.verificationId,
+                        referenceId: dto.referenceId,
+                        verificationType: dto.verificationType,
+                        idData: dto.idData,
+                        liveness: dto.liveness,
+                        selfie: dto.selfie,
+                        faceMatch: dto.faceMatch,
+                        verifiedViaWidget: true,
+                    }),
+                    updatedAt: new Date(),
+                },
+                create: {
+                    userId: user.id,
+                    type: documentType,
+                    country: Country.NIGERIA,
+                    documentNumber: dto.idData?.document_number || "",
+                    // For Dojah Widget, images are stored by Dojah - use placeholder
+                    documentImageUrl: "dojah-widget-verified",
+                    documentImageFieldId: `dojah-widget-${dto.verificationId || Date.now()}`,
+                    verificationStatus: DocumentVerificationStatus.VERIFIED,
+                    dojahVerified: true,
+                    dojahDocumentType: dto.idData?.document_type || null,
+                    dojahCountryCode: dto.idData?.country || null,
+                    dojahExtractedFirstName: dto.idData?.first_name || null,
+                    dojahExtractedLastName: dto.idData?.last_name || null,
+                    dojahExtractedDob: dto.idData?.date_of_birth || null,
+                    dojahExtractedDocNumber: dto.idData?.document_number || null,
+                    dojahNameMatches: true,
+                    dojahVerifiedAt: new Date(),
+                    dojahRawResponse: JSON.stringify({
+                        verificationId: dto.verificationId,
+                        referenceId: dto.referenceId,
+                        verificationType: dto.verificationType,
+                        idData: dto.idData,
+                        liveness: dto.liveness,
+                        selfie: dto.selfie,
+                        faceMatch: dto.faceMatch,
+                        verifiedViaWidget: true,
+                    }),
+                },
+            });
+
+            // Update user's document verification status
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    isDocumentVerified: true,
+                    documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                },
+            });
+
+            logger.log(`Dojah widget verification completed successfully for user ${user.id}`);
+
+            return buildResponse({
+                message: "Document verified successfully",
+                data: {
+                    verified: true,
+                    documentType,
+                    firstName: dto.idData?.first_name,
+                    lastName: dto.idData?.last_name,
+                    documentNumber: dto.idData?.document_number,
+                },
+            });
+        } catch (error) {
+            logger.error(`Dojah widget verification failed for user ${user.id}`, {
+                error: error.message,
+                stack: error.stack,
+            });
+
+            return buildResponse({
+                message: "Failed to save verification result",
+                success: false,
+            });
+        }
     }
 
     /**

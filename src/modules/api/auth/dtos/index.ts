@@ -632,3 +632,101 @@ export class Reset2FARateLimitDto {
     @IsEnum(["login", "transaction"])
     context?: "login" | "transaction";
 }
+
+/**
+ * DTO for Dojah Widget verification result submission
+ * Receives verification data from Dojah Widget and saves to database
+ */
+export class DojahWidgetVerificationDto {
+    @ApiProperty({
+        description: "Dojah verification ID",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    verificationId?: string;
+
+    @ApiProperty({
+        description: "Dojah reference ID",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    referenceId?: string;
+
+    @ApiProperty({
+        description: "Type of verification performed",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    verificationType?: string;
+
+    @ApiProperty({
+        description: "ID data extracted from document",
+        required: false,
+    })
+    @IsOptional()
+    idData?: {
+        first_name?: string;
+        middle_name?: string;
+        last_name?: string;
+        full_name?: string;
+        date_of_birth?: string;
+        document_number?: string;
+        expiry_date?: string;
+        issue_date?: string;
+        nationality?: string;
+        gender?: string;
+        country?: string;
+        document_type?: string;
+        photo?: string;
+    };
+
+    @ApiProperty({
+        description: "Liveness check data",
+        required: false,
+    })
+    @IsOptional()
+    liveness?: {
+        verified?: boolean;
+        confidence?: number;
+        photo?: string;
+    };
+
+    @ApiProperty({
+        description: "Selfie data",
+        required: false,
+    })
+    @IsOptional()
+    selfie?: {
+        photo?: string;
+        verified?: boolean;
+    };
+
+    @ApiProperty({
+        description: "Face match result",
+        required: false,
+    })
+    @IsOptional()
+    faceMatch?: {
+        verified?: boolean;
+        confidence?: number;
+    };
+
+    @ApiProperty({
+        description: "Country code (e.g., NG)",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    country?: string;
+
+    @ApiProperty({
+        description: "Document type",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    documentType?: string;
+}
