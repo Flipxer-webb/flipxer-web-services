@@ -64,6 +64,7 @@ model User {
   biometricVerifiedAt                DateTime?
   biometricCredentialId              String?
   biometricPublicKey                 String?
+  documentVerificationStatus         DocumentVerificationStatus?       // Identity document verification status
   addressVerificationStatus          DocumentVerificationStatus?
   addressDocumentUrl                 String?
   incomeVerificationStatus           DocumentVerificationStatus?
@@ -202,16 +203,30 @@ model BusinessRecord {
 }
 
 model UserDocument {
-  id                    Int          @id @default(autoincrement())
-  userId                Int?         @unique
-  type                  DocumentType
-  country               Country
-  documentNumber        String
-  documentImageUrl      String
-  documentImageFieldId  String
-  documentImage2FieldId String?
-  documentImageUrl2     String?
-  user                  User?        @relation(fields: [userId], references: [id])
+  id                       Int                         @id @default(autoincrement())
+  userId                   Int?                        @unique
+  type                     DocumentType
+  country                  Country
+  documentNumber           String
+  documentImageUrl         String
+  documentImageFieldId     String
+  documentImage2FieldId    String?
+  documentImageUrl2        String?
+  // Dojah verification fields
+  verificationStatus       DocumentVerificationStatus  @default(PENDING)
+  dojahVerified            Boolean                     @default(false)
+  dojahDocumentType        String?                     // e.g., "International Passport - Nigeria"
+  dojahCountryCode         String?                     // e.g., "NGA"
+  dojahExtractedFirstName  String?
+  dojahExtractedLastName   String?
+  dojahExtractedDob        String?
+  dojahExtractedDocNumber  String?
+  dojahNameMatches         Boolean?
+  dojahVerifiedAt          DateTime?
+  dojahRawResponse         String?                     // JSON string of full response for audit
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+  user                     User?                       @relation(fields: [userId], references: [id])
 
   @@map("UserDocuments")
 }

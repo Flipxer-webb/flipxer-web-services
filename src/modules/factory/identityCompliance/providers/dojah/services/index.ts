@@ -51,6 +51,103 @@ export class DojahService {
         }
     }
 
+    /**
+     * Analyze and verify a document using Dojah's Document Analysis API
+     * Supports passports, driver's licenses, national IDs, etc.
+     */
+    async analyzeDocument(options: DJ.DocumentAnalysisOptions): Promise<{
+        response: DJ.DojahResponse<DJ.DocumentAnalysisResponseData>;
+        parsed: DJ.ParsedDocumentData;
+    }> {
+        try {
+            const resp = await this.dojah.analyzeDocument({
+                imageFrontSide: options.imageFrontSide,
+                imageBackSide: options.imageBackSide,
+                inputType: options.inputType || "base64",
+            });
+
+            if (!resp) {
+                throw new e.DojahException(
+                    `Unable to analyze document`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            const parsed = this.dojah.parseDocumentData(resp.data);
+
+            this.logger.log(
+                `Document analysis completed: valid=${parsed.isValid}, type=${parsed.documentType}, country=${parsed.country}`
+            );
+
+            return { response: resp, parsed };
+        } catch (error) {
+            this.handleVerificationError(error, "document");
+        }
+    }
+
+    /**
+     * Verify document and check if extracted name matches user's name
+     */
+    async verifyDocumentWithNameMatch(
+        options: DJ.DocumentAnalysisOptions,
+        expectedFirstName: string,
+        expectedLastName: string
+    ): Promise<{
+        isValid: boolean;
+        nameMatches: boolean;
+        parsed: DJ.ParsedDocumentData;
+        matchDetails: {
+            expectedFirst: string;
+            expectedLast: string;
+            extractedFirst?: string;
+            extractedLast?: string;
+            extractedGivenNames?: string;
+        };
+    }> {
+        const { parsed } = await this.analyzeDocument(options);
+
+        // Normalize names for comparison (lowercase, trim)
+        const normalize = (s?: string) => s?.toLowerCase().trim() || "";
+
+        const expectedFirst = normalize(expectedFirstName);
+        const expectedLast = normalize(expectedLastName);
+        const extractedFirst = normalize(parsed.firstName);
+        const extractedLast = normalize(parsed.lastName);
+        const extractedGivenNames = normalize(parsed.givenNames);
+
+        // Check name match - be flexible with given names vs first name
+        const firstNameMatches =
+            extractedFirst === expectedFirst ||
+            extractedGivenNames.includes(expectedFirst) ||
+            expectedFirst.includes(extractedFirst);
+
+        const lastNameMatches =
+            extractedLast === expectedLast ||
+            expectedLast.includes(extractedLast) ||
+            extractedLast.includes(expectedLast);
+
+        const nameMatches = firstNameMatches && lastNameMatches;
+
+        this.logger.log(
+            `Document name verification: expected="${expectedFirstName} ${expectedLastName}", ` +
+                `extracted="${parsed.firstName || ""} ${parsed.lastName || ""}", ` +
+                `matches=${nameMatches}`
+        );
+
+        return {
+            isValid: parsed.isValid,
+            nameMatches,
+            parsed,
+            matchDetails: {
+                expectedFirst: expectedFirstName,
+                expectedLast: expectedLastName,
+                extractedFirst: parsed.firstName,
+                extractedLast: parsed.lastName,
+                extractedGivenNames: parsed.givenNames,
+            },
+        };
+    }
+
     private handleVerificationError(error: any, verificationType: string): never {
         this.logger.error(error);
 

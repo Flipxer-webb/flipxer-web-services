@@ -125,4 +125,82 @@ export class DojahLib {
             this.handleDojahError(error);
         }
     }
+
+    /**
+     * Analyze a document (passport, driver's license, national ID, etc.)
+     * Uses Dojah's Document Analysis API
+     */
+    async analyzeDocument(
+        options: t.DocumentAnalysisOptions
+    ): Promise<t.DojahResponse<t.DocumentAnalysisResponseData>> {
+        try {
+            const body: Record<string, string> = {
+                input_type: options.inputType || "base64",
+                imagefrontside: options.imageFrontSide,
+            };
+
+            if (options.imageBackSide) {
+                body.imagebackside = options.imageBackSide;
+            }
+
+            const requestOptions: AxiosRequestConfig = {
+                url: "/api/v1/document/analysis",
+                method: "POST",
+                data: body,
+            };
+
+            const resp = await this.axios<t.DocumentAnalysisResponseData>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.DojahError("Failed to analyze document");
+                error.status = 500;
+                throw error;
+            }
+
+            return {
+                status: true,
+                responseCode: resp.status,
+                data: resp.data,
+            };
+        } catch (error) {
+            this.handleDojahError(error);
+        }
+    }
+
+    /**
+     * Parse document analysis response into a more usable format
+     */
+    parseDocumentData(data: t.DocumentAnalysisResponseData): t.ParsedDocumentData {
+        const entity = data.entity;
+        const textData = entity.text_data || [];
+
+        const getFieldValue = (key: string): string | undefined => {
+            const field = textData.find((f) => f.field_key === key);
+            return field?.status === 1 && field?.value ? field.value : undefined;
+        };
+
+        return {
+            isValid: entity.status.overall_status === 1,
+            reason: entity.status.reason,
+            documentType: entity.document_type?.document_name || "",
+            country: entity.document_type?.document_country_name || "",
+            countryCode: entity.document_type?.document_country_code || "",
+            firstName: getFieldValue("first_name"),
+            lastName: getFieldValue("last_name"),
+            givenNames: getFieldValue("given_names"),
+            documentNumber: getFieldValue("document_number"),
+            dateOfBirth: getFieldValue("dob"),
+            expiryDate: getFieldValue("expiry_date"),
+            issueDate: getFieldValue("issue_date"),
+            sex: getFieldValue("sex"),
+            nationality: getFieldValue("nationality"),
+            placeOfBirth: getFieldValue("place_of_birth"),
+            address: getFieldValue("address"),
+            hasPortrait: entity.status.document_images === "Yes",
+            hasFrontSide: !!entity.document_images?.document_front_side,
+            hasBackSide: !!entity.document_images?.document_back_side,
+        };
+    }
 }

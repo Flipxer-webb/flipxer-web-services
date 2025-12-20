@@ -838,6 +838,8 @@ export class AuthService {
         files: DocumentVerificationFileInterface,
         dto: DocumentVerificationDto
     ) {
+        const logger = new Logger("DocumentVerification");
+
         if (user.isDocumentVerified) {
             throw new VerificationGenericException(
                 "Document has already been verified",
@@ -845,6 +847,19 @@ export class AuthService {
             );
         }
 
+        // Check if document is already pending review
+        const existingDocument = await this.prisma.userDocument.findUnique({
+            where: { userId: user.id },
+            select: { verificationStatus: true },
+        });
+        if (existingDocument?.verificationStatus === DocumentVerificationStatus.PENDING) {
+            throw new VerificationGenericException(
+                "Document verification is pending review",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Upload document images
         const documentImage1Promise = this.uploadAsFile(files.documentImage1);
         const documentImage2Promise = files.documentImage2
             ? this.uploadAsFile(files.documentImage2)
@@ -854,6 +869,63 @@ export class AuthService {
             documentImage1Promise,
             documentImage2Promise,
         ]);
+
+        // Attempt to verify document with Dojah
+        let isDocumentValid = false;
+        let nameMatches = false;
+        let dojahParsed: any = null;
+        let dojahRawResponse: string | null = null;
+
+        try {
+            // Use the new verifyDocumentWithNameMatch method
+            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
+                {
+                    inputType: "url",
+                    imageFrontSide: documentImage1.url,
+                    ...(documentImage2 && { imageBackSide: documentImage2.url }),
+                },
+                user.firstName,
+                user.lastName
+            );
+
+            isDocumentValid = verificationResult.isValid;
+            nameMatches = verificationResult.nameMatches;
+            dojahParsed = verificationResult.parsed;
+            dojahRawResponse = JSON.stringify(verificationResult);
+
+            logger.log(
+                `Document analysis for user ${user.id}: ` +
+                `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
+                `docType=${dojahParsed?.documentType || "unknown"}`
+            );
+
+            // Document must be valid AND name must match for auto-approval
+            if (!isDocumentValid) {
+                logger.warn(`Document for user ${user.id} failed validation: ${dojahParsed?.reason}`);
+            }
+            if (!nameMatches) {
+                logger.warn(
+                    `Name mismatch for user ${user.id}: ` +
+                    `expected "${user.firstName} ${user.lastName}", ` +
+                    `got "${dojahParsed?.firstName || ""} ${dojahParsed?.lastName || ""}"`
+                );
+            }
+        } catch (error) {
+            // If Dojah fails (API error, low balance, timeout, etc.), fall back to pending review
+            logger.warn(
+                `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error.message}`
+            );
+            isDocumentValid = false;
+            nameMatches = false;
+        }
+
+        // Determine verification status:
+        // - VERIFIED: Document is valid AND name matches
+        // - PENDING: Document is invalid, name doesn't match, or Dojah call failed
+        const shouldAutoApprove = isDocumentValid && nameMatches;
+        const verificationStatus = shouldAutoApprove
+            ? DocumentVerificationStatus.VERIFIED
+            : DocumentVerificationStatus.PENDING;
 
         await this.prisma.$transaction(
             async (tx) => {
@@ -869,6 +941,19 @@ export class AuthService {
                             documentImageUrl2: documentImage2.url,
                             documentImage2FieldId: documentImage2.fileId,
                         }),
+                        // Dojah verification fields
+                        verificationStatus,
+                        dojahVerified: isDocumentValid,
+                        dojahDocumentType: dojahParsed?.documentType || null,
+                        dojahCountryCode: dojahParsed?.countryCode || null,
+                        dojahExtractedFirstName: dojahParsed?.firstName || null,
+                        dojahExtractedLastName: dojahParsed?.lastName || null,
+                        dojahExtractedDob: dojahParsed?.dateOfBirth || null,
+                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahNameMatches: nameMatches,
+                        dojahVerifiedAt: new Date(),
+                        dojahRawResponse,
+                        updatedAt: new Date(),
                     },
                     create: {
                         userId: user.id,
@@ -881,20 +966,42 @@ export class AuthService {
                             documentImageUrl2: documentImage2.url,
                             documentImage2FieldId: documentImage2.fileId,
                         }),
+                        // Dojah verification fields
+                        verificationStatus,
+                        dojahVerified: isDocumentValid,
+                        dojahDocumentType: dojahParsed?.documentType || null,
+                        dojahCountryCode: dojahParsed?.countryCode || null,
+                        dojahExtractedFirstName: dojahParsed?.firstName || null,
+                        dojahExtractedLastName: dojahParsed?.lastName || null,
+                        dojahExtractedDob: dojahParsed?.dateOfBirth || null,
+                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahNameMatches: nameMatches,
+                        dojahVerifiedAt: new Date(),
+                        dojahRawResponse,
                     },
                 });
 
                 await tx.user.update({
                     where: { id: user.id },
-                    data: { isDocumentVerified: true },
+                    data: {
+                        isDocumentVerified: shouldAutoApprove,
+                        documentVerificationStatus: verificationStatus,
+                    },
                 });
             },
             { timeout: 30000 }
         );
 
-        return buildResponse({
-            message: "Document Verification successfully",
-        });
+        // Return appropriate message based on verification result
+        if (shouldAutoApprove) {
+            return buildResponse({
+                message: "Document verified successfully",
+            });
+        } else {
+            return buildResponse({
+                message: "Document submitted for review. You will be notified once verification is complete.",
+            });
+        }
     }
 
     private async uploadDocumentImage(
