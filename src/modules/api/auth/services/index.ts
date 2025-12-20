@@ -1234,11 +1234,24 @@ export class AuthService {
             `reason=${dojahParsed?.reason || "unknown"}`
         );
 
-        // If Dojah says document is NOT valid, reject with the exact reason
+        // If Dojah says document is NOT valid, reject with a user-friendly reason
         if (!isDocumentValid && dojahParsed?.reason) {
-            const rejectionReason = dojahParsed.reason === "NOT_VALID" 
-                ? "Document could not be verified. Please ensure the image is clear and all text is readable."
-                : dojahParsed.reason;
+            const reason = dojahParsed.reason.toUpperCase();
+            let rejectionReason: string;
+            
+            if (reason === "NOT_VALID" || reason === "INVALID") {
+                rejectionReason = "Document could not be verified. Please ensure the image is clear, all text is readable, and the document is a valid government-issued ID.";
+            } else if (reason.includes("BLUR") || reason.includes("UNCLEAR")) {
+                rejectionReason = "Document image is unclear. Please take a clearer photo with good lighting.";
+            } else if (reason.includes("EXPIRED")) {
+                rejectionReason = "Document appears to be expired. Please upload a valid, unexpired document.";
+            } else if (reason.includes("NOT_SUPPORTED") || reason.includes("UNSUPPORTED")) {
+                rejectionReason = "This document type is not supported. Please upload a valid passport, driver's license, or national ID.";
+            } else {
+                // Pass through other specific reasons from Dojah
+                rejectionReason = dojahParsed.reason;
+            }
+            
             throw new VerificationGenericException(
                 rejectionReason,
                 HttpStatus.BAD_REQUEST
