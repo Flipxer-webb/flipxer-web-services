@@ -1102,6 +1102,16 @@ export class AuthService {
             ? dto.imageBackBase64.replace(/^data:image\/\w+;base64,/, "")
             : undefined;
 
+        // Log payload sizes for debugging
+        logger.log(`Document verification starting for user ${user.id}`, {
+            frontImageSize: dto.imageFrontBase64?.length || 0,
+            backImageSize: dto.imageBackBase64?.length || 0,
+            documentType: dto.documentType,
+            country: dto.country,
+        });
+
+        const startTime = Date.now();
+
         // Upload images to storage (for manual review if needed) and verify with Dojah in parallel
         const [documentImage1, documentImage2, dojahResult] = await Promise.all([
             this.uploadBase64Image(dto.imageFrontBase64),
@@ -1118,29 +1128,55 @@ export class AuthService {
                         user.firstName,
                         user.lastName
                     );
+                    logger.log(`Dojah API completed in ${Date.now() - startTime}ms for user ${user.id}`);
                     return {
                         success: true,
                         isValid: verificationResult.isValid,
                         nameMatches: verificationResult.nameMatches,
                         parsed: verificationResult.parsed,
                         raw: JSON.stringify(verificationResult),
+                        error: null,
                     };
                 } catch (error) {
-                    logger.warn(
-                        `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error.message}`
-                    );
+                    // Enhanced error logging - capture full error details
+                    logger.error(`Dojah document analysis failed for user ${user.id}`, {
+                        errorName: error.name,
+                        errorMessage: error.message,
+                        errorStatus: error.status,
+                        errorStack: error.stack,
+                        durationMs: Date.now() - startTime,
+                        payloadSize: {
+                            frontImage: dto.imageFrontBase64?.length || 0,
+                            backImage: dto.imageBackBase64?.length || 0,
+                        },
+                    });
+                    
+                    // Return error details for proper handling
                     return {
                         success: false,
                         isValid: false,
                         nameMatches: false,
                         parsed: null,
                         raw: null,
+                        error: {
+                            name: error.name,
+                            message: error.message,
+                            status: error.status,
+                        },
                     };
                 }
             })(),
         ]);
 
-        const { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse } = dojahResult;
+        const { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse, error: dojahError } = dojahResult;
+
+        // If Dojah failed with an error, throw it to the frontend
+        if (!dojahResult.success && dojahError) {
+            throw new VerificationGenericException(
+                dojahError.message || "Document verification failed. Please try again with a clearer image.",
+                dojahError.status || HttpStatus.BAD_REQUEST
+            );
+        }
 
         logger.log(
             `Document analysis for user ${user.id}: ` +

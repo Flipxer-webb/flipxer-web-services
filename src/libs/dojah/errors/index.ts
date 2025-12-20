@@ -8,6 +8,11 @@ export class DojahGenericError extends DojahError {
     status: number;
 }
 
+export class DojahNetworkError extends DojahError {
+    name = "DojahNetworkError";
+    status = 503;
+}
+
 export class DojahAuthorizationError extends DojahError {
     name = "DojahAuthorizationError";
     status = 401;
