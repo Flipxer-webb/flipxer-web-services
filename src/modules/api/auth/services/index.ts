@@ -93,6 +93,54 @@ export class AuthService {
     private uploadService: ImagekitService | CloudinaryService;
     private readonly SALT_ROUNDS = 10;
 
+    /**
+     * Map Dojah error types to user-friendly messages
+     */
+    private mapDojahErrorToUserMessage(error: { name: string; message: string; status?: number }): string {
+        const errorName = error.name?.toLowerCase() || '';
+        const errorMessage = error.message?.toLowerCase() || '';
+
+        // Network/timeout errors
+        if (errorName.includes('network') || errorName.includes('timeout') || errorMessage.includes('timeout')) {
+            return 'Connection issue with verification service. Please try again in a moment.';
+        }
+
+        // Validation errors - usually means image quality or format issues
+        if (errorName.includes('validation') || error.status === 400) {
+            if (errorMessage.includes('base64') || errorMessage.includes('image')) {
+                return 'Invalid image format. Please upload a clear photo of your document.';
+            }
+            if (errorMessage.includes('size') || errorMessage.includes('large')) {
+                return 'Image file is too large. Please upload a smaller image.';
+            }
+            return 'Document image could not be processed. Please ensure the image is clear and try again.';
+        }
+
+        // Not found - document type not recognized
+        if (errorName.includes('notfound') || error.status === 404) {
+            return 'Could not recognize this document type. Please upload a valid government-issued ID.';
+        }
+
+        // Third party service failure
+        if (errorName.includes('thirdparty') || error.status === 424) {
+            return 'Verification service is temporarily unavailable. Please try again in a few minutes.';
+        }
+
+        // Rate limiting
+        if (errorName.includes('toomany') || error.status === 429) {
+            return 'Too many verification attempts. Please wait a few minutes before trying again.';
+        }
+
+        // Authorization errors (internal issue)
+        if (errorName.includes('authorization') || error.status === 401) {
+            return 'Verification service configuration error. Please contact support.';
+        }
+
+        // Default message with the original error for debugging
+        const originalMessage = error.message || 'Unknown error';
+        return `Document verification failed: ${originalMessage}. Please try with a clearer image.`;
+    }
+
     constructor(
         private jwtService: JwtService,
         private prisma: PrismaService,
@@ -1170,10 +1218,11 @@ export class AuthService {
 
         const { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse, error: dojahError } = dojahResult;
 
-        // If Dojah failed with an error, throw it to the frontend
+        // If Dojah failed with an error, throw it to the frontend with a user-friendly message
         if (!dojahResult.success && dojahError) {
+            const userMessage = this.mapDojahErrorToUserMessage(dojahError);
             throw new VerificationGenericException(
-                dojahError.message || "Document verification failed. Please try again with a clearer image.",
+                userMessage,
                 dojahError.status || HttpStatus.BAD_REQUEST
             );
         }
