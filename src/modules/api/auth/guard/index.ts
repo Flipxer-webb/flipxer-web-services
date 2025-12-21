@@ -453,12 +453,42 @@ export class TransactionAmountGuard implements CanActivate {
     }
 }
 
+/**
+ * Interface for security methods stored in user preferences
+ */
+interface SecurityMethods {
+    sms?: boolean;
+    email?: boolean;
+    authenticator?: boolean;
+    tradingPassword?: boolean;
+}
+
+/**
+ * Enhanced TwoFactorGuard that supports multi-factor security preferences.
+ * 
+ * The guard checks if the user has any security methods enabled and validates
+ * that a verification token is present. The frontend obtains this token by
+ * completing verification via the /settings/verify-security-method endpoint.
+ * 
+ * Supported verification methods:
+ * - Authenticator (TOTP)
+ * - Trading Password
+ * - SMS OTP
+ * - Email OTP
+ * - Backup Codes (universal fallback)
+ * 
+ * The verification token is passed via:
+ * - x-security-token header (preferred)
+ * - verificationToken in request body
+ * - twoFactorCode in body (legacy, for direct TOTP verification)
+ */
 @Injectable()
 export class TwoFactorGuard implements CanActivate {
     private readonly logger = new Logger('TwoFactorGuard');
     
     constructor(
         private prisma: PrismaService,
+        private jwtService: JwtService,
         @Optional() private twoFactorRateLimitService?: any,
         @Optional() private settingService?: any
     ) {}
@@ -474,18 +504,29 @@ export class TwoFactorGuard implements CanActivate {
             );
         }
 
-        // Get user data including tier
+        // Get user data including security preferences
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
             select: { 
                 twoFactorSecret: true, 
                 isTwoFactorEnabled: true,
-                tier: true 
+                tier: true,
+                securityMethods: true,
+                requiredMethodCount: true,
+                tradingPassword: true,
+                isPhoneVerified: true,
+                isEmailVerified: true,
             },
         });
 
-        // If 2FA not enabled, allow transaction
-        if (!userData?.isTwoFactorEnabled || !userData?.twoFactorSecret) {
+        // Parse security methods
+        const securityMethods = this.parseSecurityMethods(userData?.securityMethods);
+        const hasSecurityMethodsEnabled = this.hasAnySecurityMethod(securityMethods);
+        const hasLegacy2FA = userData?.isTwoFactorEnabled && userData?.twoFactorSecret;
+
+        // If no security methods enabled and no legacy 2FA, allow transaction
+        if (!hasSecurityMethodsEnabled && !hasLegacy2FA) {
+            this.logger.debug(`User ${user.id}: No security methods enabled, allowing transaction`);
             return true;
         }
 
@@ -493,16 +534,16 @@ export class TwoFactorGuard implements CanActivate {
         const { body, path } = request;
         const transactionData = this.extractTransactionData(body, path);
 
-        // Determine if 2FA is required based on tier and amount
-        let is2FARequired = true; // Default to required if 2FA is enabled
+        // Determine if security verification is required based on tier and amount
+        let isVerificationRequired = true;
 
-        if (transactionData) {
-            // Get crypto rate to convert to NGN
+        if (transactionData && hasLegacy2FA) {
+            // Get crypto rate to convert to NGN for tier-based threshold check
             const rate = await this.getCryptoRateToNGN(transactionData.currency);
             
             if (rate) {
                 const amountNGN = convertToNGN(transactionData.amount, rate);
-                is2FARequired = isTwoFactorRequiredForTransaction(
+                isVerificationRequired = isTwoFactorRequiredForTransaction(
                     userData.tier,
                     amountNGN,
                     userData.isTwoFactorEnabled
@@ -510,25 +551,107 @@ export class TwoFactorGuard implements CanActivate {
             }
         }
 
-        // If 2FA is not required for this transaction (based on tier/amount), allow it
-        if (!is2FARequired) {
+        // If verification is not required based on tier/amount, allow transaction
+        if (!isVerificationRequired) {
+            this.logger.debug(`User ${user.id}: Verification not required based on tier/amount`);
             return true;
         }
 
-        // 2FA is required - verify the code
-        const code = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+        // Try to get verification token from request
+        const verificationToken = this.extractVerificationToken(request);
+        const legacyCode = request.body?.twoFactorCode || request.headers["x-2fa-code"];
 
-        if (!code) {
-            throw new UserForbiddenException(
-                "Two-factor authentication code is required for this transaction amount.",
-                HttpStatus.FORBIDDEN
-            );
+        // CASE 1: New multi-factor verification token present
+        if (verificationToken) {
+            const isValidToken = await this.validateVerificationToken(user.id, verificationToken);
+            if (isValidToken) {
+                this.logger.debug(`User ${user.id}: Valid verification token, allowing transaction`);
+                return true;
+            }
+            this.logger.warn(`User ${user.id}: Invalid verification token provided`);
         }
 
-        // Check rate limit if services are available
+        // CASE 2: Legacy TOTP code present (backward compatibility)
+        if (legacyCode && userData?.twoFactorSecret) {
+            const isValidLegacy = await this.validateLegacyTwoFactor(user.id, legacyCode, userData.twoFactorSecret);
+            if (isValidLegacy) {
+                this.logger.debug(`User ${user.id}: Valid legacy 2FA code, allowing transaction`);
+                return true;
+            }
+        }
+
+        // No valid verification - determine what methods are available and respond accordingly
+        const availableMethods = this.getAvailableMethods(securityMethods, userData);
+        
+        throw new UserForbiddenException(
+            JSON.stringify({
+                code: "SECURITY_VERIFICATION_REQUIRED",
+                message: "Security verification is required for this transaction",
+                availableMethods,
+                requiredCount: userData?.requiredMethodCount || 1,
+            }),
+            HttpStatus.FORBIDDEN
+        );
+    }
+
+    /**
+     * Extract verification token from request
+     */
+    private extractVerificationToken(request: RequestWithUser): string | null {
+        // Check header first (preferred)
+        const headerToken = request.headers["x-security-token"] as string;
+        if (headerToken) return headerToken;
+
+        // Check body
+        if (request.body?.verificationToken) return request.body.verificationToken;
+
+        return null;
+    }
+
+    /**
+     * Validate a verification token (JWT signed by the backend after successful verification)
+     */
+    private async validateVerificationToken(userId: number, token: string): Promise<boolean> {
+        try {
+            const payload = await this.jwtService.verifyAsync(token, {
+                secret: jwtSecret,
+            });
+
+            // Check that token is for the correct user
+            if (payload.userId !== userId) {
+                this.logger.warn(`Token userId ${payload.userId} does not match request userId ${userId}`);
+                return false;
+            }
+
+            // Check token type
+            if (payload.type !== "transaction_verification") {
+                this.logger.warn(`Invalid token type: ${payload.type}`);
+                return false;
+            }
+
+            // Check expiry (JWT library handles this, but double-check)
+            const now = Math.floor(Date.now() / 1000);
+            if (payload.exp && payload.exp < now) {
+                this.logger.warn(`Token expired at ${payload.exp}, current time ${now}`);
+                return false;
+            }
+
+            this.logger.debug(`Valid verification token for user ${userId}, method: ${payload.method}`);
+            return true;
+        } catch (error) {
+            this.logger.warn(`Token validation error: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * Validate legacy TOTP code (backward compatibility)
+     */
+    private async validateLegacyTwoFactor(userId: number, code: string, secret: string): Promise<boolean> {
+        // Check rate limit if service available
         if (this.twoFactorRateLimitService) {
             const rateLimitResult = await this.twoFactorRateLimitService.checkAttempt(
-                user.id.toString(),
+                userId.toString(),
                 'transaction'
             );
 
@@ -543,19 +666,19 @@ export class TwoFactorGuard implements CanActivate {
         // Try TOTP code first
         let isValid = authenticator.verify({
             token: code,
-            secret: userData.twoFactorSecret,
+            secret: secret,
         });
 
         // If TOTP fails and settingService available, try backup code
         if (!isValid && this.settingService) {
-            isValid = await this.settingService.verifyBackupCode(user.id, code);
+            isValid = await this.settingService.verifyBackupCode(userId, code);
         }
 
         if (!isValid) {
             // Record failed attempt if service available
             if (this.twoFactorRateLimitService) {
                 const failedResult = await this.twoFactorRateLimitService.recordFailedAttempt(
-                    user.id.toString(),
+                    userId.toString(),
                     'transaction'
                 );
 
@@ -565,28 +688,68 @@ export class TwoFactorGuard implements CanActivate {
                         HttpStatus.TOO_MANY_REQUESTS
                     );
                 }
-
-                throw new UserForbiddenException(
-                    `Invalid 2FA code. ${failedResult.remainingAttempts} attempts remaining before lockout.`,
-                    HttpStatus.FORBIDDEN
-                );
             }
-
-            throw new UserForbiddenException(
-                "Invalid 2FA code. Please enter the current code from your authenticator app.",
-                HttpStatus.FORBIDDEN
-            );
+            return false;
         }
 
         // Record successful attempt if service available
         if (this.twoFactorRateLimitService) {
             await this.twoFactorRateLimitService.recordSuccessfulAttempt(
-                user.id.toString(),
+                userId.toString(),
                 'transaction'
             );
         }
 
         return true;
+    }
+
+    /**
+     * Parse security methods from database (stored as JSON)
+     */
+    private parseSecurityMethods(methods: any): SecurityMethods {
+        if (!methods) return {};
+        if (typeof methods === 'string') {
+            try {
+                return JSON.parse(methods);
+            } catch {
+                return {};
+            }
+        }
+        return methods as SecurityMethods;
+    }
+
+    /**
+     * Check if user has any security methods enabled
+     */
+    private hasAnySecurityMethod(methods: SecurityMethods): boolean {
+        return methods.sms || methods.email || methods.authenticator || methods.tradingPassword || false;
+    }
+
+    /**
+     * Get list of available methods for user based on their setup
+     */
+    private getAvailableMethods(methods: SecurityMethods, userData: any): string[] {
+        const available: string[] = [];
+        
+        if (methods.sms && userData?.isPhoneVerified) {
+            available.push('sms');
+        }
+        if (methods.email && userData?.isEmailVerified) {
+            available.push('email');
+        }
+        if (methods.authenticator && userData?.twoFactorSecret) {
+            available.push('authenticator');
+        }
+        if (methods.tradingPassword && userData?.tradingPassword) {
+            available.push('tradingPassword');
+        }
+        
+        // Backup codes are always available if any method is set up
+        if (available.length > 0) {
+            available.push('backupCode');
+        }
+
+        return available;
     }
 
     private extractTransactionData(

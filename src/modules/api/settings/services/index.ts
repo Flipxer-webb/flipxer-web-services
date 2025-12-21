@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
@@ -54,6 +55,7 @@ export class SettingService {
         private prisma: PrismaService,
         private smsService: SmsService,
         private emailService: EmailService,
+        private jwtService: JwtService,
     ) {}
 
     async getAllowedList(user: User) {
@@ -982,11 +984,12 @@ export class SettingService {
     /**
      * Verify a security method (unified endpoint)
      * Supports: sms, email, authenticator, tradingPassword, backupCode
+     * Returns a verification token that can be used for transaction authorization
      */
     async verifySecurityMethod(
         user: User,
         dto: { method: string; code: string }
-    ): Promise<{ verified: boolean; method: string }> {
+    ): Promise<{ verified: boolean; method: string; verificationToken: string }> {
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
             select: {
@@ -997,6 +1000,8 @@ export class SettingService {
                 email: true,
             },
         });
+
+        let isVerified = false;
 
         switch (dto.method) {
             case "authenticator":
@@ -1010,7 +1015,8 @@ export class SettingService {
                 if (!isValidTotp) {
                     throw new UserForbiddenException("Invalid authenticator code", HttpStatus.FORBIDDEN);
                 }
-                return { verified: true, method: "authenticator" };
+                isVerified = true;
+                break;
 
             case "tradingPassword":
                 if (!userData?.tradingPassword) {
@@ -1020,14 +1026,16 @@ export class SettingService {
                 if (!isValidPassword) {
                     throw new UserForbiddenException("Invalid trading password", HttpStatus.FORBIDDEN);
                 }
-                return { verified: true, method: "tradingPassword" };
+                isVerified = true;
+                break;
 
             case "backupCode":
                 const isValidBackup = await this.verifyBackupCode(user.id, dto.code);
                 if (!isValidBackup) {
                     throw new UserForbiddenException("Invalid or already used backup code", HttpStatus.FORBIDDEN);
                 }
-                return { verified: true, method: "backupCode" };
+                isVerified = true;
+                break;
 
             case "sms":
             case "email":
@@ -1036,11 +1044,25 @@ export class SettingService {
                 if (!isValidOtp) {
                     throw new UserForbiddenException("Invalid or expired OTP", HttpStatus.FORBIDDEN);
                 }
-                return { verified: true, method: dto.method };
+                isVerified = true;
+                break;
 
             default:
                 throw new AuthGenericException("Invalid security method", HttpStatus.BAD_REQUEST);
         }
+
+        // Generate verification token (valid for 5 minutes)
+        const verificationToken = await this.jwtService.signAsync(
+            {
+                userId: user.id,
+                type: "transaction_verification",
+                method: dto.method,
+                verifiedAt: Date.now(),
+            },
+            { expiresIn: "5m" }
+        );
+
+        return { verified: isVerified, method: dto.method, verificationToken };
     }
 
     /**
