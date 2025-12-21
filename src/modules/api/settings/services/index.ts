@@ -730,19 +730,19 @@ export class SettingService {
                 methods: {
                     sms: {
                         enabled: securityMethods.sms || false,
-                        available: userData?.isPhoneVerified || false,
+                        verified: userData?.isPhoneVerified || false,
                     },
                     email: {
                         enabled: securityMethods.email || false,
-                        available: userData?.isEmailVerified || false,
+                        verified: userData?.isEmailVerified || false,
                     },
                     authenticator: {
                         enabled: securityMethods.authenticator || false,
-                        available: userData?.isTwoFactorEnabled || false,
+                        verified: userData?.isTwoFactorEnabled || false,
                     },
                     tradingPassword: {
                         enabled: securityMethods.tradingPassword || false,
-                        available: !!userData?.tradingPassword,
+                        verified: !!userData?.tradingPassword,
                     },
                 },
                 requiredMethodCount: userData?.requiredMethodCount ?? 1,
