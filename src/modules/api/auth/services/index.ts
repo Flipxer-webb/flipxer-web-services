@@ -2561,13 +2561,22 @@ export class AuthService {
             throw new AuthGenericException("Session ID not found in token", HttpStatus.BAD_REQUEST);
         }
 
+        // Verify the session belongs to the user
+        const session = await this.prisma.session.findFirst({
+            where: { id: sessionId, userId: user.id },
+        });
+
+        if (!session) {
+            throw new AuthGenericException("Session not found", HttpStatus.NOT_FOUND);
+        }
+
         // Calculate trust expiry (30 days from now)
         const trustExpiresAt = new Date();
         trustExpiresAt.setDate(trustExpiresAt.getDate() + 30);
 
         // Update session to mark as trusted
         await this.prisma.session.update({
-            where: { id: sessionId, userId: user.id },
+            where: { id: sessionId },
             data: {
                 isTrusted: true,
                 trustedAt: new Date(),
