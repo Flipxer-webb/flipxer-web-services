@@ -162,6 +162,87 @@ export class TierService {
     }
 
     /**
+     * Update tiers for all users based on their verification status
+     * This is a one-time migration endpoint for existing users
+     * @returns Summary of updates performed
+     */
+    async updateAllUserTiers(): Promise<{
+        total: number;
+        updated: number;
+        unchanged: number;
+        errors: number;
+        changes: Array<{ email: string; from: number; to: number }>;
+    }> {
+        this.logger.log("Starting bulk tier update for all users");
+
+        const users = await this.prisma.user.findMany({
+            select: {
+                id: true,
+                email: true,
+                userType: true,
+                tier: true,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isBvnVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: true,
+                isIncomeVerified: true,
+                businessRecordCompleted: true,
+                businessDocumentsUploaded: true,
+            },
+        });
+
+        let updated = 0;
+        let unchanged = 0;
+        let errors = 0;
+        const changes: Array<{ email: string; from: number; to: number }> = [];
+
+        for (const user of users) {
+            try {
+                const currentTier = (user.tier as number) ?? 0;
+                const newTier = this.calculateTier(user as any);
+
+                if (currentTier !== newTier) {
+                    await this.prisma.user.update({
+                        where: { id: user.id },
+                        data: { tier: newTier } as any,
+                    });
+
+                    changes.push({
+                        email: user.email,
+                        from: currentTier,
+                        to: newTier,
+                    });
+
+                    this.logger.log(
+                        `Updated ${user.email}: Tier ${currentTier} -> ${newTier}`
+                    );
+                    updated++;
+                } else {
+                    unchanged++;
+                }
+            } catch (error) {
+                this.logger.error(
+                    `Error updating tier for user ${user.id}: ${error.message}`
+                );
+                errors++;
+            }
+        }
+
+        this.logger.log(
+            `Bulk tier update complete: ${updated} updated, ${unchanged} unchanged, ${errors} errors`
+        );
+
+        return {
+            total: users.length,
+            updated,
+            unchanged,
+            errors,
+            changes,
+        };
+    }
+
+    /**
      * Check if a user can perform a withdrawal based on their tier and amount
      * @param user - The user object
      * @param amountInUSD - The withdrawal amount in USD

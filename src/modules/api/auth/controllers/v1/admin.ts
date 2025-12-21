@@ -1,6 +1,7 @@
 import {
     Body,
     Controller,
+    Get,
     HttpCode,
     HttpStatus,
     Post,
@@ -14,8 +15,9 @@ import {
 } from "@nestjs/swagger";
 import { SignInDto, Reset2FARateLimitDto } from "../../dtos";
 import { AuthService } from "../../services";
+import { TierService } from "../../services/tier.service";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
-import { ApiResponse } from "@/utils/api-response-util";
+import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { CountryBlockGuard } from "../../guard";
 
 @UseGuards(CountryBlockGuard)
@@ -25,7 +27,10 @@ import { CountryBlockGuard } from "../../guard";
 })
 
 export class AdminAuthController {
-    constructor(private authService: AuthService) {}
+    constructor(
+        private authService: AuthService,
+        private tierService: TierService
+    ) {}
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "admin login" })
@@ -50,5 +55,19 @@ export class AdminAuthController {
         @Body(ValidationPipe) dto: Reset2FARateLimitDto
     ): Promise<ApiResponse> {
         return await this.authService.reset2FARateLimit(dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ 
+        summary: "Update tiers for all users",
+        description: "One-time migration endpoint to update user tiers based on verification status"
+    })
+    @Post("update-all-user-tiers")
+    async updateAllUserTiers(): Promise<ApiResponse> {
+        const result = await this.tierService.updateAllUserTiers();
+        return buildResponse({
+            message: `Updated ${result.updated} user tiers. ${result.unchanged} unchanged, ${result.errors} errors.`,
+            data: result,
+        });
     }
 }
