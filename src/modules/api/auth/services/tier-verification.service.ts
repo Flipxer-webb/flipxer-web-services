@@ -258,7 +258,8 @@ export class TierVerificationService {
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
-                address: addressString || user.address,
+                // Store address string in addressDocumentUrl as a reference
+                addressDocumentUrl: addressString || user.addressDocumentUrl,
                 addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
                 isAddressVerified: true,
             },
