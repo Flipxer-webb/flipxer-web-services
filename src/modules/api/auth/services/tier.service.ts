@@ -62,8 +62,9 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
     },
     {
         tier: 1,
-        // Either BVN or NIN verification + document verification qualifies for Tier 1
-        check: (user) => (!!user.isBvnVerified || !!user.isNinVerified) && !!user.isDocumentVerified,
+        // Document verification (via Dojah Widget with liveness check) is sufficient for Tier 1
+        // BVN/NIN verification is an additional trust signal but not required
+        check: (user) => !!user.isDocumentVerified,
     },
 ];
 
