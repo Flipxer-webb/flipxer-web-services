@@ -6,6 +6,7 @@ import {
     IsNumber,
     IsOptional,
     IsString,
+    IsBoolean,
     Matches,
     Min,
 } from "class-validator";
@@ -137,4 +138,99 @@ export class Verify2FACodeDto {
     @IsString()
     @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
     code: string;
+}
+
+// ==================== Security Preferences DTOs ====================
+
+export class SecurityMethodsDto {
+    @ApiProperty({ description: "Enable SMS verification for transactions", example: true })
+    @IsOptional()
+    sms?: boolean;
+
+    @ApiProperty({ description: "Enable Email verification for transactions", example: true })
+    @IsOptional()
+    email?: boolean;
+
+    @ApiProperty({ description: "Enable Authenticator app for transactions", example: false })
+    @IsOptional()
+    authenticator?: boolean;
+
+    @ApiProperty({ description: "Enable Trading Password for transactions", example: false })
+    @IsOptional()
+    tradingPassword?: boolean;
+}
+
+export class UpdateSecurityPreferencesDto {
+    @ApiProperty({ description: "Security methods configuration", type: SecurityMethodsDto })
+    @IsOptional()
+    methods?: SecurityMethodsDto;
+
+    @ApiProperty({ description: "Number of methods required per transaction (1 or 2)", example: 1 })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    requiredMethodCount?: number;
+}
+
+export class SetTradingPasswordDto {
+    @ApiProperty({ description: "New trading password" })
+    @IsNotEmpty({ message: "Trading password is required" })
+    @IsString()
+    @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, {
+        message: "Trading password must be at least 8 characters with uppercase, lowercase, and number",
+    })
+    tradingPassword: string;
+
+    @ApiProperty({ description: "Current account password for verification" })
+    @IsNotEmpty({ message: "Account password is required" })
+    @IsString()
+    accountPassword: string;
+}
+
+export class VerifySecurityMethodDto {
+    @ApiProperty({ 
+        description: "Security method to verify", 
+        enum: ["sms", "email", "authenticator", "tradingPassword", "backupCode"],
+        example: "sms" 
+    })
+    @IsNotEmpty()
+    @IsString()
+    method: "sms" | "email" | "authenticator" | "tradingPassword" | "backupCode";
+
+    @ApiProperty({ description: "Verification code or password", example: "123456" })
+    @IsNotEmpty()
+    @IsString()
+    code: string;
+}
+
+export class SendTransactionOtpDto {
+    @ApiProperty({ 
+        description: "Method to send OTP", 
+        enum: ["sms", "email"],
+        example: "sms" 
+    })
+    @IsNotEmpty()
+    @IsString()
+    method: "sms" | "email";
+}
+
+export class VerifyMethodForDisableDto {
+    @ApiProperty({ 
+        description: "Method to verify before disabling another", 
+        enum: ["sms", "email", "authenticator", "tradingPassword"],
+        example: "authenticator" 
+    })
+    @IsNotEmpty()
+    @IsString()
+    method: "sms" | "email" | "authenticator" | "tradingPassword";
+
+    @ApiProperty({ description: "Verification code for the method", example: "123456" })
+    @IsNotEmpty()
+    @IsString()
+    code: string;
+
+    @ApiProperty({ description: "Method to disable after verification", example: "sms" })
+    @IsNotEmpty()
+    @IsString()
+    methodToDisable: "sms" | "email" | "authenticator" | "tradingPassword";
 }

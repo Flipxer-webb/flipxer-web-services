@@ -59,7 +59,11 @@ model User {
   isTwoFactorEnabled                 Boolean                           @default(false)
   tier                               Int                               @default(0)
   twoFactorSecret                    String?
-  twoFactorBackupCodes               String?                           // JSON array of hashed backup codes
+  twoFactorBackupCodes               String?                           // JSON array of hashed backup codes (universal fallback)
+  // Multi-factor security settings
+  securityMethods                    Json?                             // {sms: boolean, email: boolean, authenticator: boolean, tradingPassword: boolean}
+  requiredMethodCount                Int                               @default(1)
+  backupCodesGeneratedAt             DateTime?
   // Tier 2/3 verification fields
   biometricVerifiedAt                DateTime?
   biometricCredentialId              String?
@@ -115,6 +119,19 @@ model Session {
   @@index([userId])
   @@index([isActive])
   @@map("Sessions")
+}
+
+model TransactionOTP {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  method    String   // "sms" or "email"
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([userId, method])
+  @@index([userId])
+  @@map("TransactionOTPs")
 }
 
 model Flagged {

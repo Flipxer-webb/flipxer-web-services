@@ -262,6 +262,40 @@ export class AuthService {
         return await bcrypt.compare(password, hash);
     }
 
+    /**
+     * Get default security methods structure
+     */
+    private getDefaultSecurityMethods() {
+        return {
+            sms: false,
+            email: false,
+            authenticator: false,
+            tradingPassword: false,
+        };
+    }
+
+    /**
+     * Get or create security methods for a user by email
+     */
+    private async getOrCreateSecurityMethods(email: string, _methodType: 'email' | 'sms') {
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            select: { securityMethods: true },
+        });
+        return (user?.securityMethods as any) || this.getDefaultSecurityMethods();
+    }
+
+    /**
+     * Get or create security methods for a user by phone
+     */
+    private async getOrCreateSecurityMethodsByPhone(phone: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { phone },
+            select: { securityMethods: true },
+        });
+        return (user?.securityMethods as any) || this.getDefaultSecurityMethods();
+    }
+
     async generateTokens(payload: any) {
         const accessToken = await this.jwtService.signAsync(payload, {
             secret: jwtSecret,
@@ -593,7 +627,14 @@ export class AuthService {
 
         await this.prisma.user.update({
             where: { email: options.email },
-            data: { isEmailVerified: true },
+            data: { 
+                isEmailVerified: true,
+                // Auto-enable email as a security method
+                securityMethods: {
+                    ...await this.getOrCreateSecurityMethods(options.email, 'email'),
+                    email: true,
+                },
+            },
         });
 
         await this.prisma.accountVerificationRequest.delete({
@@ -696,7 +737,14 @@ export class AuthService {
 
         await this.prisma.user.update({
             where: { phone: options.phone },
-            data: { isPhoneVerified: true },
+            data: { 
+                isPhoneVerified: true,
+                // Auto-enable SMS as a security method
+                securityMethods: {
+                    ...await this.getOrCreateSecurityMethodsByPhone(options.phone),
+                    sms: true,
+                },
+            },
         });
 
         await this.prisma.phoneVerificationRequest.delete({

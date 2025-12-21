@@ -26,6 +26,10 @@ import {
     Enable2FADto,
     Disable2FADto,
     Verify2FACodeDto,
+    UpdateSecurityPreferencesDto,
+    SetTradingPasswordDto,
+    VerifySecurityMethodDto,
+    SendTransactionOtpDto,
     // UpdateAllowedIpDto,
 } from "../../dtos";
 import { AuthGuard } from "@/modules/api/auth/guard";
@@ -168,5 +172,102 @@ export class SettingController {
     @Post("2fa/verify")
     async verify2FA(@User() user: UserModel, @Body() dto: Verify2FACodeDto) {
         return this.settingService.verify2FAForTransaction(user, dto);
+    }
+
+    // ==================== Security Preferences ====================
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get security preferences" })
+    @Get("security/preferences")
+    async getSecurityPreferences(@User() user: UserModel) {
+        return this.settingService.getSecurityPreferences(user);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Update security preferences" })
+    @Post("security/preferences")
+    async updateSecurityPreferences(
+        @User() user: UserModel,
+        @Body() dto: UpdateSecurityPreferencesDto
+    ) {
+        return this.settingService.updateSecurityPreferences(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Set or update trading password" })
+    @Post("security/trading-password")
+    async setTradingPassword(
+        @User() user: UserModel,
+        @Body() dto: SetTradingPasswordDto
+    ) {
+        return this.settingService.setTradingPassword(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Generate new backup codes" })
+    @Post("security/backup-codes")
+    async generateBackupCodes(@User() user: UserModel) {
+        return this.settingService.generateNewBackupCodes(user);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get backup codes count" })
+    @Get("security/backup-codes/count")
+    async getBackupCodesCount(@User() user: UserModel) {
+        return this.settingService.getBackupCodesCount(user);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Send transaction OTP via SMS or Email" })
+    @Post("security/send-transaction-otp")
+    async sendTransactionOtp(
+        @User() user: UserModel,
+        @Body() dto: SendTransactionOtpDto
+    ) {
+        return this.settingService.sendTransactionOtp(user, dto.method);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Verify security method (unified endpoint)" })
+    @Post("security/verify")
+    async verifySecurityMethod(
+        @User() user: UserModel,
+        @Body() dto: VerifySecurityMethodDto
+    ) {
+        const result = await this.settingService.verifySecurityMethod(user, dto);
+        return {
+            success: true,
+            message: "Verification successful",
+            data: result,
+        };
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get security requirements for transaction amount" })
+    @Get("security/requirements")
+    async getTransactionSecurityRequirements(
+        @User() user: UserModel,
+        @Query("amount") amount: string
+    ) {
+        return this.settingService.getTransactionSecurityRequirements(
+            user,
+            parseFloat(amount) || 0
+        );
     }
 }
