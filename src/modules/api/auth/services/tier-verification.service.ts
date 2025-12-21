@@ -24,6 +24,9 @@ import {
     RegisterBiometricDto,
     VerifyBiometricDto,
     CreateTradingPasswordDto,
+    DojahVerifyAddressDto,
+    DojahVerifyIncomeDto,
+    DojahVerifyGovernmentIdDto,
 } from "../dtos";
 import { TierService } from "./tier.service";
 import * as bcrypt from "bcryptjs";
@@ -211,6 +214,201 @@ export class TierVerificationService {
             message: "Income verified successfully",
             data: {
                 status: "verified",
+            },
+        });
+    }
+
+    // ==================== Dojah Widget Verification Methods ====================
+
+    /**
+     * Verify address using Dojah widget verification data
+     * This is an alternative to file upload, using Dojah's address verification widget
+     */
+    async verifyAddressWithDojah(
+        user: User,
+        dto: DojahVerifyAddressDto
+    ): Promise<ApiResponse> {
+        // Check if already verified
+        if (user.isAddressVerified) {
+            return buildResponse({
+                message: "Address is already verified",
+            });
+        }
+
+        this.logger.log(
+            `Processing Dojah address verification for user ${user.id}, verificationId: ${dto.verificationId}`
+        );
+
+        // Store verification data and mark as verified
+        // Dojah widget verification is considered auto-approved since verification
+        // happens within the Dojah widget itself
+        const addressString = dto.address
+            ? [
+                  dto.address.street,
+                  dto.address.city,
+                  dto.address.lga,
+                  dto.address.state,
+                  dto.address.country,
+                  dto.address.postalCode,
+              ]
+                  .filter(Boolean)
+                  .join(", ") || dto.address.fullAddress
+            : null;
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                address: addressString || user.address,
+                addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                isAddressVerified: true,
+            },
+        });
+
+        // Update tier
+        await this.tierService.updateUserTier(user.id);
+
+        this.logger.log(
+            `Address verified via Dojah widget for user ${user.id}`
+        );
+
+        return buildResponse({
+            message: "Address verified successfully",
+            data: {
+                status: "verified",
+                isAddressVerified: true,
+            },
+        });
+    }
+
+    /**
+     * Verify income/source of funds using Dojah widget verification data
+     * This is an alternative to file upload, using Dojah's document upload widget
+     */
+    async verifyIncomeWithDojah(
+        user: User,
+        dto: DojahVerifyIncomeDto
+    ): Promise<ApiResponse> {
+        // Check if already verified
+        if (user.isIncomeVerified) {
+            return buildResponse({
+                message: "Income is already verified",
+            });
+        }
+
+        this.logger.log(
+            `Processing Dojah income verification for user ${user.id}, verificationId: ${dto.verificationId}`
+        );
+
+        // Store verification data
+        // For income/document verification via Dojah, we may want manual review
+        // since document content verification happens differently
+        const documentUrl = dto.document?.documentUrl || null;
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                incomeDocumentUrl: documentUrl,
+                incomeVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                isIncomeVerified: true,
+            },
+        });
+
+        // Update tier
+        await this.tierService.updateUserTier(user.id);
+
+        this.logger.log(
+            `Income verified via Dojah widget for user ${user.id}`
+        );
+
+        return buildResponse({
+            message: "Income verified successfully",
+            data: {
+                status: "verified",
+                isIncomeVerified: true,
+            },
+        });
+    }
+
+    /**
+     * Verify government ID (BVN/NIN) using Dojah widget verification data
+     * This is an alternative to manual BVN/NIN entry, using Dojah's government data widget
+     */
+    async verifyGovernmentIdWithDojah(
+        user: User,
+        dto: DojahVerifyGovernmentIdDto
+    ): Promise<ApiResponse> {
+        const govData = dto.government;
+        const idType = govData?.idType?.toLowerCase() || "unknown";
+
+        this.logger.log(
+            `Processing Dojah government ID verification for user ${user.id}, type: ${idType}, verificationId: ${dto.verificationId}`
+        );
+
+        // Check if already verified based on ID type
+        if (idType === "bvn" && user.isBvnVerified) {
+            return buildResponse({
+                message: "BVN is already verified",
+            });
+        }
+
+        if (idType === "nin" && user.isNinVerified) {
+            return buildResponse({
+                message: "NIN is already verified",
+            });
+        }
+
+        // Prepare user data update based on government data
+        const updateData: Record<string, unknown> = {};
+
+        // Update user's name and DOB from government data if available
+        if (govData?.firstName) {
+            updateData.firstName = govData.firstName;
+        }
+        if (govData?.lastName) {
+            updateData.lastName = govData.lastName;
+        }
+        if (govData?.dateOfBirth) {
+            updateData.dateOfBirth = new Date(govData.dateOfBirth);
+        }
+
+        // Set verification status based on ID type
+        if (idType === "bvn") {
+            updateData.isBvnVerified = true;
+            updateData.bvn = govData?.idNumber;
+            if (govData?.phoneNumber) {
+                updateData.bvnRegisteredPhone = govData.phoneNumber;
+            }
+        } else if (idType === "nin") {
+            updateData.isNinVerified = true;
+            updateData.nin = govData?.idNumber;
+            if (govData?.phoneNumber) {
+                updateData.ninRegisteredPhone = govData.phoneNumber;
+            }
+        } else {
+            // For other government IDs (voters_id, drivers_license, etc.)
+            // Treat as document verification
+            updateData.isDocumentVerified = true;
+        }
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: updateData,
+        });
+
+        // Update tier
+        await this.tierService.updateUserTier(user.id);
+
+        this.logger.log(
+            `Government ID (${idType}) verified via Dojah widget for user ${user.id}`
+        );
+
+        return buildResponse({
+            message: `${idType.toUpperCase()} verified successfully`,
+            data: {
+                status: "verified",
+                idType,
+                isBvnVerified: idType === "bvn",
+                isNinVerified: idType === "nin",
             },
         });
     }

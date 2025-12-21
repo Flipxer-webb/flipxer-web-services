@@ -42,6 +42,9 @@ import {
     VerifyBiometricDto,
     CreateTradingPasswordDto,
     BiometricLoginDto,
+    DojahVerifyAddressDto,
+    DojahVerifyIncomeDto,
+    DojahVerifyGovernmentIdDto,
 } from "../../dtos";
 import { AuthService } from "../../services";
 import { TierVerificationService } from "../../services/tier-verification.service";
@@ -487,6 +490,44 @@ export class AuthController {
             throw new RequiredFilesMissing();
         }
         return await this.tierVerificationService.verifyIncome(user, file);
+    }
+
+    // ==================== Dojah Widget Verification Endpoints ====================
+
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-address/dojah")
+    @ApiOperation({ summary: "Verify address using Dojah widget verification data" })
+    @ApiBearerAuth("access-token")
+    async verifyAddressWithDojah(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DojahVerifyAddressDto
+    ) {
+        return await this.tierVerificationService.verifyAddressWithDojah(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-income/dojah")
+    @ApiOperation({ summary: "Verify income using Dojah widget verification data" })
+    @ApiBearerAuth("access-token")
+    async verifyIncomeWithDojah(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DojahVerifyIncomeDto
+    ) {
+        return await this.tierVerificationService.verifyIncomeWithDojah(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("verify-government-id/dojah")
+    @ApiOperation({ summary: "Verify BVN/NIN using Dojah widget verification data" })
+    @ApiBearerAuth("access-token")
+    async verifyGovernmentIdWithDojah(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DojahVerifyGovernmentIdDto
+    ) {
+        return await this.tierVerificationService.verifyGovernmentIdWithDojah(user, dto);
     }
 
     @UseGuards(AuthGuard)
