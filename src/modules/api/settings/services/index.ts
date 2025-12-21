@@ -1049,7 +1049,7 @@ export class SettingService {
     async sendTransactionOtp(user: User, method: "sms" | "email") {
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
-            select: { phone: true, email: true, isPhoneVerified: true, isEmailVerified: true },
+            select: { phone: true, email: true, isPhoneVerified: true, isEmailVerified: true, firstName: true },
         });
 
         if (method === "sms") {
