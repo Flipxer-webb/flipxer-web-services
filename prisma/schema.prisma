@@ -61,13 +61,11 @@ model User {
   twoFactorSecret                    String?
   twoFactorBackupCodes               String?                           // JSON array of hashed backup codes (universal fallback)
   // Multi-factor security settings
-  securityMethods                    Json?                             // {sms: boolean, email: boolean, authenticator: boolean, tradingPassword: boolean}
+  securityMethods                    Json?                             // {sms, email, authenticator, tradingPassword, biometric}
   requiredMethodCount                Int                               @default(1)
   backupCodesGeneratedAt             DateTime?
   // Tier 2/3 verification fields
   biometricVerifiedAt                DateTime?
-  biometricCredentialId              String?
-  biometricPublicKey                 String?
   documentVerificationStatus         DocumentVerificationStatus?       // Identity document verification status
   addressVerificationStatus          DocumentVerificationStatus?
   addressDocumentUrl                 String?
@@ -80,6 +78,7 @@ model User {
   assetWallets                       AssetWallet[]
   auditLogs                          AuditLog[]                        @relation("AdminAuditLogs")
   bankDetails                        BankDetail[]
+  biometricCredentials               BiometricCredential[]
   businessDocument                   BusinessDocument?
   businessRecord                     BusinessRecord?
   cryptoWalletAddressList            CryptoWalletAddress[]
@@ -125,6 +124,26 @@ model Session {
   @@index([isActive])
   @@index([deviceToken])
   @@map("Sessions")
+}
+
+model BiometricCredential {
+  id              String    @id @default(uuid())
+  userId          Int
+  sessionId       String?   // Link to session for device-bound credentials
+  credentialId    String    @unique // WebAuthn credential ID (base64url)
+  publicKey       String    // WebAuthn public key (base64url)
+  counter         BigInt    @default(0)
+  deviceType      String?   // "platform" (built-in) or "cross-platform"
+  deviceName      String?   // User-customizable name: "iPhone 15", "Work MacBook"
+  transports      String?   // JSON array: ["internal", "hybrid"]
+  aaguid          String?   // Authenticator Attestation GUID
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([credentialId])
+  @@map("BiometricCredentials")
 }
 
 model TransactionOTP {

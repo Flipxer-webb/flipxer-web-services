@@ -422,12 +422,14 @@ export class TierVerificationService {
         user: User,
         dto: RegisterBiometricDto
     ): Promise<ApiResponse> {
-        // Store the credential
-        await this.prisma.user.update({
-            where: { id: user.id },
+        // Create new biometric credential
+        await this.prisma.biometricCredential.create({
             data: {
-                biometricCredentialId: dto.credentialId,
-                biometricPublicKey: dto.publicKey,
+                userId: user.id,
+                credentialId: dto.credentialId,
+                publicKey: dto.publicKey,
+                counter: 0,
+                deviceName: dto.deviceName || "Unknown device",
             },
         });
 
@@ -455,6 +457,9 @@ export class TierVerificationService {
         // Check if already verified (and not expired)
         const userWithTier = await this.prisma.user.findUnique({
             where: { id: user.id },
+            include: {
+                biometricCredentials: true,
+            },
         });
 
         if (!userWithTier) {
@@ -474,8 +479,12 @@ export class TierVerificationService {
             );
         }
 
-        // Verify credential ID matches stored credential
-        if (userWithTier.biometricCredentialId !== dto.credentialId) {
+        // Find matching credential
+        const credential = userWithTier.biometricCredentials.find(
+            (cred) => cred.credentialId === dto.credentialId
+        );
+
+        if (!credential) {
             throw new HttpException(
                 "Biometric credential not recognized",
                 HttpStatus.UNAUTHORIZED
@@ -485,6 +494,12 @@ export class TierVerificationService {
         // In a full implementation, we would verify the signature here
         // For now, we trust the client-side WebAuthn verification
         // The credential ID match is sufficient for basic verification
+
+        // Update credential last used
+        await this.prisma.biometricCredential.update({
+            where: { id: credential.id },
+            data: { lastUsedAt: new Date() },
+        });
 
         // Update verification status
         await this.prisma.user.update({
@@ -617,7 +632,9 @@ export class TierVerificationService {
                 addressVerificationStatus: true,
                 incomeVerificationStatus: true,
                 biometricVerifiedAt: true,
-                biometricCredentialId: true,
+                biometricCredentials: {
+                    select: { id: true },
+                },
                 tradingPassword: true,
                 tier: true,
             },
@@ -662,7 +679,7 @@ export class TierVerificationService {
                     verified: userWithStatus.isBiometricVerified && !biometricExpired,
                     expired: biometricExpired,
                     daysUntilExpiry: daysUntilBiometricExpiry,
-                    hasCredential: !!userWithStatus.biometricCredentialId,
+                    hasCredential: userWithStatus.biometricCredentials.length > 0,
                 },
                 hasTradingPassword: !!userWithStatus.tradingPassword,
             },

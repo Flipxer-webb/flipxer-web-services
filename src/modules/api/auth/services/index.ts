@@ -2315,9 +2315,14 @@ export class AuthService {
             where: { id: payload.sub },
             select: {
                 id: true,
-                biometricCredentialId: true,
-                biometricPublicKey: true,
-                biometricVerifiedAt: true,
+                biometricCredentials: {
+                    select: {
+                        id: true,
+                        credentialId: true,
+                        publicKey: true,
+                        createdAt: true,
+                    },
+                },
                 userType: true,
                 isEmailVerified: true,
                 isPhoneVerified: true,
@@ -2329,30 +2334,32 @@ export class AuthService {
             },
         });
 
-        if (!user || !user.biometricCredentialId || !user.biometricPublicKey) {
+        if (!user || user.biometricCredentials.length === 0) {
             throw new UserUnauthorizedException(
                 "Biometric authentication is not set up for this account",
                 HttpStatus.BAD_REQUEST
             );
         }
 
-        // Check if biometric has expired (365 days)
-        const BIOMETRIC_EXPIRY_DAYS = 365;
-        if (user.biometricVerifiedAt) {
-            const daysSinceVerification = Math.floor(
-                (Date.now() - user.biometricVerifiedAt.getTime()) / (1000 * 60 * 60 * 24)
-            );
-            if (daysSinceVerification > BIOMETRIC_EXPIRY_DAYS) {
-                throw new UserUnauthorizedException(
-                    "Biometric authentication has expired. Please re-register your biometrics.",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
+        // Find the credential that matches
+        const credential = user.biometricCredentials.find(
+            (cred) => cred.credentialId === dto.credentialId
+        );
+
+        if (!credential) {
+            throw new InvalidCredentialException("Invalid biometric credential");
         }
 
-        // Verify the credential ID matches
-        if (user.biometricCredentialId !== dto.credentialId) {
-            throw new InvalidCredentialException("Invalid biometric credential");
+        // Check if biometric credential has expired (365 days)
+        const BIOMETRIC_EXPIRY_DAYS = 365;
+        const daysSinceCreation = Math.floor(
+            (Date.now() - credential.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (daysSinceCreation > BIOMETRIC_EXPIRY_DAYS) {
+            throw new UserUnauthorizedException(
+                "Biometric authentication has expired. Please re-register your biometrics.",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         // Note: In a production environment, you would verify the WebAuthn signature
@@ -2438,8 +2445,12 @@ export class AuthService {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: {
-                biometricCredentialId: true,
-                biometricVerifiedAt: true,
+                biometricCredentials: {
+                    select: {
+                        id: true,
+                        createdAt: true,
+                    },
+                },
             },
         });
 
@@ -2447,15 +2458,19 @@ export class AuthService {
             throw new UserNotFoundException("User not found");
         }
 
-        const hasBiometric = !!user.biometricCredentialId;
+        const hasBiometric = user.biometricCredentials.length > 0;
         let isExpired = false;
 
-        if (user.biometricVerifiedAt) {
+        // Check if any credential is valid (not expired)
+        if (hasBiometric) {
             const BIOMETRIC_EXPIRY_DAYS = 365;
-            const daysSinceVerification = Math.floor(
-                (Date.now() - user.biometricVerifiedAt.getTime()) / (1000 * 60 * 60 * 24)
-            );
-            isExpired = daysSinceVerification > BIOMETRIC_EXPIRY_DAYS;
+            const hasValidCredential = user.biometricCredentials.some((cred) => {
+                const daysSinceCreation = Math.floor(
+                    (Date.now() - cred.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+                );
+                return daysSinceCreation <= BIOMETRIC_EXPIRY_DAYS;
+            });
+            isExpired = !hasValidCredential;
         }
 
         return buildResponse({
@@ -2464,6 +2479,7 @@ export class AuthService {
                 hasBiometric,
                 isExpired,
                 canUseBiometric: hasBiometric && !isExpired,
+                deviceCount: user.biometricCredentials.length,
             },
         });
     }

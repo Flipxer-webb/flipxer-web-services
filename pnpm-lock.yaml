@@ -69,7 +69,7 @@ importers:
         specifier: 4.13.0
         version: 4.13.0(prisma@4.13.0)
       '@simplewebauthn/server':
-        specifier: ^13.2.2
+        specifier: ^13.0.0
         version: 13.2.2
       '@simplewebauthn/types':
         specifier: ^12.0.0
