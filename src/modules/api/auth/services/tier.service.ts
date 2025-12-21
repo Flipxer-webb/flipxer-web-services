@@ -96,8 +96,9 @@ export class TierService {
     }
 
     private calculateIndividualTier(user: Partial<UserWithTier>): TierLevel {
-        // Safety check for basic verification
-        if (!user.isEmailVerified || !user.isPhoneVerified) {
+        // Safety check for basic verification - only email is required
+        // Phone verification is optional and not part of the KYC flow
+        if (!user.isEmailVerified) {
             return 0;
         }
 
