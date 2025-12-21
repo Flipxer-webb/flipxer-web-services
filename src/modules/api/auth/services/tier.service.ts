@@ -16,6 +16,7 @@ export type UserWithTier = User & {
     isAddressVerified?: boolean;
     isBiometricVerified?: boolean;
     isIncomeVerified?: boolean;
+    isNinVerified?: boolean;
     biometricVerifiedAt?: Date | null;
 };
 
@@ -61,7 +62,8 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
     },
     {
         tier: 1,
-        check: (user) => !!user.isBvnVerified && !!user.isDocumentVerified,
+        // Either BVN or NIN verification + document verification qualifies for Tier 1
+        check: (user) => (!!user.isBvnVerified || !!user.isNinVerified) && !!user.isDocumentVerified,
     },
 ];
 
@@ -184,6 +186,7 @@ export class TierService {
                 isEmailVerified: true,
                 isPhoneVerified: true,
                 isBvnVerified: true,
+                isNinVerified: true,
                 isDocumentVerified: true,
                 isAddressVerified: true,
                 isIncomeVerified: true,
