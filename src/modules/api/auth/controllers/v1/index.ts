@@ -46,14 +46,8 @@ import {
     DojahVerifyIncomeDto,
     DojahVerifyGovernmentIdDto,
 } from "../../dtos";
-import {
-    VerifyWebAuthnRegistrationDto,
-    VerifyWebAuthnAuthenticationDto,
-    UpdatePasskeyNameDto,
-    TrustDeviceDto,
-} from "../../dtos/webauthn.dto";
+import { TrustDeviceDto } from "../../dtos/trusted-device.dto";
 import { AuthService } from "../../services";
-import { WebAuthnService } from "../../services/webauthn.service";
 import { TierVerificationService } from "../../services/tier-verification.service";
 import {
     ApiTags,
@@ -86,8 +80,7 @@ import {
 export class AuthController {
     constructor(
         private authService: AuthService,
-        private tierVerificationService: TierVerificationService,
-        private webAuthnService: WebAuthnService
+        private tierVerificationService: TierVerificationService
     ) {}
 
     @Post("signup")
@@ -590,91 +583,6 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     async getVerificationStatus(@User() user: UserModel) {
         return await this.tierVerificationService.getVerificationStatus(user);
-    }
-
-    // ==================== WebAuthn Passkey Endpoints ====================
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("webauthn/register/options")
-    @ApiOperation({ summary: "Generate WebAuthn registration options for passkey setup" })
-    @ApiBearerAuth("access-token")
-    async getWebAuthnRegistrationOptions(@User() user: UserModel) {
-        return await this.webAuthnService.generateRegistrationOptions(user);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("webauthn/register/verify")
-    @ApiOperation({ summary: "Verify and store WebAuthn passkey registration" })
-    @ApiBearerAuth("access-token")
-    async verifyWebAuthnRegistration(
-        @User() user: UserModel,
-        @Body(ValidationPipe) dto: VerifyWebAuthnRegistrationDto
-    ) {
-        return await this.webAuthnService.verifyRegistration(
-            user,
-            dto.response,
-            dto.deviceName
-        );
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("webauthn/authenticate/options")
-    @ApiOperation({ summary: "Generate WebAuthn authentication options for verification" })
-    @ApiBearerAuth("access-token")
-    async getWebAuthnAuthenticationOptions(@User() user: UserModel) {
-        return await this.webAuthnService.generateAuthenticationOptions(user);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("webauthn/authenticate/verify")
-    @ApiOperation({ summary: "Verify WebAuthn authentication and get verification token" })
-    @ApiBearerAuth("access-token")
-    async verifyWebAuthnAuthentication(
-        @User() user: UserModel,
-        @Body(ValidationPipe) dto: VerifyWebAuthnAuthenticationDto
-    ) {
-        return await this.webAuthnService.verifyAuthentication(user, dto.response);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Get("webauthn/passkeys")
-    @ApiOperation({ summary: "Get all registered passkeys for the user" })
-    @ApiBearerAuth("access-token")
-    async getPasskeys(@User() user: UserModel) {
-        return await this.webAuthnService.getPasskeys(user);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("webauthn/passkeys/:id/name")
-    @ApiOperation({ summary: "Update passkey name" })
-    @ApiBearerAuth("access-token")
-    async updatePasskeyName(
-        @User() user: UserModel,
-        @Req() req: Request,
-        @Body(ValidationPipe) dto: UpdatePasskeyNameDto
-    ) {
-        const credentialId = (req.params as { id: string }).id;
-        return await this.webAuthnService.updatePasskeyName(
-            user,
-            credentialId,
-            dto.deviceName
-        );
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("webauthn/passkeys/:id/delete")
-    @ApiOperation({ summary: "Delete a passkey" })
-    @ApiBearerAuth("access-token")
-    async deletePasskey(@User() user: UserModel, @Req() req: Request) {
-        const credentialId = (req.params as { id: string }).id;
-        return await this.webAuthnService.deletePasskey(user, credentialId);
     }
 
     // ==================== Trusted Device Endpoints ====================

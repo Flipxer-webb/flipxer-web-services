@@ -33,7 +33,3 @@ services:
         sync: false
       - key: ENCRYPT_SECRET
         sync: false
-      - key: WEBAUTHN_RP_ID
-        sync: false
-      - key: WEBAUTHN_ORIGIN
-        sync: false

@@ -94,7 +94,6 @@ model User {
   RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest?
   sessions                           Session[]
   userDocument                       UserDocument?
-  webAuthnCredentials                WebAuthnCredential[]
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@index([id, bvn])
@@ -126,24 +125,6 @@ model Session {
   @@index([isActive])
   @@index([deviceToken])
   @@map("Sessions")
-}
-
-model WebAuthnCredential {
-  id           String    @id @default(uuid())
-  userId       Int
-  credentialId String    @unique // base64url encoded credential ID
-  publicKey    String    // base64url encoded public key
-  counter      BigInt    @default(0)
-  deviceType   String?   // "platform" (built-in) or "cross-platform" (security key)
-  deviceName   String?   // User-customizable name: "iPhone 15", "Work MacBook"
-  transports   String?   // JSON array: ["internal", "hybrid", "usb", "ble", "nfc"]
-  createdAt    DateTime  @default(now())
-  lastUsedAt   DateTime?
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([credentialId])
-  @@map("WebAuthnCredentials")
 }
 
 model TransactionOTP {
