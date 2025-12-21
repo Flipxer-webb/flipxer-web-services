@@ -121,6 +121,20 @@ Complete reference for all environment variables used in Flipxer Web Services.
 - **Example**: `c9f5e2a8b7d1f4e6a3c9b5d8f2e7a1c4b6d9f3e8a5c2b7d1f6e9a4c8b2d5f1e3`
 - **Generate**: Same as JWT_SECRET (but use different value!)
 
+### `WEBAUTHN_RP_ID` ⚠️
+- **Type**: String (domain without protocol)
+- **Description**: Relying Party ID for WebAuthn passkeys (Face ID/Touch ID/Windows Hello)
+- **Example**: `app.flipxer.com`
+- **Development**: `localhost`
+- **Important**: Must match the domain where users access the app!
+
+### `WEBAUTHN_ORIGIN` ⚠️
+- **Type**: URL
+- **Description**: Full origin URL for WebAuthn passkey validation
+- **Example**: `https://app.flipxer.com`
+- **Development**: `http://localhost:3000`
+- **Important**: Must include protocol and match the frontend URL exactly!
+
 ---
 
 ## Redis Cache
