@@ -138,6 +138,7 @@
         "sharp": "0.33.5",
         "slugify": "^1.6.6",
         "socket.io": "4.7.5",
+        "speakeasy": "^2.0.0",
         "tesseract.js": "^7.0.0",
         "uuid": "^11.0.3",
         "zeptomail": "^6.1.0"

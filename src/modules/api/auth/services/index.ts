@@ -91,6 +91,7 @@ import { SessionService } from "../../session/services";
 import { SessionInfo } from "../../session/interfaces";
 import { TwoFactorRateLimitService } from "./two-factor-rate-limit.service";
 import { SettingService } from "../../settings/services";
+import { TierService } from "./tier.service";
 
 @Injectable()
 export class AuthService {
@@ -156,7 +157,8 @@ export class AuthService {
         private readonly smsService: SmsService,
         private readonly sessionService: SessionService,
         private readonly twoFactorRateLimitService: TwoFactorRateLimitService,
-        private readonly settingService: SettingService
+        private readonly settingService: SettingService,
+        private readonly tierService: TierService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -1357,7 +1359,9 @@ export class AuthService {
                 },
             });
 
-            logger.log(`Dojah widget verification completed successfully for user ${user.id}`);
+            // Update user's tier based on new verification status
+            const updatedUser = await this.tierService.updateUserTier(user.id);
+            logger.log(`Dojah widget verification completed successfully for user ${user.id}, new tier: ${updatedUser.tier ?? 0}`);
 
             return buildResponse({
                 message: "Document verified successfully",
@@ -1367,6 +1371,8 @@ export class AuthService {
                     firstName: dto.idData?.first_name,
                     lastName: dto.idData?.last_name,
                     documentNumber: dto.idData?.document_number,
+                    tier: updatedUser.tier ?? 0,
+                    canTransact: (updatedUser.tier ?? 0) > 0,
                 },
             });
         } catch (error) {
