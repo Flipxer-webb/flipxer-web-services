@@ -3,10 +3,10 @@ import { SettingService } from "./services";
 import { SettingController } from "./controllers/v1";
 import { AdminSettingController } from "./controllers/v1/admin";
 import { SmsModule } from "@/modules/core/sms";
-import { MailModule } from "@/modules/core/mail";
+import { EmailModule } from "@/modules/core/email";
 
 @Module({
-    imports: [SmsModule, MailModule],
+    imports: [SmsModule, EmailModule],
     controllers: [SettingController, AdminSettingController],
     providers: [SettingService],
     exports: [SettingService],

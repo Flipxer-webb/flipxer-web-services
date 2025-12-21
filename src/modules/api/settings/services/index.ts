@@ -25,7 +25,7 @@ import * as QRCode from "qrcode";
 import * as bcrypt from "bcryptjs";
 import { generateBackupCodes, hashBackupCodes, verifyBackupCode, removeUsedBackupCode } from "../../auth/utils/backup-codes.util";
 import { SmsService } from "@/modules/core/sms/services";
-import { MailService } from "@/modules/core/mail/services";
+import { EmailService } from "@/modules/core/email/services";
 
 const NON_PUBLIC_IP_RANGES = new Set([
     "unspecified",
@@ -53,7 +53,7 @@ export class SettingService {
     constructor(
         private prisma: PrismaService,
         private smsService: SmsService,
-        private mailService: MailService,
+        private emailService: EmailService,
     ) {}
 
     async getAllowedList(user: User) {
@@ -1081,11 +1081,12 @@ export class SettingService {
             await this.smsService.sendVerificationCode(userData.phone!, otp);
         } else {
             this.logger.log(`Sending transaction OTP via email to ${userData.email}`);
-            await this.mailService.sendMail({
-                to: userData.email!,
+            await this.emailService.sendMail({
+                from: { address: "noreply@flipxer.com", name: "Flipxer" },
+                to: [{ email_address: { address: userData.email!, name: userData.firstName || "User" } }],
                 subject: "Flipxer Transaction Verification Code",
-                text: `Your transaction verification code is: ${otp}. This code expires in 5 minutes.`,
-                html: `
+                textbody: `Your transaction verification code is: ${otp}. This code expires in 5 minutes.`,
+                htmlbody: `
                     <h2>Transaction Verification</h2>
                     <p>Your transaction verification code is:</p>
                     <h1 style="font-size: 32px; letter-spacing: 4px; color: #3b82f6;">${otp}</h1>
