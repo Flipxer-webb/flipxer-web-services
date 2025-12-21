@@ -3,6 +3,7 @@ import { AuthService } from "./services";
 import { TierService } from "./services/tier.service";
 import { TierVerificationService } from "./services/tier-verification.service";
 import { TwoFactorRateLimitService } from "./services/two-factor-rate-limit.service";
+import { WebAuthnService } from "./services/webauthn.service";
 import { JwtModule } from "@nestjs/jwt";
 import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
 import { AuthController } from "./controllers/v1";
@@ -37,7 +38,7 @@ export * from "./errors";
         forwardRef(() => SettingModule),
     ],
     controllers: [AuthController, AdminAuthController],
-    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService],
-    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService],
+    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, WebAuthnService],
+    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, WebAuthnService],
 })
 export class AuthModule {}

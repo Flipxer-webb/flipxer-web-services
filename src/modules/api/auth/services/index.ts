@@ -1930,19 +1930,53 @@ export class AuthService {
         // Check if 2FA is enabled - return temporary token for 2FA verification
         // Apply to BOTH user and admin logins for enhanced security
         if (user.isTwoFactorEnabled && user.twoFactorSecret) {
-            const tempToken = await this.jwtService.signAsync(
-                { sub: user.id, type: "2fa_pending", platform: loginPlatform },
-                { secret: jwtSecret, expiresIn: "5m" }
-            );
+            // Check if this is a trusted device that can skip 2FA
+            let canSkip2FA = false;
+            
+            if (options.deviceToken) {
+                // Look for a trusted session with this device token
+                const trustedSession = await this.prisma.session.findFirst({
+                    where: {
+                        userId: user.id,
+                        deviceToken: options.deviceToken,
+                        isTrusted: true,
+                        isActive: true,
+                        trustExpiresAt: {
+                            gt: new Date(), // Not expired
+                        },
+                    },
+                });
 
-            return buildResponse({
-                message: "Two-factor authentication required",
-                data: {
-                    requiresTwoFactor: true,
-                    tempToken: tempToken,
-                    email: user.email, // Help user identify which account
-                },
-            });
+                if (trustedSession) {
+                    // Check if user has enabled skip 2FA for trusted devices
+                    const userData = await this.prisma.user.findUnique({
+                        where: { id: user.id },
+                        select: { skipTwoFactorForTrustedDevices: true },
+                    });
+
+                    canSkip2FA = userData?.skipTwoFactorForTrustedDevices ?? false;
+                    
+                    if (canSkip2FA) {
+                        Logger.log(`Skipping 2FA for trusted device: ${trustedSession.deviceName || trustedSession.id}`);
+                    }
+                }
+            }
+
+            if (!canSkip2FA) {
+                const tempToken = await this.jwtService.signAsync(
+                    { sub: user.id, type: "2fa_pending", platform: loginPlatform },
+                    { secret: jwtSecret, expiresIn: "5m" }
+                );
+
+                return buildResponse({
+                    message: "Two-factor authentication required",
+                    data: {
+                        requiresTwoFactor: true,
+                        tempToken: tempToken,
+                        email: user.email, // Help user identify which account
+                    },
+                });
+            }
         }
 
         const tokens = await this.generateTokens({
@@ -1955,6 +1989,7 @@ export class AuthService {
         // Create session for user logins with error handling
         // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
+        let deviceToken: string | undefined;
         if (loginPlatform === LoginPlatform.USER) {
             try {
                 const sessionInfo: SessionInfo = {
@@ -1963,11 +1998,14 @@ export class AuthService {
                     browser: options.browser,
                     os: options.os,
                     ipAddress: ip,
+                    deviceToken: options.deviceToken, // Pass existing device token if provided
                 };
-                sessionId = await this.sessionService.createSession(
+                const sessionResult = await this.sessionService.createSession(
                     user.id,
                     sessionInfo
                 );
+                sessionId = sessionResult.sessionId;
+                deviceToken = sessionResult.deviceToken;
             } catch (sessionError) {
                 // Log the error but don't fail the login
                 Logger.error(`Failed to create session for user ${user.id}: ${sessionError.message}`);
@@ -2013,6 +2051,7 @@ export class AuthService {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             sessionId,
+            deviceToken,
             userType: user.userType.toLowerCase(),
             verificationStatus,
         };
@@ -2172,6 +2211,7 @@ export class AuthService {
         // Create session for user logins (2FA complete) with error handling
         // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
+        let deviceToken: string | undefined;
         if (payload.platform === LoginPlatform.USER) {
             try {
                 const sessionInfo: SessionInfo = {
@@ -2180,11 +2220,14 @@ export class AuthService {
                     browser: dto.browser,
                     os: dto.os,
                     ipAddress: ip,
+                    deviceToken: dto.deviceToken, // Pass existing device token if provided
                 };
-                sessionId = await this.sessionService.createSession(
+                const sessionResult = await this.sessionService.createSession(
                     user.id,
                     sessionInfo
                 );
+                sessionId = sessionResult.sessionId;
+                deviceToken = sessionResult.deviceToken;
             } catch (sessionError) {
                 // Log the error but don't fail the login
                 Logger.error(`Failed to create 2FA session for user ${user.id}: ${sessionError.message}`);
@@ -2222,6 +2265,7 @@ export class AuthService {
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken,
                 sessionId,
+                deviceToken,
                 userType: user.userType.toLowerCase(),
                 verificationStatus,
             },
@@ -2329,6 +2373,7 @@ export class AuthService {
 
         // Create session for user logins with error handling
         let sessionId: string | undefined;
+        let deviceToken: string | undefined;
         if (payload.platform === LoginPlatform.USER) {
             try {
                 const sessionInfo: SessionInfo = {
@@ -2338,10 +2383,12 @@ export class AuthService {
                     os: dto.os,
                     ipAddress: ip,
                 };
-                sessionId = await this.sessionService.createSession(
+                const sessionResult = await this.sessionService.createSession(
                     user.id,
                     sessionInfo
                 );
+                sessionId = sessionResult.sessionId;
+                deviceToken = sessionResult.deviceToken;
             } catch (sessionError) {
                 Logger.error(`Failed to create biometric 2FA session for user ${user.id}: ${sessionError.message}`);
             }
@@ -2377,6 +2424,7 @@ export class AuthService {
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken,
                 sessionId,
+                deviceToken,
                 userType: user.userType.toLowerCase(),
                 verificationStatus,
             },
@@ -2452,5 +2500,148 @@ export class AuthService {
                 contextReset: dto.context || "all",
             },
         });
+    }
+
+    // ==================== Trusted Device Methods ====================
+
+    /**
+     * Trust the current device after 2FA verification
+     * @param user Current authenticated user
+     * @param req Request object to get session info
+     * @param code 2FA verification code (TOTP or backup code)
+     */
+    async trustDevice(user: User, req: any, code: string): Promise<ApiResponse> {
+        // Verify 2FA is enabled
+        const userData = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: {
+                isTwoFactorEnabled: true,
+                twoFactorSecret: true,
+                twoFactorBackupCodes: true,
+            },
+        });
+
+        if (!userData?.isTwoFactorEnabled || !userData?.twoFactorSecret) {
+            throw new AuthGenericException(
+                "Two-factor authentication must be enabled to trust devices",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Verify the 2FA code
+        const isValidTotp = authenticator.verify({
+            token: code,
+            secret: userData.twoFactorSecret,
+        });
+
+        let isValidBackupCode = false;
+        if (!isValidTotp && userData.twoFactorBackupCodes) {
+            isValidBackupCode = await this.settingService.verifyBackupCode(user.id, code);
+        }
+
+        if (!isValidTotp && !isValidBackupCode) {
+            throw new AuthGenericException(
+                "Invalid verification code",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Get current session ID from JWT token
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+            throw new AuthGenericException("Session not found", HttpStatus.BAD_REQUEST);
+        }
+
+        const token = authHeader.split(" ")[1];
+        const jwtSecret = process.env.JWT_SECRET || "secret";
+        const payload = await this.jwtService.verifyAsync(token, { secret: jwtSecret });
+        const sessionId = payload.sessionId;
+
+        if (!sessionId) {
+            throw new AuthGenericException("Session ID not found in token", HttpStatus.BAD_REQUEST);
+        }
+
+        // Calculate trust expiry (30 days from now)
+        const trustExpiresAt = new Date();
+        trustExpiresAt.setDate(trustExpiresAt.getDate() + 30);
+
+        // Update session to mark as trusted
+        await this.prisma.session.update({
+            where: { id: sessionId, userId: user.id },
+            data: {
+                isTrusted: true,
+                trustedAt: new Date(),
+                trustExpiresAt,
+            },
+        });
+
+        return buildResponse({
+            message: "Device trusted successfully. 2FA will be skipped on this device for 30 days.",
+            data: {
+                trustedUntil: trustExpiresAt,
+            },
+        });
+    }
+
+    /**
+     * Remove trust from a device/session
+     */
+    async untrustDevice(user: User, sessionId: string): Promise<ApiResponse> {
+        // Verify the session belongs to the user
+        const session = await this.prisma.session.findFirst({
+            where: { id: sessionId, userId: user.id },
+        });
+
+        if (!session) {
+            throw new AuthGenericException("Session not found", HttpStatus.NOT_FOUND);
+        }
+
+        // Remove trust
+        await this.prisma.session.update({
+            where: { id: sessionId },
+            data: {
+                isTrusted: false,
+                trustedAt: null,
+                trustExpiresAt: null,
+            },
+        });
+
+        return buildResponse({
+            message: "Device trust removed",
+        });
+    }
+
+    /**
+     * Check if current session is a trusted device
+     */
+    async isTrustedDevice(sessionId: string, userId: number): Promise<boolean> {
+        const session = await this.prisma.session.findFirst({
+            where: {
+                id: sessionId,
+                userId,
+                isTrusted: true,
+                trustExpiresAt: {
+                    gt: new Date(), // Not expired
+                },
+            },
+        });
+
+        return !!session;
+    }
+
+    /**
+     * Check if user has skip 2FA for trusted devices enabled
+     */
+    async shouldSkip2FAForTrustedDevice(userId: number, sessionId?: string): Promise<boolean> {
+        if (!sessionId) return false;
+
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { skipTwoFactorForTrustedDevices: true },
+        });
+
+        if (!user?.skipTwoFactorForTrustedDevices) return false;
+
+        return await this.isTrustedDevice(sessionId, userId);
     }
 }

@@ -119,6 +119,11 @@ export class Verify2FALoginDto {
     @IsString()
     @IsOptional()
     os?: string;
+
+    @ApiProperty({ required: false, description: "Device token for trusted device recognition" })
+    @IsString()
+    @IsOptional()
+    deviceToken?: string;
 }
 
 enum AccountType {
@@ -282,6 +287,11 @@ export class SignInDto {
     @IsString()
     @IsOptional()
     os?: string;
+
+    @ApiProperty({ required: false, description: "Device token for trusted device recognition" })
+    @IsString()
+    @IsOptional()
+    deviceToken?: string;
 }
 
 export enum UserSignInAppType {

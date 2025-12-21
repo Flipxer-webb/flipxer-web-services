@@ -8,6 +8,7 @@ import {
     InvalidSessionException,
 } from "../errors";
 import { REFRESH_TOKEN_EXPIRATION } from "@/config";
+import { randomUUID } from "crypto";
 
 @Injectable()
 export class SessionService {
@@ -41,11 +42,12 @@ export class SessionService {
 
     /**
      * Create a new session for user login
+     * Returns an object with sessionId and deviceToken
      */
     async createSession(
         userId: number,
         sessionInfo: SessionInfo
-    ): Promise<string> {
+    ): Promise<{ sessionId: string; deviceToken: string }> {
         // Deactivate current session flag from other sessions
         await this.prisma.session.updateMany({
             where: { userId, isCurrent: true },
@@ -56,6 +58,9 @@ export class SessionService {
             Date.now() + this.parseDuration(REFRESH_TOKEN_EXPIRATION)
         );
 
+        // Use existing device token if provided, otherwise generate new one
+        const deviceToken = sessionInfo.deviceToken || randomUUID();
+
         const session = await this.prisma.session.create({
             data: {
                 userId,
@@ -65,13 +70,14 @@ export class SessionService {
                 os: sessionInfo.os,
                 ipAddress: sessionInfo.ipAddress,
                 location: sessionInfo.location,
+                deviceToken,
                 isActive: true,
                 isCurrent: true,
                 expiresAt,
             },
         });
 
-        return session.id;
+        return { sessionId: session.id, deviceToken };
     }
 
     /**

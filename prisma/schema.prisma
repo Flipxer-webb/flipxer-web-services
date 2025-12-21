@@ -74,6 +74,7 @@ model User {
   incomeVerificationStatus           DocumentVerificationStatus?
   incomeDocumentUrl                  String?
   tradingPassword                    String?
+  skipTwoFactorForTrustedDevices     Boolean                           @default(false)
   accountLimit                       AccountLimit?
   allowedIps                         AllowedIp[]
   assetWallets                       AssetWallet[]
@@ -93,6 +94,7 @@ model User {
   RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest?
   sessions                           Session[]
   userDocument                       UserDocument?
+  webAuthnCredentials                WebAuthnCredential[]
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@index([id, bvn])
@@ -100,25 +102,48 @@ model User {
 }
 
 model Session {
-  id           String   @id @default(uuid())
-  userId       Int
-  deviceName   String?
-  deviceType   String?
-  browser      String?
-  os           String?
-  ipAddress    String?
-  location     String?
-  isActive     Boolean  @default(true)
-  isCurrent    Boolean  @default(false)
-  lastActiveAt DateTime @default(now())
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
+  userId         Int
+  deviceName     String?
+  deviceType     String?
+  browser        String?
+  os             String?
+  ipAddress      String?
+  location       String?
+  deviceToken    String?   // Unique token for device recognition
+  isActive       Boolean   @default(true)
+  isCurrent      Boolean   @default(false)
+  isTrusted      Boolean   @default(false)
+  trustedAt      DateTime?
+  trustExpiresAt DateTime?
+  lastActiveAt   DateTime  @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([isActive])
+  @@index([deviceToken])
   @@map("Sessions")
+}
+
+model WebAuthnCredential {
+  id           String    @id @default(uuid())
+  userId       Int
+  credentialId String    @unique // base64url encoded credential ID
+  publicKey    String    // base64url encoded public key
+  counter      BigInt    @default(0)
+  deviceType   String?   // "platform" (built-in) or "cross-platform" (security key)
+  deviceName   String?   // User-customizable name: "iPhone 15", "Work MacBook"
+  transports   String?   // JSON array: ["internal", "hybrid", "usb", "ble", "nfc"]
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([credentialId])
+  @@map("WebAuthnCredentials")
 }
 
 model TransactionOTP {

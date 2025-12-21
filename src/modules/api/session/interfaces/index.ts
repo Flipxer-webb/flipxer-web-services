@@ -8,6 +8,7 @@ export interface SessionInfo {
     os?: string;
     ipAddress?: string;
     location?: string;
+    deviceToken?: string;
 }
 
 export interface RequestWithSession extends Request {
