@@ -53,19 +53,23 @@ export class BiometricService {
             this.logger.log(`Found ${existingCredentials.length} existing credentials`);
             this.logger.log(`WebAuthn config: RP_NAME=${RP_NAME}, RP_ID=${RP_ID}, ORIGIN=${ORIGIN}`);
 
-            const options = await generateRegistrationOptions({
-                rpName: RP_NAME,
-                rpID: RP_ID,
-                userID: new TextEncoder().encode(user.id.toString()),
-                userName: user.email,
-                userDisplayName: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
-                attestationType: "none",
-                excludeCredentials: existingCredentials.map((cred) => ({
+            // Prepare exclude credentials - handle empty case
+            const excludeCredentials = existingCredentials.length > 0 
+                ? existingCredentials.map((cred) => ({
                     id: cred.credentialId,
                     transports: cred.transports
                         ? (JSON.parse(cred.transports) as AuthenticatorTransportFuture[])
                         : undefined,
-                })),
+                }))
+                : undefined;
+
+            const options = await generateRegistrationOptions({
+                rpName: RP_NAME,
+                rpID: RP_ID,
+                userName: user.email,
+                userDisplayName: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
+                attestationType: "none",
+                excludeCredentials,
                 authenticatorSelection: {
                     residentKey: "discouraged", // Device-bound, not discoverable
                     userVerification: "required", // Must use biometric
