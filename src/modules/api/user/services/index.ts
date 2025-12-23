@@ -86,7 +86,6 @@ export class UserService {
                 isNinVerified: true,
                 isDocumentVerified: true,
                 isAddressVerified: true,
-                isBiometricVerified: true,
                 isIncomeVerified: true,
                 tier: true,
                 businessRecordCompleted: true,

@@ -38,24 +38,14 @@ import {
     Verify2FALoginDto,
     VerifyAddressUploadFormDto,
     VerifyIncomeUploadFormDto,
-    RegisterBiometricDto,
-    VerifyBiometricDto,
     CreateTradingPasswordDto,
-    BiometricLoginDto,
     DojahVerifyAddressDto,
     DojahVerifyIncomeDto,
     DojahVerifyGovernmentIdDto,
 } from "../../dtos";
 import { TrustDeviceDto } from "../../dtos/trusted-device.dto";
-import {
-    BiometricRegisterOptionsDto,
-    BiometricVerifyRegistrationDto,
-    BiometricVerifyAuthDto,
-    BiometricRenameDto,
-} from "../../dtos/biometric.dto";
 import { AuthService } from "../../services";
 import { TierVerificationService } from "../../services/tier-verification.service";
-import { BiometricService } from "../../services/biometric.service";
 import {
     ApiTags,
     ApiOperation,
@@ -87,8 +77,7 @@ import {
 export class AuthController {
     constructor(
         private authService: AuthService,
-        private tierVerificationService: TierVerificationService,
-        private biometricService: BiometricService
+        private tierVerificationService: TierVerificationService
     ) {}
 
     @Post("signup")
@@ -118,38 +107,6 @@ export class AuthController {
         @Req() req: Request
     ) {
         return await this.authService.verify2FALogin(dto, req.ip);
-    }
-
-    @HttpCode(HttpStatus.OK)
-    @Post("verify-biometric-login")
-    @ApiOperation({ summary: "verify biometric 2FA to complete login" })
-    async verifyBiometricLogin(
-        @Body(ValidationPipe) dto: BiometricLoginDto,
-        @Req() req: Request
-    ) {
-        return await this.authService.verifyBiometric2FALogin(dto, req.ip);
-    }
-
-    @HttpCode(HttpStatus.OK)
-    @Post("check-biometric-available")
-    @ApiOperation({ summary: "check if user has biometric 2FA available" })
-    async checkBiometricAvailable(
-        @Body(ValidationPipe) dto: { tempToken: string }
-    ) {
-        // Verify the temp token to get user ID
-        const jwtService = this.authService["jwtService"];
-        try {
-            const payload = await jwtService.verifyAsync(dto.tempToken, {
-                secret: require("@/config").jwtSecret,
-            });
-            return await this.authService.checkBiometricAvailable(payload.sub);
-        } catch {
-            return {
-                success: true,
-                message: "Biometric check failed",
-                data: { hasBiometric: false, isExpired: false, canUseBiometric: false },
-            };
-        }
     }
 
     @HttpCode(HttpStatus.OK)
@@ -541,30 +498,6 @@ export class AuthController {
 
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
-    @Post("register-biometric")
-    @ApiOperation({ summary: "Register biometric credential for enhanced security (optional)" })
-    @ApiBearerAuth("access-token")
-    async registerBiometric(
-        @User() user: UserModel,
-        @Body(ValidationPipe) dto: RegisterBiometricDto
-    ) {
-        return await this.tierVerificationService.registerBiometric(user, dto);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("verify-biometric")
-    @ApiOperation({ summary: "Verify biometric or trading password for enhanced security (optional)" })
-    @ApiBearerAuth("access-token")
-    async verifyBiometric(
-        @User() user: UserModel,
-        @Body(ValidationPipe) dto: VerifyBiometricDto
-    ) {
-        return await this.tierVerificationService.verifyBiometric(user, dto);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
     @Post("create-trading-password")
     @ApiOperation({ summary: "Create or update trading password" })
     @ApiBearerAuth("access-token")
@@ -616,106 +549,5 @@ export class AuthController {
     async untrustDevice(@User() user: UserModel, @Req() req: Request) {
         const sessionId = (req.params as { sessionId: string }).sessionId;
         return await this.authService.untrustDevice(user, sessionId);
-    }
-
-    // ==================== Biometric Authentication Endpoints ====================
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("biometric/register-options")
-    @ApiOperation({ summary: "Get WebAuthn registration options for biometric setup" })
-    @ApiBearerAuth("access-token")
-    async getBiometricRegistrationOptions(
-        @User() user: UserModel,
-        @Body(ValidationPipe) dto: BiometricRegisterOptionsDto
-    ) {
-        return await this.biometricService.generateRegistrationOptions(user.id);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("biometric/register-verify")
-    @ApiOperation({ summary: "Verify and complete biometric registration" })
-    @ApiBearerAuth("access-token")
-    async verifyBiometricRegistration(
-        @User() user: UserModel,
-        @Body(ValidationPipe) dto: BiometricVerifyRegistrationDto
-    ) {
-        return await this.biometricService.verifyRegistration(
-            user.id,
-            dto.challengeKey,
-            dto.response as any,
-            dto.deviceName
-        );
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("biometric/authenticate-options")
-    @ApiOperation({ summary: "Get WebAuthn authentication options for biometric verification" })
-    @ApiBearerAuth("access-token")
-    async getBiometricAuthenticationOptions(@User() user: UserModel) {
-        return await this.biometricService.generateAuthenticationOptions(user.id);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("biometric/authenticate-verify")
-    @ApiOperation({ summary: "Verify biometric authentication for transactions" })
-    @ApiBearerAuth("access-token")
-    async verifyBiometricAuthentication(
-        @User() user: UserModel,
-        @Body(ValidationPipe) dto: BiometricVerifyAuthDto
-    ) {
-        return await this.biometricService.verifyAuthentication(
-            user.id,
-            dto.challengeKey,
-            dto.response as any
-        );
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Get("biometric/credentials")
-    @ApiOperation({ summary: "Get list of registered biometric credentials" })
-    @ApiBearerAuth("access-token")
-    async getBiometricCredentials(@User() user: UserModel) {
-        return await this.biometricService.getUserCredentials(user.id);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("biometric/credentials/:id/rename")
-    @ApiOperation({ summary: "Rename a biometric credential" })
-    @ApiBearerAuth("access-token")
-    async renameBiometricCredential(
-        @User() user: UserModel,
-        @Req() req: Request,
-        @Body(ValidationPipe) dto: BiometricRenameDto
-    ) {
-        const credentialId = (req.params as { id: string }).id;
-        return await this.biometricService.renameCredential(user.id, credentialId, dto.name);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("biometric/credentials/:id/delete")
-    @ApiOperation({ summary: "Delete a biometric credential" })
-    @ApiBearerAuth("access-token")
-    async deleteBiometricCredential(
-        @User() user: UserModel,
-        @Req() req: Request
-    ) {
-        const credentialId = (req.params as { id: string }).id;
-        return await this.biometricService.deleteCredential(user.id, credentialId);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Get("biometric/status")
-    @ApiOperation({ summary: "Check if user has biometric available" })
-    @ApiBearerAuth("access-token")
-    async getBiometricStatus(@User() user: UserModel) {
-        return await this.biometricService.hasBiometricAvailable(user.id);
     }
 }

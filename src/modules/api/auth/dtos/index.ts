@@ -536,55 +536,6 @@ export class VerifyIncomeUploadFormDto {
     document: Express.Multer.File;
 }
 
-export class RegisterBiometricDto {
-    @ApiProperty({ description: "WebAuthn credential ID (base64 encoded)" })
-    @IsNotEmpty()
-    @IsString()
-    credentialId: string;
-
-    @ApiProperty({ description: "WebAuthn public key (base64 encoded)" })
-    @IsNotEmpty()
-    @IsString()
-    publicKey: string;
-
-    @ApiProperty({ description: "Device name for identification", required: false })
-    @IsOptional()
-    @IsString()
-    deviceName?: string;
-}
-
-export class VerifyBiometricDto {
-    @ApiProperty({ description: "WebAuthn credential ID (base64 encoded)", required: false })
-    @IsOptional()
-    @IsString()
-    credentialId?: string;
-
-    @ApiProperty({ description: "WebAuthn signature (base64 encoded)", required: false })
-    @IsOptional()
-    @IsString()
-    signature?: string;
-
-    @ApiProperty({ description: "WebAuthn authenticator data (base64 encoded)", required: false })
-    @IsOptional()
-    @IsString()
-    authenticatorData?: string;
-
-    @ApiProperty({ description: "WebAuthn client data JSON (base64 encoded)", required: false })
-    @IsOptional()
-    @IsString()
-    clientDataJSON?: string;
-
-    @ApiProperty({ description: "Trading password as fallback for biometric", required: false })
-    @IsOptional()
-    @IsString()
-    @MinLength(6, { message: "Trading password must be at least 6 characters" })
-    tradingPassword?: string;
-
-    @ApiProperty({ description: "Use trading password instead of biometric", required: false })
-    @IsOptional()
-    useTradingPassword?: boolean;
-}
-
 export class CreateTradingPasswordDto {
     @ApiProperty({ description: "Trading password (6+ characters)" })
     @IsNotEmpty()
@@ -597,33 +548,6 @@ export class CreateTradingPasswordDto {
     @IsNotEmpty()
     @IsString()
     confirmTradingPassword: string;
-}
-
-export class BiometricLoginDto {
-    @ApiProperty({ description: "WebAuthn credential ID (base64 encoded)" })
-    @IsNotEmpty()
-    @IsString()
-    credentialId: string;
-
-    @ApiProperty({ description: "WebAuthn signature (base64 encoded)" })
-    @IsNotEmpty()
-    @IsString()
-    signature: string;
-
-    @ApiProperty({ description: "WebAuthn authenticator data (base64 encoded)" })
-    @IsNotEmpty()
-    @IsString()
-    authenticatorData: string;
-
-    @ApiProperty({ description: "WebAuthn client data JSON (base64 encoded)" })
-    @IsNotEmpty()
-    @IsString()
-    clientDataJSON: string;
-
-    @ApiProperty({ description: "Temporary token received from login" })
-    @IsNotEmpty()
-    @IsString()
-    tempToken: string;
 }
 
 export class Reset2FARateLimitDto {

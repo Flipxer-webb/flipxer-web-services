@@ -1,6 +1,6 @@
 /**
  * Tier Verification Service
- * Handles Tier 2/3 verification flows: address, income, and biometric verification
+ * Handles Tier 2/3 verification flows: address and income verification
  */
 
 import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
@@ -21,8 +21,6 @@ import {
     validateIncomeDocument,
 } from "@/libs/ocr";
 import {
-    RegisterBiometricDto,
-    VerifyBiometricDto,
     CreateTradingPasswordDto,
     DojahVerifyAddressDto,
     DojahVerifyIncomeDto,
@@ -410,161 +408,6 @@ export class TierVerificationService {
                 idType,
                 isBvnVerified: idType === "bvn",
                 isNinVerified: idType === "nin",
-            },
-        });
-    }
-
-    /**
-     * Register WebAuthn biometric credential for enhanced security
-     * This is optional and provides additional protection for login and transactions
-     */
-    async registerBiometric(
-        user: User,
-        dto: RegisterBiometricDto
-    ): Promise<ApiResponse> {
-        // Create new biometric credential
-        await this.prisma.biometricCredential.create({
-            data: {
-                userId: user.id,
-                credentialId: dto.credentialId,
-                publicKey: dto.publicKey,
-                counter: 0,
-                deviceName: dto.deviceName || "Unknown device",
-            },
-        });
-
-        this.logger.log(
-            `Biometric credential registered for user ${user.id}`
-        );
-
-        return buildResponse({
-            message: "Biometric credential registered successfully",
-            data: {
-                deviceName: dto.deviceName || "Unknown device",
-            },
-        });
-    }
-
-    /**
-     * Verify biometric or trading password for enhanced security
-     * Note: This is optional and provides additional security for login and transactions,
-     * but is not required for tier progression
-     */
-    async verifyBiometric(
-        user: User,
-        dto: VerifyBiometricDto
-    ): Promise<ApiResponse> {
-        // Check if already verified (and not expired)
-        const userWithTier = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            include: {
-                biometricCredentials: true,
-            },
-        });
-
-        if (!userWithTier) {
-            throw new HttpException("User not found", HttpStatus.NOT_FOUND);
-        }
-
-        // Check if using trading password
-        if (dto.useTradingPassword && dto.tradingPassword) {
-            return await this.verifyWithTradingPassword(userWithTier, dto.tradingPassword);
-        }
-
-        // Verify WebAuthn credential
-        if (!dto.credentialId || !dto.signature || !dto.authenticatorData || !dto.clientDataJSON) {
-            throw new HttpException(
-                "Invalid biometric verification data",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        // Find matching credential
-        const credential = userWithTier.biometricCredentials.find(
-            (cred) => cred.credentialId === dto.credentialId
-        );
-
-        if (!credential) {
-            throw new HttpException(
-                "Biometric credential not recognized",
-                HttpStatus.UNAUTHORIZED
-            );
-        }
-
-        // In a full implementation, we would verify the signature here
-        // For now, we trust the client-side WebAuthn verification
-        // The credential ID match is sufficient for basic verification
-
-        // Update credential last used
-        await this.prisma.biometricCredential.update({
-            where: { id: credential.id },
-            data: { lastUsedAt: new Date() },
-        });
-
-        // Update verification status
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                isBiometricVerified: true,
-                biometricVerifiedAt: new Date(),
-            },
-        });
-
-        // Update tier
-        await this.tierService.updateUserTier(user.id);
-
-        this.logger.log(`Biometric verified for user ${user.id}`);
-
-        return buildResponse({
-            message: "Biometric verification successful",
-            data: {
-                status: "verified",
-            },
-        });
-    }
-
-    /**
-     * Verify using trading password as fallback
-     */
-    private async verifyWithTradingPassword(
-        user: User & { tradingPassword?: string | null },
-        password: string
-    ): Promise<ApiResponse> {
-        if (!user.tradingPassword) {
-            throw new HttpException(
-                "Trading password not set. Please create one first.",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        const isValid = await bcrypt.compare(password, user.tradingPassword);
-        if (!isValid) {
-            throw new HttpException(
-                "Invalid trading password",
-                HttpStatus.UNAUTHORIZED
-            );
-        }
-
-        // Update verification status
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                isBiometricVerified: true,
-                biometricVerifiedAt: new Date(),
-            },
-        });
-
-        // Update tier
-        await this.tierService.updateUserTier(user.id);
-
-        this.logger.log(
-            `Biometric verified via trading password for user ${user.id}`
-        );
-
-        return buildResponse({
-            message: "Verification successful",
-            data: {
-                status: "verified",
             },
         });
     }

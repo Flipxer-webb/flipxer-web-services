@@ -132,10 +132,6 @@ export class UpdateUserVerificationDto {
     @IsOptional()
     isAddressVerified?: boolean;
 
-    @ApiPropertyOptional({ description: "Biometric verification status" })
-    @IsOptional()
-    isBiometricVerified?: boolean;
-
     @ApiPropertyOptional({ description: "Income verification status" })
     @IsOptional()
     isIncomeVerified?: boolean;

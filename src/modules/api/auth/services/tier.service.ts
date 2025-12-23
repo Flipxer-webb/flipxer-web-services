@@ -10,18 +10,13 @@ export interface TierInfo {
     canTransact: boolean;
 }
 
-// User with tier fields - these fields are added to the database but may not be in Prisma types yet
+// User with tier fields
 export type UserWithTier = User & {
     tier?: number;
     isAddressVerified?: boolean;
-    isBiometricVerified?: boolean;
     isIncomeVerified?: boolean;
     isNinVerified?: boolean;
-    biometricVerifiedAt?: Date | null;
 };
-
-// Biometric verification expires after 1 year
-const BIOMETRIC_EXPIRY_DAYS = 365;
 
 const WITHDRAWAL_LIMITS: Record<TierLevel, number | "unlimited"> = {
     0: 0,
@@ -29,18 +24,6 @@ const WITHDRAWAL_LIMITS: Record<TierLevel, number | "unlimited"> = {
     2: 50000,
     3: "unlimited",
 };
-
-/**
- * Check if biometric verification has expired (older than 1 year)
- */
-function isBiometricExpired(biometricVerifiedAt: Date | null | undefined): boolean {
-    if (!biometricVerifiedAt) {
-        return true; // No verification date means expired/never verified
-    }
-    const expiryDate = new Date(biometricVerifiedAt);
-    expiryDate.setDate(expiryDate.getDate() + BIOMETRIC_EXPIRY_DAYS);
-    return new Date() > expiryDate;
-}
 
 // Tier requirement checker functions for individual users
 const INDIVIDUAL_TIER_CHECKS: Array<{
@@ -53,8 +36,6 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
             !!user.isDocumentVerified &&
             !!user.isAddressVerified &&
             !!user.isIncomeVerified,
-        // Note: Biometric verification is optional for enhanced security (login/transactions)
-        // but not required for tier progression
     },
     {
         tier: 2,

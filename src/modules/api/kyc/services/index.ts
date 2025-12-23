@@ -61,7 +61,6 @@ export class KycService {
                 NIN: { isNinVerified: false, nin: { not: null } },
                 DOCUMENT: { isDocumentVerified: false, userDocument: { isNot: null } },
                 ADDRESS: { isAddressVerified: false },
-                BIOMETRIC: { isBiometricVerified: false },
                 INCOME: { isIncomeVerified: false },
             };
             verificationFilter = { ...verificationFilter, ...typeMap[verificationType] };
@@ -101,7 +100,6 @@ export class KycService {
                     isNinVerified: true,
                     isDocumentVerified: true,
                     isAddressVerified: true,
-                    isBiometricVerified: true,
                     isIncomeVerified: true,
                     isEmailVerified: true,
                     isPhoneVerified: true,
@@ -138,7 +136,6 @@ export class KycService {
                 nin: user.isNinVerified,
                 document: user.isDocumentVerified,
                 address: user.isAddressVerified,
-                biometric: user.isBiometricVerified,
                 income: user.isIncomeVerified,
             },
             pendingVerifications: this.getPendingVerifications(user),
@@ -226,7 +223,6 @@ export class KycService {
                         details: user.userDocument,
                     },
                     address: { verified: user.isAddressVerified },
-                    biometric: { verified: user.isBiometricVerified },
                     income: { verified: user.isIncomeVerified },
                 },
                 businessInfo: user.userType === "BUSINESS" ? {
@@ -263,7 +259,6 @@ export class KycService {
                     NIN: { isNinVerified: true },
                     DOCUMENT: { isDocumentVerified: true },
                     ADDRESS: { isAddressVerified: true },
-                    BIOMETRIC: { isBiometricVerified: true },
                     INCOME: { isIncomeVerified: true },
                 };
                 updateData = verificationMap[verificationType] || {};
@@ -421,10 +416,6 @@ export class KycService {
             updateData.isAddressVerified = dto.isAddressVerified;
             changes.address = { from: user.isAddressVerified, to: dto.isAddressVerified };
         }
-        if (dto.isBiometricVerified !== undefined) {
-            updateData.isBiometricVerified = dto.isBiometricVerified;
-            changes.biometric = { from: user.isBiometricVerified, to: dto.isBiometricVerified };
-        }
         if (dto.isIncomeVerified !== undefined) {
             updateData.isIncomeVerified = dto.isIncomeVerified;
             changes.income = { from: user.isIncomeVerified, to: dto.isIncomeVerified };
@@ -440,7 +431,6 @@ export class KycService {
                 isNinVerified: true,
                 isDocumentVerified: true,
                 isAddressVerified: true,
-                isBiometricVerified: true,
                 isIncomeVerified: true,
             },
         });
@@ -482,7 +472,6 @@ export class KycService {
                 isNinVerified: true,
                 isDocumentVerified: true,
                 isAddressVerified: true,
-                isBiometricVerified: true,
                 isIncomeVerified: true,
                 businessRecordCompleted: true,
                 businessDocumentsUploaded: true,
