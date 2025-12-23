@@ -30,57 +30,71 @@ export class BiometricService {
      * Generate registration options for device biometric
      */
     async generateRegistrationOptions(userId: number, sessionId?: string) {
-        const user = await this.prisma.user.findUnique({
-            where: { id: userId },
-            select: { id: true, email: true, firstName: true, lastName: true },
-        });
+        this.logger.log(`Generating biometric registration options for user ${userId}`);
+        
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: { id: true, email: true, firstName: true, lastName: true },
+            });
 
-        if (!user) {
-            throw new NotFoundException("User not found");
+            if (!user) {
+                throw new NotFoundException("User not found");
+            }
+
+            this.logger.log(`User found: ${user.email}, fetching existing credentials...`);
+
+            // Get existing credentials to exclude
+            const existingCredentials = await this.prisma.biometricCredential.findMany({
+                where: { userId },
+                select: { credentialId: true, transports: true },
+            });
+
+            this.logger.log(`Found ${existingCredentials.length} existing credentials`);
+            this.logger.log(`WebAuthn config: RP_NAME=${RP_NAME}, RP_ID=${RP_ID}, ORIGIN=${ORIGIN}`);
+
+            const options = await generateRegistrationOptions({
+                rpName: RP_NAME,
+                rpID: RP_ID,
+                userID: new TextEncoder().encode(user.id.toString()),
+                userName: user.email,
+                userDisplayName: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
+                attestationType: "none",
+                excludeCredentials: existingCredentials.map((cred) => ({
+                    id: cred.credentialId,
+                    transports: cred.transports
+                        ? (JSON.parse(cred.transports) as AuthenticatorTransportFuture[])
+                        : undefined,
+                })),
+                authenticatorSelection: {
+                    residentKey: "discouraged", // Device-bound, not discoverable
+                    userVerification: "required", // Must use biometric
+                    authenticatorAttachment: "platform", // Built-in authenticator only
+                },
+                timeout: 60000,
+            });
+
+            this.logger.log(`Registration options generated successfully`);
+
+            // Store challenge for verification
+            const challengeKey = `reg_${userId}_${Date.now()}`;
+            challengeStore.set(challengeKey, {
+                challenge: options.challenge,
+                expiresAt: new Date(Date.now() + 60000),
+            });
+
+            return {
+                success: true,
+                message: "Registration options generated",
+                data: {
+                    options,
+                    challengeKey,
+                },
+            };
+        } catch (error) {
+            this.logger.error(`Failed to generate registration options for user ${userId}:`, error);
+            throw error;
         }
-
-        // Get existing credentials to exclude
-        const existingCredentials = await this.prisma.biometricCredential.findMany({
-            where: { userId },
-            select: { credentialId: true, transports: true },
-        });
-
-        const options = await generateRegistrationOptions({
-            rpName: RP_NAME,
-            rpID: RP_ID,
-            userID: new TextEncoder().encode(user.id.toString()),
-            userName: user.email,
-            userDisplayName: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
-            attestationType: "none",
-            excludeCredentials: existingCredentials.map((cred) => ({
-                id: cred.credentialId,
-                transports: cred.transports
-                    ? (JSON.parse(cred.transports) as AuthenticatorTransportFuture[])
-                    : undefined,
-            })),
-            authenticatorSelection: {
-                residentKey: "discouraged", // Device-bound, not discoverable
-                userVerification: "required", // Must use biometric
-                authenticatorAttachment: "platform", // Built-in authenticator only
-            },
-            timeout: 60000,
-        });
-
-        // Store challenge for verification
-        const challengeKey = `reg_${userId}_${Date.now()}`;
-        challengeStore.set(challengeKey, {
-            challenge: options.challenge,
-            expiresAt: new Date(Date.now() + 60000),
-        });
-
-        return {
-            success: true,
-            message: "Registration options generated",
-            data: {
-                options,
-                challengeKey,
-            },
-        };
     }
 
     /**

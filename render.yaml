@@ -33,3 +33,10 @@ services:
         sync: false
       - key: ENCRYPT_SECRET
         sync: false
+      # WebAuthn configuration for biometric authentication
+      - key: WEBAUTHN_RP_NAME
+        value: Flipxer
+      - key: WEBAUTHN_RP_ID
+        value: resolve-web-app-cyan.vercel.app
+      - key: WEBAUTHN_ORIGIN
+        value: https://resolve-web-app-cyan.vercel.app
