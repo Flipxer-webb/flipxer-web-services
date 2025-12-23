@@ -470,14 +470,9 @@ export class TierVerificationService {
             where: { id: user.id },
             select: {
                 isAddressVerified: true,
-                isBiometricVerified: true,
                 isIncomeVerified: true,
                 addressVerificationStatus: true,
                 incomeVerificationStatus: true,
-                biometricVerifiedAt: true,
-                biometricCredentials: {
-                    select: { id: true },
-                },
                 tradingPassword: true,
                 tier: true,
             },
@@ -485,25 +480,6 @@ export class TierVerificationService {
 
         if (!userWithStatus) {
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
-        }
-
-        // Check if biometric verification has expired (annual re-verification)
-        let biometricExpired = false;
-        if (userWithStatus.biometricVerifiedAt) {
-            const oneYearAgo = new Date();
-            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-            biometricExpired = userWithStatus.biometricVerifiedAt < oneYearAgo;
-        }
-
-        // Calculate days until expiry
-        let daysUntilBiometricExpiry: number | null = null;
-        if (userWithStatus.biometricVerifiedAt && !biometricExpired) {
-            const expiryDate = new Date(userWithStatus.biometricVerifiedAt);
-            expiryDate.setFullYear(expiryDate.getFullYear() + 1);
-            const now = new Date();
-            daysUntilBiometricExpiry = Math.ceil(
-                (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-            );
         }
 
         return buildResponse({
@@ -517,12 +493,6 @@ export class TierVerificationService {
                 income: {
                     verified: userWithStatus.isIncomeVerified,
                     status: userWithStatus.incomeVerificationStatus,
-                },
-                biometric: {
-                    verified: userWithStatus.isBiometricVerified && !biometricExpired,
-                    expired: biometricExpired,
-                    daysUntilExpiry: daysUntilBiometricExpiry,
-                    hasCredential: userWithStatus.biometricCredentials.length > 0,
                 },
                 hasTradingPassword: !!userWithStatus.tradingPassword,
             },
