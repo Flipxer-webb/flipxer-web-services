@@ -131,7 +131,7 @@ export class PreferencesController {
         @User() user: UserModel,
         @Body("action") action: string
     ) {
-        return await this.preferencesService.trackQuickActionUsage(user, action);
+        return await this.preferencesService.trackQuickActionUsage(user.id, action as any);
     }
 
     @ApiOperation({ summary: "Set custom quick action order" })
