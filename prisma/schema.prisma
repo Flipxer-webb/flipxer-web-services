@@ -95,7 +95,15 @@ model User {
   priceAlerts                        PriceAlert[]
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
+  // Existing indexes
   @@index([id, bvn])
+  // Additional performance indexes
+  @@index([email, isDeleted])
+  @@index([phone, isDeleted])
+  @@index([isDocumentVerified])
+  @@index([tier])
+  @@index([status])
+  @@index([createdAt])
   @@map("Users")
 }
 
@@ -123,6 +131,7 @@ model Session {
   @@index([userId])
   @@index([isActive])
   @@index([deviceToken])
+  @@index([userId, isActive, lastActiveAt(sort: Desc)])
   @@map("Sessions")
 }
 
@@ -269,6 +278,8 @@ model BankDetail {
 
   @@unique([userId, accountNumber])
   @@index([userId])
+  @@index([accountNumber])
+  @@index([bankCode, accountNumber])
   @@map("BankDetails")
 }
 
@@ -440,6 +451,7 @@ model AssetWallet {
   @@unique([userId, assetCurrency])
   @@index([userId])
   @@index([assetCurrency])
+  @@index([userId, isActive])
   @@map("AssetWallets")
 }
 
@@ -459,6 +471,7 @@ model CryptoWalletAddress {
   user            User               @relation(fields: [userId], references: [id])
 
   @@unique([userId, assetSymbol, network])
+  @@index([userId, assetSymbol])
   @@map("CryptoWalletAddresses")
 }
 
@@ -511,11 +524,20 @@ model Order {
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
 
+  // Single column indexes
   @@index([userId])
   @@index([status])
   @@index([createdAt])
   @@index([streamlinedStatus])
   @@index([orderCategory])
+  @@index([currency])
+  @@index([fromCurrency])
+  @@index([toCurrency])
+  // Composite indexes for common query patterns
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status])
+  @@index([userId, streamlinedStatus])
+  @@index([userId, orderCategory])
   @@map("Orders")
 }
 
@@ -584,10 +606,14 @@ model Payment {
   order                        Order?            @relation(fields: [orderId], references: [id])
   user                         User              @relation(fields: [userId], references: [id])
 
+  // Single column indexes
   @@index([sessionId])
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  // Composite indexes for common query patterns
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status])
   @@map("Payments")
 }
 

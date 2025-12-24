@@ -16,6 +16,7 @@ import {
 import { ApiResponse, buildResponse, generateId } from "@/utils";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
+import { BankCacheService } from "@/modules/core/redisCache/services/bank-cache.service";
 import {
     DuplicateTransactionException,
     TransactionRefNotFoundException,
@@ -51,7 +52,8 @@ export class BankService {
         private readonly quidaxService: QuidaxService,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
-        private readonly notificationEvent: NotificationEvent
+        private readonly notificationEvent: NotificationEvent,
+        private readonly bankCacheService: BankCacheService
     ) {}
 
     async getListOfBanks() {
@@ -63,6 +65,24 @@ export class BankService {
     }
 
     async verifyBankAccount(options: VerifyBankAccountDto) {
+        // Check cache first to avoid external API call
+        const cached = await this.bankCacheService.getCachedVerification(
+            options.bankCode,
+            options.accountNumber
+        );
+
+        if (cached) {
+            return buildResponse({
+                message: "account successfully verified",
+                data: {
+                    accountName: cached.accountName,
+                    accountNumber: cached.accountNumber,
+                    fromCache: true,
+                },
+            });
+        }
+
+        // Cache miss - call external API
         const account = await this.fincraService.resolveBankAccount({
             account_number: options.accountNumber,
             bank_code: options.bankCode,
@@ -71,6 +91,13 @@ export class BankService {
         if (!account || !account.data) {
             throw new BadRequestException("Failed to verify bank account");
         }
+
+        // Cache the successful verification result
+        await this.bankCacheService.cacheVerification(
+            options.bankCode,
+            options.accountNumber,
+            account.data.accountName
+        );
 
         return buildResponse({
             message: "account successfully verified",
