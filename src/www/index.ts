@@ -1,4 +1,5 @@
 import helmet from "helmet";
+import compression from "compression";
 import { INestApplication, VersioningType } from "@nestjs/common";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "@/modules";
@@ -76,6 +77,7 @@ export default async (
     });
 
     app.use(helmet());
+    app.use(compression()); // Gzip compression for 60-80% smaller responses
     app.enableCors(corsOptions);
     app.use(morgan(options.production ? "combined" : "dev"));
     app.useBodyParser("json", { limit: "100mb" });
