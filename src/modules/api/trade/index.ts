@@ -10,7 +10,9 @@ import { WebhookHandlerService } from "./services/webhook-handler.service";
 import { DepositWebhookHandler } from "./services/webhook-handlers/deposit-webhook.handler";
 import { SwapWebhookHandler } from "./services/webhook-handlers/swap-webhook.handler";
 import { WithdrawalWebhookHandler } from "./services/webhook-handlers/withdrawal-webhook.handler";
+import { PriceAlertService } from "./services/price-alert.service";
 import { TradingController } from "./controllers/v1";
+import { PriceAlertController } from "./controllers/v1/price-alert.controller";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
 import { BullModule } from "@nestjs/bull";
@@ -34,6 +36,8 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { TransactionService } from "../auth/services/transaction.service";
 import { TierService } from "../auth/services/tier.service";
 import { OperationsModule } from "../operations";
+import { NotificationModule } from "../notification/notification.module";
+import { CachingModule } from "@/modules/core/redisCache";
 export * from "./interfaces";
 export * from "./errors";
 
@@ -49,8 +53,10 @@ export * from "./errors";
         PrismaModule,
         EmailModule,
         OperationsModule,
+        NotificationModule,
+        CachingModule,
     ],
-    controllers: [TradingController],
+    controllers: [TradingController, PriceAlertController],
     providers: [
         TradingService,
         TradeHelpersService,
@@ -63,6 +69,7 @@ export * from "./errors";
         DepositWebhookHandler,
         SwapWebhookHandler,
         WithdrawalWebhookHandler,
+        PriceAlertService,
         TradingEvent,
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,

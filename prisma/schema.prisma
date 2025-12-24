@@ -90,6 +90,9 @@ model User {
   RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest?
   sessions                           Session[]
   userDocument                       UserDocument?
+  preferences                        UserPreferences?
+  notificationPreferences            NotificationPreferences?
+  priceAlerts                        PriceAlert[]
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@index([id, bvn])
@@ -121,6 +124,67 @@ model Session {
   @@index([isActive])
   @@index([deviceToken])
   @@map("Sessions")
+}
+
+model UserPreferences {
+  id                  Int      @id @default(autoincrement())
+  userId              Int      @unique
+  theme               String   @default("system") // "light" | "dark" | "system"
+  defaultFiatCurrency String   @default("NGN")
+  favoriteAssets      String[] @default([]) // Array of currency codes
+  quickActionOrder    String[] @default([]) // Manual override for action ordering
+  quickActionUsage    Json?    // { buy: 45, sell: 30, swap: 12, send: 5, receive: 8 }
+  hideZeroBalances    Boolean  @default(false)
+  dashboardLayout     Json?    // Widget order preferences
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("UserPreferences")
+}
+
+model NotificationPreferences {
+  id                  Int      @id @default(autoincrement())
+  userId              Int      @unique
+  emailTransactions   Boolean  @default(true)
+  emailMarketing      Boolean  @default(false)
+  emailSecurityAlerts Boolean  @default(true)
+  pushTransactions    Boolean  @default(true)
+  pushPriceAlerts     Boolean  @default(true)
+  pushSecurityAlerts  Boolean  @default(true)
+  pushMarketing       Boolean  @default(false)
+  quietHoursEnabled   Boolean  @default(false)
+  quietHoursStart     String?  // "22:00" in 24hr format
+  quietHoursEnd       String?  // "07:00" in 24hr format
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("NotificationPreferences")
+}
+
+model PriceAlert {
+  id          Int            @id @default(autoincrement())
+  userId      Int
+  currency    String         // e.g., "BTC", "ETH"
+  targetPrice Float          // Target price in user's default fiat currency
+  direction   PriceDirection // ABOVE or BELOW
+  isActive    Boolean        @default(true)
+  triggeredAt DateTime?      // When the alert was triggered
+  expiresAt   DateTime?      // Optional expiration date
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isActive])
+  @@index([currency])
+  @@map("PriceAlerts")
+}
+
+enum PriceDirection {
+  ABOVE
+  BELOW
 }
 
 model TransactionOTP {
