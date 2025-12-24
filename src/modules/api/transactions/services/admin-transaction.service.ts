@@ -314,7 +314,6 @@ export class AdminTransactionService {
     ): Promise<ApiResponse> {
         const transaction = await this.prisma.order.findUnique({
             where: { transactionId },
-            include: { user: true },
         });
 
         if (!transaction) {

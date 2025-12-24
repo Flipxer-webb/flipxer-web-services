@@ -77,7 +77,7 @@ export class SwapWebhookHandler {
     private async processSwapTransaction(options: SwapTransactionHandlerOptions) {
         const transaction = await this.prisma.order.findUnique({
             where: { providerOrderId: options.orderId },
-            include: { user: true },
+            include: { user: { select: { id: true, email: true } } },
         });
 
         if (!transaction) {

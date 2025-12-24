@@ -350,7 +350,7 @@ export class BankService {
             if (transaction.orderId) {
                 const order = await this.prisma.order.findUnique({
                     where: { id: transaction.orderId },
-                    include: { user: true },
+                    include: { user: { select: { id: true } } },
                 });
 
                 await this.prisma.order.update({
