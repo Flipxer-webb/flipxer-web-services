@@ -19,6 +19,12 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     private readonly FALLBACK_ENABLED = true;
     private readonly MAX_FALLBACK_SIZE = 1000;
 
+    // Circuit breaker: Skip Redis for 30s after failure
+    private lastFailureTime = 0;
+    private readonly CIRCUIT_BREAKER_DURATION_MS = 30000;
+    private consecutiveFailures = 0;
+    private readonly MAX_CONSECUTIVE_FAILURES = 3;
+
     onModuleInit() {
         this.client = new Redis({
             host: redisConfig.host,
@@ -26,21 +32,21 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
             username: redisConfig.user,
             password: redisConfig.password,
             tls: redisConfig.redisOptions.tls,
-            // Connection timeout - reduced for faster fallback to in-memory cache
-            connectTimeout: 5000,
-            commandTimeout: 3000,
+            // AGGRESSIVE TIMEOUTS: Fail fast to use in-memory fallback
+            connectTimeout: 2000,   // 2 seconds to connect (was 5s)
+            commandTimeout: 500,    // 500ms command timeout (was 3s) - fail fast!
             // Keep-alive to prevent idle disconnections
             keepAlive: 30000,
-            // Enable offline queue to buffer commands during reconnection
-            enableOfflineQueue: true,
-            maxRetriesPerRequest: 3,
-            // Retry strategy with exponential backoff
+            // DISABLE offline queue - fail immediately if not connected
+            enableOfflineQueue: false,
+            maxRetriesPerRequest: 1,  // Reduced from 3
+            // Retry strategy with fast backoff
             retryStrategy: (times: number) => {
-                if (times > 10) {
-                    this.logger.error(`Redis cache: Max retries (${times}) exceeded`);
+                if (times > 5) {
+                    this.logger.error(`Redis cache: Max retries (${times}) exceeded, using fallback`);
                     return null;
                 }
-                const delay = Math.min(Math.pow(2, times) * 100, 30000);
+                const delay = Math.min(times * 200, 2000); // Max 2s delay
                 this.logger.warn(`Redis cache: Retry ${times}, waiting ${delay}ms`);
                 return delay;
             },
@@ -131,7 +137,42 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         return entry.value as T;
     }
 
+    /**
+     * Check if circuit breaker is open (Redis should be skipped)
+     */
+    private isCircuitBreakerOpen(): boolean {
+        if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+            const timeSinceLastFailure = Date.now() - this.lastFailureTime;
+            if (timeSinceLastFailure < this.CIRCUIT_BREAKER_DURATION_MS) {
+                return true; // Circuit is open, skip Redis
+            }
+            // Circuit breaker timeout expired, try Redis again
+            this.consecutiveFailures = 0;
+        }
+        return false;
+    }
+
+    private recordFailure(): void {
+        this.consecutiveFailures++;
+        this.lastFailureTime = Date.now();
+        if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+            this.logger.warn(`[PERF] Circuit breaker OPEN: Skipping Redis for ${this.CIRCUIT_BREAKER_DURATION_MS / 1000}s`);
+        }
+    }
+
+    private recordSuccess(): void {
+        if (this.consecutiveFailures > 0) {
+            this.logger.log(`[PERF] Redis recovered, closing circuit breaker`);
+        }
+        this.consecutiveFailures = 0;
+    }
+
     async get<T = any>(key: string): Promise<T | null> {
+        // Circuit breaker: Skip Redis if it's been failing
+        if (this.isCircuitBreakerOpen()) {
+            return this.getFallback<T>(key);
+        }
+
         try {
             if (!this.isConnected) {
                 this.logger.debug(`Redis unavailable, using fallback for GET: ${key}`);
@@ -140,7 +181,8 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
             const value = await this.client.get(key);
             const parsed = value ? JSON.parse(value) : null;
 
-            // Update fallback cache on successful read
+            // Record success and update fallback cache
+            this.recordSuccess();
             if (parsed && this.FALLBACK_ENABLED) {
                 const ttl = await this.client.ttl(key);
                 if (ttl > 0) {
@@ -150,6 +192,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
 
             return parsed;
         } catch (error) {
+            this.recordFailure();
             this.logger.error(`Redis GET error for ${key}: ${error.message}`);
             return this.getFallback<T>(key);
         }
@@ -159,13 +202,20 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         // Always update fallback cache
         this.setFallback(key, value, ttlSeconds);
 
+        // Circuit breaker: Skip Redis if it's been failing
+        if (this.isCircuitBreakerOpen()) {
+            return;
+        }
+
         try {
             if (!this.isConnected) {
                 this.logger.debug(`Redis unavailable, using fallback for SET: ${key}`);
                 return;
             }
             await this.client.set(key, JSON.stringify(value), "EX", ttlSeconds);
+            this.recordSuccess();
         } catch (error) {
+            this.recordFailure();
             this.logger.error(`Redis SET error for ${key}: ${error.message}`);
             // Fallback is already set above
         }
