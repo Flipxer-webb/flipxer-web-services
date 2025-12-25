@@ -12,7 +12,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     private client: Redis;
     private readonly logger = new Logger(RedisCacheService.name);
     private isConnected = false;
-    
+
     // In-memory fallback cache when Redis is unavailable
     private fallbackCache = new Map<string, CacheEntry<any>>();
     private fallbackCleanupInterval: NodeJS.Timeout;
@@ -26,9 +26,9 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
             username: redisConfig.user,
             password: redisConfig.password,
             tls: redisConfig.redisOptions.tls,
-            // Connection timeout - increased for remote Redis
-            connectTimeout: 15000,
-            commandTimeout: 10000,
+            // Connection timeout - reduced for faster fallback to in-memory cache
+            connectTimeout: 5000,
+            commandTimeout: 3000,
             // Keep-alive to prevent idle disconnections
             keepAlive: 30000,
             // Enable offline queue to buffer commands during reconnection
@@ -103,14 +103,14 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
 
     private setFallback<T>(key: string, value: T, ttlSeconds: number): void {
         if (!this.FALLBACK_ENABLED) return;
-        
+
         // Prevent cache from growing too large
         if (this.fallbackCache.size >= this.MAX_FALLBACK_SIZE) {
             // Remove oldest entries
             const keysToRemove = Array.from(this.fallbackCache.keys()).slice(0, 100);
             keysToRemove.forEach(k => this.fallbackCache.delete(k));
         }
-        
+
         this.fallbackCache.set(key, {
             value,
             expiresAt: Date.now() + (ttlSeconds * 1000),
@@ -119,15 +119,15 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
 
     private getFallback<T>(key: string): T | null {
         if (!this.FALLBACK_ENABLED) return null;
-        
+
         const entry = this.fallbackCache.get(key);
         if (!entry) return null;
-        
+
         if (entry.expiresAt <= Date.now()) {
             this.fallbackCache.delete(key);
             return null;
         }
-        
+
         return entry.value as T;
     }
 
@@ -139,7 +139,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
             }
             const value = await this.client.get(key);
             const parsed = value ? JSON.parse(value) : null;
-            
+
             // Update fallback cache on successful read
             if (parsed && this.FALLBACK_ENABLED) {
                 const ttl = await this.client.ttl(key);
@@ -147,7 +147,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
                     this.setFallback(key, parsed, ttl);
                 }
             }
-            
+
             return parsed;
         } catch (error) {
             this.logger.error(`Redis GET error for ${key}: ${error.message}`);
@@ -158,7 +158,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     async set(key: string, value: any, ttlSeconds: number): Promise<void> {
         // Always update fallback cache
         this.setFallback(key, value, ttlSeconds);
-        
+
         try {
             if (!this.isConnected) {
                 this.logger.debug(`Redis unavailable, using fallback for SET: ${key}`);
@@ -174,7 +174,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     async del(key: string): Promise<void> {
         // Always delete from fallback
         this.fallbackCache.delete(key);
-        
+
         try {
             if (!this.isConnected) return;
             await this.client.del(key);
@@ -201,14 +201,14 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
      */
     async isHealthy(): Promise<{ healthy: boolean; latencyMs?: number; usingFallback: boolean }> {
         const usingFallback = !this.isConnected;
-        
+
         if (!this.isConnected) {
-            return { 
-                healthy: this.FALLBACK_ENABLED, 
-                usingFallback: true 
+            return {
+                healthy: this.FALLBACK_ENABLED,
+                usingFallback: true
             };
         }
-        
+
         try {
             const start = Date.now();
             await this.client.ping();
@@ -216,9 +216,9 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
             return { healthy: true, latencyMs, usingFallback: false };
         } catch (error) {
             this.logger.error(`Redis health check failed: ${error.message}`);
-            return { 
-                healthy: this.FALLBACK_ENABLED, 
-                usingFallback: true 
+            return {
+                healthy: this.FALLBACK_ENABLED,
+                usingFallback: true
             };
         }
     }

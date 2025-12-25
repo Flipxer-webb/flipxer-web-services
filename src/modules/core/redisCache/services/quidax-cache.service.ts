@@ -6,13 +6,13 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 @Injectable()
 export class QuidaxCacheService {
     private readonly CACHE_KEY = "quidax:market:tickers";
-    private readonly CACHE_TTL = 10; // seconds
+    private readonly CACHE_TTL = 60; // 60 seconds - reduced from 10s to minimize external API calls
 
     constructor(
         private readonly redisCacheService: RedisCacheService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService
-    ) {}
+    ) { }
 
     async getMarketTickers(): Promise<Record<string, any>> {
         const cached = await this.redisCacheService.get(this.CACHE_KEY);

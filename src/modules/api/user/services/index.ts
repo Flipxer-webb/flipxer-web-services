@@ -30,6 +30,7 @@ import {
 } from "../dtos";
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
+import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { AssetWallet, OrderStatus, Prisma, User } from "@prisma/client";
 import { DuplicateUserException, IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
@@ -48,6 +49,10 @@ export class UserService {
     private uploadService: ImagekitService | CloudinaryService;
     private readonly logger = new Logger(UserService.name);
 
+    // Profile cache configuration
+    private readonly PROFILE_CACHE_TTL = 300; // 5 minutes
+    private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
+
     constructor(
         private prisma: PrismaService,
         @Inject(forwardRef(() => AuthService))
@@ -56,7 +61,8 @@ export class UserService {
         private uploadFactory: UploadFactory,
         private readonly quidaxCacheService: QuidaxCacheService,
         private readonly tierService: TierService,
-        private readonly coinGeckoCacheService: CoinGeckoCacheService
+        private readonly coinGeckoCacheService: CoinGeckoCacheService,
+        private readonly redisCacheService: RedisCacheService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -64,6 +70,17 @@ export class UserService {
     }
 
     async getProfile(user: User) {
+        // Try to get from cache first
+        const cacheKey = this.getProfileCacheKey(user.id);
+        const cachedProfile = await this.redisCacheService.get<any>(cacheKey);
+
+        if (cachedProfile) {
+            this.logger.debug(`Profile cache HIT for user ${user.id}`);
+            return cachedProfile;
+        }
+
+        this.logger.debug(`Profile cache MISS for user ${user.id}`);
+
         const profile = await this.prisma.user.findUnique({
             where: { id: user.id },
             select: {
@@ -134,11 +151,11 @@ export class UserService {
             },
         });
 
-        return {
+        const response = {
             message: "Profile successfully retrieved",
             data: {
                 ...profile,
-                recoveryEmail: profile.recoveryEmail || null, 
+                recoveryEmail: profile.recoveryEmail || null,
                 assetWallet: defaultWallet,
                 // Tier info
                 tier: tierInfo.tier,
@@ -146,6 +163,11 @@ export class UserService {
                 canTransact: tierInfo.canTransact,
             },
         };
+
+        // Cache the response
+        await this.redisCacheService.set(cacheKey, response, this.PROFILE_CACHE_TTL);
+
+        return response;
     }
 
     /**
@@ -154,7 +176,7 @@ export class UserService {
      */
     async getWithdrawalUsage(user: User) {
         const tierInfo = this.tierService.getTierInfo(user);
-        
+
         // Calculate daily total from the last 24 hours
         const now = new Date();
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -331,6 +353,9 @@ export class UserService {
                 country: true,
             },
         });
+
+        // Invalidate profile cache after update
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
 
         return {
             message: "Profile details updated successfully",
