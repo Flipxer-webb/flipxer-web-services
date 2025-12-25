@@ -6,7 +6,7 @@ import { setTimeout } from "timers/promises";
 
 @Injectable()
 export class CoinGeckoService {
-    constructor(private readonly redisCacheService: RedisCacheService) {}
+    constructor(private readonly redisCacheService: RedisCacheService) { }
 
     private readonly coinGeckoIdMap: { [key: string]: string } = {
         btc: "bitcoin",
@@ -184,7 +184,7 @@ export class CoinGeckoService {
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 console.log(`🌍 Requesting CoinGecko market chart for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
-                
+
                 // Fetch chart data and market data in parallel to reduce wait time
                 const [chartResponse, marketResponse] = await Promise.all([
                     axios.get(
@@ -236,8 +236,8 @@ export class CoinGeckoService {
                         atl_date: marketResponse.data.market_data?.atl_date?.usd,
                     } : {
                         // Fallback: calculate current price from last price point
-                        current_price: chartResponse.data.prices?.length > 0 
-                            ? chartResponse.data.prices[chartResponse.data.prices.length - 1][1] 
+                        current_price: chartResponse.data.prices?.length > 0
+                            ? chartResponse.data.prices[chartResponse.data.prices.length - 1][1]
                             : null,
                         market_cap: null,
                         total_volume: null,
@@ -245,7 +245,7 @@ export class CoinGeckoService {
                         low_24h: null,
                         price_change_24h: null,
                         price_change_percentage_24h: chartResponse.data.prices?.length >= 2
-                            ? ((chartResponse.data.prices[chartResponse.data.prices.length - 1][1] - 
+                            ? ((chartResponse.data.prices[chartResponse.data.prices.length - 1][1] -
                                 chartResponse.data.prices[0][1]) / chartResponse.data.prices[0][1]) * 100
                             : null,
                         price_change_percentage_7d: null,
@@ -262,7 +262,7 @@ export class CoinGeckoService {
                 // Cache for 10 minutes for short periods, 1 hour for longer periods (increased from 5/30 min)
                 const cacheDuration = days <= 1 ? 10 * 60 : 60 * 60;
                 await this.redisCacheService.set(cacheKey, result, cacheDuration);
-                
+
                 console.log(`📊 Chart data for ${asset}: ${result.prices.length} data points`);
                 return result;
             } catch (error) {
@@ -339,11 +339,11 @@ export class CoinGeckoService {
                     const assetSymbol = Object.entries(this.coinGeckoIdMap).find(
                         ([, id]) => id === coin.id
                     )?.[0];
-                    
+
                     if (assetSymbol && coin.sparkline_in_7d?.price) {
                         const sparkline = coin.sparkline_in_7d.price;
                         result[assetSymbol] = sparkline;
-                        
+
                         const cacheKey = `coingecko:sparkline:${assetSymbol}`;
                         await this.redisCacheService.set(cacheKey, sparkline, 30 * 60);
                     }
@@ -375,26 +375,30 @@ export class CoinGeckoService {
      */
     async getAthAtl(
         asset: string,
-        retries = 3,
-        delay = 1000
+        retries = 2,  // Reduced from 3
+        delay = 500   // Reduced from 1000ms
     ): Promise<{
         ath: number | null;
         ath_date: string | null;
         atl: number | null;
         atl_date: string | null;
     }> {
-        console.log(`🏆 [CG] Fetching ATH/ATL for ${asset} (7-day cache)`);
+        const startTime = Date.now();
+        console.log(`🏆 [CG] Fetching ATH/ATL for ${asset}`);
 
         const cacheKey = `coingecko:ath_atl:${asset.toLowerCase()}`;
+        const staleCacheKey = `coingecko:ath_atl:stale:${asset.toLowerCase()}`;
+
+        // Check fresh cache first
         const cachedData = await this.redisCacheService.get<{
             ath: number | null;
             ath_date: string | null;
             atl: number | null;
             atl_date: string | null;
         }>(cacheKey);
-        
+
         if (cachedData) {
-            console.log(`✅ [CG] Cache hit for ${asset} ATH/ATL (7-day cache)`);
+            console.log(`✅ [CG] Cache HIT for ${asset} ATH/ATL in ${Date.now() - startTime}ms`);
             return cachedData;
         }
 
@@ -407,7 +411,7 @@ export class CoinGeckoService {
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 console.log(`🌍 [CG] Requesting ATH/ATL for ${asset}, attempt ${attempt}`);
-                
+
                 const response = await axios.get(
                     `https://api.coingecko.com/api/v3/coins/${coinGeckoId}`,
                     {
@@ -418,7 +422,7 @@ export class CoinGeckoService {
                             developer_data: false,
                             sparkline: false,
                         },
-                        timeout: 10000,
+                        timeout: 5000, // Reduced from 10s to 5s
                     }
                 );
 
@@ -432,23 +436,44 @@ export class CoinGeckoService {
 
                 // Cache for 7 days (604800 seconds)
                 const SEVEN_DAYS = 7 * 24 * 60 * 60;
-                await this.redisCacheService.set(cacheKey, result, SEVEN_DAYS);
-                
-                console.log(`🏆 [CG] ATH/ATL for ${asset}: ATH=$${result.ath}, ATL=$${result.atl}`);
+                await Promise.all([
+                    this.redisCacheService.set(cacheKey, result, SEVEN_DAYS),
+                    this.redisCacheService.set(staleCacheKey, result, 30 * 24 * 60 * 60), // Stale cache for 30 days
+                ]);
+
+                console.log(`🏆 [CG] ATH/ATL for ${asset} fetched in ${Date.now() - startTime}ms`);
                 return result;
             } catch (error) {
-                console.error(`❌ [CG] ATH/ATL fetch attempt ${attempt} failed for ${asset}:`, {
-                    message: error.message,
-                    status: error.response?.status,
-                });
+                const status = error.response?.status;
+                console.error(`❌ [CG] ATH/ATL attempt ${attempt} failed for ${asset}: status=${status}`);
+
+                // FAST FAIL: Don't retry on rate limit (429) or client errors (4xx)
+                if (status === 429 || (status >= 400 && status < 500)) {
+                    console.warn(`⚠️ [CG] Rate limited or client error, returning stale cache for ${asset}`);
+                    break; // Exit retry loop immediately
+                }
+
                 if (attempt === retries) {
-                    console.warn(`⚠️ [CG] Failed to fetch ATH/ATL for ${asset}, returning nulls`);
-                    return { ath: null, ath_date: null, atl: null, atl_date: null };
+                    break; // Last attempt, exit loop
                 }
                 await setTimeout(delay * attempt);
             }
         }
 
+        // Fallback to stale cache if available
+        const staleData = await this.redisCacheService.get<{
+            ath: number | null;
+            ath_date: string | null;
+            atl: number | null;
+            atl_date: string | null;
+        }>(staleCacheKey);
+
+        if (staleData) {
+            console.log(`📦 [CG] Using stale cache for ${asset} ATH/ATL (${Date.now() - startTime}ms)`);
+            return staleData;
+        }
+
+        console.warn(`⚠️ [CG] No data for ${asset} ATH/ATL, returning nulls (${Date.now() - startTime}ms)`);
         return { ath: null, ath_date: null, atl: null, atl_date: null };
     }
 }
