@@ -9,7 +9,7 @@ interface CacheEntry<T> {
 
 @Injectable()
 export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
-    private client: Redis;
+    private client: Redis | null = null;
     private readonly logger = new Logger(RedisCacheService.name);
     private isConnected = false;
 
@@ -25,7 +25,20 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     private consecutiveFailures = 0;
     private readonly MAX_CONSECUTIVE_FAILURES = 3;
 
+    // Check if Redis is disabled via environment variable
+    private readonly REDIS_DISABLED = process.env.REDIS_DISABLED === "true";
+
     onModuleInit() {
+        // If Redis is disabled, don't even try to connect
+        if (this.REDIS_DISABLED) {
+            this.logger.log("Redis DISABLED via environment variable - using in-memory cache only");
+            // Start fallback cache cleanup interval
+            this.fallbackCleanupInterval = setInterval(() => {
+                this.cleanupFallbackCache();
+            }, 60000);
+            return;
+        }
+
         this.client = new Redis({
             host: redisConfig.host,
             port: redisConfig.port,
@@ -168,6 +181,11 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     }
 
     async get<T = any>(key: string): Promise<T | null> {
+        // If Redis is disabled, use fallback only
+        if (this.REDIS_DISABLED || !this.client) {
+            return this.getFallback<T>(key);
+        }
+
         // Circuit breaker: Skip Redis if it's been failing
         if (this.isCircuitBreakerOpen()) {
             return this.getFallback<T>(key);
@@ -202,6 +220,11 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         // Always update fallback cache
         this.setFallback(key, value, ttlSeconds);
 
+        // If Redis is disabled, skip Redis operations
+        if (this.REDIS_DISABLED || !this.client) {
+            return;
+        }
+
         // Circuit breaker: Skip Redis if it's been failing
         if (this.isCircuitBreakerOpen()) {
             return;
@@ -225,6 +248,11 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         // Always delete from fallback
         this.fallbackCache.delete(key);
 
+        // If Redis is disabled, skip Redis operations
+        if (this.REDIS_DISABLED || !this.client) {
+            return;
+        }
+
         try {
             if (!this.isConnected) return;
             await this.client.del(key);
@@ -234,6 +262,11 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     }
 
     async exists(key: string): Promise<boolean> {
+        // If Redis is disabled, check fallback only
+        if (this.REDIS_DISABLED || !this.client) {
+            return this.fallbackCache.has(key);
+        }
+
         try {
             if (!this.isConnected) {
                 return this.fallbackCache.has(key);
