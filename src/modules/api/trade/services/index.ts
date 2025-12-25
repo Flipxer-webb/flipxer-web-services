@@ -132,7 +132,7 @@ export class TradingService {
         private readonly swapService: SwapService,
         private readonly sendService: SendService,
         private readonly webhookHandlerService: WebhookHandlerService
-    ) {}
+    ) { }
 
     getSupportedAssets() {
         const assets = Object.values(SupportedAssets);
@@ -357,7 +357,7 @@ export class TradingService {
                 });
 
                 const quidaxStatus = withdrawalDetail.data?.status?.toLowerCase();
-                
+
                 // If already done/completed on Quidax, cannot cancel
                 if (quidaxStatus === 'done' || quidaxStatus === 'completed' || quidaxStatus === 'successful') {
                     // Update local status to match Quidax
@@ -394,7 +394,7 @@ export class TradingService {
                             withdrawal_id: order.providerOrderId,
                         });
                         const recheckStatus = recheckDetail.data?.status?.toLowerCase();
-                        
+
                         if (recheckStatus === 'done' || recheckStatus === 'completed' || recheckStatus === 'successful') {
                             await this.prisma.order.update({
                                 where: { id: orderId },
@@ -539,7 +539,7 @@ export class TradingService {
 
             // Create and send notification for processing
             const message = `Your swap of ${swapInfo.data.from_amount} ${swapInfo.data.from_currency.toUpperCase()} to ${swapInfo.data.to_currency.toUpperCase()} is processing. Transaction ID: ${transactionId}`;
-            
+
             const createdNotification = await this.prisma.notification.create({
                 data: {
                     title: "Swap transaction initiated",
@@ -607,7 +607,7 @@ export class TradingService {
             // If user doesn't have a crypto sub-account, create or find existing one
             if (!cryptoSubAccountId) {
                 this.logger.log(`Creating/finding crypto account for user ${user.id} (${user.email})`);
-                
+
                 // Use createOrFindSubAccount to handle existing accounts gracefully
                 let result;
                 try {
@@ -665,18 +665,18 @@ export class TradingService {
                 select: { assetCurrency: true, addressSynced: true },
             });
             const existingCurrencies = new Set(existingWallets.map(w => w.assetCurrency.toLowerCase()));
-            
+
             // Find currencies that don't have AssetWallet records yet
             const missingCurrencies = currencies.filter(c => !existingCurrencies.has(c));
-            
+
             // Find currencies that have wallets but no addresses synced
             const walletsNeedingAddresses = existingWallets
                 .filter(w => !w.addressSynced)
                 .map(w => w.assetCurrency.toLowerCase());
-            
+
             // Combine: create new wallets + generate addresses for existing wallets without addresses
             const currenciesToProcess = [...new Set([...missingCurrencies, ...walletsNeedingAddresses])];
-            
+
             if (currenciesToProcess.length === 0) {
                 this.logger.log(`User ${user.id} already has all AssetWallet records with addresses, skipping`);
                 return buildResponse({
@@ -684,7 +684,7 @@ export class TradingService {
                     data: { walletResults: currencies.map(c => ({ currency: c, success: true, existing: true })) },
                 });
             }
-            
+
             this.logger.log(`User ${user.id} needs processing for: ${currenciesToProcess.join(', ')}`);
             const walletResults = [];
 
@@ -697,14 +697,14 @@ export class TradingService {
                         assetSymbol: currency.toUpperCase(),
                     });
                     this.logger.log(`Wallet created for ${currency.toUpperCase()}: ${addresses?.length || 0} addresses`);
-                    
+
                     // Also create/update AssetWallet record directly (don't wait for webhook)
                     try {
                         const walletData = await this.quidaxService.getUserWallet({
                             user_id: cryptoSubAccountId,
                             currency: currency.toLowerCase(),
                         });
-                        
+
                         if (walletData.status === "success" && walletData.data) {
                             const data = walletData.data;
                             await this.prisma.assetWallet.upsert({
@@ -756,7 +756,7 @@ export class TradingService {
                     } catch (assetError) {
                         this.logger.error(`Failed to create AssetWallet for ${currency}: ${assetError?.message}`);
                     }
-                    
+
                     walletResults.push({ currency, success: true, addresses: addresses?.length || 0 });
                 } catch (error) {
                     this.logger.error(`Address creation error for ${currency}: ${error?.message}`, error?.stack);
@@ -904,8 +904,8 @@ export class TradingService {
                 lastSyncedAt: new Date(), // Timestamp of the last sync
                 ...(webhookNetwork &&
                     !walletAddress.network && {
-                        network: webhookNetwork,
-                    }),
+                    network: webhookNetwork,
+                }),
             },
         });
     }
@@ -1032,13 +1032,13 @@ export class TradingService {
 
     /**
      * Get market chart data for an asset including price history and market statistics
-     * HYBRID APPROACH: LiveCoinWatch for prices/charts, CoinGecko for ATH/ATL only (7-day cache)
+     * Uses LiveCoinWatch for all data (ATH/ATL removed to eliminate CoinGecko rate limits)
      */
     async getMarketChart(asset: string, days: number = 7) {
-        console.log(`📊 [Hybrid] Getting market chart for ${asset} (${days} days)`);
+        console.log(`📊 [LCW] Getting market chart for ${asset} (${days} days)`);
 
-        // Fetch from LiveCoinWatch and CoinGecko (ATH/ATL only) in parallel
-        const [lcwMarketData, lcwHistory, athAtlData] = await Promise.all([
+        // Fetch from LiveCoinWatch only (CoinGecko removed)
+        const [lcwMarketData, lcwHistory] = await Promise.all([
             this.liveCoinWatchService.getMarketData(asset).catch(err => {
                 console.warn(`⚠️ [LCW] Market data fetch failed:`, err.message);
                 return null;
@@ -1047,35 +1047,31 @@ export class TradingService {
                 console.warn(`⚠️ [LCW] History fetch failed:`, err.message);
                 return null;
             }),
-            this.coinGeckoService.getAthAtl(asset).catch(err => {
-                console.warn(`⚠️ [CG] ATH/ATL fetch failed:`, err.message);
-                return { ath: null, ath_date: null, atl: null, atl_date: null };
-            }),
         ]);
 
-        // Build market_data from LiveCoinWatch + CoinGecko ATH/ATL
+        // Build market_data from LiveCoinWatch (ATH/ATL removed)
         const market_data = {
             current_price: lcwMarketData?.rate || null,
             market_cap: lcwMarketData?.cap || null,
             total_volume: lcwMarketData?.volume || null,
             high_24h: lcwHistory?.high24h || null,
             low_24h: lcwHistory?.low24h || null,
-            price_change_percentage_24h: lcwMarketData?.delta?.day 
-                ? (lcwMarketData.delta.day - 1) * 100 
+            price_change_percentage_24h: lcwMarketData?.delta?.day
+                ? (lcwMarketData.delta.day - 1) * 100
                 : null,
-            price_change_percentage_7d: lcwMarketData?.delta?.week 
-                ? (lcwMarketData.delta.week - 1) * 100 
+            price_change_percentage_7d: lcwMarketData?.delta?.week
+                ? (lcwMarketData.delta.week - 1) * 100
                 : null,
-            price_change_percentage_30d: lcwMarketData?.delta?.month 
-                ? (lcwMarketData.delta.month - 1) * 100 
+            price_change_percentage_30d: lcwMarketData?.delta?.month
+                ? (lcwMarketData.delta.month - 1) * 100
                 : null,
             circulating_supply: lcwMarketData?.circulatingSupply || null,
             max_supply: lcwMarketData?.maxSupply || null,
-            // ATH/ATL from CoinGecko (7-day cache)
-            ath: athAtlData.ath,
-            ath_date: athAtlData.ath_date,
-            atl: athAtlData.atl,
-            atl_date: athAtlData.atl_date,
+            // ATH/ATL removed - was causing CoinGecko rate limiting (429 errors)
+            ath: null,
+            ath_date: null,
+            atl: null,
+            atl_date: null,
         };
 
         return buildResponse({
@@ -1128,7 +1124,7 @@ export class TradingService {
         // Check ALL supported currencies, not just those in wallet table
         // This ensures we catch deposits even if wallet address record is missing
         const ALL_SUPPORTED_CURRENCIES = ['usdt', 'btc', 'eth', 'usdc', 'sol', 'xrp', 'bnb', 'trx', 'matic', 'avax'];
-        
+
         // Also get user's wallet addresses for logging
         const walletAddresses = await this.prisma.cryptoWalletAddress.findMany({
             where: { userId: user.id },
@@ -1138,7 +1134,7 @@ export class TradingService {
         const userCurrencies = walletAddresses.map(w => w.assetSymbol.toLowerCase());
         this.logger.log(`User ${user.email} has wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
         this.logger.log(`Checking ALL supported currencies: ${ALL_SUPPORTED_CURRENCIES.join(', ')}`);
-        
+
         const syncResults = {
             synced: 0,
             skipped: 0,
@@ -1150,7 +1146,7 @@ export class TradingService {
             try {
                 // Fetch deposits from Quidax
                 this.logger.log(`Fetching ${currency} deposits for sub-account: ${user.cryptoSubAccountId}`);
-                
+
                 const depositsResponse = await this.quidaxService.fetchDeposits({
                     user_id: user.cryptoSubAccountId,
                     currency: currency as any,
@@ -1168,7 +1164,7 @@ export class TradingService {
                 for (const deposit of depositsResponse.data) {
                     try {
                         this.logger.log(`Checking deposit ${deposit.id}: ${deposit.amount} ${currency}, status: ${deposit.status || deposit.state}`);
-                        
+
                         // Check if order already exists for this deposit
                         const existingOrder = await this.prisma.order.findUnique({
                             where: { providerOrderId: deposit.id },
@@ -1204,8 +1200,8 @@ export class TradingService {
 
                         // Use the original deposit timestamp from Quidax
                         const depositCreatedAt = deposit.created_at ? new Date(deposit.created_at) : new Date();
-                        const depositCompletedAt = deposit.completed_at || deposit.done_at 
-                            ? new Date(deposit.completed_at || deposit.done_at) 
+                        const depositCompletedAt = deposit.completed_at || deposit.done_at
+                            ? new Date(deposit.completed_at || deposit.done_at)
                             : null;
 
                         // Create the order with the original Quidax timestamp
@@ -1272,7 +1268,7 @@ export class TradingService {
      */
     private normalizeDepositStatus(status: string): OrderStatus {
         const normalizedStatus = status?.toLowerCase();
-        
+
         switch (normalizedStatus) {
             case "successful":
             case "done":
@@ -1312,7 +1308,7 @@ export class TradingService {
 
         // Get wallet address from our DB
         const dbWallet = await this.prisma.cryptoWalletAddress.findFirst({
-            where: { 
+            where: {
                 userId: user.id,
                 assetSymbol: { equals: currency.toUpperCase(), mode: 'insensitive' },
             },
@@ -1394,7 +1390,7 @@ export class TradingService {
         }
 
         // Only refresh pending/processing transactions
-        if (transaction.status === OrderStatus.done || 
+        if (transaction.status === OrderStatus.done ||
             transaction.status === OrderStatus.completed ||
             transaction.status === OrderStatus.failed ||
             transaction.status === OrderStatus.cancelled) {
@@ -1416,7 +1412,7 @@ export class TradingService {
         }
 
         // Handle based on transaction category
-        if (transaction.orderCategory === OrderCategory.SEND || 
+        if (transaction.orderCategory === OrderCategory.SEND ||
             transaction.orderCategory === OrderCategory.SELL) {
             // Withdrawal transaction - check by reference
             if (!transaction.orderReference) {
@@ -1439,7 +1435,7 @@ export class TradingService {
                         orderReference: transaction.orderReference,
                         status: OrderStatus.done,
                     });
-                    
+
                     return buildResponse({
                         message: "Transaction completed successfully",
                         data: {
@@ -1453,7 +1449,7 @@ export class TradingService {
                         orderReference: transaction.orderReference,
                         status: OrderStatus.rejected,
                     });
-                    
+
                     return buildResponse({
                         message: "Transaction was rejected",
                         data: {
@@ -1506,7 +1502,7 @@ export class TradingService {
                         orderId: transaction.providerOrderId,
                         status: OrderStatus.completed,
                     });
-                    
+
                     return buildResponse({
                         message: "Swap completed successfully",
                         data: {
@@ -1520,7 +1516,7 @@ export class TradingService {
                         orderId: transaction.providerOrderId,
                         status: OrderStatus.failed,
                     });
-                    
+
                     return buildResponse({
                         message: "Swap failed",
                         data: {
