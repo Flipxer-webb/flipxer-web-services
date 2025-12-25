@@ -70,86 +70,93 @@ export class UserService {
     }
 
     async getProfile(user: User) {
+        const startTime = Date.now();
+
         // Try to get from cache first
         const cacheKey = this.getProfileCacheKey(user.id);
         const cachedProfile = await this.redisCacheService.get<any>(cacheKey);
 
         if (cachedProfile) {
-            this.logger.debug(`Profile cache HIT for user ${user.id}`);
+            this.logger.debug(`[PERF] Profile cache HIT for user ${user.id} in ${Date.now() - startTime}ms`);
             return cachedProfile;
         }
 
-        this.logger.debug(`Profile cache MISS for user ${user.id}`);
+        this.logger.debug(`[PERF] Profile cache MISS for user ${user.id}`);
+        const dbStartTime = Date.now();
 
-        const profile = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                recoveryEmail: true,
-                photo: true,
-                phone: true,
-                userType: true,
-                gender: true,
-                dateOfBirth: true,
-                country: true,
-                status: true,
-                isEmailVerified: true,
-                isPhoneVerified: true,
-                isPasswordCreated: true,
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
-                isAddressVerified: true,
-                isIncomeVerified: true,
-                tier: true,
-                businessRecordCompleted: true,
-                businessDocumentsUploaded: true,
-                businessDocumentVerificationStatus: true,
-                accountLimit: {
-                    select: {
-                        buyToken: true,
-                        receiveToken: true,
-                        sellTokenFiat: true,
-                        sendToken: true,
-                        swapToken: true,
+        // OPTIMIZATION: Run both queries in parallel instead of sequential
+        const [profile, defaultWallet] = await Promise.all([
+            this.prisma.user.findUnique({
+                where: { id: user.id },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                    recoveryEmail: true,
+                    photo: true,
+                    phone: true,
+                    userType: true,
+                    gender: true,
+                    dateOfBirth: true,
+                    country: true,
+                    status: true,
+                    isEmailVerified: true,
+                    isPhoneVerified: true,
+                    isPasswordCreated: true,
+                    isBvnVerified: true,
+                    isNinVerified: true,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    isIncomeVerified: true,
+                    tier: true,
+                    businessRecordCompleted: true,
+                    businessDocumentsUploaded: true,
+                    businessDocumentVerificationStatus: true,
+                    accountLimit: {
+                        select: {
+                            buyToken: true,
+                            receiveToken: true,
+                            sellTokenFiat: true,
+                            sendToken: true,
+                            swapToken: true,
+                        },
+                    },
+                    flaggedRecord: {
+                        select: {
+                            id: true,
+                            flagged: true,
+                            reason: true,
+                            createdAt: true,
+                            updatedAt: true,
+                        },
                     },
                 },
-                flaggedRecord: {
-                    select: {
-                        id: true,
-                        flagged: true,
-                        reason: true,
-                        createdAt: true,
-                        updatedAt: true,
+            }),
+            this.prisma.assetWallet.findFirst({
+                where: {
+                    userId: user.id,
+                    assetCurrency: "USDT",
+                },
+                select: {
+                    assetCurrency: true,
+                    defaultNetwork: true,
+                    depositAddress: true,
+                    destinationTag: true,
+                    user: {
+                        select: {
+                            firstName: true,
+                            lastName: true,
+                        },
                     },
                 },
-            },
-        });
+            }),
+        ]);
+
+        this.logger.log(`[PERF] Profile DB queries (parallel) for user ${user.id}: ${Date.now() - dbStartTime}ms`);
 
         // Calculate tier info
         const tierInfo = this.tierService.getTierInfo(profile);
-
-        const defaultWallet = await this.prisma.assetWallet.findFirst({
-            where: {
-                userId: user.id,
-                assetCurrency: "USDT",
-            },
-            select: {
-                assetCurrency: true,
-                defaultNetwork: true,
-                depositAddress: true,
-                destinationTag: true,
-                user: {
-                    select: {
-                        firstName: true,
-                        lastName: true,
-                    },
-                },
-            },
-        });
 
         const response = {
             message: "Profile successfully retrieved",
@@ -167,6 +174,7 @@ export class UserService {
         // Cache the response
         await this.redisCacheService.set(cacheKey, response, this.PROFILE_CACHE_TTL);
 
+        this.logger.log(`[PERF] TOTAL getProfile for user ${user.id}: ${Date.now() - startTime}ms`);
         return response;
     }
 
@@ -399,6 +407,7 @@ export class UserService {
     }
 
     async getUserWallets(userId: number, query: GetUserAssetsDto) {
+        const startTime = Date.now();
         const { pageNumber, pageSize, sortBy } = query;
 
         const resolvedPageNumber =
@@ -432,29 +441,35 @@ export class UserService {
             },
         };
 
-        // Step 1: Fetch user assets + count
-        const [assets, count] = await this.prisma.$transaction([
-            this.prisma.assetWallet.findMany({
-                ...dbQuery,
-                ...(query.paginated === "true" && {
-                    skip: (resolvedPageNumber - 1) * resolvedPageSize,
-                    take: resolvedPageSize,
+        // OPTIMIZATION: Run all queries in parallel instead of sequential
+        const dbStartTime = Date.now();
+        const [assetsResult, adminRates, liveMarketData] = await Promise.all([
+            // Query 1: Fetch user assets + count in a transaction
+            this.prisma.$transaction([
+                this.prisma.assetWallet.findMany({
+                    ...dbQuery,
+                    ...(query.paginated === "true" && {
+                        skip: (resolvedPageNumber - 1) * resolvedPageSize,
+                        take: resolvedPageSize,
+                    }),
                 }),
-            }),
-            this.prisma.assetWallet.count({ where: dbQuery.where }),
+                this.prisma.assetWallet.count({ where: dbQuery.where }),
+            ]),
+            // Query 2: Fetch admin-defined crypto rates
+            this.prisma.cryptoRate.findMany(),
+            // Query 3: Fetch live Quidax rates (from cache or API)
+            this.quidaxCacheService.getMarketTickers(),
         ]);
 
-        // Step 2: Fetch admin-defined crypto rates (e.g., BTC, USDT)
-        const adminRates = await this.prisma.cryptoRate.findMany();
+        this.logger.log(`[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`);
+
+        const [assets, count] = assetsResult;
         const adminRatesMap = new Map(
             adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
         );
-
-        // Step 3: Fetch live Quidax rates
-        const liveMarketData = await this.quidaxCacheService.getMarketTickers();
         const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
 
-        // Step 4: Merge data into asset response
+        // Merge data into asset response
         const responseData: DataWithPagination<any> = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
@@ -497,6 +512,7 @@ export class UserService {
             }),
         };
 
+        this.logger.log(`[PERF] TOTAL getUserWallets for user ${userId}: ${Date.now() - startTime}ms`);
         return {
             message: "Assets successfully retrieved",
             data: responseData,
