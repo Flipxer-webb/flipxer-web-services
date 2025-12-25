@@ -3,7 +3,7 @@ import { ScheduleModule } from "@nestjs/schedule"; // Import ScheduleModule
 import { AccountSchedulerService } from "./services/manageAccounts";
 import { AssetBalanceSchedulerService } from "./services/manageBalance";
 import { ManageOrdersSchedulerService } from "./services/manageOrder";
-import { CoinGeckoCacheSchedulerService } from "./services/coinGecko"
+// CoinGeckoCacheSchedulerService removed - no longer using CoinGecko
 import { TradingModule } from "../api/trade";
 import { BankModule } from "../api/banks";
 
@@ -17,13 +17,12 @@ import { BankModule } from "../api/banks";
         AccountSchedulerService,
         AssetBalanceSchedulerService,
         ManageOrdersSchedulerService,
-        CoinGeckoCacheSchedulerService,
+        // CoinGeckoCacheSchedulerService removed - was causing 429 rate limit errors
     ],
     exports: [
         AccountSchedulerService,
         AssetBalanceSchedulerService,
         ManageOrdersSchedulerService,
-        CoinGeckoCacheSchedulerService,
     ],
 })
-export class SchedulerModule {}
+export class SchedulerModule { }
