@@ -21,7 +21,7 @@ import { ApiResponse } from "@/utils/api-response-util";
 @ApiBearerAuth()
 @Controller({ path: "sessions" })
 export class SessionController {
-    constructor(private readonly sessionService: SessionService) {}
+    constructor(private readonly sessionService: SessionService) { }
 
     @Get()
     @UseGuards(AuthGuard)
@@ -93,6 +93,19 @@ export class SessionController {
             success: true,
             message: "Session count retrieved",
             data: { count },
+        };
+    }
+
+    @Post("cleanup-bots")
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Cleanup bot and health check sessions (admin only)" })
+    async cleanupBotSessions(): Promise<ApiResponse> {
+        const cleanedCount = await this.sessionService.cleanupBotSessions();
+        return {
+            success: true,
+            message: `Cleaned up ${cleanedCount} bot/health-check sessions`,
+            data: { cleanedCount },
         };
     }
 }

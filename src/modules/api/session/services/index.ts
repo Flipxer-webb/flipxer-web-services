@@ -9,12 +9,13 @@ import {
 } from "../errors";
 import { REFRESH_TOKEN_EXPIRATION } from "@/config";
 import { randomUUID } from "crypto";
+import { isLikelyBotTraffic, getBotTrafficReason, isCloudProviderIP, isSuspiciousCombination } from "../utils/bot-detection";
 
 @Injectable()
 export class SessionService {
     private readonly logger = new Logger(SessionService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) { }
 
     /**
      * Parse duration string to milliseconds
@@ -48,6 +49,21 @@ export class SessionService {
         userId: number,
         sessionInfo: SessionInfo
     ): Promise<{ sessionId: string; deviceToken: string }> {
+        // Check for bot/health check traffic
+        const botReason = getBotTrafficReason({
+            browser: sessionInfo.browser,
+            os: sessionInfo.os,
+            ipAddress: sessionInfo.ipAddress,
+            deviceName: sessionInfo.deviceName,
+        });
+
+        if (botReason) {
+            this.logger.warn(
+                `Detected potential bot traffic for user ${userId}: ${botReason}`
+            );
+            // Still create session but log it - we may want to skip entirely in the future
+        }
+
         // Deactivate current session flag from other sessions
         await this.prisma.session.updateMany({
             where: { userId, isCurrent: true },
@@ -308,5 +324,51 @@ export class SessionService {
                 expiresAt: { gt: new Date() },
             },
         });
+    }
+
+    /**
+     * Cleanup sessions that appear to be from bots or health checks
+     * This identifies sessions based on:
+     * - Cloud provider IP addresses (AWS, etc.)
+     * - Suspicious browser/OS combinations (Safari on Linux)
+     */
+    async cleanupBotSessions(): Promise<number> {
+        // Get all active sessions
+        const sessions = await this.prisma.session.findMany({
+            where: { isActive: true },
+            select: {
+                id: true,
+                browser: true,
+                os: true,
+                ipAddress: true,
+                deviceName: true,
+            },
+        });
+
+        // Filter sessions that look like bot traffic
+        const botSessionIds: string[] = [];
+        for (const session of sessions) {
+            if (isCloudProviderIP(session.ipAddress)) {
+                if (isSuspiciousCombination(session.browser, session.os)) {
+                    botSessionIds.push(session.id);
+                }
+            }
+        }
+
+        if (botSessionIds.length === 0) {
+            this.logger.log("No bot sessions found to cleanup");
+            return 0;
+        }
+
+        // Deactivate bot sessions
+        const result = await this.prisma.session.updateMany({
+            where: { id: { in: botSessionIds } },
+            data: { isActive: false },
+        });
+
+        this.logger.log(
+            `Cleaned up ${result.count} bot/health-check sessions`
+        );
+        return result.count;
     }
 }
