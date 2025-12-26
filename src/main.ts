@@ -1,3 +1,13 @@
+/**
+ * Web Crypto API polyfill for Node.js
+ * Required by @simplewebauthn/server v10+ for generating secure challenges
+ * In Node.js 20+, this is available globally; for Node.js 18, we need to polyfill it
+ */
+import { webcrypto } from 'node:crypto';
+if (!globalThis.crypto) {
+    (globalThis as any).crypto = webcrypto;
+}
+
 // Global error handler to catch module import errors
 process.on("uncaughtException", (error) => {
     console.error("\n=== UNCAUGHT EXCEPTION ===");
