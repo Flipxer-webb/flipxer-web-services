@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BankService } from "@/modules/api/banks/services";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { FincraWebhookPayload, FincraChargeData, FincraPayoutData } from "../interfaces";
 import { TransactionStatus } from "@prisma/client";
 
@@ -10,7 +11,8 @@ export class FincraWebhookService {
 
     constructor(
         private prisma: PrismaService,
-        private bankService: BankService
+        private bankService: BankService,
+        private slackService: SlackWebhookService
     ) { }
 
     async processWebhookEvent(payload: FincraWebhookPayload) {
@@ -33,6 +35,17 @@ export class FincraWebhookService {
             this.logger.log(`Successfully processed charge event for reference: ${reference}`);
         } catch (error) {
             this.logger.error(`Failed to process webhook event=${eventType}, reference=${reference}: ${error.message}`, error.stack);
+
+            // Send Slack alert for webhook failure
+            await this.slackService.sendWebhookFailureAlert(
+                'fincra',
+                reference || 'unknown',
+                error.message,
+                { eventType, payload }
+            ).catch(alertErr => {
+                this.logger.error(`Failed to send Slack alert: ${alertErr.message}`);
+            });
+
             // Re-throw to return 500 to Fincra so they retry
             throw error;
         }

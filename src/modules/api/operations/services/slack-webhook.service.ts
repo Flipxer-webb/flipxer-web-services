@@ -12,7 +12,7 @@ import {
 export class SlackWebhookService {
     private readonly logger = new Logger(SlackWebhookService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) { }
 
     /**
      * Create a new Slack webhook configuration
@@ -161,7 +161,7 @@ export class SlackWebhookService {
         for (const webhook of webhooks) {
             try {
                 await this.sendToWebhook(webhook.webhookUrl, message);
-                
+
                 // Update webhook last triggered
                 await this.prisma.slackWebhook.update({
                     where: { id: webhook.id },
@@ -277,9 +277,61 @@ export class SlackWebhookService {
             ],
         };
 
-        return this.sendAlert("UNUSUAL_ACTIVITY", message, { 
+        return this.sendAlert("UNUSUAL_ACTIVITY", message, {
             alertKey: "unusual_activity",
             cooldownMinutes: 30, // Shorter cooldown for unusual activity
+        });
+    }
+
+    /**
+     * Send webhook failure alert for payment processing errors
+     */
+    async sendWebhookFailureAlert(
+        provider: 'fincra' | 'quidax',
+        reference: string,
+        error: string,
+        details: Record<string, any> = {}
+    ): Promise<{ sent: number; skipped: number; errors: string[] }> {
+        const alertKey = `webhook_failure:${provider}:${reference}`;
+
+        const message: SlackMessage = {
+            text: `🔴 ${provider.toUpperCase()} Webhook Failed`,
+            blocks: [
+                {
+                    type: "header",
+                    text: {
+                        type: "plain_text",
+                        text: `🔴 ${provider.toUpperCase()} Webhook Processing Failed`,
+                        emoji: true,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Provider:* ${provider.toUpperCase()}\n*Reference:* ${reference}\n*Error:* ${error}`,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Time:* ${new Date().toISOString()}\n*Details:*\n\`\`\`${JSON.stringify(details, null, 2)}\`\`\``,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `_⚠️ Action Required: Check the order and manually process if payment was confirmed._`,
+                    },
+                },
+            ],
+        };
+
+        return this.sendAlert("WEBHOOK_FAILURE", message, {
+            alertKey,
+            respectCooldown: false, // Always send webhook failures
         });
     }
 
