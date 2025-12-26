@@ -24,7 +24,7 @@ import type {
     AuthenticationResponseJSON,
     AuthenticatorTransportFuture,
     PublicKeyCredentialDescriptorJSON,
-} from '@simplewebauthn/server';
+} from '@simplewebauthn/types';
 
 // RP (Relying Party) configuration
 const RP_NAME = process.env.APP_NAME || 'Flipxer';
