@@ -77,7 +77,10 @@
         "db:pull": "npx prisma db pull",
         "db:migrate:prod": "npx prisma migrate deploy",
         "db:studio": "npx prisma studio",
-        "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-database.ps1",
+        "db:backup": "node scripts/backup-utils.js backup",
+        "db:backup:list": "node scripts/backup-utils.js list",
+        "db:backup:restore": "node scripts/backup-utils.js restore",
+        "db:backup:help": "node scripts/backup-utils.js help",
         "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts"
     },
     "dependencies": {
