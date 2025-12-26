@@ -96,6 +96,7 @@
         "@nestjs/swagger": "^7.4.2",
         "@nestjs/websockets": "^10.4.16",
         "@prisma/client": "4.13.0",
+        "@simplewebauthn/server": "^13.2.2",
         "@types/compression": "^1.8.1",
         "@types/multer": "^1.4.12",
         "@types/request-ip": "^0.0.41",

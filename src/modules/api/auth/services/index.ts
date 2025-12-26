@@ -627,7 +627,7 @@ export class AuthService {
 
         await this.prisma.user.update({
             where: { email: options.email },
-            data: { 
+            data: {
                 isEmailVerified: true,
                 // Auto-enable email as a security method
                 securityMethods: {
@@ -737,7 +737,7 @@ export class AuthService {
 
         await this.prisma.user.update({
             where: { phone: options.phone },
-            data: { 
+            data: {
                 isPhoneVerified: true,
                 // Auto-enable SMS as a security method
                 securityMethods: {
@@ -804,9 +804,9 @@ export class AuthService {
         } else {
             if (
                 dto.firstName.toLowerCase() !==
-                    result?.data?.entity?.first_name.toLowerCase() ||
+                result?.data?.entity?.first_name.toLowerCase() ||
                 dto.lastName.toLowerCase() !==
-                    result?.data?.entity?.last_name.toLowerCase() ||
+                result?.data?.entity?.last_name.toLowerCase() ||
                 dto.dateOfBirth !== result?.data?.entity?.date_of_birth
             ) {
                 throw new VerificationGenericException(
@@ -874,9 +874,9 @@ export class AuthService {
         } else {
             if (
                 dto.firstName.toLowerCase() !==
-                    result?.data?.entity?.first_name.toLowerCase() ||
+                result?.data?.entity?.first_name.toLowerCase() ||
                 dto.lastName.toLowerCase() !==
-                    result?.data?.entity?.last_name.toLowerCase() ||
+                result?.data?.entity?.last_name.toLowerCase() ||
                 dto.dateOfBirth !== result?.data?.entity?.date_of_birth
             ) {
                 throw new VerificationGenericException(
@@ -1225,8 +1225,8 @@ export class AuthService {
             // Return extracted data for user verification
             return {
                 success: true,
-                message: parsed.isValid 
-                    ? "Document analyzed successfully" 
+                message: parsed.isValid
+                    ? "Document analyzed successfully"
                     : this.mapDojahReasonToUserMessage(parsed.reason),
                 data: {
                     isValid: parsed.isValid,
@@ -1275,9 +1275,9 @@ export class AuthService {
      */
     private mapDojahReasonToUserMessage(reason?: string): string {
         if (!reason) return "Document analysis completed";
-        
+
         const upperReason = reason.toUpperCase();
-        
+
         if (upperReason === "NOT_VALID" || upperReason === "INVALID") {
             return "Document could not be verified. Please ensure the image is clear, all text is readable, and the document is a valid government-issued ID.";
         }
@@ -1290,7 +1290,7 @@ export class AuthService {
         if (upperReason.includes("NOT_SUPPORTED") || upperReason.includes("UNSUPPORTED")) {
             return "This document type is not supported. Please upload a valid passport, driver's license, or national ID.";
         }
-        
+
         return reason;
     }
 
@@ -1300,7 +1300,7 @@ export class AuthService {
      */
     async submitDojahWidgetVerification(user: User, dto: DojahWidgetVerificationDto) {
         const logger = new Logger("DojahWidgetVerification");
-        
+
         logger.log(`Dojah widget verification submission for user ${user.id}`, {
             verificationId: dto.verificationId,
             referenceId: dto.referenceId,
@@ -1323,7 +1323,7 @@ export class AuthService {
             // Map Dojah document type to internal document type
             const dojahDocType = dto.idData?.document_type?.toLowerCase();
             let documentType: DocumentType = DocumentType.NIN;
-            
+
             if (dojahDocType?.includes("passport")) {
                 documentType = DocumentType.INTERNATIONAL_PASSPORT;
             } else if (dojahDocType?.includes("driver") || dojahDocType?.includes("license")) {
@@ -1520,7 +1520,7 @@ export class AuthService {
                             backImage: dto.imageBackBase64?.length || 0,
                         },
                     });
-                    
+
                     // Return error details for proper handling
                     return {
                         success: false,
@@ -1560,7 +1560,7 @@ export class AuthService {
         if (!isDocumentValid && dojahParsed?.reason) {
             const reason = dojahParsed.reason.toUpperCase();
             let rejectionReason: string;
-            
+
             if (reason === "NOT_VALID" || reason === "INVALID") {
                 rejectionReason = "Document could not be verified. Please ensure the image is clear, all text is readable, and the document is a valid government-issued ID.";
             } else if (reason.includes("BLUR") || reason.includes("UNCLEAR")) {
@@ -1573,7 +1573,7 @@ export class AuthService {
                 // Pass through other specific reasons from Dojah
                 rejectionReason = dojahParsed.reason;
             }
-            
+
             throw new VerificationGenericException(
                 rejectionReason,
                 HttpStatus.BAD_REQUEST
@@ -1705,10 +1705,10 @@ export class AuthService {
                         cacImageUrlFieldId: cacImage?.fileId || null,
                         cacImageFileName: cacImage?.url
                             ? generateFileName(
-                                  DocumentMetaMap.cacImage,
-                                  user.id,
-                                  files.cacImage?.[0]?.originalname
-                              )
+                                DocumentMetaMap.cacImage,
+                                user.id,
+                                files.cacImage?.[0]?.originalname
+                            )
                             : null,
                         articleOfAssociationNumber:
                             dto.articleOfAssociationNumber || null,
@@ -1717,11 +1717,11 @@ export class AuthService {
                             articleImage?.fileId || null,
                         articleOfAssociationFileName: articleImage?.url
                             ? generateFileName(
-                                  DocumentMetaMap.articleOfAssociationImage,
-                                  user.id,
-                                  files.articleOfAssociationImage?.[0]
-                                      ?.originalname
-                              )
+                                DocumentMetaMap.articleOfAssociationImage,
+                                user.id,
+                                files.articleOfAssociationImage?.[0]
+                                    ?.originalname
+                            )
                             : null,
                         boardResolutionAuthorizedAcctOpeningImageUrl:
                             boardResolutionImage?.url || null,
@@ -1730,12 +1730,12 @@ export class AuthService {
                         boardResolutionAuthorizedAcctOpeningFileName:
                             boardResolutionImage?.url
                                 ? generateFileName(
-                                      DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
-                                      user.id,
-                                      files
-                                          .boardResolutionAuthorizedAcctOpeningImage?.[0]
-                                          ?.originalname
-                                  )
+                                    DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                                    user.id,
+                                    files
+                                        .boardResolutionAuthorizedAcctOpeningImage?.[0]
+                                        ?.originalname
+                                )
                                 : null,
                         meansOfIdentificationForBeneficialOwner:
                             meansOfIdImage?.url || null,
@@ -1744,12 +1744,12 @@ export class AuthService {
                         meansOfIdentificationForBeneficialOwnerFileName:
                             meansOfIdImage?.url
                                 ? generateFileName(
-                                      DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
-                                      user.id,
-                                      files
-                                          .meansOfIdentificationForBeneficialOwner?.[0]
-                                          ?.originalname
-                                  )
+                                    DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                                    user.id,
+                                    files
+                                        .meansOfIdentificationForBeneficialOwner?.[0]
+                                        ?.originalname
+                                )
                                 : null,
                         proofOfAddressForBeneficialOwner:
                             proofOfAddressImage?.url || null,
@@ -1758,12 +1758,12 @@ export class AuthService {
                         proofOfAddressForBeneficialOwnerFileName:
                             proofOfAddressImage?.url
                                 ? generateFileName(
-                                      DocumentMetaMap.proofOfAddressForBeneficialOwner,
-                                      user.id,
-                                      files
-                                          .proofOfAddressForBeneficialOwner?.[0]
-                                          ?.originalname
-                                  )
+                                    DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                                    user.id,
+                                    files
+                                        .proofOfAddressForBeneficialOwner?.[0]
+                                        ?.originalname
+                                )
                                 : null,
                     },
                 });
@@ -1874,15 +1874,15 @@ export class AuthService {
                 loginPlatform === LoginPlatform.USER
                     ? baseSelect
                     : {
-                          ...baseSelect,
-                          isEmailVerified: false,
-                          isPhoneVerified: false,
-                          isPasswordCreated: false,
-                          isBvnVerified: false,
-                          isDocumentVerified: false,
-                          businessRecordCompleted: false,
-                          businessDocumentVerificationStatus: false,
-                      },
+                        ...baseSelect,
+                        isEmailVerified: false,
+                        isPhoneVerified: false,
+                        isPasswordCreated: false,
+                        isBvnVerified: false,
+                        isDocumentVerified: false,
+                        businessRecordCompleted: false,
+                        businessDocumentVerificationStatus: false,
+                    },
         });
 
         if (!user) {
@@ -1895,8 +1895,7 @@ export class AuthService {
             flagged.reason === "Multiple failed login attempts"
         ) {
             throw new UserAccountDisabledException(
-                `Account is flagged: ${
-                    flagged.reason || "Multiple failed login attempts"
+                `Account is flagged: ${flagged.reason || "Multiple failed login attempts"
                 }. Please contact support.`,
                 HttpStatus.FORBIDDEN
             );
@@ -1932,7 +1931,7 @@ export class AuthService {
         if (user.isTwoFactorEnabled && user.twoFactorSecret) {
             // Check if this is a trusted device that can skip 2FA
             let canSkip2FA = false;
-            
+
             if (options.deviceToken) {
                 // Look for a trusted session with this device token
                 const trustedSession = await this.prisma.session.findFirst({
@@ -1955,7 +1954,7 @@ export class AuthService {
                     });
 
                     canSkip2FA = userData?.skipTwoFactorForTrustedDevices ?? false;
-                    
+
                     if (canSkip2FA) {
                         Logger.log(`Skipping 2FA for trusted device: ${trustedSession.deviceName || trustedSession.id}`);
                     }
@@ -2292,8 +2291,8 @@ export class AuthService {
             dto.context
         );
 
-        const contextMsg = dto.context 
-            ? `${dto.context} 2FA rate limit` 
+        const contextMsg = dto.context
+            ? `${dto.context} 2FA rate limit`
             : "all 2FA rate limits";
 
         return buildResponse({
@@ -2457,4 +2456,32 @@ export class AuthService {
 
         return await this.isTrustedDevice(sessionId, userId);
     }
+
+    /**
+     * Generate a temporary token for 2FA verification flow
+     * Used by biometric authentication when user has 2FA enabled
+     */
+    async generateTempTokenFor2FA(userId: number): Promise<string> {
+        return await this.jwtService.signAsync(
+            { sub: userId, type: "2fa_pending", platform: "user" },
+            { secret: jwtSecret, expiresIn: "5m" }
+        );
+    }
+
+    /**
+     * Generate access and refresh tokens for a user with an existing session
+     * Used by biometric authentication to complete login
+     */
+    async generateTokensForUser(userId: number, sessionId?: string) {
+        const tokens = await this.generateTokens({
+            sub: userId,
+            platform: "user",
+            sessionId,
+        });
+
+        await this.saveRefreshToken(userId, tokens.refreshToken);
+
+        return tokens;
+    }
 }
+
