@@ -56,7 +56,7 @@ export class SettingService {
         private smsService: SmsService,
         private emailService: EmailService,
         private jwtService: JwtService,
-    ) {}
+    ) { }
 
     async getAllowedList(user: User) {
         const allowedIps = await this.prisma.allowedIp.findMany({
@@ -398,11 +398,11 @@ export class SettingService {
 
         // Generate a new secret
         const secret = authenticator.generateSecret();
-        
+
         // Create the otpauth URL for the authenticator app
         const appName = "Flipxer";
         const otpauthUrl = authenticator.keyuri(user.email, appName, secret);
-        
+
         // Generate QR code as data URL
         const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
@@ -414,7 +414,7 @@ export class SettingService {
         // 2FA will only be enabled after user verifies the code in enable2FA
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { 
+            data: {
                 twoFactorSecret: secret,
                 twoFactorBackupCodes: JSON.stringify(hashedBackupCodes),
                 isTwoFactorEnabled: false,
@@ -487,7 +487,7 @@ export class SettingService {
         // Also auto-enable authenticator as a security method
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { 
+            data: {
                 isTwoFactorEnabled: true,
                 securityMethods: {
                     ...currentMethods,
@@ -501,9 +501,9 @@ export class SettingService {
             where: { id: user.id },
             select: { twoFactorBackupCodes: true },
         });
-        
-        const backupCodesCount = userData?.twoFactorBackupCodes 
-            ? JSON.parse(userData.twoFactorBackupCodes).length 
+
+        const backupCodesCount = userData?.twoFactorBackupCodes
+            ? JSON.parse(userData.twoFactorBackupCodes).length
             : 0;
 
         return buildResponse({
@@ -607,9 +607,9 @@ export class SettingService {
     async verifyBackupCode(userId: number, code: string): Promise<boolean> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: { 
-                twoFactorBackupCodes: true, 
-                isTwoFactorEnabled: true 
+            select: {
+                twoFactorBackupCodes: true,
+                isTwoFactorEnabled: true
             },
         });
 
@@ -630,8 +630,8 @@ export class SettingService {
 
             await this.prisma.user.update({
                 where: { id: userId },
-                data: { 
-                    twoFactorBackupCodes: JSON.stringify(updatedCodes) 
+                data: {
+                    twoFactorBackupCodes: JSON.stringify(updatedCodes)
                 },
             });
 
@@ -688,6 +688,7 @@ export class SettingService {
             email: false,
             authenticator: false,
             tradingPassword: false,
+            biometric: false,
         };
     }
 
@@ -711,8 +712,8 @@ export class SettingService {
         });
 
         const securityMethods = (userData?.securityMethods as any) || this.getDefaultSecurityMethods();
-        const backupCodes = userData?.twoFactorBackupCodes 
-            ? JSON.parse(userData.twoFactorBackupCodes) 
+        const backupCodes = userData?.twoFactorBackupCodes
+            ? JSON.parse(userData.twoFactorBackupCodes)
             : [];
 
         // Calculate tier-based minimum required methods
@@ -744,6 +745,10 @@ export class SettingService {
                         enabled: securityMethods.tradingPassword || false,
                         verified: !!userData?.tradingPassword,
                     },
+                    biometric: {
+                        enabled: securityMethods.biometric || false,
+                        verified: true, // If they are managing it, we assume it's "verified" in terms of possession
+                    },
                 },
                 requiredMethodCount: userData?.requiredMethodCount ?? 1,
                 minimumRequired,
@@ -759,7 +764,7 @@ export class SettingService {
      * Requires verification if disabling a method when only 2 are enabled
      */
     async updateSecurityPreferences(
-        user: User, 
+        user: User,
         dto: { methods?: any; requiredMethodCount?: number }
     ) {
         const userData = await this.prisma.user.findUnique({
@@ -803,10 +808,13 @@ export class SettingService {
                 HttpStatus.BAD_REQUEST
             );
         }
+        // Biometric doesn't need a specific "verified" check here like trading password
+        // because its registration is already verified.
+
 
         // Count enabled methods
         const enabledCount = Object.values(newMethods).filter(Boolean).length;
-        
+
         // Validate: at least one method must be enabled
         if (enabledCount === 0) {
             throw new AuthGenericException(
@@ -861,8 +869,8 @@ export class SettingService {
     ) {
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
-            select: { 
-                password: true, 
+            select: {
+                password: true,
                 tradingPassword: true,
                 securityMethods: true,
                 twoFactorBackupCodes: true,
@@ -888,7 +896,7 @@ export class SettingService {
         const hashedTradingPassword = await bcrypt.hash(dto.tradingPassword, 10);
 
         // Check if this is the first "advanced" security method (not SMS/Email)
-        const isFirstAdvancedMethod = !userData?.tradingPassword && 
+        const isFirstAdvancedMethod = !userData?.tradingPassword &&
             !(userData?.securityMethods as any)?.authenticator;
 
         // Generate backup codes if first advanced method and no backup codes exist
@@ -916,8 +924,8 @@ export class SettingService {
         });
 
         const response: any = {
-            message: userData?.tradingPassword 
-                ? "Trading password updated successfully" 
+            message: userData?.tradingPassword
+                ? "Trading password updated successfully"
                 : "Trading password set successfully",
         };
 
@@ -962,14 +970,14 @@ export class SettingService {
     async getBackupCodesCount(user: User) {
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
-            select: { 
+            select: {
                 twoFactorBackupCodes: true,
                 backupCodesGeneratedAt: true,
             },
         });
 
-        const backupCodes = userData?.twoFactorBackupCodes 
-            ? JSON.parse(userData.twoFactorBackupCodes) 
+        const backupCodes = userData?.twoFactorBackupCodes
+            ? JSON.parse(userData.twoFactorBackupCodes)
             : [];
 
         return buildResponse({

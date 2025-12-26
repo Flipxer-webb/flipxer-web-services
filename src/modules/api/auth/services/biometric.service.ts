@@ -188,21 +188,29 @@ export class BiometricService {
         let allowCredentials: PublicKeyCredentialDescriptorJSON[] = [];
         let userId: number | undefined;
 
-        if (email) {
-            const user = await this.prisma.user.findUnique({
-                where: { email },
-                include: { biometricCredentials: true },
-            });
-
-            if (user && user.biometricCredentials.length > 0) {
-                userId = user.id;
-                allowCredentials = user.biometricCredentials.map(cred => ({
-                    id: cred.id,
-                    type: 'public-key',
-                    transports: cred.transports as AuthenticatorTransportFuture[],
-                }));
-            }
+        if (!email) {
+            throw new HttpException('Email is required for biometric login initiation', HttpStatus.BAD_REQUEST);
         }
+
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            include: { biometricCredentials: true },
+        });
+
+        if (!user) {
+            throw new HttpException(`User with email ${email} not found`, HttpStatus.NOT_FOUND);
+        }
+
+        if (user.biometricCredentials.length === 0) {
+            throw new HttpException('No biometric credentials registered for this account', HttpStatus.BAD_REQUEST);
+        }
+
+        userId = user.id;
+        allowCredentials = user.biometricCredentials.map(cred => ({
+            id: cred.id,
+            type: 'public-key',
+            transports: cred.transports as AuthenticatorTransportFuture[],
+        }));
 
         const options = await generateAuthenticationOptions({
             rpID: RP_ID,
@@ -212,7 +220,7 @@ export class BiometricService {
         });
 
         // Store challenge for verification
-        const challengeKey = email ? `auth:${email}` : `auth:conditional`;
+        const challengeKey = `auth:${email}`;
         this.challenges.set(challengeKey, options.challenge);
         setTimeout(() => this.challenges.delete(challengeKey), this.CHALLENGE_TTL_MS);
 

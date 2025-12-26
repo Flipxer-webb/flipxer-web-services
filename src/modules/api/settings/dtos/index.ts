@@ -157,7 +157,13 @@ export class SecurityMethodsDto {
 
     @ApiProperty({ description: "Enable Trading Password for transactions", example: false })
     @IsOptional()
+    @IsBoolean()
     tradingPassword?: boolean;
+
+    @ApiProperty({ description: "Enable Biometric verification for transactions", example: false })
+    @IsOptional()
+    @IsBoolean()
+    biometric?: boolean;
 }
 
 export class UpdateSecurityPreferencesDto {
@@ -188,10 +194,10 @@ export class SetTradingPasswordDto {
 }
 
 export class VerifySecurityMethodDto {
-    @ApiProperty({ 
-        description: "Security method to verify", 
+    @ApiProperty({
+        description: "Security method to verify",
         enum: ["sms", "email", "authenticator", "tradingPassword", "backupCode"],
-        example: "sms" 
+        example: "sms"
     })
     @IsNotEmpty()
     @IsString()
@@ -204,10 +210,10 @@ export class VerifySecurityMethodDto {
 }
 
 export class SendTransactionOtpDto {
-    @ApiProperty({ 
-        description: "Method to send OTP", 
+    @ApiProperty({
+        description: "Method to send OTP",
         enum: ["sms", "email"],
-        example: "sms" 
+        example: "sms"
     })
     @IsNotEmpty()
     @IsString()
@@ -215,10 +221,10 @@ export class SendTransactionOtpDto {
 }
 
 export class VerifyMethodForDisableDto {
-    @ApiProperty({ 
-        description: "Method to verify before disabling another", 
+    @ApiProperty({
+        description: "Method to verify before disabling another",
         enum: ["sms", "email", "authenticator", "tradingPassword"],
-        example: "authenticator" 
+        example: "authenticator"
     })
     @IsNotEmpty()
     @IsString()

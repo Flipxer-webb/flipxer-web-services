@@ -21,6 +21,7 @@ import {
     UseGuards,
     ValidationPipe,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import {
     ApiTags,
@@ -50,6 +51,7 @@ export class BiometricController {
         private readonly biometricService: BiometricService,
         private readonly authService: AuthService,
         private readonly sessionService: SessionService,
+        private readonly jwtService: JwtService,
     ) { }
 
     /**
@@ -314,11 +316,29 @@ export class BiometricController {
             };
         }
 
+        // Generate verification token (valid for 5 minutes)
+        // This matches the format expected by TwoFactorGuard
+        const verificationToken = await this.jwtService.signAsync(
+            {
+                userId: user.id,
+                type: "transaction_verification",
+                method: "biometric",
+                verifiedAt: Date.now(),
+            },
+            {
+                secret: process.env.JWT_SECRET,
+                expiresIn: "5m"
+            }
+        );
+
         return {
             success: true,
             statusCode: HttpStatus.OK,
             message: 'Transaction verified successfully',
-            data: { verified: true },
+            data: {
+                verified: true,
+                verificationToken,
+            },
         };
     }
 }

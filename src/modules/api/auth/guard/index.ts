@@ -60,19 +60,19 @@ export class AuthGuard implements CanActivate {
     constructor(
         private jwtService: JwtService,
         private prisma: PrismaService
-    ) {}
+    ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest() as RequestWithUser;
         const token = this.extractTokenFromHeader(request);
-        
+
         if (!token) {
             throw new InvalidAuthTokenException(
                 "Authorization header is missing",
                 HttpStatus.UNAUTHORIZED
             );
         }
-        
+
         try {
             const user = await this.verifyAndFetchUser(token);
             request.user = user;
@@ -167,7 +167,7 @@ export class QuidaxWebhookGuard implements CanActivate {
             .getRequest() as RequestFromQuidax;
 
         const quidaxSignature = request.headers["quidax-signature"];
-        
+
         if (!quidaxSignature) {
             this.logger.error("[WEBHOOK AUTH] Missing quidax-signature header");
             this.logger.debug(`[WEBHOOK AUTH] Headers: ${JSON.stringify(request.headers)}`);
@@ -238,7 +238,7 @@ export class CountryBlockGuard implements CanActivate {
     constructor(
         private readonly geoIPService: GeoIPService,
         private readonly redisCacheService: RedisCacheService
-    ) {}
+    ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const req = context.switchToHttp().getRequest();
@@ -308,7 +308,7 @@ export class SocketAuthGuard implements CanActivate {
     constructor(
         private jwtService: JwtService,
         private prisma: PrismaService
-    ) {}
+    ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const client: Socket = context.switchToWs().getClient<Socket>();
@@ -400,7 +400,7 @@ const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
 export class TransactionAmountGuard implements CanActivate {
     constructor(
         private readonly transactionService: TransactionService
-    ) {}
+    ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest<RequestWithUser>();
@@ -461,6 +461,7 @@ interface SecurityMethods {
     email?: boolean;
     authenticator?: boolean;
     tradingPassword?: boolean;
+    biometric?: boolean;
 }
 
 /**
@@ -485,13 +486,13 @@ interface SecurityMethods {
 @Injectable()
 export class TwoFactorGuard implements CanActivate {
     private readonly logger = new Logger('TwoFactorGuard');
-    
+
     constructor(
         private prisma: PrismaService,
         private jwtService: JwtService,
         @Optional() private twoFactorRateLimitService?: any,
         @Optional() private settingService?: any
-    ) {}
+    ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest<RequestWithUser>();
@@ -507,8 +508,8 @@ export class TwoFactorGuard implements CanActivate {
         // Get user data including security preferences
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
-            select: { 
-                twoFactorSecret: true, 
+            select: {
+                twoFactorSecret: true,
                 isTwoFactorEnabled: true,
                 tier: true,
                 securityMethods: true,
@@ -540,7 +541,7 @@ export class TwoFactorGuard implements CanActivate {
         if (transactionData && hasLegacy2FA) {
             // Get crypto rate to convert to NGN for tier-based threshold check
             const rate = await this.getCryptoRateToNGN(transactionData.currency);
-            
+
             if (rate) {
                 const amountNGN = convertToNGN(transactionData.amount, rate);
                 isVerificationRequired = isTwoFactorRequiredForTransaction(
@@ -582,7 +583,7 @@ export class TwoFactorGuard implements CanActivate {
 
         // No valid verification - determine what methods are available and respond accordingly
         const availableMethods = this.getAvailableMethods(securityMethods, userData);
-        
+
         throw new UserForbiddenException(
             JSON.stringify({
                 code: "SECURITY_VERIFICATION_REQUIRED",
@@ -722,7 +723,7 @@ export class TwoFactorGuard implements CanActivate {
      * Check if user has any security methods enabled
      */
     private hasAnySecurityMethod(methods: SecurityMethods): boolean {
-        return methods.sms || methods.email || methods.authenticator || methods.tradingPassword || false;
+        return methods.sms || methods.email || methods.authenticator || methods.tradingPassword || methods.biometric || false;
     }
 
     /**
@@ -730,7 +731,7 @@ export class TwoFactorGuard implements CanActivate {
      */
     private getAvailableMethods(methods: SecurityMethods, userData: any): string[] {
         const available: string[] = [];
-        
+
         if (methods.sms && userData?.isPhoneVerified) {
             available.push('sms');
         }
@@ -743,7 +744,12 @@ export class TwoFactorGuard implements CanActivate {
         if (methods.tradingPassword && userData?.tradingPassword) {
             available.push('tradingPassword');
         }
-        
+        if (methods.biometric) {
+            // Biometric is available if the user has it enabled in preferences
+            // The frontend handles checking if the device actually supports it
+            available.push('biometric');
+        }
+
         // Backup codes are always available if any method is set up
         if (available.length > 0) {
             available.push('backupCode');
@@ -773,7 +779,7 @@ export class TwoFactorGuard implements CanActivate {
     private async getCryptoRateToNGN(currency: string): Promise<number | null> {
         try {
             const rate = await this.prisma.cryptoRate.findFirst({
-                where: { 
+                where: {
                     currency: currency,
                 },
                 select: { buyRate: true },
