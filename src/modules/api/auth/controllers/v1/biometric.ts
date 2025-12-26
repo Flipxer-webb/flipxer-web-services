@@ -14,6 +14,7 @@ import {
     Delete,
     Get,
     HttpCode,
+    HttpException,
     HttpStatus,
     Post,
     Req,
@@ -66,28 +67,37 @@ export class BiometricController {
         @User() user: UserModel,
         @Body(ValidationPipe) dto: BiometricRegisterOptionsDto,
     ) {
-        // Verify password before allowing biometric registration
-        const isValidPassword = await this.authService.comparePassword(
-            dto.password,
-            user.password || '',
-        );
+        try {
+            // Verify password before allowing biometric registration
+            const isValidPassword = await this.authService.comparePassword(
+                dto.password,
+                user.password || '',
+            );
 
-        if (!isValidPassword) {
+            if (!isValidPassword) {
+                return {
+                    success: false,
+                    statusCode: HttpStatus.UNAUTHORIZED,
+                    message: 'Invalid password',
+                };
+            }
+
+            const options = await this.biometricService.generateRegistrationOptions(user.id);
+
             return {
-                success: false,
-                statusCode: HttpStatus.UNAUTHORIZED,
-                message: 'Invalid password',
+                success: true,
+                statusCode: HttpStatus.OK,
+                message: 'Registration options generated',
+                data: options,
             };
+        } catch (error) {
+            console.error('[BiometricController] Registration options error:', error);
+            console.error('[BiometricController] Error stack:', error instanceof Error ? error.stack : 'No stack');
+            throw new HttpException(
+                'Failed to generate registration options',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
         }
-
-        const options = await this.biometricService.generateRegistrationOptions(user.id);
-
-        return {
-            success: true,
-            statusCode: HttpStatus.OK,
-            message: 'Registration options generated',
-            data: options,
-        };
     }
 
     /**
