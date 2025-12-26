@@ -206,6 +206,8 @@ export class QuidaxWebhookGuard implements CanActivate {
 
 @Injectable()
 export class FincraWebhookGuard implements CanActivate {
+    private readonly logger = new Logger('FincraWebhookGuard');
+
     canActivate(
         context: ExecutionContext
     ): boolean | Promise<boolean> | Observable<boolean> {
@@ -216,7 +218,19 @@ export class FincraWebhookGuard implements CanActivate {
         const signature = request.headers["x-fincra-signature"] as string;
         const secret = process.env.FINCRA_WEBHOOK_SECRET;
 
-        if (!signature || !secret) {
+        this.logger.log(`Received Fincra webhook request`);
+        this.logger.debug(`Event: ${(request.body as any)?.event}`);
+        this.logger.debug(`Signature header present: ${!!signature}`);
+        this.logger.debug(`Webhook secret configured: ${!!secret}`);
+
+        if (!signature) {
+            this.logger.error('Missing x-fincra-signature header');
+            this.logger.debug(`All headers: ${JSON.stringify(Object.keys(request.headers))}`);
+            return false;
+        }
+
+        if (!secret) {
+            this.logger.error('FINCRA_WEBHOOK_SECRET environment variable not set');
             return false;
         }
 
@@ -224,9 +238,20 @@ export class FincraWebhookGuard implements CanActivate {
             .update(JSON.stringify(request.body))
             .digest("hex");
 
-        return computed === signature;
+        const isValid = computed === signature;
+
+        if (isValid) {
+            this.logger.log(`Signature verified for event: ${(request.body as any)?.event}`);
+        } else {
+            this.logger.error(`Signature mismatch for event: ${(request.body as any)?.event}`);
+            this.logger.debug(`Expected: ${computed.substring(0, 20)}...`);
+            this.logger.debug(`Received: ${signature.substring(0, 20)}...`);
+        }
+
+        return isValid;
     }
 }
+
 
 // In-memory cache for GeoIP lookups to reduce Redis load
 const geoIpMemoryCache = new Map<string, { countryCode: string; expiresAt: number }>();
