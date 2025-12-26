@@ -9,7 +9,7 @@
  * Uses @simplewebauthn/server for WebAuthn protocol handling.
  */
 
-import { Injectable, Logger, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpStatus, HttpException } from '@nestjs/common';
 import { PrismaService } from '@/modules/core/prisma/services';
 import {
     generateRegistrationOptions,
@@ -24,8 +24,7 @@ import type {
     AuthenticationResponseJSON,
     AuthenticatorTransportFuture,
     PublicKeyCredentialDescriptorJSON,
-} from '@simplewebauthn/types';
-import { ApiException } from '@/libs/exceptions';
+} from '@simplewebauthn/server';
 
 // RP (Relying Party) configuration
 const RP_NAME = process.env.APP_NAME || 'Flipxer';
@@ -78,7 +77,7 @@ export class BiometricService {
         });
 
         if (!user) {
-            throw new ApiException('User not found', HttpStatus.NOT_FOUND);
+            throw new HttpException('User not found', HttpStatus.NOT_FOUND);
         }
 
         // Get existing credentials to exclude (prevent re-registration of same authenticator)
@@ -126,7 +125,7 @@ export class BiometricService {
         const expectedChallenge = this.challenges.get(challengeKey);
 
         if (!expectedChallenge) {
-            throw new ApiException('Registration challenge expired or not found', HttpStatus.BAD_REQUEST);
+            throw new HttpException('Registration challenge expired or not found', HttpStatus.BAD_REQUEST);
         }
 
         // Clean up challenge after use
@@ -143,11 +142,11 @@ export class BiometricService {
             });
         } catch (error: any) {
             this.logger.error(`Registration verification failed: ${error.message}`);
-            throw new ApiException('Failed to verify biometric registration', HttpStatus.BAD_REQUEST);
+            throw new HttpException('Failed to verify biometric registration', HttpStatus.BAD_REQUEST);
         }
 
         if (!verification.verified || !verification.registrationInfo) {
-            throw new ApiException('Biometric registration verification failed', HttpStatus.BAD_REQUEST);
+            throw new HttpException('Biometric registration verification failed', HttpStatus.BAD_REQUEST);
         }
 
         const { registrationInfo } = verification;
@@ -158,7 +157,7 @@ export class BiometricService {
         });
 
         if (existingCredential) {
-            throw new ApiException('This biometric credential is already registered', HttpStatus.CONFLICT);
+            throw new HttpException('This biometric credential is already registered', HttpStatus.CONFLICT);
         }
 
         // Store the credential
@@ -238,7 +237,7 @@ export class BiometricService {
         });
 
         if (!credential) {
-            throw new ApiException('Biometric credential not recognized', HttpStatus.UNAUTHORIZED);
+            throw new HttpException('Biometric credential not recognized', HttpStatus.UNAUTHORIZED);
         }
 
         // Get challenge
@@ -246,7 +245,7 @@ export class BiometricService {
         const expectedChallenge = this.challenges.get(challengeKey);
 
         if (!expectedChallenge) {
-            throw new ApiException('Authentication challenge expired or not found', HttpStatus.BAD_REQUEST);
+            throw new HttpException('Authentication challenge expired or not found', HttpStatus.BAD_REQUEST);
         }
 
         this.challenges.delete(challengeKey);
@@ -268,11 +267,11 @@ export class BiometricService {
             });
         } catch (error: any) {
             this.logger.error(`Authentication verification failed: ${error.message}`);
-            throw new ApiException('Biometric authentication failed', HttpStatus.UNAUTHORIZED);
+            throw new HttpException('Biometric authentication failed', HttpStatus.UNAUTHORIZED);
         }
 
         if (!verification.verified) {
-            throw new ApiException('Biometric authentication verification failed', HttpStatus.UNAUTHORIZED);
+            throw new HttpException('Biometric authentication verification failed', HttpStatus.UNAUTHORIZED);
         }
 
         // Update counter for replay protection
@@ -319,11 +318,11 @@ export class BiometricService {
         });
 
         if (!credential) {
-            throw new ApiException('Credential not found', HttpStatus.NOT_FOUND);
+            throw new HttpException('Credential not found', HttpStatus.NOT_FOUND);
         }
 
         if (credential.userId !== userId) {
-            throw new ApiException('Cannot revoke credential belonging to another user', HttpStatus.FORBIDDEN);
+            throw new HttpException('Cannot revoke credential belonging to another user', HttpStatus.FORBIDDEN);
         }
 
         await this.prisma.userBiometricCredential.delete({
@@ -353,7 +352,7 @@ export class BiometricService {
         });
 
         if (credentials.length === 0) {
-            throw new ApiException('No biometric credentials registered', HttpStatus.BAD_REQUEST);
+            throw new HttpException('No biometric credentials registered', HttpStatus.BAD_REQUEST);
         }
 
         const allowCredentials: PublicKeyCredentialDescriptorJSON[] = credentials.map(cred => ({
@@ -389,14 +388,14 @@ export class BiometricService {
         });
 
         if (!credential || credential.userId !== userId) {
-            throw new ApiException('Invalid biometric credential', HttpStatus.UNAUTHORIZED);
+            throw new HttpException('Invalid biometric credential', HttpStatus.UNAUTHORIZED);
         }
 
         const challengeKey = `txn:${userId}`;
         const expectedChallenge = this.challenges.get(challengeKey);
 
         if (!expectedChallenge) {
-            throw new ApiException('Transaction verification challenge expired', HttpStatus.BAD_REQUEST);
+            throw new HttpException('Transaction verification challenge expired', HttpStatus.BAD_REQUEST);
         }
 
         this.challenges.delete(challengeKey);
