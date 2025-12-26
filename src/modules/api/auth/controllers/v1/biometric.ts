@@ -182,7 +182,7 @@ export class BiometricController {
             ipAddress: ip,
         });
 
-        const tokens = await this.authService.generateTokensForUser(authResult.userId, session.id);
+        const tokens = await this.authService.generateTokensForUser(authResult.userId, session.sessionId);
 
         return {
             success: true,
@@ -191,7 +191,7 @@ export class BiometricController {
             data: {
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken,
-                sessionId: session.id,
+                sessionId: session.sessionId,
             },
         };
     }
