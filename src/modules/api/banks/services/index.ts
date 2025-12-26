@@ -5,6 +5,7 @@ import {
     BadRequestException,
     Inject,
     HttpStatus,
+    Logger,
 } from "@nestjs/common";
 import { PrismaService } from "../../../core/prisma/services";
 import {
@@ -44,6 +45,8 @@ import { NotificationEvent } from "../../notification/events/notification.event"
 
 @Injectable()
 export class BankService {
+    private readonly logger = new Logger('BankService');
+
     constructor(
         private readonly prisma: PrismaService,
         @Inject(BankInjectionToken.FINCRA)
@@ -54,7 +57,7 @@ export class BankService {
         private readonly wsGateway: WsGateway,
         private readonly notificationEvent: NotificationEvent,
         private readonly bankCacheService: BankCacheService
-    ) {}
+    ) { }
 
     async getListOfBanks() {
         const banks = await this.fincraService.getBanks();
@@ -338,16 +341,21 @@ export class BankService {
     }
 
     async paymentSuccessHandler(reference: string) {
+        this.logger.log(`Processing payment success for reference: ${reference}`);
+
         try {
             const transaction = await this.prisma.payment.findUnique({
                 where: { reference: reference },
             });
             if (!transaction) {
+                this.logger.error(`Payment not found for reference: ${reference}`);
                 throw new TransactionNotFoundException(
                     "transaction payment reference not found",
                     HttpStatus.NOT_FOUND
                 );
             }
+
+            this.logger.debug(`Found payment: orderId=${transaction.orderId}, status=${transaction.paymentStatus}`);
 
             if (transaction.paymentStatus === TransactionStatus.SUCCESS) {
                 throw new DuplicateTransactionException(
@@ -407,6 +415,8 @@ export class BankService {
 
                 if (order.orderCategory === OrderCategory.BUY) {
                     //admin sends asset to user wallet
+                    this.logger.log(`Initiating Quidax withdrawal for order ${order.id}: ${order.amount} ${order.currency} to ${order.recipient}`);
+
                     const reference = generateId({ type: "reference" });
                     const requestRes =
                         await this.quidaxService.createWithdrawerRequest({
@@ -419,6 +429,8 @@ export class BankService {
                             fund_uid2: order.destinationTag, // destination tag
                             reference: reference,
                         });
+
+                    this.logger.log(`Quidax withdrawal initiated: quidaxId=${requestRes.data.id}, reference=${reference}`);
 
                     const amtFiat = await this.getAmountInNaira(
                         requestRes.data.currency,
@@ -485,10 +497,13 @@ export class BankService {
                         notification: createdNotification,
                         notificationList,
                     });
+                    this.logger.log(`BUY order ${order.id} completed successfully`);
                 }
             }
         } catch (error) {
-            logger.error(error);
+            this.logger.error(`paymentSuccessHandler failed for ${reference}: ${error.message}`, error.stack);
+            // Re-throw to return 500 to Fincra so they retry
+            throw error;
         }
     }
 

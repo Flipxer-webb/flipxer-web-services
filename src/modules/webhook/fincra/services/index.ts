@@ -1,5 +1,4 @@
-import { Injectable } from "@nestjs/common";
-import logger from "moment-logger";
+import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BankService } from "@/modules/api/banks/services";
 import { FincraWebhookPayload, FincraChargeData, FincraPayoutData } from "../interfaces";
@@ -7,25 +6,35 @@ import { TransactionStatus } from "@prisma/client";
 
 @Injectable()
 export class FincraWebhookService {
+    private readonly logger = new Logger('FincraWebhookService');
+
     constructor(
         private prisma: PrismaService,
         private bankService: BankService
-    ) {}
+    ) { }
 
     async processWebhookEvent(payload: FincraWebhookPayload) {
-        try {
-            const eventType = payload.event?.toLowerCase();
+        const eventType = payload.event?.toLowerCase();
+        const reference = (payload.data as any)?.merchantReference || (payload.data as any)?.reference;
 
+        this.logger.log(`Processing Fincra webhook: event=${eventType}, reference=${reference}`);
+        this.logger.debug(`Full payload: ${JSON.stringify(payload)}`);
+
+        try {
             // Handle payout/transfer events
             if (eventType?.includes("payout") || eventType?.includes("disbursement")) {
                 await this.processPayoutEvent(payload.data as FincraPayoutData);
+                this.logger.log(`Successfully processed payout event for reference: ${reference}`);
                 return;
             }
 
             // Handle charge/collection events
             await this.processChargeEvent(payload.data as FincraChargeData);
+            this.logger.log(`Successfully processed charge event for reference: ${reference}`);
         } catch (error) {
-            logger.error(error);
+            this.logger.error(`Failed to process webhook event=${eventType}, reference=${reference}: ${error.message}`, error.stack);
+            // Re-throw to return 500 to Fincra so they retry
+            throw error;
         }
     }
 
@@ -79,8 +88,9 @@ export class FincraWebhookService {
                 where: { reference },
                 data: { status },
             });
+            this.logger.log(`Updated payout status for ${reference} to ${status}`);
         } catch (error) {
-            logger.error(error, `Failed to update payout status for ${reference}`);
+            this.logger.error(`Failed to update payout status for ${reference}: ${error.message}`);
         }
     }
 }
