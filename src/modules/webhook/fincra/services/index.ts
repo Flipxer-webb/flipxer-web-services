@@ -1,109 +1,61 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "@/modules/core/prisma/services";
-import { BankService } from "@/modules/api/banks/services";
-import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
-import { FincraWebhookPayload, FincraChargeData, FincraPayoutData } from "../interfaces";
-import { TransactionStatus } from "@prisma/client";
+    /**
+     * Send webhook failure alert for payment processing errors
+     * Uses SLACK_WEBHOOK_URL environment variable directly for simplicity
+     */
+    async sendWebhookFailureAlert(
+        provider: 'fincra' | 'quidax',
+        reference: string,
+        error: string,
+        details: Record<string, any> = {}
+    ): Promise<{ sent: boolean; error?: string }> {
+        const webhookUrl = process.env.SLACK_WEBHOOK_URL;
 
-@Injectable()
-export class FincraWebhookService {
-    private readonly logger = new Logger('FincraWebhookService');
+        if (!webhookUrl) {
+            this.logger.debug('SLACK_WEBHOOK_URL not configured, skipping alert');
+            return { sent: false, error: 'SLACK_WEBHOOK_URL not configured' };
+        }
 
-    constructor(
-        private prisma: PrismaService,
-        private bankService: BankService,
-        private slackService: SlackWebhookService
-    ) { }
-
-    async processWebhookEvent(payload: FincraWebhookPayload) {
-        const eventType = payload.event?.toLowerCase();
-        const reference = (payload.data as any)?.merchantReference || (payload.data as any)?.reference;
-
-        this.logger.log(`Processing Fincra webhook: event=${eventType}, reference=${reference}`);
-        this.logger.debug(`Full payload: ${JSON.stringify(payload)}`);
+        const message: SlackMessage = {
+            text: `🔴 ${provider.toUpperCase()} Webhook Failed`,
+            blocks: [
+                {
+                    type: "header",
+                    text: {
+                        type: "plain_text",
+                        text: `🔴 ${provider.toUpperCase()} Webhook Processing Failed`,
+                        emoji: true,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Provider:* ${provider.toUpperCase()}\n*Reference:* ${reference}\n*Error:* ${error}`,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Time:* ${new Date().toISOString()}`,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `_⚠️ Action Required: Check the order and manually process if payment was confirmed._`,
+                    },
+                },
+            ],
+        };
 
         try {
-            // Handle payout/transfer events
-            if (eventType?.includes("payout") || eventType?.includes("disbursement")) {
-                await this.processPayoutEvent(payload.data as FincraPayoutData);
-                this.logger.log(`Successfully processed payout event for reference: ${reference}`);
-                return;
-            }
-
-            // Handle charge/collection events
-            await this.processChargeEvent(payload.data as FincraChargeData);
-            this.logger.log(`Successfully processed charge event for reference: ${reference}`);
-        } catch (error) {
-            this.logger.error(`Failed to process webhook event=${eventType}, reference=${reference}: ${error.message}`, error.stack);
-
-            // Send Slack alert for webhook failure
-            await this.slackService.sendWebhookFailureAlert(
-                'fincra',
-                reference || 'unknown',
-                error.message,
-                { eventType, payload }
-            ).catch(alertErr => {
-                this.logger.error(`Failed to send Slack alert: ${alertErr.message}`);
-            });
-
-            // Re-throw to return 500 to Fincra so they retry
-            throw error;
+            await this.sendToWebhook(webhookUrl, message);
+            this.logger.log(`Webhook failure alert sent for ${provider}:${reference}`);
+            return { sent: true };
+        } catch (err) {
+            this.logger.error(`Failed to send Slack alert: ${err.message}`);
+            return { sent: false, error: err.message };
         }
     }
-
-    private async processChargeEvent(data: FincraChargeData) {
-        const status = data.status?.toLowerCase();
-        const reference = data.merchantReference || data.reference;
-
-        if (!reference) return;
-
-        switch (status) {
-            case "success":
-            case "successful":
-                await this.bankService.paymentSuccessHandler(reference);
-                break;
-            case "failed":
-            case "cancelled":
-                await this.bankService.paymentFailedHandler(reference);
-                break;
-            case "pending":
-            default:
-                // leave as pending
-                break;
-        }
-    }
-
-    private async processPayoutEvent(data: FincraPayoutData) {
-        const status = data.status?.toLowerCase();
-        const reference = data.customerReference || data.reference;
-
-        if (!reference) return;
-
-        // Update the payment record based on payout status
-        switch (status) {
-            case "successful":
-                await this.updatePayoutStatus(reference, TransactionStatus.SUCCESS);
-                break;
-            case "failed":
-                await this.updatePayoutStatus(reference, TransactionStatus.FAILED);
-                break;
-            case "processing":
-            case "pending":
-            default:
-                // leave as pending
-                break;
-        }
-    }
-
-    private async updatePayoutStatus(reference: string, status: TransactionStatus) {
-        try {
-            await this.prisma.payment.updateMany({
-                where: { reference },
-                data: { status },
-            });
-            this.logger.log(`Updated payout status for ${reference} to ${status}`);
-        } catch (error) {
-            this.logger.error(`Failed to update payout status for ${reference}: ${error.message}`);
-        }
-    }
-}
