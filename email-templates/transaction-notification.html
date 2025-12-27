@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{header}}</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7fa;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            color: #1f2937;
+        }
+
+        .wrapper {
+            width: 100%;
+            background-color: #f4f7fa;
+            padding: 32px 16px;
+        }
+
+        .container {
+            max-width: 520px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+        }
+
+        .header {
+            text-align: center;
+            padding: 24px;
+            border-bottom: 2px solid #10b981;
+        }
+
+        .logo {
+            width: 120px;
+            height: auto;
+            margin-bottom: 12px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 20px;
+            border-radius: 100px;
+            background: linear-gradient(135deg, #10b981 0%, #0047FF 100%);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .timestamp {
+            color: #6b7280;
+            font-size: 12px;
+            margin-top: 12px;
+        }
+
+        .content {
+            padding: 24px;
+        }
+
+        .amount-box {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(0, 71, 255, 0.08) 100%);
+            border: 1px solid #10b981;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .amount-label {
+            color: #6b7280;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+
+        .amount-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #10b981;
+            margin-bottom: 8px;
+        }
+
+        .amount-fiat {
+            color: #6b7280;
+            font-size: 13px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 100px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 10px;
+        }
+
+        .status-completed {
+            background-color: #10b98115;
+            color: #10b981;
+            border: 1px solid #10b98130;
+        }
+
+        .status-pending {
+            background-color: #f59e0b15;
+            color: #f59e0b;
+            border: 1px solid #f59e0b30;
+        }
+
+        .status-failed {
+            background-color: #ef444415;
+            color: #ef4444;
+            border: 1px solid #ef444430;
+        }
+
+        .section-title {
+            color: #10b981;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            font-weight: 600;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 8px;
+        }
+
+        .section-title.blockchain {
+            color: #0047FF;
+        }
+
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-bottom: 20px;
+        }
+
+        .details-table td {
+            padding: 8px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .details-table td:first-child {
+            color: #6b7280;
+        }
+
+        .details-table td:last-child {
+            color: #1f2937;
+            font-weight: 500;
+            text-align: right;
+            word-break: break-all;
+        }
+
+        .mono {
+            font-family: monospace;
+            font-size: 9px;
+        }
+
+        .highlight {
+            color: #0047FF;
+        }
+
+        .footer {
+            border-top: 2px solid #10b981;
+            padding: 16px 24px;
+            text-align: center;
+        }
+
+        .footer-logo {
+            width: 80px;
+            height: auto;
+            margin-bottom: 8px;
+        }
+
+        .footer-text {
+            color: #6b7280;
+            font-size: 10px;
+            margin: 0 0 4px;
+        }
+
+        .footer-copyright {
+            color: #9ca3af;
+            font-size: 9px;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrapper">
+        <div class="container">
+
+            <!-- Header -->
+            <div class="header">
+                <img src="https://flipxer.com/logo.png" alt="Flipxer" class="logo">
+                <div class="badge">{{header}}</div>
+                <p class="timestamp">{{date}}</p>
+            </div>
+
+            <div class="content">
+                <!-- Amount Box -->
+                <div class="amount-box">
+                    <div class="amount-label">Amount</div>
+                    <div class="amount-value">{{amount}} {{currency}}</div>
+                    <div class="amount-fiat">≈ ₦{{fiat_amount}}</div>
+                    <span class="status-badge status-{{status}}">{{status}}</span>
+                </div>
+
+                <!-- Transaction Details -->
+                <div class="section-title">Transaction Details</div>
+                <table class="details-table">
+                    <tr>
+                        <td>Transaction ID</td>
+                        <td class="mono">#{{transaction_id}}</td>
+                    </tr>
+                    <tr>
+                        <td>Order Reference</td>
+                        <td class="mono">{{order_reference}}</td>
+                    </tr>
+                    <tr>
+                        <td>Asset</td>
+                        <td>{{currency}}</td>
+                    </tr>
+                    <tr>
+                        <td>Amount (Crypto)</td>
+                        <td>{{amount}} {{currency}}</td>
+                    </tr>
+                    <tr>
+                        <td>Amount (Fiat)</td>
+                        <td>₦{{fiat_amount}}</td>
+                    </tr>
+                    <tr>
+                        <td>Network Fee</td>
+                        <td>{{network_fee}} {{currency}}</td>
+                    </tr>
+                    <tr>
+                        <td>Exchange Rate</td>
+                        <td>1 {{currency}} = ₦{{exchange_rate}}</td>
+                    </tr>
+                    <tr>
+                        <td>Timestamp</td>
+                        <td>{{date}}</td>
+                    </tr>
+                    <tr>
+                        <td>Description</td>
+                        <td>{{notice}}</td>
+                    </tr>
+                    <tr>
+                        <td>Swap From</td>
+                        <td>{{from_amount}} {{from_currency}}</td>
+                    </tr>
+                    <tr>
+                        <td>Swap To</td>
+                        <td>{{to_amount}} {{to_currency}}</td>
+                    </tr>
+                </table>
+
+                <!-- Blockchain Details -->
+                <div class="section-title blockchain">Blockchain Details</div>
+                <table class="details-table">
+                    <tr>
+                        <td>Network</td>
+                        <td>{{network}}</td>
+                    </tr>
+                    <tr>
+                        <td>Sender Address</td>
+                        <td class="mono">{{wallet_address}}</td>
+                    </tr>
+                    <tr>
+                        <td>Receiver Address</td>
+                        <td class="mono">{{recipient}}</td>
+                    </tr>
+                    <tr>
+                        <td>Transaction Hash</td>
+                        <td class="mono highlight">{{tx_hash}}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Footer -->
+            <div class="footer">
+                <img src="https://flipxer.com/logo.png" alt="Flipxer" class="footer-logo">
+                <p class="footer-text">hello@flipxer.com • flipxer.com</p>
+                <p class="footer-copyright">© 2024 Flipxer. All rights reserved.</p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

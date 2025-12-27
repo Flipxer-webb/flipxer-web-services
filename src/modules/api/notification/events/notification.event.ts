@@ -65,10 +65,16 @@ export class NotificationEvent extends EventEmitter {
                     // Swap details
                     to_amount: options.toAmount || '',
                     to_currency: options.toCurrency || '',
+                    from_amount: options.fromAmount || '',
+                    from_currency: options.fromCurrency || '',
                     // Fiat details (buy/sell)
                     fiat_amount: options.fiatAmount || '',
                     bank_name: options.bankName || '',
                     account_number: options.accountNumber || '',
+                    // Additional receipt fields
+                    order_reference: options.orderReference || '',
+                    network_fee: options.networkFee || '',
+                    exchange_rate: options.exchangeRate || '',
                 },
             });
         } catch (error) {

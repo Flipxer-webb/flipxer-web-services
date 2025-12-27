@@ -19,10 +19,16 @@ export interface SendTransactionNotification {
     // For swaps
     toAmount?: string;
     toCurrency?: string;
+    fromAmount?: string;
+    fromCurrency?: string;
     // For sell/buy
     fiatAmount?: string;
     bankName?: string;
     accountNumber?: string;
+    // Additional receipt fields
+    orderReference?: string;
+    networkFee?: string;
+    exchangeRate?: string;
 }
 
 export interface NotificationEventMap {
