@@ -201,6 +201,18 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get swap estimate (avoids creating quota limits)" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("estimate-swap")
+    async getSwapEstimate(
+        @Body() dto: PlaceInstantSwapRequestDto,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.getSwapEstimate(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Generate instant swap quote (valid for 25s)" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")

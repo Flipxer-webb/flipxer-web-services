@@ -303,6 +303,46 @@ export class TradingService {
     }
 
     /**
+     * Gets a swap estimate using cached market data.
+     * Use this for the UI polling to avoid hitting Quidax rate limits.
+     */
+    async getSwapEstimate(user: User, dto: PlaceInstantSwapRequestDto) {
+        try {
+            // Use LiveCoinWatch to get latest prices avoiding Quidax limits
+            const [fromPrice, toPrice] = await Promise.all([
+                this.liveCoinWatchService.getPriceInUSD(dto.from_currency),
+                this.liveCoinWatchService.getPriceInUSD(dto.to_currency)
+            ]);
+
+            const fromAmount = parseFloat(dto.from_amount);
+            // Calculate raw conversion: (Amount * FromPrice) / ToPrice
+            const conversionRate = fromPrice / toPrice;
+            // Apply a small safety slippage buffer (e.g. 0.5%) to the estimate
+            // so user isn't disappointed if real execution is slightly lower
+            const estimatedRate = conversionRate * 0.995;
+            const toAmount = fromAmount * estimatedRate;
+
+            return buildResponse({
+                message: "Swap estimate retrieved",
+                data: {
+                    id: "estimate_" + Date.now(), // Fake ID
+                    from_currency: dto.from_currency,
+                    to_currency: dto.to_currency,
+                    from_amount: dto.from_amount,
+                    to_amount: toAmount.toFixed(8),
+                    quoted_price: estimatedRate.toFixed(8),
+                    quoted_currency: dto.to_currency,
+                    expires_at: new Date(Date.now() + 15000).toISOString(), // Mock expiry
+                }
+            });
+        } catch (error) {
+            this.logger.error(`Failed to get swap estimate: ${error.message}`);
+            // Fallback to Quidax if LCW fails (though unlikely with cache)
+            return this.swapService.createInstantSwap(user, dto);
+        }
+    }
+
+    /**
      * Executes an atomic swap (get quote + confirm in one operation)
      * This is the recommended method for swaps as it eliminates timing issues
      * with quote expiry by getting and confirming a quote in milliseconds.
