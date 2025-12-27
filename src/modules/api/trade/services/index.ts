@@ -314,7 +314,7 @@ export class TradingService {
                 this.liveCoinWatchService.getPriceInUSD(dto.to_currency)
             ]);
 
-            const fromAmount = parseFloat(dto.from_amount);
+            const fromAmount = Number(dto.from_amount || 0);
             // Calculate raw conversion: (Amount * FromPrice) / ToPrice
             const conversionRate = fromPrice / toPrice;
             // Apply a small safety slippage buffer (e.g. 0.5%) to the estimate
