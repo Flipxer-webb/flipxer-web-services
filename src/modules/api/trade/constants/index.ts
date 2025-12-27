@@ -136,19 +136,17 @@ export const ALL_SUPPORTED_CURRENCIES_FOR_SYNC = [
  * Quote expiration time in milliseconds (displayed to user).
  * 
  * IMPORTANT: Quidax quotes are only valid for 15 seconds on their end.
- * We display 25 seconds to account for network latency, but the actual
- * validity is controlled by Quidax. If quote expires, use refreshInstantSwap
- * to get a new quote before confirming.
+ * We match this timing exactly. If quote expires, request a fresh quote.
  * 
  * @see https://docs.quidax.com - Instant Swap documentation
  */
-export const QUOTE_EXPIRY_MS = 25 * 1000;
+export const QUOTE_EXPIRY_MS = 15 * 1000;
 
 /**
  * When to trigger auto-refresh before quote expires (in ms).
  * Refresh 3 seconds before displayed expiry to ensure fresh quote.
  */
-export const QUOTE_REFRESH_THRESHOLD_MS = 22 * 1000;
+export const QUOTE_REFRESH_THRESHOLD_MS = 12 * 1000;
 
 /**
  * Wallet cache TTL in seconds (respects Quidax rate limits)
