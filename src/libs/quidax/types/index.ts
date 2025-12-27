@@ -344,8 +344,8 @@ export type ConfirmInstantSwapRequestResponse = SwapTransaction;
 export interface RefreshInstantSwapOptions {
     from_currency: string; //the currency you are swapping from
     to_currency: string; //the currency you are swapping to.
-    from_amount: string; //the amount you want to swap.
-    to_amount: string; //the amount you want to swap to.
+    from_amount?: string; //the amount you want to swap (optional)
+    to_amount?: string; //the amount you want to swap to (optional)
 }
 
 export type RefreshInstantSwapResponse = SwapTransaction;
