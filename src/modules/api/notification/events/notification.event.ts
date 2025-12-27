@@ -31,14 +31,44 @@ export class NotificationEvent extends EventEmitter {
 
     async sendTransactionNotification(options: t.SendTransactionNotification) {
         try {
+            // Format transaction type for display
+            const transactionTypeLabels: Record<t.TransactionType, string> = {
+                deposit: 'Deposit Received',
+                withdrawal: 'Withdrawal Processed',
+                swap: 'Swap Completed',
+                buy: 'Purchase Completed',
+                sell: 'Sale Completed',
+            };
+
             await this.emailService.sendMailWithTemplate({
                 from: { address: cf.mailConfig.senderMail },
                 to: [{ email_address: { address: options.email } }],
                 template_key: cf.emailTemplateConfig.transaction_notification,
                 merge_info: {
+                    // Basic info
                     team: cf.COMPANY_NAME,
-                    header: "Transaction Notification",
+                    header: transactionTypeLabels[options.transactionType] || "Transaction Notification",
                     notice: options.notice,
+                    // Structured transaction details
+                    transaction_type: options.transactionType,
+                    transaction_id: options.transactionId,
+                    amount: options.amount,
+                    currency: options.currency,
+                    status: options.status,
+                    date: options.date,
+                    // Blockchain details
+                    tx_hash: options.txHash || '',
+                    network: options.network || '',
+                    wallet_address: options.walletAddress || '',
+                    explorer_url: options.explorerUrl || '',
+                    recipient: options.recipient || '',
+                    // Swap details
+                    to_amount: options.toAmount || '',
+                    to_currency: options.toCurrency || '',
+                    // Fiat details (buy/sell)
+                    fiat_amount: options.fiatAmount || '',
+                    bank_name: options.bankName || '',
+                    account_number: options.accountNumber || '',
                 },
             });
         } catch (error) {
@@ -46,3 +76,4 @@ export class NotificationEvent extends EventEmitter {
         }
     }
 }
+

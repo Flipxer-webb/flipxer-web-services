@@ -50,7 +50,7 @@ export class WithdrawalWebhookHandler {
         private readonly wsGateway: WsGateway,
         private readonly lockService: DistributedLockService,
         private readonly walletAddressService: WalletAddressService
-    ) {}
+    ) { }
 
     /**
      * Handle withdrawal transaction webhook from Quidax
@@ -58,7 +58,7 @@ export class WithdrawalWebhookHandler {
      */
     async handle(options: WithdrawerTransactionHandlerOptions) {
         const lockKey = `withdraw:${options.orderReference}`;
-        
+
         try {
             return await this.lockService.withLock(
                 lockKey,
@@ -157,7 +157,7 @@ export class WithdrawalWebhookHandler {
     private async handleWithdrawalDone(transaction: any) {
         // Sync wallet with Quidax to ensure balance is up to date
         await this.walletAddressService.syncWallet(transaction.user.id, transaction.currency);
-        
+
         // Emit wallet update after sync
         this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
@@ -206,6 +206,14 @@ export class WithdrawalWebhookHandler {
         this.notificationEvent.emit("transaction_notification", {
             email: transaction.user.email,
             notice: message,
+            transactionType: 'withdrawal',
+            transactionId: transaction.transactionId,
+            amount: String(transaction.amount),
+            currency: transaction.currency.toUpperCase(),
+            status: 'completed',
+            date: new Date().toISOString(),
+            recipient: transaction.recipient || '',
+            network: transaction.network || '',
         });
 
         const notificationList = await this.prisma.notification.findMany({
@@ -245,6 +253,14 @@ export class WithdrawalWebhookHandler {
         this.notificationEvent.emit("transaction_notification", {
             email: transaction.user.email,
             notice: message,
+            transactionType: 'withdrawal',
+            transactionId: transaction.transactionId,
+            amount: String(transaction.amount),
+            currency: transaction.currency.toUpperCase(),
+            status: 'failed',
+            date: new Date().toISOString(),
+            recipient: transaction.recipient || '',
+            network: transaction.network || '',
         });
 
         const notificationList = await this.prisma.notification.findMany({

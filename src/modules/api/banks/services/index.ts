@@ -484,6 +484,13 @@ export class BankService {
                     this.notificationEvent.emit("transaction_notification", {
                         email: order.user.email,
                         notice: message,
+                        transactionType: 'buy',
+                        transactionId: order.transactionId,
+                        amount: String(order.amount),
+                        currency: order.currency.toUpperCase(),
+                        status: 'completed',
+                        date: new Date().toISOString(),
+                        walletAddress: order.recipient || '',
                     });
 
                     const notificationList = await this.prisma.notification.findMany({
@@ -571,6 +578,15 @@ export class BankService {
                     this.notificationEvent.emit("transaction_notification", {
                         email: user.email,
                         notice: message,
+                        transactionType: 'sell',
+                        transactionId: transaction.transactionId,
+                        amount: String(transaction.amount),
+                        currency: 'NGN',
+                        status: 'completed',
+                        date: new Date().toISOString(),
+                        fiatAmount: String(transaction.amount),
+                        bankName: transaction.destinationBankAccountName || '',
+                        accountNumber: transaction.destinationBankAccountNumber || '',
                     });
 
                     const notificationList = await this.prisma.notification.findMany({

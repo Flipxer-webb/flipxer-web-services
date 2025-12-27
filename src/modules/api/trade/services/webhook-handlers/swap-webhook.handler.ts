@@ -42,7 +42,7 @@ export class SwapWebhookHandler {
         private readonly wsGateway: WsGateway,
         private readonly lockService: DistributedLockService,
         private readonly walletAddressService: WalletAddressService
-    ) {}
+    ) { }
 
     /**
      * Handle swap transaction webhook from Quidax
@@ -50,7 +50,7 @@ export class SwapWebhookHandler {
      */
     async handle(options: SwapTransactionHandlerOptions) {
         const lockKey = `swap:${options.orderId}`;
-        
+
         try {
             return await this.lockService.withLock(
                 lockKey,
@@ -161,6 +161,14 @@ export class SwapWebhookHandler {
         this.notificationEvent.emit("transaction_notification", {
             email: transaction.user.email,
             notice: message,
+            transactionType: 'swap',
+            transactionId: transaction.transactionId,
+            amount: String(transaction.fromAmount),
+            currency: transaction.fromCurrency?.toUpperCase(),
+            status: 'completed',
+            date: new Date().toISOString(),
+            toAmount: String(transaction.toAmount),
+            toCurrency: transaction.toCurrency?.toUpperCase(),
         });
 
         const notificationList = await this.prisma.notification.findMany({

@@ -46,7 +46,7 @@ export class DepositWebhookHandler {
         private readonly wsGateway: WsGateway,
         private readonly lockService: DistributedLockService,
         private readonly walletAddressService: WalletAddressService
-    ) {}
+    ) { }
 
     /**
      * Handle incoming deposit webhook from Quidax
@@ -54,7 +54,7 @@ export class DepositWebhookHandler {
      */
     async handle(options: DepositTransaction) {
         const lockKey = `deposit:${options.referenceId}`;
-        
+
         try {
             return await this.lockService.withLock(
                 lockKey,
@@ -165,11 +165,11 @@ export class DepositWebhookHandler {
         );
 
         const transactionId = generateId({ type: "transaction" });
-        
+
         // Use the original deposit timestamp from Quidax
         const depositCreatedAt = options.created_at ? new Date(options.created_at) : new Date();
         const depositCompletedAt = options.done_at ? new Date(options.done_at) : null;
-        
+
         const createdOrder = await this.prisma.order.create({
             data: {
                 orderCategory: OrderCategory.RECEIVE,
@@ -215,7 +215,7 @@ export class DepositWebhookHandler {
     ) {
         const updatedOrder = await this.prisma.order.update({
             where: { id: transaction.id },
-            data: { 
+            data: {
                 status: options.status,
                 streamlinedStatus: getStreamlinedStatus(options.status),
             },
@@ -327,6 +327,15 @@ export class DepositWebhookHandler {
         this.notificationEvent.emit("transaction_notification", {
             email: user.email,
             notice: message,
+            transactionType: 'deposit',
+            transactionId: transactionId,
+            amount: String(options.amount),
+            currency: options.currency.toUpperCase(),
+            status: 'completed',
+            date: new Date().toISOString(),
+            txHash: options.txid || '',
+            network: options.network || '',
+            walletAddress: options.payment_address || '',
         });
 
         const notificationList = await this.prisma.notification.findMany({
