@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{header}}</title>
     <style>
-        /* Web App Design Colors */
+        /* Web App Design Colors from globals.css */
         body {
             margin: 0;
             padding: 0;
@@ -18,119 +18,120 @@
         .wrapper {
             width: 100%;
             background-color: #f4f4f5;
-            padding: 32px 16px;
+            padding: 40px 16px;
         }
 
         .container {
-            max-width: 520px;
+            max-width: 595px;
             margin: 0 auto;
             background-color: #ffffff;
             border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
         }
 
         .header {
             text-align: center;
-            padding: 24px;
-            border-bottom: 2px solid #305DC9;
+            padding: 28px 24px;
+            border-bottom: 3px solid #305DC9;
         }
 
         .logo {
-            width: 120px;
+            width: 160px;
             height: auto;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
         }
 
         .badge {
             display: inline-block;
-            padding: 6px 20px;
+            padding: 8px 24px;
             border-radius: 6px;
             background-color: #305DC9;
             color: #fff;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
         .timestamp {
-            color: #aaabac;
-            font-size: 12px;
-            margin-top: 12px;
+            color: #5a5b5b;
+            font-size: 13px;
+            margin-top: 14px;
         }
 
         .content {
-            padding: 24px;
+            padding: 28px;
         }
 
         .amount-box {
             background-color: #f4f4f5;
-            border: 1px solid #e1e4ea;
+            border: 2px solid #e1e4ea;
             border-radius: 12px;
-            padding: 20px;
+            padding: 28px;
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
 
         .amount-label {
             color: #aaabac;
-            font-size: 11px;
+            font-size: 12px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
         }
 
         .amount-value {
-            font-size: 28px;
+            font-size: 36px;
             font-weight: 700;
             color: #020202;
             margin-bottom: 8px;
         }
 
         .amount-fiat {
-            color: #aaabac;
-            font-size: 13px;
+            color: #5a5b5b;
+            font-size: 14px;
+            margin-bottom: 12px;
         }
 
         .status-badge {
             display: inline-block;
-            padding: 4px 14px;
+            padding: 6px 18px;
             border-radius: 100px;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
-            margin-top: 8px;
         }
 
         .status-completed {
-            background-color: #09952815;
+            background-color: #09952818;
             color: #099528;
-            border: 1px solid #09952830;
+            border: 2px solid #09952840;
         }
 
         .status-pending,
         .status-processing {
-            background-color: #95600915;
+            background-color: #95600918;
             color: #956009;
-            border: 1px solid #95600930;
+            border: 2px solid #95600940;
         }
 
         .status-failed {
-            background-color: #e40e0e15;
+            background-color: #e40e0e18;
             color: #e40e0e;
-            border: 1px solid #e40e0e30;
+            border: 2px solid #e40e0e40;
         }
 
         .section-title {
             color: #305DC9;
-            font-size: 11px;
+            font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-bottom: 12px;
+            margin-bottom: 14px;
             font-weight: 600;
-            border-bottom: 1px solid #e1e4ea;
-            padding-bottom: 8px;
+            border-bottom: 2px solid #e1e4ea;
+            padding-bottom: 10px;
         }
 
         .section-title.blockchain {
@@ -140,12 +141,12 @@
         .details-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 12px;
-            margin-bottom: 20px;
+            font-size: 13px;
+            margin-bottom: 24px;
         }
 
         .details-table td {
-            padding: 8px 0;
+            padding: 10px 0;
             border-bottom: 1px solid #f4f4f5;
         }
 
@@ -162,7 +163,7 @@
 
         .mono {
             font-family: monospace;
-            font-size: 9px;
+            font-size: 10px;
         }
 
         .highlight {
@@ -170,26 +171,26 @@
         }
 
         .footer {
-            border-top: 2px solid #305DC9;
-            padding: 16px 24px;
+            border-top: 3px solid #305DC9;
+            padding: 20px 24px;
             text-align: center;
         }
 
         .footer-logo {
-            width: 80px;
+            width: 100px;
             height: auto;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
         }
 
         .footer-text {
-            color: #aaabac;
-            font-size: 10px;
-            margin: 0 0 4px;
+            color: #5a5b5b;
+            font-size: 12px;
+            margin: 0 0 6px;
         }
 
         .footer-copyright {
-            color: #5a5b5b;
-            font-size: 9px;
+            color: #aaabac;
+            font-size: 11px;
             margin: 0;
         }
     </style>
@@ -227,6 +228,10 @@
                         <td class="mono">{{order_reference}}</td>
                     </tr>
                     <tr>
+                        <td>Type</td>
+                        <td>{{transaction_type}}</td>
+                    </tr>
+                    <tr>
                         <td>Asset</td>
                         <td>{{currency}}</td>
                     </tr>
@@ -245,6 +250,10 @@
                     <tr>
                         <td>Exchange Rate</td>
                         <td>1 {{currency}} = ₦{{exchange_rate}}</td>
+                    </tr>
+                    <tr>
+                        <td>Status</td>
+                        <td style="font-weight: 600; text-transform: capitalize;">{{status}}</td>
                     </tr>
                     <tr>
                         <td>Timestamp</td>
@@ -272,11 +281,11 @@
                         <td>{{network}}</td>
                     </tr>
                     <tr>
-                        <td>Sender Address</td>
+                        <td>Wallet Address</td>
                         <td class="mono">{{wallet_address}}</td>
                     </tr>
                     <tr>
-                        <td>Receiver Address</td>
+                        <td>Recipient</td>
                         <td class="mono">{{recipient}}</td>
                     </tr>
                     <tr>
