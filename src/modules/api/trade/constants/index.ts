@@ -15,52 +15,52 @@ export const NETWORK_ALIAS_MAP: Record<string, NetworkTypes> = {
     // TRC20 / Tron
     trc20: NetworkTypes.trc20,
     tron: NetworkTypes.trc20,
-    
+
     // ERC20 / Ethereum
     erc20: NetworkTypes.erc20,
     ethereum: NetworkTypes.erc20,
     eth: NetworkTypes.erc20,
-    
+
     // BEP20 / BSC
     bep20: NetworkTypes.bep20,
     bsc: NetworkTypes.bep20,
     bnb: NetworkTypes.bep20,
-    
+
     // Bitcoin
     btc: NetworkTypes.btc,
     bitcoin: NetworkTypes.btc,
-    
+
     // Litecoin
     ltc: NetworkTypes.ltc,
     litecoin: NetworkTypes.ltc,
-    
+
     // Other networks
     dash: NetworkTypes.dash,
     doge: NetworkTypes.doge,
     dogecoin: NetworkTypes.doge,
     bch: NetworkTypes.bch,
     "bitcoin cash": NetworkTypes.bch,
-    
+
     // XRP / Ripple
     ripple: NetworkTypes.ripple,
     xrp: NetworkTypes.ripple,
-    
+
     // Stellar
     stellar: NetworkTypes.stellar,
     xlm: NetworkTypes.stellar,
-    
+
     // Cardano
     cardano: NetworkTypes.cardano,
     ada: NetworkTypes.cardano,
-    
+
     // Solana
     solana: NetworkTypes.solana,
     sol: NetworkTypes.solana,
-    
+
     // Polygon
     polygon: NetworkTypes.polygon,
     matic: NetworkTypes.polygon,
-    
+
     // Other L2s and chains
     ton: NetworkTypes.ton,
     celo: NetworkTypes.celo,
@@ -134,9 +134,10 @@ export const ALL_SUPPORTED_CURRENCIES_FOR_SYNC = [
 
 /**
  * Quote expiration time in milliseconds.
- * Extended to 25 seconds for better UX with 2FA verification.
+ * Extended to 90 seconds to allow sufficient time for 2FA verification.
+ * Users need time to: review quote, enter auth code, and confirm.
  */
-export const QUOTE_EXPIRY_MS = 25 * 1000;
+export const QUOTE_EXPIRY_MS = 90 * 1000;
 
 /**
  * Wallet cache TTL in seconds (respects Quidax rate limits)
