@@ -6,17 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{header}}</title>
     <style>
+        /* Web App Design Colors */
         body {
             margin: 0;
             padding: 0;
-            background-color: #f4f7fa;
-            font-family: 'Segoe UI', Tahoma, sans-serif;
-            color: #1f2937;
+            background-color: #f4f4f5;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #020202;
         }
 
         .wrapper {
             width: 100%;
-            background-color: #f4f7fa;
+            background-color: #f4f4f5;
             padding: 32px 16px;
         }
 
@@ -24,15 +25,15 @@
             max-width: 520px;
             margin: 0 auto;
             background-color: #ffffff;
-            border-radius: 16px;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
 
         .header {
             text-align: center;
             padding: 24px;
-            border-bottom: 2px solid #10b981;
+            border-bottom: 2px solid #305DC9;
         }
 
         .logo {
@@ -44,17 +45,17 @@
         .badge {
             display: inline-block;
             padding: 6px 20px;
-            border-radius: 100px;
-            background: linear-gradient(135deg, #10b981 0%, #0047FF 100%);
+            border-radius: 6px;
+            background-color: #305DC9;
             color: #fff;
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
         }
 
         .timestamp {
-            color: #6b7280;
+            color: #aaabac;
             font-size: 12px;
             margin-top: 12px;
         }
@@ -64,8 +65,8 @@
         }
 
         .amount-box {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(0, 71, 255, 0.08) 100%);
-            border: 1px solid #10b981;
+            background-color: #f4f4f5;
+            border: 1px solid #e1e4ea;
             border-radius: 12px;
             padding: 20px;
             text-align: center;
@@ -73,22 +74,22 @@
         }
 
         .amount-label {
-            color: #6b7280;
+            color: #aaabac;
             font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
             margin-bottom: 4px;
         }
 
         .amount-value {
             font-size: 28px;
             font-weight: 700;
-            color: #10b981;
+            color: #020202;
             margin-bottom: 8px;
         }
 
         .amount-fiat {
-            color: #6b7280;
+            color: #aaabac;
             font-size: 13px;
         }
 
@@ -99,40 +100,41 @@
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
-            margin-top: 10px;
+            margin-top: 8px;
         }
 
         .status-completed {
-            background-color: #10b98115;
-            color: #10b981;
-            border: 1px solid #10b98130;
+            background-color: #09952815;
+            color: #099528;
+            border: 1px solid #09952830;
         }
 
-        .status-pending {
-            background-color: #f59e0b15;
-            color: #f59e0b;
-            border: 1px solid #f59e0b30;
+        .status-pending,
+        .status-processing {
+            background-color: #95600915;
+            color: #956009;
+            border: 1px solid #95600930;
         }
 
         .status-failed {
-            background-color: #ef444415;
-            color: #ef4444;
-            border: 1px solid #ef444430;
+            background-color: #e40e0e15;
+            color: #e40e0e;
+            border: 1px solid #e40e0e30;
         }
 
         .section-title {
-            color: #10b981;
+            color: #305DC9;
             font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
             margin-bottom: 12px;
             font-weight: 600;
-            border-bottom: 1px solid #e5e7eb;
+            border-bottom: 1px solid #e1e4ea;
             padding-bottom: 8px;
         }
 
         .section-title.blockchain {
-            color: #0047FF;
+            color: #2850B0;
         }
 
         .details-table {
@@ -144,15 +146,15 @@
 
         .details-table td {
             padding: 8px 0;
-            border-bottom: 1px solid #f3f4f6;
+            border-bottom: 1px solid #f4f4f5;
         }
 
         .details-table td:first-child {
-            color: #6b7280;
+            color: #aaabac;
         }
 
         .details-table td:last-child {
-            color: #1f2937;
+            color: #020202;
             font-weight: 500;
             text-align: right;
             word-break: break-all;
@@ -164,11 +166,11 @@
         }
 
         .highlight {
-            color: #0047FF;
+            color: #305DC9;
         }
 
         .footer {
-            border-top: 2px solid #10b981;
+            border-top: 2px solid #305DC9;
             padding: 16px 24px;
             text-align: center;
         }
@@ -180,13 +182,13 @@
         }
 
         .footer-text {
-            color: #6b7280;
+            color: #aaabac;
             font-size: 10px;
             margin: 0 0 4px;
         }
 
         .footer-copyright {
-            color: #9ca3af;
+            color: #5a5b5b;
             font-size: 9px;
             margin: 0;
         }
