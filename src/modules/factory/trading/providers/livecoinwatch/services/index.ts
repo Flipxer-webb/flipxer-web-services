@@ -91,7 +91,7 @@ export class LiveCoinWatchService {
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 console.log(`🌍 [LCW] Requesting price for ${asset} (code: ${lcwCode}), attempt ${attempt}`);
-                
+
                 const response = await this.apiClient.post("/coins/single", {
                     currency: "USD",
                     code: lcwCode,
@@ -195,7 +195,7 @@ export class LiveCoinWatchService {
                 });
 
                 const history = response.data.history as LiveCoinWatchHistoryPoint[];
-                
+
                 // Convert to [timestamp, price] format
                 const prices: [number, number][] = history.map(point => [point.date, point.rate]);
 
@@ -234,10 +234,10 @@ export class LiveCoinWatchService {
         console.log(`🔍 [LCW] Batch fetching prices for: ${assets.join(", ")}`);
 
         const result: Record<string, number | null> = {};
-        
+
         try {
             const codes = assets.map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase());
-            
+
             const response = await this.apiClient.post("/coins/list", {
                 currency: "USD",
                 codes: codes,
@@ -249,7 +249,7 @@ export class LiveCoinWatchService {
             });
 
             const coins = response.data as LiveCoinWatchCoin[];
-            
+
             coins.forEach(coin => {
                 const assetKey = assets.find(
                     a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
@@ -306,5 +306,74 @@ export class LiveCoinWatchService {
         await this.redisCacheService.set(cacheKey, result, 5 * 60); // Cache 5 minutes
 
         return result;
+    }
+
+
+    /**
+     * Get batch market data (price + 24h change) for multiple assets
+     */
+    async getBatchMarketData(
+        assets: string[]
+    ): Promise<Record<string, { price: number; change24h: number } | null>> {
+        console.log(`🔍 [LCW] Batch fetching market data for: ${assets.join(", ")}`);
+
+        const result: Record<string, { price: number; change24h: number } | null> = {};
+
+        try {
+            const codes = assets
+                .map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase())
+                // Basic cleanup/mapping
+                .filter(Boolean); // Ensure valid codes
+
+            if (codes.length === 0) return result;
+
+            const response = await this.apiClient.post("/coins/list", {
+                currency: "USD",
+                codes: codes,
+                sort: "rank",
+                order: "ascending",
+                offset: 0,
+                limit: codes.length,
+                meta: true, // Need meta to get delta? No, delta is usually top level or in delta object. 
+                // Interface says delta is in LiveCoinWatchCoin.
+                // /coins/list returns array of objects with code, rate, volume, cap, delta.
+            });
+
+            const coins = response.data as LiveCoinWatchCoin[];
+
+            coins.forEach(coin => {
+                const assetKey = assets.find(
+                    a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
+                );
+
+                if (assetKey) {
+                    const price = coin.rate;
+                    // delta.day is a multiplier (e.g. 1.05 = +5%). 
+                    // Calculate percentage change: (delta - 1) * 100
+                    const rawDelta = coin.delta?.day ?? 1;
+                    const change24h = (rawDelta - 1) * 100;
+
+                    result[assetKey.toLowerCase()] = {
+                        price,
+                        change24h
+                    };
+                }
+            });
+
+            // Fill in nulls for missing
+            assets.forEach(a => {
+                if (!result[a.toLowerCase()]) {
+                    result[a.toLowerCase()] = null;
+                }
+            });
+
+            return result;
+        } catch (error) {
+            console.error(`❌ [LCW] Batch market data fetch failed:`, error.message);
+            assets.forEach(a => {
+                result[a.toLowerCase()] = null;
+            });
+            return result;
+        }
     }
 }

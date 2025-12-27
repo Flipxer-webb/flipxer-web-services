@@ -41,7 +41,8 @@ import {
     DuplicateVerificationException,
 } from "../../auth/errors";
 import { Ticker } from "@/libs/quidax/types/trade";
-import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 
 @Injectable()
@@ -61,7 +62,8 @@ export class UserService {
         private uploadFactory: UploadFactory,
         private readonly quidaxCacheService: QuidaxCacheService,
         private readonly tierService: TierService,
-        private readonly coinGeckoCacheService: CoinGeckoCacheService,
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
+        private readonly liveCoinWatchService: LiveCoinWatchService,
         private readonly redisCacheService: RedisCacheService
     ) {
         this.uploadService = this.uploadFactory.build({
@@ -205,9 +207,14 @@ export class UserService {
         for (const order of orders) {
             if (order.amount && order.currency) {
                 // Always use current USD rate - rateAtConversion is in NGN!
-                const rate = await this.coinGeckoCacheService.getPriceInUSD(
-                    order.currency.toLowerCase() as SupportedAssets
-                );
+                let rate = 0;
+                try {
+                    rate = await this.liveCoinWatchService.getPriceInUSD(
+                        order.currency.toLowerCase()
+                    );
+                } catch (error) {
+                    this.logger.warn(`Failed to fetch USD rate for ${order.currency}: ${error.message}`);
+                }
                 const usdAmount = order.amount * (rate || 0);
                 usedToday += usdAmount;
             }
@@ -465,11 +472,11 @@ export class UserService {
 
         const [assets, count] = assetsResult;
 
-        // Fetch CoinGecko market data for percentage change fallback
+        // Fetch LiveCoinWatch market data for percentage change fallback
         const uniqueAssets = [...new Set(assets.map(a => a.assetCurrency))];
-        const coinGeckoStartTime = Date.now();
-        const coinGeckoData = await this.coinGeckoCacheService.getBatchMarketData(uniqueAssets);
-        this.logger.log(`[PERF] CoinGecko batch fetch for ${uniqueAssets.length} assets: ${Date.now() - coinGeckoStartTime}ms`);
+        const lcwStartTime = Date.now();
+        const lcwData = await this.liveCoinWatchService.getBatchMarketData(uniqueAssets);
+        this.logger.log(`[PERF] LiveCoinWatch batch fetch for ${uniqueAssets.length} assets: ${Date.now() - lcwStartTime}ms`);
 
         const adminRatesMap = new Map(
             adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
@@ -498,12 +505,12 @@ export class UserService {
                 const marketSymbol = `${assetCurrency}${referenceCurrency}`;
                 const ticker = liveMarketData?.[marketSymbol]?.ticker;
 
-                // CoinGecko data lookup
-                const cgData = coinGeckoData[assetCurrency];
+                // LiveCoinWatch data lookup
+                const marketData = lcwData[assetCurrency];
 
-                // Prioritize CoinGecko for market stats (24h change) as it's more reliable/global
-                // Fallback to Quidax generic calculation if CoinGecko is unavailable
-                const percentChange = cgData?.change24h ?? this.calculatePercentageChange(ticker);
+                // Prioritize LiveCoinWatch for market stats (24h change) as it's more reliable/global
+                // Fallback to Quidax generic calculation if LCW is unavailable
+                const percentChange = marketData?.change24h ?? this.calculatePercentageChange(ticker);
 
                 return {
                     ...asset,
