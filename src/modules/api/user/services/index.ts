@@ -567,6 +567,14 @@ export class UserService {
             );
         }
 
+        // Check that new password is different from old password
+        if (options.newPassword === options.oldPassword) {
+            throw new IncorrectPasswordException(
+                "Your new password must be different from your current password",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         const newHashedPassword = await this.authService.hashPassword(
             options.newPassword
         );
