@@ -473,6 +473,8 @@ export class TradingService {
                 ...swapInfo.data,
                 transactionId: transactionId,
                 quote: quote.data,
+                // Ensure swap_quotation exists for frontend compatibility (SuccessModal needs it)
+                swap_quotation: swapInfo.data?.swap_quotation || quote.data,
             },
         });
     }
