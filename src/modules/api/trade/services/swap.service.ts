@@ -105,8 +105,8 @@ export class SwapService {
      * Confirms and executes a swap quote.
      * 
      * If the quote has expired (Quidax 15s limit), this method will:
-     * 1. Automatically refresh the quote using provided currency/amount params
-     * 2. Retry confirmation with the new quotation_id
+     * 1. Get a completely fresh quote (not refresh - which also fails if expired)
+     * 2. Immediately confirm the new quote
      * 
      * @throws TransactionExpiredException if quote expired and no refresh params provided
      */
@@ -131,18 +131,18 @@ export class SwapService {
             });
         } catch (error: any) {
             // Check if this is a quote expired error
-            const isExpiredError = error?.message?.toLowerCase()?.includes("expired") ||
-                error?.message?.toLowerCase()?.includes("invalid quotation") ||
-                error?.response?.data?.message?.toLowerCase()?.includes("expired");
+            const errorMessage = (error?.message || error?.response?.data?.message || "").toLowerCase();
+            const isExpiredError = errorMessage.includes("expired") ||
+                errorMessage.includes("invalid quotation") ||
+                errorMessage.includes("quotation not found");
 
-            // If expired and we have refresh params, auto-refresh and retry
+            // If expired and we have required params, get a FRESH quote and confirm
             if (isExpiredError && dto.from_currency && dto.to_currency && dto.from_amount) {
-                this.logger.log(`Quote ${dto.quotationId} expired, auto-refreshing...`);
+                this.logger.log(`Quote ${dto.quotationId} expired, getting fresh quote...`);
 
-                // Refresh the quote
-                const refreshedQuote = await this.quidaxService.refreshInstantSwapQuote(
+                // Get a completely NEW quote (not refresh - which also fails with expired quote)
+                const freshQuote = await this.quidaxService.createInstantSwapRequest(
                     user.cryptoSubAccountId,
-                    dto.quotationId,
                     {
                         from_currency: dto.from_currency,
                         to_currency: dto.to_currency,
@@ -150,10 +150,12 @@ export class SwapService {
                     }
                 );
 
-                // Retry confirmation with new quote
+                this.logger.log(`Got fresh quote ${freshQuote.data.id}, confirming immediately...`);
+
+                // Immediately confirm the new quote
                 const retrySwapInfo = await this.quidaxService.confirmInstantSwap({
                     user_id: user.cryptoSubAccountId,
-                    quotation_id: refreshedQuote.data.id,
+                    quotation_id: freshQuote.data.id,
                 });
 
                 return buildResponse({
