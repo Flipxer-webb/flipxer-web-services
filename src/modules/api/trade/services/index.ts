@@ -303,6 +303,141 @@ export class TradingService {
     }
 
     /**
+     * Executes an atomic swap (get quote + confirm in one operation)
+     * This is the recommended method for swaps as it eliminates timing issues
+     * with quote expiry by getting and confirming a quote in milliseconds.
+     */
+    async executeAtomicSwap(user: User, dto: {
+        from_currency: string;
+        to_currency: string;
+        from_amount: number;
+    }) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        this.logger.log(`Executing atomic swap: ${dto.from_amount} ${dto.from_currency} -> ${dto.to_currency}`);
+
+        // Step 1: Get a fresh quote
+        const quoteStartTime = Date.now();
+        const quote = await this.quidaxService.createInstantSwapRequest(
+            user.cryptoSubAccountId,
+            {
+                from_currency: dto.from_currency.toLowerCase(),
+                to_currency: dto.to_currency.toLowerCase(),
+                from_amount: dto.from_amount.toString(),
+            }
+        );
+        this.logger.log(`Got quote ${quote.data.id} in ${Date.now() - quoteStartTime}ms`);
+
+        // Step 2: Immediately confirm the quote
+        const confirmStartTime = Date.now();
+        const swapInfo = await this.quidaxService.confirmInstantSwap({
+            user_id: user.cryptoSubAccountId,
+            quotation_id: quote.data.id,
+        });
+        this.logger.log(`Confirmed swap in ${Date.now() - confirmStartTime}ms`);
+
+        this.logger.log(`Atomic swap completed: ${dto.from_amount} ${dto.from_currency} -> ${swapInfo.data.received_amount} ${dto.to_currency}`);
+
+        // Step 3: Create order record (same as confirmInstantSwapQuote)
+        const amtFiat = await this.getAmountInNaira(
+            swapInfo.data.from_currency,
+            Number(swapInfo.data?.from_amount),
+            "sell"
+        );
+        const transactionId = generateId({ type: "transaction" });
+
+        if (swapInfo.data) {
+            await this.prisma.$transaction(
+                async (tx) => {
+                    await tx.order.create({
+                        data: {
+                            orderCategory: OrderCategory.SWAP,
+                            status: swapInfo.data.status,
+                            streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
+                            transactionId: transactionId,
+                            providerOrderId: swapInfo.data.id,
+                            orderReference: generateId({ type: "reference" }),
+                            userId: user.id,
+                            fromCurrency: swapInfo.data.from_currency.toUpperCase(),
+                            toCurrency: swapInfo.data.to_currency.toUpperCase(),
+                            fromAmount: +swapInfo.data?.from_amount,
+                            toAmount: +swapInfo.data?.received_amount,
+                            amount: +swapInfo.data?.from_amount,
+                            quotationId: swapInfo.data.swap_quotation.id,
+                            quoted_currency: swapInfo.data.swap_quotation.quoted_currency,
+                            quoted_price: +swapInfo.data.swap_quotation.quoted_price,
+                            executionPrice: +swapInfo.data.execution_price,
+                            amountInFiat: amtFiat?.amount,
+                            rateAtConversion: amtFiat?.rate,
+                        },
+                    });
+                },
+                { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: DEFAULT_TRANSACTION_TIMEOUT_MS }
+            );
+
+            // Emit transaction update for swap
+            this.wsGateway.notifyTransactionUpdate(user.id, {
+                type: "transaction_update",
+                transaction: {
+                    id: 0,
+                    transactionId: transactionId,
+                    status: swapInfo.data.status,
+                    streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
+                    orderCategory: OrderCategory.SWAP,
+                    amount: +swapInfo.data?.from_amount,
+                    currency: swapInfo.data.from_currency.toUpperCase(),
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            });
+
+            // Create and send notification
+            const message = `Your swap of ${swapInfo.data.from_amount} ${swapInfo.data.from_currency.toUpperCase()} to ${swapInfo.data.to_currency.toUpperCase()} is processing. Transaction ID: ${transactionId}`;
+
+            const createdNotification = await this.prisma.notification.create({
+                data: {
+                    title: "Swap transaction initiated",
+                    body: message,
+                    userId: user.id,
+                    target: UserNotificationTarget.SINGLE,
+                    beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                    type: NotificationType.MESSAGE,
+                    status: NotificationStatus.APPROVED,
+                    senderId: null,
+                    transactionType: OrderCategory.SWAP,
+                    currency: swapInfo.data.from_currency.toUpperCase(),
+                },
+            });
+
+            const notificationList = await this.prisma.notification.findMany({
+                where: { userId: user.id },
+                orderBy: { createdAt: "desc" },
+                take: 20,
+            });
+
+            this.wsGateway.notifyUser(user.id, {
+                type: "new_notification",
+                notification: createdNotification,
+                notificationList,
+            });
+        }
+
+        return buildResponse({
+            message: "Swap executed successfully",
+            data: {
+                ...swapInfo.data,
+                transactionId: transactionId,
+                quote: quote.data,
+            },
+        });
+    }
+
+    /**
      * Creates a withdrawal request - delegates to SendService
      */
     async withdrawerRequest(user: User, dto: WithdrawerRequestDto) {

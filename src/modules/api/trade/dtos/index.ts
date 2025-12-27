@@ -295,6 +295,29 @@ export class ConfirmInstantSwapQuoteDto {
     from_amount?: number;
 }
 
+/**
+ * DTO for atomic swap - combines quote and confirm in one operation.
+ * This eliminates all timing issues with quote expiry.
+ */
+export class ExecuteAtomicSwapDto {
+    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap from" })
+    @IsNotEmpty()
+    @IsString()
+    from_currency: string;
+
+    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap to" })
+    @IsNotEmpty()
+    @IsString()
+    to_currency: string;
+
+    @ApiProperty({ description: "Amount to swap" })
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    @Transform(({ value }) => +value)
+    from_amount: number;
+}
+
 export class WithdrawerRequestDto {
     @ApiProperty({ enum: SupportedAssets, description: "allowed currencies" })
     @IsNotEmpty()

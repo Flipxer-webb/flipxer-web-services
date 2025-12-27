@@ -168,4 +168,60 @@ export class SwapService {
             throw error;
         }
     }
+
+    /**
+     * Executes an atomic swap operation.
+     * 
+     * This is the recommended method for swaps as it:
+     * 1. Gets a fresh quote from Quidax
+     * 2. Immediately confirms it (within milliseconds)
+     * 3. Returns the completed swap result
+     * 
+     * This eliminates all timing issues with quote expiry since the quote
+     * never has time to expire between creation and confirmation.
+     */
+    async executeAtomicSwap(user: User, dto: {
+        from_currency: string;
+        to_currency: string;
+        from_amount: number;
+    }) {
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "Please complete your account setup or contact admin for support",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        this.logger.log(`Executing atomic swap: ${dto.from_amount} ${dto.from_currency} -> ${dto.to_currency}`);
+
+        // Step 1: Get a fresh quote
+        const quoteStartTime = Date.now();
+        const quote = await this.quidaxService.createInstantSwapRequest(
+            user.cryptoSubAccountId,
+            {
+                from_currency: dto.from_currency.toLowerCase(),
+                to_currency: dto.to_currency.toLowerCase(),
+                from_amount: dto.from_amount.toString(),
+            }
+        );
+        this.logger.log(`Got quote ${quote.data.id} in ${Date.now() - quoteStartTime}ms`);
+
+        // Step 2: Immediately confirm the quote
+        const confirmStartTime = Date.now();
+        const swapResult = await this.quidaxService.confirmInstantSwap({
+            user_id: user.cryptoSubAccountId,
+            quotation_id: quote.data.id,
+        });
+        this.logger.log(`Confirmed swap in ${Date.now() - confirmStartTime}ms`);
+
+        this.logger.log(`Atomic swap completed: ${dto.from_amount} ${dto.from_currency} -> ${swapResult.data.to_amount} ${dto.to_currency}`);
+
+        return buildResponse({
+            message: "Swap executed successfully",
+            data: {
+                ...swapResult.data,
+                quote: quote.data, // Include quote details for reference
+            },
+        });
+    }
 }

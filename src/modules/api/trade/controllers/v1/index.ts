@@ -48,7 +48,7 @@ import {
     path: "trades",
 })
 export class TradingController {
-    constructor(private readonly tradingService: TradingService) {}
+    constructor(private readonly tradingService: TradingService) { }
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "List supported assets" })
@@ -222,6 +222,21 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.confirmInstantSwapQuote(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "Execute atomic swap - gets quote and confirms instantly",
+        description: "This is the recommended endpoint for swaps. It gets a fresh quote and immediately confirms it, eliminating any timing issues with quote expiry."
+    })
+    @UseGuards(AuthGuard, TwoFactorGuard)
+    @ApiBearerAuth("access-token")
+    @Post("execute-atomic-swap")
+    async executeAtomicSwap(
+        @Body() dto: { from_currency: string; to_currency: string; from_amount: number },
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.executeAtomicSwap(user, dto);
     }
 
     @HttpCode(HttpStatus.OK)
