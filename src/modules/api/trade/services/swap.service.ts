@@ -28,7 +28,7 @@ export class SwapService {
         private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService
-    ) {}
+    ) { }
 
     /**
      * Creates an instant swap quote request
@@ -102,9 +102,13 @@ export class SwapService {
     }
 
     /**
-     * Confirms and executes a swap quote
-     * Note: This method delegates to the existing confirmInstantSwap in QuidaxService
-     * which handles the full swap execution including notifications and wallet updates
+     * Confirms and executes a swap quote.
+     * 
+     * If the quote has expired (Quidax 15s limit), this method will:
+     * 1. Automatically refresh the quote using provided currency/amount params
+     * 2. Retry confirmation with the new quotation_id
+     * 
+     * @throws TransactionExpiredException if quote expired and no refresh params provided
      */
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
         if (!user.cryptoSubAccountId) {
@@ -114,14 +118,52 @@ export class SwapService {
             );
         }
 
-        const swapInfo = await this.quidaxService.confirmInstantSwap({
-            user_id: user.cryptoSubAccountId,
-            quotation_id: dto.quotationId,
-        });
+        try {
+            // Attempt to confirm the swap
+            const swapInfo = await this.quidaxService.confirmInstantSwap({
+                user_id: user.cryptoSubAccountId,
+                quotation_id: dto.quotationId,
+            });
 
-        return buildResponse({
-            message: "Swap confirmed successfully",
-            data: swapInfo.data,
-        });
+            return buildResponse({
+                message: "Swap confirmed successfully",
+                data: swapInfo.data,
+            });
+        } catch (error: any) {
+            // Check if this is a quote expired error
+            const isExpiredError = error?.message?.toLowerCase()?.includes("expired") ||
+                error?.message?.toLowerCase()?.includes("invalid quotation") ||
+                error?.response?.data?.message?.toLowerCase()?.includes("expired");
+
+            // If expired and we have refresh params, auto-refresh and retry
+            if (isExpiredError && dto.from_currency && dto.to_currency && dto.from_amount) {
+                this.logger.log(`Quote ${dto.quotationId} expired, auto-refreshing...`);
+
+                // Refresh the quote
+                const refreshedQuote = await this.quidaxService.refreshInstantSwapQuote(
+                    user.cryptoSubAccountId,
+                    dto.quotationId,
+                    {
+                        from_currency: dto.from_currency,
+                        to_currency: dto.to_currency,
+                        from_amount: dto.from_amount.toString(),
+                    }
+                );
+
+                // Retry confirmation with new quote
+                const retrySwapInfo = await this.quidaxService.confirmInstantSwap({
+                    user_id: user.cryptoSubAccountId,
+                    quotation_id: refreshedQuote.data.id,
+                });
+
+                return buildResponse({
+                    message: "Swap confirmed successfully",
+                    data: retrySwapInfo.data,
+                });
+            }
+
+            // Re-throw if we can't auto-refresh
+            throw error;
+        }
     }
 }

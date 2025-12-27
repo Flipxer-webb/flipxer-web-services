@@ -275,6 +275,24 @@ export class ConfirmInstantSwapQuoteDto {
     @IsNotEmpty()
     @IsString()
     quotationId: string;
+
+    // Optional fields for auto-refresh if quote has expired
+    @ApiProperty({ enum: SupportedAssets, required: false, description: "Required for auto-refresh if quote expired" })
+    @IsOptional()
+    @IsEnum(SupportedAssets)
+    from_currency?: SupportedAssets;
+
+    @ApiProperty({ enum: SupportedAssets, required: false, description: "Required for auto-refresh if quote expired" })
+    @IsOptional()
+    @IsEnum(SupportedAssets)
+    to_currency?: SupportedAssets;
+
+    @ApiProperty({ required: false, description: "Amount to swap (for auto-refresh)" })
+    @IsOptional()
+    @IsNumber()
+    @IsPositive()
+    @Transform(({ value }) => +value)
+    from_amount?: number;
 }
 
 export class WithdrawerRequestDto {
@@ -385,15 +403,15 @@ export class PurchaseLimitBuyDto {
 // }
 
 export class GetMarketChartDto {
-    @ApiProperty({ 
+    @ApiProperty({
         example: "BTC",
-        description: "Asset symbol (e.g., BTC, ETH, USDT)" 
+        description: "Asset symbol (e.g., BTC, ETH, USDT)"
     })
     @IsNotEmpty()
     @IsString()
     asset: string;
 
-    @ApiProperty({ 
+    @ApiProperty({
         example: 7,
         description: "Number of days of data (1, 7, 30, 90, 365)",
         default: 7
@@ -406,9 +424,9 @@ export class GetMarketChartDto {
 }
 
 export class GetBatchSparklinesDto {
-    @ApiProperty({ 
+    @ApiProperty({
         example: "BTC,ETH,USDT",
-        description: "Comma-separated list of asset symbols" 
+        description: "Comma-separated list of asset symbols"
     })
     @IsNotEmpty()
     @IsString()
