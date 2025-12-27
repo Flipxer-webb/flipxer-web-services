@@ -209,6 +209,7 @@ export class TradingController {
         @Body() dto: PlaceInstantSwapRequestDto,
         @User() user: UserModel
     ) {
+        // console.log("🔥 [DEBUG] ESTIMATE SWAP REQUEST", dto.from_currency, dto.to_currency);
         return await this.tradingService.getSwapEstimate(user, dto);
     }
 
@@ -221,6 +222,7 @@ export class TradingController {
         @Body() dto: PlaceInstantSwapRequestDto,
         @User() user: UserModel
     ) {
+        console.log("🔥 [DEBUG] LEGACY QUOTE REQUEST (OLD FRONTEND)", JSON.stringify(dto));
         return await this.tradingService.createInstantSwap(user, dto);
     }
 
@@ -233,6 +235,7 @@ export class TradingController {
         @Body() dto: ConfirmInstantSwapQuoteDto,
         @User() user: UserModel
     ) {
+        console.log("🔥 [DEBUG] LEGACY SWAP CONFIRM RECEIVED", JSON.stringify(dto));
         return await this.tradingService.confirmInstantSwapQuote(user, dto);
     }
 
@@ -248,6 +251,7 @@ export class TradingController {
         @Body() dto: { from_currency: string; to_currency: string; from_amount: number },
         @User() user: UserModel
     ) {
+        console.log("🔥 [DEBUG] ATOMIC SWAP REQUEST RECEIVED", JSON.stringify(dto));
         return await this.tradingService.executeAtomicSwap(user, dto);
     }
 
