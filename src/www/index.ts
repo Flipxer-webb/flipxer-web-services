@@ -82,6 +82,26 @@ export default async (
     app.use(morgan(options.production ? "combined" : "dev"));
     app.useBodyParser("json", { limit: "100mb" });
 
+    // Legacy webhook routes - forward to correct internal paths
+    // Fincra sends webhooks to root URL, forward to /webhook/fincra
+    expressApp.post("/", (req: Request, res: Response, next: Function) => {
+        // Check if this looks like a Fincra webhook (has x-fincra-signature header)
+        if (req.headers["x-fincra-signature"]) {
+            console.log("[LEGACY ROUTE] Forwarding Fincra webhook from / to /webhook/fincra");
+            req.url = "/webhook/fincra";
+            return next();
+        }
+        // Not a Fincra webhook, continue to next handler
+        next();
+    });
+
+    // Quidax sends webhooks to /quidax, forward to /webhook/quidax
+    expressApp.post("/quidax", (req: Request, res: Response, next: Function) => {
+        console.log("[LEGACY ROUTE] Forwarding Quidax webhook from /quidax to /webhook/quidax");
+        req.url = "/webhook/quidax";
+        next();
+    });
+
     app.enableVersioning({
         type: VersioningType.URI,
         defaultVersion: "1",

@@ -343,57 +343,6 @@ export class SlackWebhookService {
             return { sent: false, error: err.message };
         }
     }
-    /**
-     * Send webhook failure alert for payment processing errors
-     */
-    async sendWebhookFailureAlert(
-        provider: 'fincra' | 'quidax',
-        reference: string,
-        error: string,
-        details: Record<string, any> = {}
-    ): Promise<{ sent: number; skipped: number; errors: string[] }> {
-        const alertKey = `webhook_failure:${provider}:${reference}`;
-
-        const message: SlackMessage = {
-            text: `🔴 ${provider.toUpperCase()} Webhook Failed`,
-            blocks: [
-                {
-                    type: "header",
-                    text: {
-                        type: "plain_text",
-                        text: `🔴 ${provider.toUpperCase()} Webhook Processing Failed`,
-                        emoji: true,
-                    },
-                },
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*Provider:* ${provider.toUpperCase()}\n*Reference:* ${reference}\n*Error:* ${error}`,
-                    },
-                },
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*Time:* ${new Date().toISOString()}\n*Details:*\n\`\`\`${JSON.stringify(details, null, 2)}\`\`\``,
-                    },
-                },
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `_⚠️ Action Required: Check the order and manually process if payment was confirmed._`,
-                    },
-                },
-            ],
-        };
-
-        return this.sendAlert("WEBHOOK_FAILURE", message, {
-            alertKey,
-            respectCooldown: false, // Always send webhook failures
-        });
-    }
 
     /**
      * Test a webhook by sending a test message
