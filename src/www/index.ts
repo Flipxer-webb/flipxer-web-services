@@ -95,6 +95,13 @@ export default async (
         next();
     });
 
+    // Fincra may also send webhooks to /api/webhook/fincra - forward to /webhook/fincra
+    expressApp.post("/api/webhook/fincra", (req: Request, res: Response, next: Function) => {
+        console.log("[LEGACY ROUTE] Forwarding Fincra webhook from /api/webhook/fincra to /webhook/fincra");
+        req.url = "/webhook/fincra";
+        next();
+    });
+
     // Quidax sends webhooks to /quidax, forward to /webhook/quidax
     expressApp.post("/quidax", (req: Request, res: Response, next: Function) => {
         console.log("[LEGACY ROUTE] Forwarding Quidax webhook from /quidax to /webhook/quidax");
