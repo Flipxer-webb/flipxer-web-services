@@ -214,7 +214,7 @@ export class SwapService {
         });
         this.logger.log(`Confirmed swap in ${Date.now() - confirmStartTime}ms`);
 
-        this.logger.log(`Atomic swap completed: ${dto.from_amount} ${dto.from_currency} -> ${swapResult.data.to_amount} ${dto.to_currency}`);
+        this.logger.log(`Atomic swap completed: ${dto.from_amount} ${dto.from_currency} -> ${swapResult.data.received_amount} ${dto.to_currency}`);
 
         return buildResponse({
             message: "Swap executed successfully",
