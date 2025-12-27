@@ -152,6 +152,89 @@ export class CoinGeckoService {
         return result;
     }
 
+    async getBatchMarketData(
+        assets: string[],
+        retries = 3,
+        delay = 1000
+    ): Promise<Record<string, { price: number; change24h: number } | null>> {
+        console.log(`🔍 Batch fetching market data (price + 24h change) for: ${assets.join(", ")}`);
+
+        const result: Record<string, { price: number; change24h: number } | null> = {};
+        assets.forEach((asset) => {
+            result[asset.toLowerCase()] = null;
+        });
+
+        const coinGeckoIds = assets
+            .map((asset) => this.coinGeckoIdMap[asset.toLowerCase()])
+            .filter((id) => id);
+
+        if (coinGeckoIds.length === 0) {
+            // No valid IDs to fetch, return nulls
+            return result;
+        }
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                console.log(
+                    `🌍 Requesting CoinGecko API for batch market data [${coinGeckoIds.join(
+                        ", "
+                    )}], attempt ${attempt}`
+                );
+                const response = await axios.get(
+                    "https://api.coingecko.com/api/v3/simple/price",
+                    {
+                        params: {
+                            ids: coinGeckoIds.join(","),
+                            vs_currencies: "usd",
+                            include_24hr_change: true,
+                        },
+                    }
+                );
+
+                assets.forEach((asset) => {
+                    const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
+                    if (coinGeckoId) {
+                        const data = response.data[coinGeckoId];
+                        if (data && data.usd !== undefined) {
+                            const price = data.usd;
+                            const change24h = data.usd_24h_change ?? 0;
+
+                            const marketData = { price, change24h };
+                            result[asset.toLowerCase()] = marketData;
+
+                            // Also cache individual price components if needed by other services
+                            // (Optional: We could update the simple price cache here too, but let's keep concerns separate for now 
+                            // or do it if we want to be efficient)
+                            const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
+                            this.redisCacheService.set(cacheKey, price, 5 * 60);
+
+                            console.log(`💰 Market Data for ${asset}: $${price} (${change24h.toFixed(2)}%)`);
+                        } else {
+                            console.warn(
+                                `⚠️ No market data returned for ${asset} (ID: ${coinGeckoId})`
+                            );
+                        }
+                    }
+                });
+
+                return result;
+            } catch (error) {
+                console.error(`❌ Batch market data fetch attempt ${attempt} failed:`, {
+                    message: error.message,
+                    status: error.response?.status,
+                    data: error.response?.data,
+                });
+                if (attempt === retries) {
+                    // Log error but don't throw - return partial/empty results so main flow doesn't break
+                    console.error(`Failed to fetch batch market data after ${retries} attempts`);
+                }
+                await setTimeout(delay * attempt);
+            }
+        }
+
+        return result;
+    }
+
     /**
      * Get market chart data for an asset (price history)
      * @param asset Asset symbol (e.g., 'btc', 'eth')

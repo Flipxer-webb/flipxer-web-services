@@ -11,7 +11,7 @@ export class CoinGeckoCacheService {
         private readonly redisCacheService: RedisCacheService,
         @Inject(TradingInjectionToken.COINGECKO)
         private readonly coinGeckoService: CoinGeckoService
-    ) {}
+    ) { }
 
     async getPriceInUSD(asset: string): Promise<number | null> {
         const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
@@ -74,6 +74,52 @@ export class CoinGeckoCacheService {
                 assetsToFetch.forEach(asset => {
                     result[asset.toLowerCase()] = null;
                 });
+            }
+        }
+
+        return result;
+    }
+
+    async getBatchMarketData(assets: string[]): Promise<Record<string, { price: number; change24h: number } | null>> {
+        const cacheKeys = assets.map(asset => `coingecko:market_data:${asset.toLowerCase()}:usd`);
+        const cachedData = await Promise.all(
+            cacheKeys.map(key => this.redisCacheService.get<{ price: number; change24h: number }>(key))
+        );
+        const result: Record<string, { price: number; change24h: number } | null> = {};
+        const assetsToFetch: string[] = [];
+
+        // Check cache for each asset
+        assets.forEach((asset, index) => {
+            if (cachedData[index]) {
+                result[asset.toLowerCase()] = cachedData[index];
+            } else {
+                assetsToFetch.push(asset);
+                result[asset.toLowerCase()] = null; // Initialize as null
+            }
+        });
+
+        // Fetch market data for uncached assets
+        if (assetsToFetch.length > 0) {
+            try {
+                const fetchedData = await this.coinGeckoService.getBatchMarketData(assetsToFetch);
+
+                for (const asset of assetsToFetch) {
+                    const data = fetchedData[asset.toLowerCase()];
+
+                    if (data) {
+                        result[asset.toLowerCase()] = data;
+                        const cacheKey = `coingecko:market_data:${asset.toLowerCase()}:usd`;
+                        await this.redisCacheService.set(cacheKey, data, this.CACHE_TTL);
+                    }
+                }
+            } catch (error) {
+                console.error(`Error fetching batch market data from CoinGecko:`, error.message);
+                if (error.message.includes("429")) {
+                    console.warn(
+                        `Rate limit exceeded for batch fetch. Consider increasing cron interval.`
+                    );
+                }
+                // We keep the nulls initialized above
             }
         }
 

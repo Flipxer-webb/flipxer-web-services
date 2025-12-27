@@ -464,6 +464,13 @@ export class UserService {
         this.logger.log(`[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`);
 
         const [assets, count] = assetsResult;
+
+        // Fetch CoinGecko market data for percentage change fallback
+        const uniqueAssets = [...new Set(assets.map(a => a.assetCurrency))];
+        const coinGeckoStartTime = Date.now();
+        const coinGeckoData = await this.coinGeckoCacheService.getBatchMarketData(uniqueAssets);
+        this.logger.log(`[PERF] CoinGecko batch fetch for ${uniqueAssets.length} assets: ${Date.now() - coinGeckoStartTime}ms`);
+
         const adminRatesMap = new Map(
             adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
         );
@@ -491,6 +498,13 @@ export class UserService {
                 const marketSymbol = `${assetCurrency}${referenceCurrency}`;
                 const ticker = liveMarketData?.[marketSymbol]?.ticker;
 
+                // CoinGecko data lookup
+                const cgData = coinGeckoData[assetCurrency];
+
+                // Prioritize CoinGecko for market stats (24h change) as it's more reliable/global
+                // Fallback to Quidax generic calculation if CoinGecko is unavailable
+                const percentChange = cgData?.change24h ?? this.calculatePercentageChange(ticker);
+
                 return {
                     ...asset,
                     buyRate: {
@@ -505,7 +519,7 @@ export class UserService {
                         buy: ticker?.buy ?? null,
                         sell: ticker?.sell ?? null,
                         last: ticker?.last ?? null,
-                        percentChange: this.calculatePercentageChange(ticker),
+                        percentChange: percentChange,
                         referenceCurrency,
                     },
                 };
