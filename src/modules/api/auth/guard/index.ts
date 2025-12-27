@@ -214,8 +214,8 @@ export class FincraWebhookGuard implements CanActivate {
         const request = context
             .switchToHttp()
             .getRequest() as Request;
-
-        const signature = request.headers["x-fincra-signature"] as string;
+        // Fincra uses "signature" header (per their documentation), not "x-fincra-signature"
+        const signature = (request.headers["signature"] || request.headers["x-fincra-signature"]) as string;
         const secret = process.env.FINCRA_WEBHOOK_SECRET;
 
         this.logger.log(`Received Fincra webhook request`);
@@ -224,7 +224,7 @@ export class FincraWebhookGuard implements CanActivate {
         this.logger.debug(`Webhook secret configured: ${!!secret}`);
 
         if (!signature) {
-            this.logger.error('Missing x-fincra-signature header');
+            this.logger.error('Missing signature header from Fincra');
             this.logger.debug(`All headers: ${JSON.stringify(Object.keys(request.headers))}`);
             return false;
         }
