@@ -220,6 +220,12 @@ export class SwapService {
             message: "Swap executed successfully",
             data: {
                 ...swapResult.data,
+                // Map quote data to swap_quotation for frontend compatibility (SuccessModal)
+                swap_quotation: {
+                    ...quote.data,
+                    // Ensure to_amount reflects the actual received amount if available
+                    to_amount: swapResult.data.received_amount || quote.data.to_amount,
+                },
                 quote: quote.data, // Include quote details for reference
             },
         });
