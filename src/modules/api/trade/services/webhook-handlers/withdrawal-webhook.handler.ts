@@ -16,8 +16,10 @@ import {
     NotificationType,
     OrderCategory,
     OrderStatus,
+    OrderStreamlinedStatus,
     UserNotificationTarget,
 } from "@prisma/client";
+
 import { generateId } from "@/utils";
 import { NotificationEvent } from "../../../notification/events/notification.event";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
@@ -124,15 +126,168 @@ export class WithdrawalWebhookHandler {
             options.status === OrderStatus.done &&
             transaction.orderCategory === OrderCategory.SELL
         ) {
-            await this.initiateFiatPayout(transaction);
+            // Check if this is an admin's SELL order linked to a user's BUY order
+            // The transaction_note will be "BUY:<orderId>" if so
+            const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
+            if (buyOrderMatch) {
+                // This is admin sending crypto to user for a BUY order - complete the BUY order
+                const buyOrderId = parseInt(buyOrderMatch[1], 10);
+                await this.completeBuyOrder(buyOrderId, transaction);
+            } else {
+                // This is a regular user SELL order - pay them in fiat
+                await this.initiateFiatPayout(transaction);
+            }
         }
 
         if (options.status == OrderStatus.done) {
             await this.handleWithdrawalDone(transaction);
         } else if (options.status == OrderStatus.failed) {
             await this.handleWithdrawalFailed(transaction);
+
+            // Check if this failed withdrawal was for a BUY order
+            const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
+            if (buyOrderMatch) {
+                const buyOrderId = parseInt(buyOrderMatch[1], 10);
+                await this.failBuyOrder(buyOrderId, transaction);
+            }
         }
     }
+
+    /**
+     * Complete a BUY order when crypto has been successfully delivered to user
+     */
+    private async completeBuyOrder(buyOrderId: number, withdrawalTransaction: any) {
+        this.logger.log(`Completing BUY order ${buyOrderId} - crypto delivered successfully`);
+
+        const buyOrder = await this.prisma.order.findUnique({
+            where: { id: buyOrderId },
+            include: { user: { select: { id: true, email: true } } },
+        });
+
+        if (!buyOrder) {
+            this.logger.error(`BUY order ${buyOrderId} not found for completion`);
+            return;
+        }
+
+        // Update BUY order to completed
+        await this.prisma.order.update({
+            where: { id: buyOrderId },
+            data: {
+                status: OrderStatus.completed,
+                streamlinedStatus: OrderStreamlinedStatus.completed,
+            },
+        });
+
+        // Emit transaction update for the BUY order
+        this.wsGateway.notifyTransactionUpdate(buyOrder.user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: buyOrder.id,
+                transactionId: buyOrder.transactionId,
+                status: OrderStatus.completed,
+                streamlinedStatus: OrderStreamlinedStatus.completed,
+                orderCategory: buyOrder.orderCategory,
+                amount: buyOrder.amount,
+                currency: buyOrder.currency,
+                createdAt: buyOrder.createdAt,
+                updatedAt: new Date(),
+            },
+        });
+
+        // NOW send the BUY completion notification to user
+        const message = this.notificationMessage.buyTransactionSuccess({
+            amount: buyOrder.amount,
+            currency: buyOrder.currency,
+            transactionId: buyOrder.transactionId,
+        });
+
+        const createdNotification = await this.prisma.notification.create({
+            data: {
+                title: "Your purchase is complete",
+                body: message,
+                userId: buyOrder.user.id,
+                target: UserNotificationTarget.SINGLE,
+                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                type: NotificationType.MESSAGE,
+                status: NotificationStatus.APPROVED,
+                senderId: null,
+                transactionType: OrderCategory.BUY,
+                currency: buyOrder.currency,
+            },
+        });
+
+        this.notificationEvent.emit("transaction_notification", {
+            email: buyOrder.user.email,
+            notice: message,
+            transactionType: 'buy',
+            transactionId: buyOrder.transactionId,
+            amount: String(buyOrder.amount),
+            currency: buyOrder.currency.toUpperCase(),
+            status: 'completed',
+            date: new Date().toISOString(),
+            walletAddress: buyOrder.recipient || '',
+        });
+
+        const notificationList = await this.prisma.notification.findMany({
+            where: { userId: buyOrder.user.id },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+        });
+
+        this.wsGateway.notifyUser(buyOrder.user.id, {
+            type: "new_notification",
+            notification: createdNotification,
+            notificationList,
+        });
+
+        this.logger.log(`BUY order ${buyOrderId} completed and user notified`);
+    }
+
+    /**
+     * Fail a BUY order when crypto delivery failed
+     */
+    private async failBuyOrder(buyOrderId: number, withdrawalTransaction: any) {
+        this.logger.error(`FAILING BUY order ${buyOrderId} - crypto delivery failed`);
+
+        const buyOrder = await this.prisma.order.findUnique({
+            where: { id: buyOrderId },
+            include: { user: { select: { id: true, email: true } } },
+        });
+
+        if (!buyOrder) {
+            this.logger.error(`BUY order ${buyOrderId} not found for failure handling`);
+            return;
+        }
+
+        // Update BUY order to failed
+        await this.prisma.order.update({
+            where: { id: buyOrderId },
+            data: {
+                status: OrderStatus.failed,
+                streamlinedStatus: OrderStreamlinedStatus.failed,
+                reason: "Crypto delivery failed - refund required",
+            },
+        });
+
+        // Emit transaction update for the BUY order
+        this.wsGateway.notifyTransactionUpdate(buyOrder.user.id, {
+            type: "transaction_update",
+            transaction: {
+                id: buyOrder.id,
+                transactionId: buyOrder.transactionId,
+                status: OrderStatus.failed,
+                streamlinedStatus: OrderStreamlinedStatus.failed,
+                orderCategory: buyOrder.orderCategory,
+                amount: buyOrder.amount,
+                currency: buyOrder.currency,
+                createdAt: buyOrder.createdAt,
+                updatedAt: new Date(),
+            },
+        });
+
+        this.logger.error(`BUY order ${buyOrderId} marked as failed - manual refund required`);
+    }
+
 
     /**
      * Initiate fiat payout to seller via Fincra

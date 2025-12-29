@@ -388,125 +388,145 @@ export class BankService {
                     include: { user: { select: { id: true, email: true } } },
                 });
 
-                await this.prisma.order.update({
-                    where: { id: transaction.orderId },
-                    data: {
-                        paymentStatus: TransactionStatus.SUCCESS,
-                        status: OrderStatus.confirmed,
-                        streamlinedStatus: OrderStreamlinedStatus.completed,
-                    },
-                });
-
-                // Emit transaction update for Buy Order confirmation
-                this.wsGateway.notifyTransactionUpdate(order.user.id, {
-                    type: "transaction_update",
-                    transaction: {
-                        id: order.id,
-                        transactionId: order.transactionId,
-                        status: OrderStatus.confirmed,
-                        streamlinedStatus: OrderStreamlinedStatus.completed,
-                        orderCategory: order.orderCategory,
-                        amount: order.amount,
-                        currency: order.currency,
-                        createdAt: order.createdAt,
-                        updatedAt: new Date(),
-                    },
-                });
-
                 if (order.orderCategory === OrderCategory.BUY) {
-                    //admin sends asset to user wallet
+                    // BUY ORDER: Payment received, but crypto not yet sent
+                    // Keep order in PROCESSING state until Quidax withdrawal succeeds
+                    this.logger.log(`BUY order ${order.id}: Payment received, initiating crypto transfer`);
+
+                    const withdrawalReference = generateId({ type: "reference" });
+
+                    // Update order to processing state and store withdrawal reference
+                    await this.prisma.order.update({
+                        where: { id: transaction.orderId },
+                        data: {
+                            paymentStatus: TransactionStatus.SUCCESS,
+                            status: OrderStatus.processing, // Still processing - crypto not sent yet
+                            streamlinedStatus: OrderStreamlinedStatus.pending, // Not complete until crypto delivered
+                            orderReference: withdrawalReference, // Store for tracking when Quidax webhook arrives
+                        },
+                    });
+
+                    // Emit intermediate status update
+                    this.wsGateway.notifyTransactionUpdate(order.user.id, {
+                        type: "transaction_update",
+                        transaction: {
+                            id: order.id,
+                            transactionId: order.transactionId,
+                            status: OrderStatus.processing,
+                            streamlinedStatus: OrderStreamlinedStatus.pending,
+                            orderCategory: order.orderCategory,
+                            amount: order.amount,
+                            currency: order.currency,
+                            createdAt: order.createdAt,
+                            updatedAt: new Date(),
+                        },
+                    });
+
+                    // Initiate crypto transfer to user's wallet
                     this.logger.log(`Initiating Quidax withdrawal for order ${order.id}: ${order.amount} ${order.currency} to ${order.recipient}`);
 
-                    const reference = generateId({ type: "reference" });
-                    const requestRes =
-                        await this.quidaxService.createWithdrawerRequest({
+                    try {
+                        const requestRes = await this.quidaxService.createWithdrawerRequest({
                             amount: order.amount.toString(),
                             currency: order.currency.toLowerCase(),
-                            narration: "flipxer buy order transaction",
-                            transaction_note: "flipxer buy order transaction",
-                            user_id: "me", //main account on quidax
-                            fund_uid: order.recipient, //receiving wallet address
+                            narration: `flipxer buy order ${order.id}`,
+                            transaction_note: `BUY:${order.id}`, // Tag for linking back to BUY order
+                            user_id: "me", // main account on quidax
+                            fund_uid: order.recipient, // receiving wallet address
                             fund_uid2: order.destinationTag, // destination tag
-                            reference: reference,
+                            reference: withdrawalReference,
                         });
 
-                    this.logger.log(`Quidax withdrawal initiated: quidaxId=${requestRes.data.id}, reference=${reference}`);
+                        this.logger.log(`Quidax withdrawal initiated: quidaxId=${requestRes.data.id}, reference=${withdrawalReference}, orderId=${order.id}`);
 
-                    const amtFiat = await this.getAmountInNaira(
-                        requestRes.data.currency,
-                        Number(requestRes.data.amount)
-                    );
+                        // Create admin's SELL order for tracking
+                        const amtFiat = await this.getAmountInNaira(
+                            requestRes.data.currency,
+                            Number(requestRes.data.amount)
+                        );
 
-                    await this.prisma.order.create({
+                        await this.prisma.order.create({
+                            data: {
+                                orderCategory: OrderCategory.SELL,
+                                status: OrderStatus.processing,
+                                orderReference: withdrawalReference,
+                                transactionId: generateId({ type: "transaction" }),
+                                providerOrderId: requestRes.data.id,
+                                userId: admin.id,
+                                currency: requestRes.data.currency.toUpperCase(),
+                                narration: requestRes.data.narration,
+                                transaction_note: `BUY:${order.id}`, // Link to original BUY order
+                                recipient: requestRes.data.recipient.details.address,
+                                amount: +requestRes.data.amount,
+                                fee: +requestRes.data.fee,
+                                total: +requestRes.data.total,
+                                sourceType: requestRes.data.type,
+                                amountInFiat: amtFiat?.amount,
+                                rateAtConversion: amtFiat?.rate,
+                            },
+                        });
+
+                        this.logger.log(`BUY order ${order.id}: Crypto transfer initiated, awaiting Quidax confirmation`);
+                        // NOTE: Completion notification will be sent by withdrawal-webhook.handler when Quidax confirms
+                    } catch (withdrawError) {
+                        // Quidax withdrawal failed - mark order as failed
+                        this.logger.error(`BUY order ${order.id}: Quidax withdrawal FAILED: ${withdrawError.message}`, withdrawError.stack);
+
+                        await this.prisma.order.update({
+                            where: { id: transaction.orderId },
+                            data: {
+                                status: OrderStatus.failed,
+                                streamlinedStatus: OrderStreamlinedStatus.failed,
+                                reason: `Crypto transfer failed: ${withdrawError.message}`,
+                            },
+                        });
+
+                        // Notify user of failure
+                        this.wsGateway.notifyTransactionUpdate(order.user.id, {
+                            type: "transaction_update",
+                            transaction: {
+                                id: order.id,
+                                transactionId: order.transactionId,
+                                status: OrderStatus.failed,
+                                streamlinedStatus: OrderStreamlinedStatus.failed,
+                                orderCategory: order.orderCategory,
+                                amount: order.amount,
+                                currency: order.currency,
+                                createdAt: order.createdAt,
+                                updatedAt: new Date(),
+                            },
+                        });
+
+                        throw withdrawError; // Re-throw to trigger Fincra retry
+                    }
+                } else {
+                    // Non-BUY order (shouldn't happen via this flow, but handle gracefully)
+                    await this.prisma.order.update({
+                        where: { id: transaction.orderId },
                         data: {
-                            orderCategory: OrderCategory.SELL,
-                            status: OrderStatus.processing,
-                            orderReference: reference,
-                            transactionId: generateId({ type: "transaction" }),
-                            providerOrderId: requestRes.data.id,
-                            userId: admin.id,
-                            currency: requestRes.data.currency.toUpperCase(),
-                            narration: requestRes.data.narration,
-                            transaction_note: requestRes.data.transaction_note,
-                            recipient:
-                                requestRes.data.recipient.details.address,
-                            amount: +requestRes.data.amount,
-                            fee: +requestRes.data.fee,
-                            total: +requestRes.data.total,
-                            sourceType: requestRes.data.type,
-                            amountInFiat: amtFiat?.amount,
-                            rateAtConversion: amtFiat?.rate,
+                            paymentStatus: TransactionStatus.SUCCESS,
+                            status: OrderStatus.confirmed,
+                            streamlinedStatus: OrderStreamlinedStatus.completed,
                         },
                     });
 
-                    // Send notification for BUY order completion
-                    const message = this.notificationMessage.buyTransactionSuccess({
-                        amount: order.amount,
-                        currency: order.currency,
-                        transactionId: order.transactionId,
-                    });
-
-                    const createdNotification = await this.prisma.notification.create({
-                        data: {
-                            title: "Your purchase is complete",
-                            body: message,
-                            userId: order.user.id,
-                            target: UserNotificationTarget.SINGLE,
-                            beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                            type: NotificationType.MESSAGE,
-                            status: NotificationStatus.APPROVED,
-                            senderId: null,
-                            transactionType: OrderCategory.BUY,
+                    this.wsGateway.notifyTransactionUpdate(order.user.id, {
+                        type: "transaction_update",
+                        transaction: {
+                            id: order.id,
+                            transactionId: order.transactionId,
+                            status: OrderStatus.confirmed,
+                            streamlinedStatus: OrderStreamlinedStatus.completed,
+                            orderCategory: order.orderCategory,
+                            amount: order.amount,
                             currency: order.currency,
+                            createdAt: order.createdAt,
+                            updatedAt: new Date(),
                         },
                     });
-
-                    this.notificationEvent.emit("transaction_notification", {
-                        email: order.user.email,
-                        notice: message,
-                        transactionType: 'buy',
-                        transactionId: order.transactionId,
-                        amount: String(order.amount),
-                        currency: order.currency.toUpperCase(),
-                        status: 'completed',
-                        date: new Date().toISOString(),
-                        walletAddress: order.recipient || '',
-                    });
-
-                    const notificationList = await this.prisma.notification.findMany({
-                        where: { userId: order.user.id },
-                        orderBy: { createdAt: "desc" },
-                        take: 20,
-                    });
-
-                    this.wsGateway.notifyUser(order.user.id, {
-                        type: "new_notification",
-                        notification: createdNotification,
-                        notificationList,
-                    });
-                    this.logger.log(`BUY order ${order.id} completed successfully`);
                 }
             }
+
         } catch (error) {
             this.logger.error(`paymentSuccessHandler failed for ${reference}: ${error.message}`, error.stack);
             // Re-throw to return 500 to Fincra so they retry
