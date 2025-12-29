@@ -179,39 +179,50 @@ export class DepositWebhookHandler {
      * This prevents duplicate RECEIVE entries when user buys crypto
      */
     private async isBuyOrderRelatedDeposit(userId: number, options: DepositTransaction): Promise<boolean> {
-        // Look for a recent BUY order (within last 30 minutes) for this user
-        // with matching currency and recipient wallet address
-        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+        // Look for a recent BUY order (within last 60 minutes) for this user
+        // with matching currency and similar amount
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const depositAmount = parseFloat(options.amount);
 
-        const relatedBuyOrder = await this.prisma.order.findFirst({
+        // Find BUY orders that match currency and are recent
+        const recentBuyOrders = await this.prisma.order.findMany({
             where: {
                 userId: userId,
                 orderCategory: OrderCategory.BUY,
                 currency: options.currency.toUpperCase(),
-                recipient: options.recipient, // The wallet address that received the crypto
                 status: {
                     in: [OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
                 },
                 createdAt: {
-                    gte: thirtyMinutesAgo,
+                    gte: oneHourAgo,
                 },
             },
             orderBy: { createdAt: 'desc' },
         });
 
-        if (relatedBuyOrder) {
-            this.logger.log(
-                `Found related BUY order | ${JSON.stringify({
-                    buyOrderId: relatedBuyOrder.id,
-                    buyAmount: relatedBuyOrder.amount,
-                    depositAmount: options.amount,
-                    currency: options.currency,
-                })}`
-            );
-            return true;
+        // Check if any BUY order has a close amount match (within 5% tolerance for fees)
+        for (const buyOrder of recentBuyOrders) {
+            const buyAmount = buyOrder.amount || 0;
+            const amountDiff = Math.abs(buyAmount - depositAmount);
+            const percentDiff = buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
+
+            // If amounts are within 5% of each other, consider it a match
+            if (percentDiff <= 5) {
+                this.logger.log(
+                    `Found related BUY order | ${JSON.stringify({
+                        buyOrderId: buyOrder.id,
+                        buyAmount: buyAmount,
+                        depositAmount: depositAmount,
+                        percentDiff: percentDiff.toFixed(2),
+                        currency: options.currency,
+                    })}`
+                );
+                return true;
+            }
         }
 
         return false;
+
     }
 
     /**
