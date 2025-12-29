@@ -109,6 +109,14 @@ export default async (
         next();
     });
 
+    // Quidax may also send webhooks to /api/webhook/quidax - forward to /webhook/quidax
+    expressApp.post("/api/webhook/quidax", (req: Request, res: Response, next: Function) => {
+        console.log("[LEGACY ROUTE] Forwarding Quidax webhook from /api/webhook/quidax to /webhook/quidax");
+        req.url = "/webhook/quidax";
+        next();
+    });
+
+
     app.enableVersioning({
         type: VersioningType.URI,
         defaultVersion: "1",
