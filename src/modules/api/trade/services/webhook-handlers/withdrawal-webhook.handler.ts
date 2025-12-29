@@ -138,17 +138,47 @@ export class WithdrawalWebhookHandler {
      * Initiate fiat payout to seller via Fincra
      */
     private async initiateFiatPayout(transaction: any) {
-        await this.fincraService.initializeTransfer({
-            accountName: transaction.destinationBankAccountName,
-            accountNumber: transaction.destinationBankAccountNumber,
-            amount: transaction.totalToReceiveInFiat,
-            bankCode: transaction.destinationBankCode,
-            bankName: transaction.destinationBankName,
-            serviceCharge: 0,
-            userId: transaction.userId,
-            orderId: transaction.id,
-            reference: generateId({ type: "reference" }),
-        });
+        const payoutReference = generateId({ type: "reference" });
+
+        this.logger.log(
+            `Initiating Fincra payout | ${JSON.stringify({
+                orderId: transaction.id,
+                userId: transaction.userId,
+                amount: transaction.totalToReceiveInFiat,
+                accountName: transaction.destinationBankAccountName,
+                accountNumber: transaction.destinationBankAccountNumber,
+                bankCode: transaction.destinationBankCode,
+                bankName: transaction.destinationBankName,
+                reference: payoutReference,
+            })}`
+        );
+
+        try {
+            await this.fincraService.initializeTransfer({
+                accountName: transaction.destinationBankAccountName,
+                accountNumber: transaction.destinationBankAccountNumber,
+                amount: transaction.totalToReceiveInFiat,
+                bankCode: transaction.destinationBankCode,
+                bankName: transaction.destinationBankName,
+                serviceCharge: 0,
+                userId: transaction.userId,
+                orderId: transaction.id,
+                reference: payoutReference,
+            });
+
+            this.logger.log(`Fincra payout initiated successfully for order ${transaction.id}, reference: ${payoutReference}`);
+        } catch (error) {
+            this.logger.error(
+                `CRITICAL: Fincra payout FAILED | ${JSON.stringify({
+                    orderId: transaction.id,
+                    userId: transaction.userId,
+                    error: error.message,
+                    stack: error.stack,
+                })}`
+            );
+            // Re-throw to ensure the caller knows payout failed
+            throw error;
+        }
     }
 
     /**
