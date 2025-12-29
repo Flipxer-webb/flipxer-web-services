@@ -395,16 +395,18 @@ export class BankService {
 
                     const withdrawalReference = generateId({ type: "reference" });
 
-                    // Update order to processing state and store withdrawal reference
+                    // Update order to processing state
+                    // NOTE: We don't store withdrawalReference here to avoid unique constraint conflict
+                    // The link is maintained via transaction_note on the admin's SELL order
                     await this.prisma.order.update({
                         where: { id: transaction.orderId },
                         data: {
                             paymentStatus: TransactionStatus.SUCCESS,
                             status: OrderStatus.processing, // Still processing - crypto not sent yet
                             streamlinedStatus: OrderStreamlinedStatus.pending, // Not complete until crypto delivered
-                            orderReference: withdrawalReference, // Store for tracking when Quidax webhook arrives
                         },
                     });
+
 
                     // Emit intermediate status update
                     this.wsGateway.notifyTransactionUpdate(order.user.id, {

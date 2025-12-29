@@ -166,7 +166,7 @@ export class QuidaxWebhookGuard implements CanActivate {
             .switchToHttp()
             .getRequest() as RequestFromQuidax;
 
-        const quidaxSignature = request.headers["quidax-signature"];
+        const quidaxSignature = request.headers["quidax-signature"] as string;
 
         if (!quidaxSignature) {
             this.logger.error("[WEBHOOK AUTH] Missing quidax-signature header");
@@ -174,6 +174,21 @@ export class QuidaxWebhookGuard implements CanActivate {
             return false;
         }
 
+        // Check if this is a simple shared-key signature (no comma means simple format)
+        if (!quidaxSignature.includes(",")) {
+            // Simple format: just compare with webhook key directly
+            const webhookKey = quidaxConfig.webhook_key;
+            if (quidaxSignature === webhookKey) {
+                this.logger.log(`[WEBHOOK AUTH] Simple signature verified for event: ${request.body?.event}`);
+                return true;
+            } else {
+                this.logger.error(`[WEBHOOK AUTH] Simple signature mismatch for event: ${request.body?.event}`);
+                this.logger.debug(`[WEBHOOK AUTH] Expected key, received: ${quidaxSignature.substring(0, 10)}...`);
+                return false;
+            }
+        }
+
+        // HMAC format: t=<timestamp>,v=<signature>
         const [timestampSection, signatureSection] = quidaxSignature.split(",");
 
         if (!timestampSection || !signatureSection) {
@@ -203,6 +218,7 @@ export class QuidaxWebhookGuard implements CanActivate {
         }
     }
 }
+
 
 @Injectable()
 export class FincraWebhookGuard implements CanActivate {
