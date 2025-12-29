@@ -208,8 +208,10 @@ export class DepositWebhookHandler {
             const amountDiff = Math.abs(buyAmount - depositAmount);
             const percentDiff = buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
 
-            // If amounts are within 5% of each other, consider it a match
-            if (percentDiff <= 5) {
+            // If amounts are within 25% of each other, consider it a match
+            // We allow a large tolerance (25%) because network fees on small orders can be significant
+            // e.g. 1 USDT fee on a 5 USDT order is 20%
+            if (percentDiff <= 25) {
                 this.logger.log(
                     `Found related BUY order | ${JSON.stringify({
                         buyOrderId: buyOrder.id,
