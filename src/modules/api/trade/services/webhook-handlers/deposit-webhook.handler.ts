@@ -148,10 +148,70 @@ export class DepositWebhookHandler {
         });
 
         if (!transaction) {
+            // Check if this deposit is the result of a BUY order completion
+            // If so, skip creating a duplicate RECEIVE entry
+            const isBuyRelated = await this.isBuyOrderRelatedDeposit(user.id, options);
+            if (isBuyRelated) {
+                this.logger.log(
+                    `Skipping RECEIVE order creation - deposit is from BUY order | ${JSON.stringify({
+                        userId: user.id,
+                        currency: options.currency,
+                        amount: options.amount,
+                        recipient: options.recipient,
+                    })}`
+                );
+                // Still sync wallet and update balances
+                if (options.status === OrderStatus.accepted) {
+                    await this.handleDepositAccepted(user, options, `buy-deposit-${options.referenceId}`);
+                }
+                return buildResponse({
+                    message: "Deposit processed (linked to BUY order, no duplicate RECEIVE created)",
+                });
+            }
             return this.createNewDepositTransaction(user, options);
         } else {
             return this.updateExistingDepositTransaction(user, transaction, options);
         }
+    }
+
+    /**
+     * Check if a deposit is the result of a BUY order completion
+     * This prevents duplicate RECEIVE entries when user buys crypto
+     */
+    private async isBuyOrderRelatedDeposit(userId: number, options: DepositTransaction): Promise<boolean> {
+        // Look for a recent BUY order (within last 30 minutes) for this user
+        // with matching currency and recipient wallet address
+        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+        const relatedBuyOrder = await this.prisma.order.findFirst({
+            where: {
+                userId: userId,
+                orderCategory: OrderCategory.BUY,
+                currency: options.currency.toUpperCase(),
+                recipient: options.recipient, // The wallet address that received the crypto
+                status: {
+                    in: [OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
+                },
+                createdAt: {
+                    gte: thirtyMinutesAgo,
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+
+        if (relatedBuyOrder) {
+            this.logger.log(
+                `Found related BUY order | ${JSON.stringify({
+                    buyOrderId: relatedBuyOrder.id,
+                    buyAmount: relatedBuyOrder.amount,
+                    depositAmount: options.amount,
+                    currency: options.currency,
+                })}`
+            );
+            return true;
+        }
+
+        return false;
     }
 
     /**
