@@ -185,13 +185,14 @@ export class DepositWebhookHandler {
         const depositAmount = parseFloat(options.amount);
 
         // Find BUY orders that match currency and are recent
+        // Include 'processing' status because BUY orders now stay in processing until crypto is delivered
         const recentBuyOrders = await this.prisma.order.findMany({
             where: {
                 userId: userId,
                 orderCategory: OrderCategory.BUY,
                 currency: options.currency.toUpperCase(),
                 status: {
-                    in: [OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
+                    in: [OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
                 },
                 createdAt: {
                     gte: oneHourAgo,
@@ -199,6 +200,7 @@ export class DepositWebhookHandler {
             },
             orderBy: { createdAt: 'desc' },
         });
+
 
         // Check if any BUY order has a close amount match (within 5% tolerance for fees)
         for (const buyOrder of recentBuyOrders) {
