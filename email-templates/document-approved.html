@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>Document Approved - Flipxer</title>
+    <!--[if mso]>
+    <noscript>
+        <xml>
+            <o:OfficeDocumentSettings>
+                <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+        </xml>
+    </noscript>
+    <![endif]-->
+    <style>
+        /* Dark mode support */
+        :root {
+            color-scheme: light dark;
+            supported-color-schemes: light dark;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .wrapper {
+                background-color: #1a1a1a !important;
+            }
+
+            .container {
+                background-color: #2d2d2d !important;
+            }
+
+            .greeting,
+            .success-title,
+            .tier-value,
+            .cta-button {
+                color: #5b8def !important;
+            }
+
+            .message,
+            .success-text,
+            .footer-text,
+            .expiry {
+                color: #b3b3b3 !important;
+            }
+
+            h1,
+            .detail-value {
+                color: #ffffff !important;
+            }
+
+            .success-box {
+                background-color: #1e3a5f !important;
+                border-color: #305DC9 !important;
+            }
+
+            .tier-info {
+                background-color: #3d3d3d !important;
+            }
+
+            .note {
+                background-color: #3d3d3d !important;
+            }
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f5;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #020202;
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+
+        .wrapper {
+            width: 100%;
+            background-color: #f4f4f5;
+            padding: 40px 16px;
+        }
+
+        .container {
+            max-width: 520px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);
+        }
+
+        .header {
+            text-align: center;
+            padding: 32px 24px 24px;
+            border-bottom: 3px solid #305DC9;
+        }
+
+        .logo {
+            width: 140px;
+            height: auto;
+        }
+
+        .content {
+            padding: 40px 28px;
+            text-align: center;
+        }
+
+        /* Icon using table for email compatibility */
+        .icon-wrapper {
+            width: 100%;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .icon-circle {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, #305DC9 0%, #2850B0 100%);
+            border-radius: 50%;
+            text-align: center;
+            vertical-align: middle;
+            display: inline-block;
+        }
+
+        .icon-circle img {
+            margin-top: 18px;
+        }
+
+        .greeting {
+            font-size: 24px;
+            font-weight: 600;
+            color: #305DC9;
+            margin: 0 0 16px;
+        }
+
+        .message {
+            color: #5a5b5b;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 0 0 32px;
+        }
+
+        .success-box {
+            background-color: #ebf5ff;
+            border: 2px solid #d4e9fe;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 28px;
+            text-align: left;
+        }
+
+        .success-title {
+            color: #2850B0;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .success-text {
+            color: #305DC9;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .tier-info {
+            background-color: #f4f4f5;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 28px;
+        }
+
+        .tier-label {
+            color: #aaabac;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .tier-value {
+            color: #305DC9;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background-color: #305DC9;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .footer {
+            border-top: 3px solid #305DC9;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .footer-logo {
+            width: 90px;
+            height: auto;
+            margin-bottom: 12px;
+        }
+
+        .footer-text {
+            color: #5a5b5b;
+            font-size: 12px;
+            margin: 0 0 6px;
+        }
+
+        .footer-copyright {
+            color: #aaabac;
+            font-size: 11px;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrapper">
+        <div class="container">
+
+            <!-- Header -->
+            <div class="header">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer"
+                    class="logo">
+            </div>
+
+            <div class="content">
+                <!-- Icon -->
+                <div class="icon-wrapper">
+                    <div class="icon-circle">
+                        <!--[if mso]>
+                        <v:oval style="width:72px;height:72px" fillcolor="#305DC9" stroked="f">
+                        <v:textbox inset="0,0,0,0" style="mso-fit-shape-to-text:true">
+                        <![endif]-->
+                        <img src="https://img.icons8.com/ios-filled/36/ffffff/checkmark--v1.png" alt="✓" width="36"
+                            height="36" style="margin-top:18px;">
+                        <!--[if mso]>
+                        </v:textbox>
+                        </v:oval>
+                        <![endif]-->
+                    </div>
+                </div>
+
+                <h1 class="greeting">Verification Complete!</h1>
+                <p class="message">
+                    Hi {{name}},<br><br>
+                    Great news! Your {{document_type}} has been reviewed and approved.
+                </p>
+
+                <!-- Success Box -->
+                <div class="success-box">
+                    <div class="success-title">What this means:</div>
+                    <div class="success-text">
+                        Your account verification level has been upgraded. You now have access to higher transaction
+                        limits and additional features.
+                    </div>
+                </div>
+
+                <!-- Tier Info -->
+                <div class="tier-info">
+                    <div class="tier-label">Your New Tier</div>
+                    <div class="tier-value">{{new_tier}}</div>
+                </div>
+
+                <a href="https://app.flipxer.com/dashboard" class="cta-button">
+                    Start Trading
+                </a>
+            </div>
+
+            <!-- Footer -->
+            <div class="footer">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer"
+                    class="footer-logo">
+                <p class="footer-text">hello@flipxer.com • flipxer.com</p>
+                <p class="footer-copyright">© 2025 Flipxer. All rights reserved.</p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

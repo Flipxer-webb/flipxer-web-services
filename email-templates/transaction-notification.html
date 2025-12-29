@@ -4,15 +4,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
     <title>{{header}}</title>
     <style>
-        /* Web App Design Colors from globals.css */
+        :root {
+            color-scheme: light dark;
+            supported-color-schemes: light dark;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .wrapper {
+                background-color: #1a1a1a !important;
+            }
+
+            .container {
+                background-color: #2d2d2d !important;
+            }
+
+            .amount-box {
+                background-color: #3d3d3d !important;
+                border-color: #4d4d4d !important;
+            }
+
+            .amount-value {
+                color: #ffffff !important;
+            }
+
+            .message,
+            .amount-fiat,
+            .footer-text {
+                color: #b3b3b3 !important;
+            }
+
+            .details-table td:last-child {
+                color: #ffffff !important;
+            }
+
+            .cta-button {
+                color: #ffffff !important;
+            }
+        }
+
         body {
             margin: 0;
             padding: 0;
             background-color: #f4f4f5;
             font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
             color: #020202;
+            -webkit-text-size-adjust: 100%;
         }
 
         .wrapper {
@@ -27,37 +67,18 @@
             background-color: #ffffff;
             border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+            box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);
         }
 
         .header {
             text-align: center;
-            padding: 28px 24px;
+            padding: 32px 24px 24px;
             border-bottom: 3px solid #305DC9;
         }
 
         .logo {
-            width: 160px;
+            width: 140px;
             height: auto;
-            margin-bottom: 16px;
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 8px 24px;
-            border-radius: 6px;
-            background-color: #305DC9;
-            color: #fff;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .timestamp {
-            color: #5a5b5b;
-            font-size: 13px;
-            margin-top: 14px;
         }
 
         .content {
@@ -71,7 +92,6 @@
             padding: 28px;
             text-align: center;
             margin-bottom: 24px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
 
         .amount-label {
@@ -105,7 +125,7 @@
         }
 
         .status-completed {
-            background-color: #09952818;
+            background-color: #e7feec;
             color: #099528;
             border: 2px solid #09952840;
         }
@@ -170,16 +190,27 @@
             color: #305DC9;
         }
 
+        .cta-button {
+            display: inline-block;
+            background-color: #305DC9;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
         .footer {
             border-top: 3px solid #305DC9;
-            padding: 20px 24px;
+            padding: 24px;
             text-align: center;
         }
 
         .footer-logo {
-            width: 100px;
+            width: 90px;
             height: auto;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
         .footer-text {
@@ -202,15 +233,14 @@
 
             <!-- Header -->
             <div class="header">
-                <img src="https://flipxer.com/logo.png" alt="Flipxer" class="logo">
-                <div class="badge">{{header}}</div>
-                <p class="timestamp">{{date}}</p>
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer"
+                    class="logo">
             </div>
 
             <div class="content">
                 <!-- Amount Box -->
                 <div class="amount-box">
-                    <div class="amount-label">Amount</div>
+                    <div class="amount-label">{{header}}</div>
                     <div class="amount-value">{{amount}} {{currency}}</div>
                     <div class="amount-fiat">≈ ₦{{fiat_amount}}</div>
                     <span class="status-badge status-{{status}}">{{status}}</span>
@@ -293,13 +323,21 @@
                         <td class="mono highlight">{{tx_hash}}</td>
                     </tr>
                 </table>
+
+                <!-- CTA Button -->
+                <div style="text-align: center; margin: 28px 0;">
+                    <a href="https://app.flipxer.com/transactions/{{transaction_id}}" class="cta-button">
+                        View Transaction
+                    </a>
+                </div>
             </div>
 
             <!-- Footer -->
             <div class="footer">
-                <img src="https://flipxer.com/logo.png" alt="Flipxer" class="footer-logo">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer"
+                    class="footer-logo">
                 <p class="footer-text">hello@flipxer.com • flipxer.com</p>
-                <p class="footer-copyright">© 2024 Flipxer. All rights reserved.</p>
+                <p class="footer-copyright">© 2025 Flipxer. All rights reserved.</p>
             </div>
         </div>
     </div>
