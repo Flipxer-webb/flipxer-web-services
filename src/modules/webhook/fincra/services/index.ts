@@ -3,7 +3,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { BankService } from "@/modules/api/banks/services";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { FincraWebhookPayload, FincraChargeData, FincraPayoutData } from "../interfaces";
-import { TransactionStatus } from "@prisma/client";
+import { OrderStreamlinedStatus, TransactionStatus } from "@prisma/client";
 
 @Injectable()
 export class FincraWebhookService {
@@ -17,7 +17,7 @@ export class FincraWebhookService {
 
     async processWebhookEvent(payload: FincraWebhookPayload) {
         const eventType = payload.event?.toLowerCase();
-        const reference = (payload.data as any)?.merchantReference || (payload.data as any)?.reference;
+        const reference = (payload.data as any)?.customerReference || (payload.data as any)?.merchantReference || (payload.data as any)?.reference;
 
         this.logger.log(`Processing Fincra webhook: event=${eventType}, reference=${reference}`);
         this.logger.debug(`Full payload: ${JSON.stringify(payload)}`);
@@ -77,33 +77,98 @@ export class FincraWebhookService {
         const status = data.status?.toLowerCase();
         const reference = data.customerReference || data.reference;
 
-        if (!reference) return;
+        if (!reference) {
+            this.logger.warn('Received payout event without reference, skipping');
+            return;
+        }
 
-        // Update the payment record based on payout status
+        this.logger.log(`Processing payout event: reference=${reference}, status=${status}`);
+
+        // Find the payment record with its linked order and user
+        const payment = await this.prisma.payment.findUnique({
+            where: { reference },
+            include: {
+                order: { include: { user: { select: { id: true, email: true } } } },
+                user: { select: { id: true, email: true } }
+            },
+        });
+
+        if (!payment) {
+            this.logger.warn(`Payment not found for payout reference: ${reference}`);
+            return;
+        }
+
+        // Determine the new transaction status
+        let transactionStatus: TransactionStatus | null = null;
+        let orderStreamlinedStatus: OrderStreamlinedStatus | null = null;
+
         switch (status) {
             case "successful":
-                await this.updatePayoutStatus(reference, TransactionStatus.SUCCESS);
+                transactionStatus = TransactionStatus.SUCCESS;
+                orderStreamlinedStatus = OrderStreamlinedStatus.completed;
                 break;
             case "failed":
-                await this.updatePayoutStatus(reference, TransactionStatus.FAILED);
+                transactionStatus = TransactionStatus.FAILED;
+                orderStreamlinedStatus = OrderStreamlinedStatus.failed;
                 break;
             case "processing":
             case "pending":
             default:
-                // leave as pending
-                break;
+                // Leave as pending, don't update
+                this.logger.log(`Payout ${reference} still ${status}, no update needed`);
+                return;
         }
-    }
 
-    private async updatePayoutStatus(reference: string, status: TransactionStatus) {
-        try {
-            await this.prisma.payment.updateMany({
+        // Update both Payment and Order in a transaction
+        await this.prisma.$transaction(async (tx) => {
+            // Update payment status
+            await tx.payment.update({
                 where: { reference },
-                data: { status },
+                data: {
+                    status: transactionStatus,
+                    paymentStatus: transactionStatus,
+                },
             });
-            this.logger.log(`Updated payout status for ${reference} to ${status}`);
-        } catch (error) {
-            this.logger.error(`Failed to update payout status for ${reference}: ${error.message}`);
+
+            // Update order if linked
+            if (payment.orderId) {
+                await tx.order.update({
+                    where: { id: payment.orderId },
+                    data: {
+                        paymentStatus: transactionStatus,
+                        streamlinedStatus: orderStreamlinedStatus,
+                    },
+                });
+                this.logger.log(`Updated order ${payment.orderId} paymentStatus to ${transactionStatus}`);
+            }
+        });
+
+        this.logger.log(`Updated payout status for ${reference} to ${transactionStatus}`);
+
+        // Handle success notification
+        if (transactionStatus === TransactionStatus.SUCCESS) {
+            await this.bankService.processAssetValueTransferToBankHandler({
+                paymentReference: reference,
+                transferToBankStatus: TransactionStatus.SUCCESS as any, // Type cast needed due to legacy enum mismatch
+            });
+        }
+
+        // Handle failure - send alerts
+        if (transactionStatus === TransactionStatus.FAILED) {
+            const userEmail = payment.order?.user?.email || payment.user?.email;
+            const orderId = payment.orderId;
+
+            // Send Slack alert for failed payout
+            await this.slackService.sendWebhookFailureAlert(
+                'fincra',
+                reference,
+                `PAYOUT FAILED - Order: ${orderId}, User: ${userEmail}, Amount: ${payment.amount} NGN`,
+                { reference, orderId, userEmail, amount: payment.amount }
+            ).catch(err => {
+                this.logger.error(`Failed to send payout failure Slack alert: ${err.message}`);
+            });
+
+            this.logger.error(`Payout FAILED for reference ${reference}, order ${orderId}, user ${userEmail}`);
         }
     }
 }
