@@ -32,6 +32,8 @@ import { DuplicateUserException } from "../../user";
 import {
     UserNotFoundException,
     InvalidCredentialException,
+    Invalid2FACodeException,
+    TwoFactorLockedException,
     InvalidEmailVerificationCodeException,
     VerificationCodeExpiredException,
     DuplicateBvnVerificationException,
@@ -2176,9 +2178,9 @@ export class AuthService {
             );
 
             if (!rateLimitResult.allowed) {
-                throw new UserUnauthorizedException(
-                    `Too many failed 2FA attempts. Account locked for ${rateLimitResult.lockoutDuration} seconds.`,
-                    HttpStatus.TOO_MANY_REQUESTS
+                throw new TwoFactorLockedException(
+                    "Too many failed 2FA attempts",
+                    rateLimitResult.lockoutDuration
                 );
             }
 
@@ -2189,13 +2191,14 @@ export class AuthService {
             );
 
             if (failedResult.lockoutEndsAt) {
-                throw new InvalidCredentialException(
-                    `Invalid verification code. Account locked for ${failedResult.lockoutDuration} seconds. ${failedResult.remainingAttempts} attempts remaining.`
+                throw new TwoFactorLockedException(
+                    "Invalid verification code",
+                    failedResult.lockoutDuration
                 );
             }
 
-            throw new InvalidCredentialException(
-                `Invalid verification code. ${failedResult.remainingAttempts} attempts remaining before lockout.`
+            throw new Invalid2FACodeException(
+                `Invalid verification code. ${failedResult.remainingAttempts} attempts remaining.`
             );
         }
 

@@ -45,6 +45,32 @@ export class InvalidCredentialException extends HttpException {
     }
 }
 
+// 2FA-specific exceptions with structured error codes
+export class Invalid2FACodeException extends HttpException {
+    name = "Invalid2FACodeException";
+    constructor(
+        message = "Invalid verification code",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super({ message, code: "INVALID_2FA_CODE" }, status);
+    }
+}
+
+export class TwoFactorLockedException extends HttpException {
+    name = "TwoFactorLockedException";
+    constructor(
+        message = "Too many failed 2FA attempts",
+        lockoutDuration?: number,
+        status: HttpStatus = HttpStatus.TOO_MANY_REQUESTS
+    ) {
+        const fullMessage = lockoutDuration
+            ? `${message}. Account locked for ${lockoutDuration} seconds.`
+            : message;
+        super({ message: fullMessage, code: "TWO_FACTOR_LOCKED" }, status);
+    }
+}
+
+
 export class PrismaNetworkException extends HttpException {
     name = "PrismaNetworkException";
     constructor(
