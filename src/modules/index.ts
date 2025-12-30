@@ -11,6 +11,7 @@ import { WebhookModule } from "./webhook";
 import { BullModule } from "@nestjs/bull";
 import { redisConfig } from "@/config";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { RateLimitModule } from "@/modules/core/rate-limit";
 
 @Module({
     imports: [
@@ -22,6 +23,10 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
         FactoryModule,
         ConfigModule.forRoot({
             isGlobal: true,
+        }),
+        RateLimitModule.forRoot({
+            limit: 100,
+            windowSeconds: 60,
         }),
         // Bull Board disabled due to path-to-regexp compatibility issue with Express 4.x
         // Re-enable when upgrading to NestJS 11 / Express 5
@@ -62,4 +67,4 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
         }),
     ],
 })
-export class AppModule {}
+export class AppModule { }
