@@ -192,7 +192,7 @@ export class DepositWebhookHandler {
                 orderCategory: OrderCategory.BUY,
                 currency: options.currency.toUpperCase(),
                 status: {
-                    in: [OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
+                    in: [OrderStatus.pending, OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
                 },
                 createdAt: {
                     gte: oneHourAgo,
