@@ -9,7 +9,7 @@ import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
 import { AuthController } from "./controllers/v1";
 import { AdminAuthController } from "./controllers/v1/admin";
 import { BiometricController } from "./controllers/v1/biometric";
-import { AuthGuard } from "./guard";
+import { AuthGuard, TwoFactorGuard } from "./guard";
 import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 import { TradingModule } from "../trade";
 import { PrismaModule } from "@/modules/core/prisma";
@@ -39,8 +39,8 @@ export * from "./errors";
         forwardRef(() => SettingModule),
     ],
     controllers: [AuthController, AdminAuthController, BiometricController],
-    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, BiometricService],
-    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, BiometricService],
+    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, BiometricService, TwoFactorGuard],
+    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, BiometricService, TwoFactorGuard],
 })
 export class AuthModule { }
 
