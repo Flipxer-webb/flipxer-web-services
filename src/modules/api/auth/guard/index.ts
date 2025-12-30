@@ -433,6 +433,12 @@ const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
                 : body.to_currency?.toUpperCase(),
     },
     {
+        patterns: ["execute-atomic-swap"],
+        category: OrderCategory.SWAP,
+        getAmount: (body) => body.from_amount,
+        getCurrency: (body) => body.from_currency?.toUpperCase(),
+    },
+    {
         patterns: ["withdrawer-request"],
         category: OrderCategory.SEND,
         getAmount: (body) => body.amount,
