@@ -11,6 +11,7 @@
 
 import { Injectable, Logger, HttpStatus, HttpException } from '@nestjs/common';
 import { PrismaService } from '@/modules/core/prisma/services';
+import { RedisCacheService } from '@/modules/core/redisCache/services/redis-cache.service';
 import {
     generateRegistrationOptions,
     verifyRegistrationResponse,
@@ -60,11 +61,14 @@ export interface BiometricCredentialSummary {
 export class BiometricService {
     private readonly logger = new Logger(BiometricService.name);
 
-    // Store challenges temporarily (in production, use Redis with short TTL)
-    private challenges = new Map<string, string>();
-    private readonly CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+    // Challenge TTL - 2 minutes (reduced from 5 for security)
+    private readonly CHALLENGE_TTL_SECONDS = 120;
+    private readonly CHALLENGE_KEY_PREFIX = 'biometric:challenge:';
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly redisCache: RedisCacheService,
+    ) { }
 
     /**
      * Generate registration options for WebAuthn credential creation
@@ -103,10 +107,9 @@ export class BiometricService {
             timeout: 60000,
         });
 
-        // Store challenge for verification (with cleanup)
-        const challengeKey = `reg:${userId}`;
-        this.challenges.set(challengeKey, options.challenge);
-        setTimeout(() => this.challenges.delete(challengeKey), this.CHALLENGE_TTL_MS);
+        // Store challenge in Redis for verification
+        const challengeKey = `${this.CHALLENGE_KEY_PREFIX}reg:${userId}`;
+        await this.redisCache.set(challengeKey, options.challenge, this.CHALLENGE_TTL_SECONDS);
 
         this.logger.log(`Generated registration options for user ${userId}`);
 
@@ -121,15 +124,15 @@ export class BiometricService {
         response: RegistrationResponseJSON,
         deviceName: string,
     ): Promise<{ credentialId: string }> {
-        const challengeKey = `reg:${userId}`;
-        const expectedChallenge = this.challenges.get(challengeKey);
+        const challengeKey = `${this.CHALLENGE_KEY_PREFIX}reg:${userId}`;
+        const expectedChallenge = await this.redisCache.get<string>(challengeKey);
 
         if (!expectedChallenge) {
             throw new HttpException('Registration challenge expired or not found', HttpStatus.BAD_REQUEST);
         }
 
         // Clean up challenge after use
-        this.challenges.delete(challengeKey);
+        await this.redisCache.del(challengeKey);
 
         let verification: VerifiedRegistrationResponse;
         try {
@@ -219,10 +222,9 @@ export class BiometricService {
             timeout: 60000,
         });
 
-        // Store challenge for verification
-        const challengeKey = `auth:${email}`;
-        this.challenges.set(challengeKey, options.challenge);
-        setTimeout(() => this.challenges.delete(challengeKey), this.CHALLENGE_TTL_MS);
+        // Store challenge in Redis for verification
+        const challengeKey = `${this.CHALLENGE_KEY_PREFIX}auth:${email}`;
+        await this.redisCache.set(challengeKey, options.challenge, this.CHALLENGE_TTL_SECONDS);
 
         return {
             ...options,
@@ -248,15 +250,15 @@ export class BiometricService {
             throw new HttpException('Biometric credential not recognized', HttpStatus.UNAUTHORIZED);
         }
 
-        // Get challenge
-        const challengeKey = email ? `auth:${email}` : `auth:conditional`;
-        const expectedChallenge = this.challenges.get(challengeKey);
+        // Get challenge from Redis
+        const challengeKey = email ? `${this.CHALLENGE_KEY_PREFIX}auth:${email}` : `${this.CHALLENGE_KEY_PREFIX}auth:conditional`;
+        const expectedChallenge = await this.redisCache.get<string>(challengeKey);
 
         if (!expectedChallenge) {
             throw new HttpException('Authentication challenge expired or not found', HttpStatus.BAD_REQUEST);
         }
 
-        this.challenges.delete(challengeKey);
+        await this.redisCache.del(challengeKey);
 
         let verification: VerifiedAuthenticationResponse;
         try {
@@ -376,10 +378,9 @@ export class BiometricService {
             timeout: 60000,
         });
 
-        // Store challenge with transaction context
-        const challengeKey = `txn:${userId}`;
-        this.challenges.set(challengeKey, options.challenge);
-        setTimeout(() => this.challenges.delete(challengeKey), this.CHALLENGE_TTL_MS);
+        // Store challenge in Redis with transaction context
+        const challengeKey = `${this.CHALLENGE_KEY_PREFIX}txn:${userId}`;
+        await this.redisCache.set(challengeKey, options.challenge, this.CHALLENGE_TTL_SECONDS);
 
         return options as BiometricAuthenticationOptions;
     }
@@ -399,14 +400,14 @@ export class BiometricService {
             throw new HttpException('Invalid biometric credential', HttpStatus.UNAUTHORIZED);
         }
 
-        const challengeKey = `txn:${userId}`;
-        const expectedChallenge = this.challenges.get(challengeKey);
+        const challengeKey = `${this.CHALLENGE_KEY_PREFIX}txn:${userId}`;
+        const expectedChallenge = await this.redisCache.get<string>(challengeKey);
 
         if (!expectedChallenge) {
             throw new HttpException('Transaction verification challenge expired', HttpStatus.BAD_REQUEST);
         }
 
-        this.challenges.delete(challengeKey);
+        await this.redisCache.del(challengeKey);
 
         try {
             const verification = await verifyAuthenticationResponse({

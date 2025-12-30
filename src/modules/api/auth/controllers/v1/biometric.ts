@@ -29,6 +29,7 @@ import {
     ApiBearerAuth,
     ApiResponse,
 } from '@nestjs/swagger';
+import { RateLimiterGuard, RateLimit, StrictRateLimit } from '@/modules/core/rate-limit/guards/rate-limiter.guard';
 import { User } from '@/modules/api/user';
 import { User as UserModel } from '@prisma/client';
 import { AuthGuard } from '../../guard';
@@ -132,11 +133,15 @@ export class BiometricController {
 
     /**
      * Get WebAuthn authentication options for login
+     * RATE LIMITED: 5 requests per minute per IP (prevents email enumeration)
      */
     @Post('login/options')
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Get WebAuthn authentication options for login' })
     @ApiResponse({ status: 200, description: 'Authentication options generated' })
+    @ApiResponse({ status: 429, description: 'Too many requests' })
     async getLoginOptions(
         @Body(ValidationPipe) dto: BiometricLoginOptionsDto,
     ) {
@@ -153,12 +158,16 @@ export class BiometricController {
     /**
      * Complete biometric login
      * Returns JWT tokens like regular login
+     * RATE LIMITED: 5 requests per minute per IP (prevents brute force)
      */
     @Post('login')
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Login with biometric authentication' })
     @ApiResponse({ status: 200, description: 'Login successful' })
     @ApiResponse({ status: 401, description: 'Biometric authentication failed' })
+    @ApiResponse({ status: 429, description: 'Too many requests' })
     async login(
         @Body(ValidationPipe) dto: BiometricLoginDto,
         @Req() req: Request,
