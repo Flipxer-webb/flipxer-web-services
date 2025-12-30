@@ -603,25 +603,67 @@ export class TwoFactorGuard implements CanActivate {
         }
 
         // Try to get verification token from request
-        const verificationToken = this.extractVerificationToken(request);
+        let verificationToken = this.extractVerificationToken(request);
         const legacyCode = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+
+        // Smart detection: If legacy code looks like a JWT (long string), treat it as a verification token
+        // This avoids needing to refactor all frontend callsites that send "twoFactorCode"
+        if (!verificationToken && legacyCode && legacyCode.length > 20) {
+            verificationToken = legacyCode;
+        }
 
         // CASE 1: New multi-factor verification token present
         if (verificationToken) {
-            const isValidToken = await this.validateVerificationToken(user.id, verificationToken);
-            if (isValidToken) {
-                this.logger.debug(`User ${user.id}: Valid verification token, allowing transaction`);
-                return true;
+            // Support comma-separated tokens for multi-method verification
+            const tokens = verificationToken.split(',');
+            const verifiedMethods = new Set<string>();
+            let allTokensValid = true;
+
+            for (const token of tokens) {
+                if (!token.trim()) continue;
+
+                const method = await this.validateVerificationTokenAndGetMethod(user.id, token.trim());
+                if (method) {
+                    verifiedMethods.add(method);
+                } else {
+                    allTokensValid = false;
+                    break;
+                }
             }
-            this.logger.warn(`User ${user.id}: Invalid verification token provided`);
+
+            if (allTokensValid) {
+                // Check if we have enough unique methods
+                let requiredCount = userData?.requiredMethodCount || 1;
+
+                // SPECIAL CASE: Swap transactions are exempt from multi-method requirements
+                // and should default to single 2FA (Authenticator) due to timing constraints.
+                if (request.url.includes('execute-atomic-swap')) {
+                    this.logger.debug(`User ${user.id}: Swap transaction detected, overriding requiredMethodCount to 1`);
+                    requiredCount = 1;
+                }
+
+                if (verifiedMethods.size >= requiredCount) {
+                    this.logger.debug(`User ${user.id}: Verified ${verifiedMethods.size}/${requiredCount} methods (${Array.from(verifiedMethods).join(', ')}), allowing transaction`);
+                    return true;
+                } else {
+                    this.logger.warn(`User ${user.id}: Insufficient methods verified. Got ${verifiedMethods.size}, required ${requiredCount}`);
+                }
+            } else {
+                this.logger.warn(`User ${user.id}: Invalid verification token(s) provided`);
+            }
         }
 
         // CASE 2: Legacy TOTP code present (backward compatibility)
-        if (legacyCode && userData?.twoFactorSecret) {
+        if (legacyCode && legacyCode.length <= 6 && userData?.twoFactorSecret) {
             const isValidLegacy = await this.validateLegacyTwoFactor(user.id, legacyCode, userData.twoFactorSecret);
             if (isValidLegacy) {
-                this.logger.debug(`User ${user.id}: Valid legacy 2FA code, allowing transaction`);
-                return true;
+                // Legacy flow only supports 1 method (Authenticator)
+                // If user requires > 1 method, this flow is insufficient unless they only have authenticator enabled
+                const requiredCount = userData?.requiredMethodCount || 1;
+                if (requiredCount <= 1) {
+                    this.logger.debug(`User ${user.id}: Valid legacy 2FA code, allowing transaction`);
+                    return true;
+                }
             }
         }
 
@@ -654,9 +696,9 @@ export class TwoFactorGuard implements CanActivate {
     }
 
     /**
-     * Validate a verification token (JWT signed by the backend after successful verification)
+     * Validate a verification token and return the method used
      */
-    private async validateVerificationToken(userId: number, token: string): Promise<boolean> {
+    private async validateVerificationTokenAndGetMethod(userId: number, token: string): Promise<string | null> {
         try {
             const payload = await this.jwtService.verifyAsync(token, {
                 secret: jwtSecret,
@@ -665,27 +707,27 @@ export class TwoFactorGuard implements CanActivate {
             // Check that token is for the correct user
             if (payload.userId !== userId) {
                 this.logger.warn(`Token userId ${payload.userId} does not match request userId ${userId}`);
-                return false;
+                return null;
             }
 
             // Check token type
             if (payload.type !== "transaction_verification") {
                 this.logger.warn(`Invalid token type: ${payload.type}`);
-                return false;
+                return null;
             }
 
-            // Check expiry (JWT library handles this, but double-check)
+            // Check expiry
             const now = Math.floor(Date.now() / 1000);
             if (payload.exp && payload.exp < now) {
                 this.logger.warn(`Token expired at ${payload.exp}, current time ${now}`);
-                return false;
+                return null;
             }
 
             this.logger.debug(`Valid verification token for user ${userId}, method: ${payload.method}`);
-            return true;
+            return payload.method;
         } catch (error) {
             this.logger.warn(`Token validation error: ${error.message}`);
-            return false;
+            return null;
         }
     }
 

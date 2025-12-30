@@ -244,13 +244,11 @@ export class TradingController {
         summary: "Execute atomic swap - gets quote and confirms instantly",
         description: "This is the recommended endpoint for swaps. It gets a fresh quote and immediately confirms it, eliminating any timing issues with quote expiry."
     })
-    // Note: TwoFactorGuard removed - 2FA is verified by TwoFactorTransactionModal 
-    // via /settings/security/verify BEFORE this endpoint is called
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
     @ApiBearerAuth("access-token")
     @Post("execute-atomic-swap")
     async executeAtomicSwap(
-        @Body() dto: { from_currency: string; to_currency: string; from_amount: number },
+        @Body() dto: { from_currency: string; to_currency: string; from_amount: number; verificationToken?: string },
         @User() user: UserModel
     ) {
         console.log("🔥 [DEBUG] ATOMIC SWAP REQUEST RECEIVED", JSON.stringify(dto));
