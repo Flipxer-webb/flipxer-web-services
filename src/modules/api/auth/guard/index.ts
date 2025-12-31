@@ -31,7 +31,7 @@ import { Status, OrderCategory } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { Observable } from "rxjs";
 import * as crypto from "crypto";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import * as requestIp from "request-ip";
 import { GeoIPService } from "@/modules/core/geoip/geoip.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -236,35 +236,41 @@ export class FincraWebhookGuard implements CanActivate {
 
         this.logger.log(`Received Fincra webhook request`);
         this.logger.debug(`Event: ${(request.body as any)?.event}`);
-        this.logger.debug(`Signature header present: ${!!signature}`);
-        this.logger.debug(`Webhook secret configured: ${!!secret}`);
 
-        // TEMPORARY: Allow webhooks without signature until Fincra signing is configured
-        // TODO: Re-enable signature validation once Fincra dashboard has signing enabled
+        // Require signature for security
         if (!signature) {
-            this.logger.warn('⚠️ SECURITY: No signature header from Fincra - allowing webhook temporarily');
-            this.logger.warn('Please enable webhook signing in Fincra dashboard for production security');
-            this.logger.debug(`All headers: ${JSON.stringify(Object.keys(request.headers))}`);
-            return true; // TEMPORARY - allow without signature
+            this.logger.error('SECURITY: Fincra webhook rejected - no signature header');
+            return false;
         }
 
+        // Require secret to be configured
         if (!secret) {
-            this.logger.error('FINCRA_WEBHOOK_SECRET environment variable not set');
-            return true; // Allow if no secret configured (temporary)
+            this.logger.error('SECURITY: FINCRA_WEBHOOK_SECRET not configured - rejecting webhook');
+            return false;
         }
 
         const computed = createHmac("sha512", secret)
             .update(JSON.stringify(request.body))
             .digest("hex");
 
-        const isValid = computed === signature;
+        // Use timing-safe comparison to prevent timing attacks
+        let isValid = false;
+        try {
+            // Both strings must be same length for timingSafeEqual
+            if (computed.length === signature.length) {
+                isValid = timingSafeEqual(
+                    Buffer.from(computed, 'utf8'),
+                    Buffer.from(signature, 'utf8')
+                );
+            }
+        } catch {
+            isValid = false;
+        }
 
         if (isValid) {
             this.logger.log(`Signature verified for event: ${(request.body as any)?.event}`);
         } else {
-            this.logger.error(`Signature mismatch for event: ${(request.body as any)?.event}`);
-            this.logger.debug(`Expected: ${computed.substring(0, 20)}...`);
-            this.logger.debug(`Received: ${signature.substring(0, 20)}...`);
+            this.logger.error(`SECURITY: Fincra webhook rejected - invalid signature`);
         }
 
         return isValid;
