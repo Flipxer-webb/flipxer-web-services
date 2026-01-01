@@ -5,7 +5,7 @@ import { TransactionStatus } from "@prisma/client";
 import * as Config from "@/config";
 import * as crypto from "crypto";
 
-@Controller("webhooks/nomba")
+@Controller("webhooks")
 export class NombaWebhookController {
     private readonly logger = new Logger(NombaWebhookController.name);
 
@@ -36,13 +36,13 @@ export class NombaWebhookController {
      * GET endpoint for Nomba webhook URL verification
      * Nomba tests the webhook URL before saving it
      */
-    @Get()
+    @Get("nomba")
     @HttpCode(200)
     verifyWebhookUrl() {
         return { status: "ok", message: "Nomba webhook endpoint active" };
     }
 
-    @Post()
+    @Post("nomba")
     @HttpCode(200)
     async handleWebhook(
         @Body() body: NombaWebhookPayload,
