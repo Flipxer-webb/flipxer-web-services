@@ -696,4 +696,26 @@ export class UserService {
             message: "Recovery email verified successfully",
         };
     }
+
+    /**
+     * Update user's notification token for push notifications (FCM)
+     */
+    async updateNotificationToken(
+        user: User,
+        token: string | null
+    ): Promise<{ message: string }> {
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: { notificationToken: token },
+        });
+
+        // Invalidate profile cache
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
+        return {
+            message: token
+                ? "Push notifications enabled"
+                : "Push notifications disabled",
+        };
+    }
 }

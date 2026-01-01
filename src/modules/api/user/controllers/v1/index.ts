@@ -40,7 +40,7 @@ import { User as UserModel } from "@prisma/client";
 })
 @UseGuards(CountryBlockGuard, AuthGuard, EnabledAccountGuard)
 export class UserController {
-    constructor(private readonly userService: UserService) {}
+    constructor(private readonly userService: UserService) { }
 
     @ApiOperation({ summary: "Get client profile" })
     @ApiBearerAuth("access-token")
@@ -149,4 +149,27 @@ export class UserController {
     ) {
         return await this.userService.verifyRecoveryEmailOtp(dto, user);
     }
+
+    @ApiOperation({ summary: "Update push notification token" })
+    @ApiBearerAuth("access-token")
+    @ApiBody({
+        schema: {
+            type: "object",
+            properties: {
+                token: {
+                    type: "string",
+                    nullable: true,
+                    description: "FCM token for push notifications. Pass null to disable.",
+                },
+            },
+        },
+    })
+    @Post("notification-token")
+    async updateNotificationToken(
+        @Body("token") token: string | null,
+        @User() user: UserModel
+    ) {
+        return await this.userService.updateNotificationToken(user, token);
+    }
 }
+
