@@ -403,3 +403,6 @@ export const nombaOptions: NombaOptions = {
     webhookSecret: process.env.NOMBA_WEBHOOK_SECRET || "",
 };
 
+// Slack webhook for payout failure alerts (optional)
+export const slackPayoutAlertWebhookUrl = process.env.SLACK_PAYOUT_ALERT_WEBHOOK_URL || "";
+

@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
+import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
 import {
     TransactionCompletedException,
     TransactionNotFoundException,
@@ -26,6 +27,7 @@ import { NotificationMessageService } from "@/modules/core/messages/services/not
 import { WsGateway } from "../../gateway/v1";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { WalletAddressService } from "../wallet-address.service";
+import { slackPayoutAlertWebhookUrl } from "@/config";
 import {
     DEFAULT_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -47,6 +49,8 @@ export class WithdrawalWebhookHandler {
         private readonly prisma: PrismaService,
         @Inject(BankInjectionToken.NOMBA)
         private readonly nombaService: NombaBank,
+        @Inject(BankInjectionToken.FINCRA)
+        private readonly fincraService: FincraBank,
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
@@ -290,49 +294,157 @@ export class WithdrawalWebhookHandler {
 
 
     /**
-     * Initiate fiat payout to seller via Nomba
+     * Initiate fiat payout to seller - tries Nomba first, falls back to Fincra
      */
     private async initiateFiatPayout(transaction: any) {
         const payoutReference = generateId({ type: "reference" });
+        const payoutData = {
+            accountName: transaction.destinationBankAccountName,
+            accountNumber: transaction.destinationBankAccountNumber,
+            amount: transaction.totalToReceiveInFiat,
+            bankCode: transaction.destinationBankCode,
+            bankName: transaction.destinationBankName,
+            serviceCharge: 0,
+            userId: transaction.userId,
+            orderId: transaction.id,
+            reference: payoutReference,
+        };
 
         this.logger.log(
-            `Initiating Nomba payout | ${JSON.stringify({
+            `Initiating payout (Nomba primary) | ${JSON.stringify({
                 orderId: transaction.id,
                 userId: transaction.userId,
                 amount: transaction.totalToReceiveInFiat,
-                accountName: transaction.destinationBankAccountName,
                 accountNumber: transaction.destinationBankAccountNumber,
-                bankCode: transaction.destinationBankCode,
-                bankName: transaction.destinationBankName,
                 reference: payoutReference,
             })}`
         );
 
+        // Try Nomba first
         try {
-            await this.nombaService.initializeTransfer({
-                accountName: transaction.destinationBankAccountName,
-                accountNumber: transaction.destinationBankAccountNumber,
-                amount: transaction.totalToReceiveInFiat,
-                bankCode: transaction.destinationBankCode,
-                bankName: transaction.destinationBankName,
-                serviceCharge: 0,
-                userId: transaction.userId,
-                orderId: transaction.id,
-                reference: payoutReference,
-            });
-
-            this.logger.log(`Nomba payout initiated successfully for order ${transaction.id}, reference: ${payoutReference}`);
-        } catch (error) {
-            this.logger.error(
-                `CRITICAL: Nomba payout FAILED | ${JSON.stringify({
+            await this.nombaService.initializeTransfer(payoutData);
+            this.logger.log(`✅ Nomba payout SUCCESS for order ${transaction.id}, ref: ${payoutReference}`);
+            return;
+        } catch (nombaError) {
+            this.logger.warn(
+                `⚠️ Nomba payout FAILED, trying Fincra fallback | ${JSON.stringify({
                     orderId: transaction.id,
-                    userId: transaction.userId,
-                    error: error.message,
-                    stack: error.stack,
+                    error: nombaError.message,
                 })}`
             );
-            // Re-throw to ensure the caller knows payout failed
-            throw error;
+
+            // Send Slack alert for Nomba failure
+            await this.sendPayoutAlert({
+                orderId: transaction.id,
+                userId: transaction.userId,
+                amount: transaction.totalToReceiveInFiat,
+                accountNumber: transaction.destinationBankAccountNumber,
+                bankName: transaction.destinationBankName,
+                provider: "Nomba",
+                error: nombaError.message,
+                willRetryWithFincra: true,
+            });
+
+            // Fallback to Fincra
+            try {
+                await this.fincraService.initializeTransfer(payoutData);
+                this.logger.log(`✅ Fincra fallback payout SUCCESS for order ${transaction.id}, ref: ${payoutReference}`);
+                return;
+            } catch (fincraError) {
+                this.logger.error(
+                    `❌ CRITICAL: Both Nomba and Fincra payout FAILED | ${JSON.stringify({
+                        orderId: transaction.id,
+                        userId: transaction.userId,
+                        nombaError: nombaError.message,
+                        fincraError: fincraError.message,
+                    })}`
+                );
+
+                // Send critical Slack alert - both providers failed!
+                await this.sendPayoutAlert({
+                    orderId: transaction.id,
+                    userId: transaction.userId,
+                    amount: transaction.totalToReceiveInFiat,
+                    accountNumber: transaction.destinationBankAccountNumber,
+                    bankName: transaction.destinationBankName,
+                    provider: "BOTH",
+                    error: `Nomba: ${nombaError.message} | Fincra: ${fincraError.message}`,
+                    willRetryWithFincra: false,
+                    isCritical: true,
+                });
+
+                throw new Error(`All payout providers failed for order ${transaction.id}`);
+            }
+        }
+    }
+
+    /**
+     * Send Slack alert for payout failures
+     */
+    private async sendPayoutAlert(data: {
+        orderId: number;
+        userId: number;
+        amount: number;
+        accountNumber: string;
+        bankName: string;
+        provider: string;
+        error: string;
+        willRetryWithFincra?: boolean;
+        isCritical?: boolean;
+    }) {
+        try {
+            if (!slackPayoutAlertWebhookUrl) {
+                this.logger.warn("Slack webhook URL not configured - skipping payout alert");
+                return;
+            }
+
+            const emoji = data.isCritical ? "🚨" : "⚠️";
+            const status = data.isCritical
+                ? "CRITICAL: ALL PAYOUT PROVIDERS FAILED"
+                : data.willRetryWithFincra
+                    ? "Nomba failed, trying Fincra..."
+                    : `${data.provider} payout failed`;
+
+            const message = {
+                text: `${emoji} *Payout Alert*`,
+                blocks: [
+                    {
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text: `${emoji} *${status}*`,
+                        },
+                    },
+                    {
+                        type: "section",
+                        fields: [
+                            { type: "mrkdwn", text: `*Order ID:*\n${data.orderId}` },
+                            { type: "mrkdwn", text: `*User ID:*\n${data.userId}` },
+                            { type: "mrkdwn", text: `*Amount:*\n₦${data.amount?.toLocaleString()}` },
+                            { type: "mrkdwn", text: `*Bank:*\n${data.bankName}` },
+                            { type: "mrkdwn", text: `*Account:*\n${data.accountNumber}` },
+                            { type: "mrkdwn", text: `*Provider:*\n${data.provider}` },
+                        ],
+                    },
+                    {
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text: `*Error:*\n\`\`\`${data.error}\`\`\``,
+                        },
+                    },
+                ],
+            };
+
+            await fetch(slackPayoutAlertWebhookUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(message),
+            });
+
+            this.logger.log(`Slack payout alert sent for order ${data.orderId}`);
+        } catch (slackError) {
+            this.logger.error(`Failed to send Slack alert: ${slackError.message}`);
         }
     }
 
