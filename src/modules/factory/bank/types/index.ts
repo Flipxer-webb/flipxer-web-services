@@ -1,9 +1,11 @@
 export * as TFincra from "./fincra";
+export * as TNomba from "./nomba";
 
-export type BankProvider = "fincra";
+export type BankProvider = "fincra" | "nomba";
 
 export type BankProviderMap = {
     fincra: IFincraBank;
+    nomba: INombaBank;
 };
 
 export type TBankFactory<P extends BankProvider> =
@@ -15,9 +17,16 @@ export type FactoryBuilderOptions<T extends BankProvider> = {
 
 export enum BankInjectionToken {
     FINCRA = "FINCRA",
+    NOMBA = "NOMBA",
 }
 
 //fincra
 export interface IFincraBank {
     name?: string;
 }
+
+//nomba
+export interface INombaBank {
+    name?: string;
+}
+

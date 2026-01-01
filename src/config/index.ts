@@ -341,8 +341,8 @@ export const fincraOptions: FincraOptions = {
 
 export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
     ? process.env.BLOCKED_COUNTRIES.split(",").map((c) =>
-          c.trim().toUpperCase()
-      )
+        c.trim().toUpperCase()
+    )
     : [];
 
 // Firebase (optional - push notifications will not work without credentials)
@@ -385,3 +385,21 @@ export interface Configuration {
     emailTemplateConfig: EMailTemplateConfig;
     fincraConfig: FincraOptions;
 }
+
+// Nomba (optional - alternative fiat gateway alongside Fincra)
+export interface NombaOptions {
+    baseUrl: string;
+    clientId: string;
+    clientSecret: string;
+    accountId: string;
+    webhookSecret?: string;
+}
+
+export const nombaOptions: NombaOptions = {
+    baseUrl: process.env.NOMBA_BASE_URL || "https://api.nomba.com",
+    clientId: process.env.NOMBA_CLIENT_ID || "",
+    clientSecret: process.env.NOMBA_CLIENT_SECRET || "",
+    accountId: process.env.NOMBA_ACCOUNT_ID || "",
+    webhookSecret: process.env.NOMBA_WEBHOOK_SECRET || "",
+};
+

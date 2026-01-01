@@ -17,6 +17,7 @@ import {
 import { ApiResponse, buildResponse, generateId } from "@/utils";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
+import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { BankCacheService } from "@/modules/core/redisCache/services/bank-cache.service";
 import {
     DuplicateTransactionException,
@@ -51,6 +52,8 @@ export class BankService {
         private readonly prisma: PrismaService,
         @Inject(BankInjectionToken.FINCRA)
         private readonly fincraService: FincraBank,
+        @Inject(BankInjectionToken.NOMBA)
+        private readonly nombaService: NombaBank,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly notificationMessage: NotificationMessageService,
@@ -64,6 +67,48 @@ export class BankService {
         return buildResponse({
             message: "banks successfully retrieved",
             data: banks,
+        });
+    }
+
+    /**
+     * Initialize payment using Nomba Checkout
+     * Returns a checkout link for the user to complete payment
+     */
+    async initializeNombaCheckout(userId: number, amount: number, callbackUrl?: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException("User not found");
+        }
+
+        const result = await this.nombaService.initializePayment(
+            {
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                lastName: user.lastName,
+            },
+            amount,
+            callbackUrl
+        );
+
+        return buildResponse({
+            message: "Checkout created successfully",
+            data: result.data,
+        });
+    }
+
+    /**
+     * Verify Nomba checkout/payment status
+     */
+    async verifyNombaCheckout(orderReference: string) {
+        const result = await this.nombaService.verifyTransaction(orderReference);
+
+        return buildResponse({
+            message: "Checkout status retrieved",
+            data: result.data,
         });
     }
 

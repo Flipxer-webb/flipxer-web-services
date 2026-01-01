@@ -12,9 +12,19 @@ const fincraProvider: Provider = {
     inject: [PrismaService],
 };
 
+const nombaProvider: Provider = {
+    provide: BankInjectionToken.NOMBA,
+    useFactory(prisma: PrismaService) {
+        const factory = new BankFactory(prisma);
+        return factory.build({ provider: "nomba" });
+    },
+    inject: [PrismaService],
+};
+
 @Global()
 @Module({
-    providers: [fincraProvider],
-    exports: [fincraProvider],
+    providers: [fincraProvider, nombaProvider],
+    exports: [fincraProvider, nombaProvider],
 })
-export class BankFactoryModule {}
+export class BankFactoryModule { }
+
