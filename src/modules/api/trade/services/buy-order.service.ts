@@ -3,8 +3,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
-import { FincraInitiationResponseResultType } from "@/modules/factory/bank/types/fincra";
+import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { COMPANY_NAME } from "@/config";
@@ -55,11 +54,11 @@ export class BuyOrderService {
         private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
-        @Inject(BankInjectionToken.FINCRA)
-        private readonly fincraService: FincraBank,
+        @Inject(BankInjectionToken.NOMBA)
+        private readonly nombaService: NombaBank,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService
-    ) {}
+    ) { }
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -232,7 +231,7 @@ export class BuyOrderService {
             totalToChargeInCrypto,
             totalToChargeViaPaymentGateway,
             currency: "NGN",
-            paymentGateway: PaymentMethod.FINCRA,
+            paymentGateway: PaymentMethod.NOMBA,
             depositAddress: assetExist.depositAddress,
             destinationTag: assetExist.destinationTag,
         };
@@ -254,12 +253,12 @@ export class BuyOrderService {
 
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
-        const { data } = await this.fincraService.initializePayment(
+        const { data } = await this.nombaService.initializePayment(
             userData,
             amount
         );
 
-        const result = data as unknown as FincraInitiationResponseResultType;
+        const result = data as { link: string; reference: string; amount: number };
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -300,7 +299,7 @@ export class BuyOrderService {
                         type: TransactionType.P2P_PAYMENT,
                         status: TransactionStatus.PENDING,
                         paymentStatus: TransactionStatus.PENDING,
-                        paymentMethod: PaymentMethod.FINCRA,
+                        paymentMethod: PaymentMethod.NOMBA,
                         sessionId: generateId({ type: "sessionId" }),
                         transactionId: generateId({ type: "transaction" }),
                         title: `${COMPANY_NAME} p2p buy order payment`,
@@ -337,7 +336,7 @@ export class BuyOrderService {
 
         // Create and send notification for processing
         const message = `Your buy order of ${order.amount} ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId}`;
-        
+
         const createdNotification = await this.prisma.notification.create({
             data: {
                 title: "Buy order initiated",
