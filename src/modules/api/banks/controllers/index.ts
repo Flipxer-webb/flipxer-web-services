@@ -32,7 +32,7 @@ import { User as UserModel } from "@prisma/client";
 @ApiTags("Bank")
 @Controller("banks")
 export class BankController {
-    constructor(private readonly bankService: BankService) {}
+    constructor(private readonly bankService: BankService) { }
 
     @Get("list")
     async getBankList() {
@@ -43,6 +43,40 @@ export class BankController {
     @Post("verify-account")
     async verifyBankAccount(@Body() dto: VerifyBankAccountDto) {
         return await this.bankService.verifyBankAccount(dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @Post("nomba/checkout")
+    @ApiOperation({
+        summary: "Initialize Nomba checkout for payment",
+        description: "Creates a Nomba checkout order and returns a payment link.",
+    })
+    async initializeNombaCheckout(
+        @User() user: UserModel,
+        @Body() body: { amount: number; callbackUrl?: string }
+    ) {
+        return await this.bankService.initializeNombaCheckout(
+            user.id,
+            body.amount,
+            body.callbackUrl
+        );
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @Get("nomba/checkout/:reference")
+    @ApiOperation({
+        summary: "Verify Nomba checkout status",
+        description: "Returns the status of a Nomba checkout order.",
+    })
+    @ApiParam({
+        name: "reference",
+        description: "Order reference from checkout creation",
+        type: String,
+    })
+    async verifyNombaCheckout(@Param("reference") reference: string) {
+        return await this.bankService.verifyNombaCheckout(reference);
     }
 
     @UseGuards(AuthGuard)
