@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, HttpCode, Logger, UnauthorizedException } from "@nestjs/common";
+import { Controller, Post, Get, Body, Headers, HttpCode, Logger, UnauthorizedException } from "@nestjs/common";
 import { NombaWebhookPayload, NombaWebhookEventType } from "../dtos/nomba-webhook.dto";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TransactionStatus } from "@prisma/client";
@@ -30,6 +30,16 @@ export class NombaWebhookController {
             Buffer.from(signature),
             Buffer.from(expectedSignature)
         );
+    }
+
+    /**
+     * GET endpoint for Nomba webhook URL verification
+     * Nomba tests the webhook URL before saving it
+     */
+    @Get()
+    @HttpCode(200)
+    verifyWebhookUrl() {
+        return { status: "ok", message: "Nomba webhook endpoint active" };
     }
 
     @Post()
