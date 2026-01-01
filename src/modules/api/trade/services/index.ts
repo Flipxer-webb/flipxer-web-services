@@ -70,9 +70,6 @@ import { UserNotFoundException } from "../../user";
 import { CryptoAccountQueueProducer } from "../queues/producers/producer.service";
 import { GetPaymentAddressByIdOptions } from "@/libs/quidax";
 import { generateId } from "@/utils";
-import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
-import { FincraInitiationResponseResultType } from "@/modules/factory/bank/types/fincra";
 import { COMPANY_NAME } from "@/config";
 import {
     CryptoRateNotFoundException,
@@ -114,8 +111,6 @@ export class TradingService {
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
-        @Inject(BankInjectionToken.FINCRA)
-        private readonly fincraService: FincraBank,
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,

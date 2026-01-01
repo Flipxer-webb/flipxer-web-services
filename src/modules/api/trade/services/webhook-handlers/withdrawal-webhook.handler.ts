@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
+import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import {
     TransactionCompletedException,
     TransactionNotFoundException,
@@ -37,7 +37,7 @@ import {
  * Handles withdrawal transaction webhooks from Quidax.
  * Processes status updates for outgoing crypto withdrawals.
  * 
- * For sell orders, triggers Fincra payout when withdrawal completes.
+ * For sell orders, triggers Nomba payout when withdrawal completes.
  */
 @Injectable()
 export class WithdrawalWebhookHandler {
@@ -45,8 +45,8 @@ export class WithdrawalWebhookHandler {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(BankInjectionToken.FINCRA)
-        private readonly fincraService: FincraBank,
+        @Inject(BankInjectionToken.NOMBA)
+        private readonly nombaService: NombaBank,
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
@@ -290,13 +290,13 @@ export class WithdrawalWebhookHandler {
 
 
     /**
-     * Initiate fiat payout to seller via Fincra
+     * Initiate fiat payout to seller via Nomba
      */
     private async initiateFiatPayout(transaction: any) {
         const payoutReference = generateId({ type: "reference" });
 
         this.logger.log(
-            `Initiating Fincra payout | ${JSON.stringify({
+            `Initiating Nomba payout | ${JSON.stringify({
                 orderId: transaction.id,
                 userId: transaction.userId,
                 amount: transaction.totalToReceiveInFiat,
@@ -309,7 +309,7 @@ export class WithdrawalWebhookHandler {
         );
 
         try {
-            await this.fincraService.initializeTransfer({
+            await this.nombaService.initializeTransfer({
                 accountName: transaction.destinationBankAccountName,
                 accountNumber: transaction.destinationBankAccountNumber,
                 amount: transaction.totalToReceiveInFiat,
@@ -321,10 +321,10 @@ export class WithdrawalWebhookHandler {
                 reference: payoutReference,
             });
 
-            this.logger.log(`Fincra payout initiated successfully for order ${transaction.id}, reference: ${payoutReference}`);
+            this.logger.log(`Nomba payout initiated successfully for order ${transaction.id}, reference: ${payoutReference}`);
         } catch (error) {
             this.logger.error(
-                `CRITICAL: Fincra payout FAILED | ${JSON.stringify({
+                `CRITICAL: Nomba payout FAILED | ${JSON.stringify({
                     orderId: transaction.id,
                     userId: transaction.userId,
                     error: error.message,
