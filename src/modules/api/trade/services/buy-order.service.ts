@@ -34,6 +34,7 @@ import { InitiateBuyOrderDto } from "../dtos";
 import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -59,7 +60,8 @@ export class BuyOrderService {
         private readonly nombaService: NombaBank,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly walletAddressService: WalletAddressService,
+        private readonly slackWebhookService: SlackWebhookService
     ) { }
 
     /**
@@ -480,7 +482,21 @@ export class BuyOrderService {
 
         } catch (error) {
             this.logger.error(`Failed to fulfill buy order (Transfer/Update Error) for order ${order.id}: ${error.message}`, error.stack);
-            // Payment is SUCCESS, but Order is PENDING. This is the correct "stuck" state for manual intervention.
+
+            // Send Slack Alert for admin intervention
+            await this.slackWebhookService.sendWebhookFailureAlert(
+                'quidax',
+                reference,
+                error.message,
+                {
+                    orderId: order.id,
+                    transactionId: order.transactionId,
+                    amount: order.amount,
+                    currency: order.currency,
+                    userId: order.userId,
+                    cryptoSubAccountId: payment.user.cryptoSubAccountId
+                }
+            );
         }
     }
 
