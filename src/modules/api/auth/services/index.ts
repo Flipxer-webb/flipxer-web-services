@@ -500,12 +500,14 @@ export class AuthService {
             await this.emailService.sendMailWithTemplate({
                 from: { address: mailConfig.senderMail },
                 to: [{ email_address: { address: options.email } }],
-                template_key: emailTemplateConfig.registration_success,
+                template_key: emailTemplateConfig.verify_account, // Use the working template key
                 merge_info: {
                     team: COMPANY_NAME,
+                    product_name: COMPANY_NAME,
                     header: "Registration Code",
                     code: verificationCode,
-                    notice: "Please proceed to verify your account with the code. Accounts that are not verified after 3days will be removed from our platform. Thank you",
+                    notice: "Please verify your account. Code expires in 10 minutes.",
+                    expiry: "10", // send expiry just in case template uses it
                 },
             });
         } catch (error) {
@@ -566,6 +568,9 @@ export class AuthService {
                     code: verificationCode,
                     product_name: COMPANY_NAME,
                     team: COMPANY_NAME,
+                    header: "Verification Code",
+                    notice: "Please verify your account. Code expires in 10 minutes.",
+                    expiry: "10",
                 },
             });
         } catch (error) {
