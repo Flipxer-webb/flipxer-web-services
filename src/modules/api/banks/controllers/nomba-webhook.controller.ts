@@ -4,12 +4,16 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { TransactionStatus } from "@prisma/client";
 import * as Config from "@/config";
 import * as crypto from "crypto";
+import { BuyOrderService } from "../../trade/services/buy-order.service";
 
 @Controller("webhooks")
 export class NombaWebhookController {
     private readonly logger = new Logger(NombaWebhookController.name);
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly buyOrderService: BuyOrderService
+    ) { }
 
     /**
      * Verify webhook signature from Nomba
@@ -112,7 +116,22 @@ export class NombaWebhookController {
         });
 
         if (payment) {
-            // Update existing payment status
+            // Check if this payment is linked to a Buy Order
+            if (payment.orderId) {
+                this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
+                try {
+                    await this.buyOrderService.fulfillBuyOrder(reference);
+                    this.logger.log(`Buy order fulfillment triggered for payment ${payment.id}`);
+                    return;
+                } catch (error) {
+                    this.logger.error(`Failed to fulfill buy order for payment ${payment.id}: ${error.message}`);
+                    // Fallthrough to generic update if fulfillment fails? 
+                    // No, simpler to let it fail or log. If fulfillment partially succeeded, we don't want to double update.
+                    return;
+                }
+            }
+
+            // Update existing payment status (Generic)
             await this.prisma.payment.update({
                 where: { id: payment.id },
                 data: {

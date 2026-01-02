@@ -33,6 +33,7 @@ import { BuyQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
 import { InitiateBuyOrderDto } from "../dtos";
 import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
+import { WalletAddressService } from "./wallet-address.service";
 import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -57,7 +58,8 @@ export class BuyOrderService {
         @Inject(BankInjectionToken.NOMBA)
         private readonly nombaService: NombaBank,
         private readonly wsGateway: WsGateway,
-        private readonly tradeHelpers: TradeHelpersService
+        private readonly tradeHelpers: TradeHelpersService,
+        private readonly walletAddressService: WalletAddressService
     ) { }
 
     /**
@@ -316,7 +318,174 @@ export class BuyOrderService {
         );
 
         // Emit transaction update for new buy order
-        this.wsGateway.notifyTransactionUpdate(user.id, {
+        this.emitTransactionUpdate(user.id, order);
+
+        // Emit wallet update for buy order initiation
+        this.wsGateway.notifyWalletUpdate(user.id);
+
+        // Create and send notification for processing
+        const message = `Your buy order of ${order.amount} ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId}`;
+
+        await this.sendNotification(user.id, "Buy order initiated", message, order.currency, OrderCategory.BUY);
+
+        return buildResponse({
+            message:
+                "Order placed successfully, Please proceed to make payment",
+            data: {
+                order: order,
+                paymentInfo: {
+                    ...data,
+                    authorization_url: data.link,
+                },
+            },
+        });
+    }
+
+    /**
+     * Fulfills a buy order after successful payment
+     */
+    async fulfillBuyOrder(reference: string) {
+        this.logger.log(`Fulfilling buy order for payment reference: ${reference}`);
+
+        const payment = await this.prisma.payment.findUnique({
+            where: { reference },
+            include: { user: true },
+        });
+
+        if (!payment) {
+            this.logger.error(`Payment not found for reference: ${reference}`);
+            return;
+        }
+
+        if (payment.status === TransactionStatus.SUCCESS) {
+            this.logger.log(`Payment ${reference} already processed`);
+            return;
+        }
+
+        const order = await this.prisma.order.findUnique({
+            where: { id: payment.orderId },
+        });
+
+        if (!order) {
+            this.logger.error(`Order not found for payment: ${payment.id}`);
+            return;
+        }
+
+        // 1. Update Payment to SUCCESS (Money received)
+        await this.prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+                status: TransactionStatus.SUCCESS,
+                paymentStatus: TransactionStatus.SUCCESS,
+            },
+        });
+
+        // 2. Transfer Funds from Main Account to User Sub-Account (Quidax)
+        try {
+            const user = payment.user;
+            if (!user.cryptoSubAccountId) {
+                this.logger.error(`User ${user.id} has no crypto sub-account. Cannot fulfill order.`);
+                // TODO: Alert admin or queue for retry
+                return;
+            }
+
+            // Ensure user has a wallet address for this currency
+            // This ensures the address exists on Quidax end for the sub-account
+            const addresses = await this.walletAddressService.ensureWalletPaymentAddresses({
+                userId: user.id,
+                cryptoSubAccountId: user.cryptoSubAccountId,
+                assetSymbol: order.currency,
+            });
+
+            if (!addresses || addresses.length === 0) {
+                this.logger.error(`No wallet address found/created for user ${user.id} asset ${order.currency}`);
+                // TODO: Alert admin
+                return;
+            }
+
+            const destinationAddress = addresses[0];
+
+            this.logger.log(`Initiating Quidax internal transfer for Order ${order.id} to ${destinationAddress.address}`);
+
+            // Perform transfer from Main Account ("me") to User's Address
+            const transferRes = await this.quidaxService.createWithdrawerRequest({
+                user_id: "me", // "me" refers to the owner of the API Key (Main Account)
+                currency: order.currency.toLowerCase(),
+                amount: order.amount.toString(),
+                fund_uid: destinationAddress.address,
+                fund_uid2: destinationAddress.destination_tag || undefined,
+                transaction_note: `Fulfillment for Order ${order.transactionId}`,
+                narration: `Buy Order ${order.transactionId}`,
+                reference: `${order.transactionId}_fulfill`,
+            });
+
+            if (transferRes.status !== "success") {
+                this.logger.error(`Quidax transfer failed: ${JSON.stringify(transferRes)}`);
+                // Order remains PENDING
+                return;
+            }
+
+            this.logger.log(`Quidax transfer successful: ${transferRes.data.id}`);
+
+            // 3. Update Order and Local Wallet (Only if transfer succeeded)
+            await this.prisma.$transaction(
+                async (tx) => {
+                    // Update Order
+                    await tx.order.update({
+                        where: { id: order.id },
+                        data: {
+                            status: OrderStatus.completed,
+                            streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
+                            paymentStatus: TransactionStatus.SUCCESS,
+                            providerOrderId: transferRes.data.id // Link the transfer ID
+                        },
+                    });
+
+                    // Update Local Wallet
+                    const assetWallet = await tx.assetWallet.findUnique({
+                        where: {
+                            userId_assetCurrency: {
+                                userId: payment.userId,
+                                assetCurrency: order.currency.toUpperCase(),
+                            },
+                        },
+                    });
+
+                    if (assetWallet) {
+                        const currentBalance = parseFloat(assetWallet.balance.toString());
+                        const newBalance = currentBalance + order.amount; // Use order.amount
+
+                        await tx.assetWallet.update({
+                            where: { id: assetWallet.id },
+                            data: {
+                                balance: newBalance.toString(),
+                            },
+                        });
+                    }
+                },
+                { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: EXTENDED_TRANSACTION_TIMEOUT_MS }
+            );
+
+            // Notifications
+            this.logger.log(`Buy order ${order.id} fulfilled and completed successfully`);
+
+            const updatedOrder = await this.prisma.order.findUnique({ where: { id: order.id } });
+            if (updatedOrder) {
+                this.emitTransactionUpdate(payment.userId, updatedOrder);
+            }
+            this.wsGateway.notifyWalletUpdate(payment.userId);
+
+            const message = `Your buy order of ${order.amount} ${order.currency.toUpperCase()} has been completed successfully.`;
+            await this.sendNotification(payment.userId, "Buy order successful", message, order.currency, OrderCategory.BUY);
+
+        } catch (error) {
+            this.logger.error(`Failed to fulfill buy order (Transfer/Update Error) for order ${order.id}: ${error.message}`, error.stack);
+            // Payment is SUCCESS, but Order is PENDING. This is the correct "stuck" state for manual intervention.
+        }
+    }
+
+    private emitTransactionUpdate(userId: number, order: any) {
+        this.wsGateway.notifyTransactionUpdate(userId, {
             type: "transaction_update",
             transaction: {
                 id: order.id,
@@ -330,50 +499,34 @@ export class BuyOrderService {
                 updatedAt: order.updatedAt,
             },
         });
+    }
 
-        // Emit wallet update for buy order initiation
-        this.wsGateway.notifyWalletUpdate(user.id);
-
-        // Create and send notification for processing
-        const message = `Your buy order of ${order.amount} ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId}`;
-
+    private async sendNotification(userId: number, title: string, body: string, currency: string, type: OrderCategory) {
         const createdNotification = await this.prisma.notification.create({
             data: {
-                title: "Buy order initiated",
-                body: message,
-                userId: user.id,
+                title,
+                body,
+                userId,
                 target: UserNotificationTarget.SINGLE,
                 beneficiary: NotificationBeneficiary.INDIVIDUAL,
                 type: NotificationType.MESSAGE,
                 status: NotificationStatus.APPROVED,
                 senderId: null,
-                transactionType: OrderCategory.BUY,
-                currency: order.currency,
+                transactionType: type,
+                currency: currency,
             },
         });
 
         const notificationList = await this.prisma.notification.findMany({
-            where: { userId: user.id },
+            where: { userId },
             orderBy: { createdAt: "desc" },
             take: 20,
         });
 
-        this.wsGateway.notifyUser(user.id, {
+        this.wsGateway.notifyUser(userId, {
             type: "new_notification",
             notification: createdNotification,
             notificationList,
-        });
-
-        return buildResponse({
-            message:
-                "Order placed successfully, Please proceed to make payment",
-            data: {
-                order: order,
-                paymentInfo: {
-                    ...data,
-                    authorization_url: data.link,
-                },
-            },
         });
     }
 }
