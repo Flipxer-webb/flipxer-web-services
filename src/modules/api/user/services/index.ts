@@ -626,8 +626,8 @@ export class UserService {
                 template_key: emailTemplateConfig.recovery_pin,
                 merge_info: {
                     name,
-                    code: verificationCode,
-                    notice,
+                    otp: verificationCode,
+                    expiry_minutes: "30",
                     team,
                 },
             });
