@@ -119,10 +119,11 @@ export class NombaWebhookController {
         const transaction = data?.transaction || {};
         const order = data?.order || {};
 
-        // Extract reference from various possible locations
-        const reference = data?.reference
+        // Extract reference - PRIORITY: order.orderReference (matches what we store in DB)
+        // order.orderReference is our reference, merchantTxRef is Nomba's internal ID
+        const reference = order?.orderReference
+            || data?.reference
             || transaction?.merchantTxRef
-            || order?.orderReference
             || data?.merchantTxRef;
 
         const amount = transaction?.transactionAmount || data?.amount;
