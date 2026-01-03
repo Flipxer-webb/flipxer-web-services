@@ -214,7 +214,9 @@ export class NombaBank implements TNomba.INombaBank {
                 message: "Checkout created successfully",
                 data: {
                     link: result.data.checkoutLink,
-                    reference: result.data.orderReference,
+                    // CRITICAL: Return OUR reference, not Nomba's returned reference
+                    // This ensures the webhook orderReference matches what we store
+                    reference: reference,
                     amount: result.data.amount,
                 },
             };
