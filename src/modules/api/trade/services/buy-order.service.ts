@@ -405,9 +405,12 @@ export class BuyOrderService {
                 return;
             }
 
-            const destinationAddress = addresses[0];
+            // Prefer the BEP20 network address as it's the most common default, or fallback to first
+            const destinationAddress = addresses.find(a => a.network === 'bep20')
+                || addresses.find(a => a.network === 'erc20')
+                || addresses[0];
 
-            this.logger.log(`Initiating Quidax internal transfer for Order ${order.id} to ${destinationAddress.address}`);
+            this.logger.log(`Initiating Quidax internal transfer for Order ${order.id} to ${destinationAddress.address} on network ${destinationAddress.network}`);
 
             // Perform transfer from Main Account ("me") to User's Address
             const transferRes = await this.quidaxService.createWithdrawerRequest({
@@ -419,6 +422,7 @@ export class BuyOrderService {
                 transaction_note: `Fulfillment for Order ${order.transactionId}`,
                 narration: `Buy Order ${order.transactionId}`,
                 reference: `${order.transactionId}_fulfill`,
+                network: destinationAddress.network, // Pass the network to ensure correct address validation
             });
 
             if (transferRes.status !== "success") {
