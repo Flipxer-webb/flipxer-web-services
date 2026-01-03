@@ -197,6 +197,11 @@ export class NombaBank implements TNomba.INombaBank {
                 "****INITIALIZE PAYMENT RESPONSE****** NOMBA"
             );
 
+            logger.info(
+                { sentReference: reference, returnedReference: result.data?.orderReference },
+                "****REFERENCE COMPARISON****** NOMBA"
+            );
+
             if (!result || result.code !== "00") {
                 throw new e.NombaWorkflowException(
                     result?.description || "Failed to initialize payment",
