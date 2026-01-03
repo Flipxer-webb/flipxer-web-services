@@ -59,12 +59,14 @@ export class NombaWebhookController {
         const signature = headers["x-nomba-signature"];
 
         // Handle empty body or test requests from Nomba during webhook URL verification
-        if (!body || !body.event) {
+        // Nomba uses event_type (not event) with values like "payment_success"
+        const eventType = body.event_type || body.event;
+        if (!body || !eventType) {
             this.logger.log("Received webhook verification/test request from Nomba");
             return { status: "ok", message: "Webhook received" };
         }
 
-        this.logger.log(`Received Nomba webhook: ${body.event}`);
+        this.logger.log(`Received Nomba webhook: ${eventType}`);
         this.logger.debug(`Webhook data: ${JSON.stringify(body.data)}`);
 
         // Verify signature in production
@@ -77,22 +79,28 @@ export class NombaWebhookController {
         }
 
         try {
-            switch (body.event) {
+            switch (eventType) {
+                // Handle both old format (transaction.completed) and new format (payment_success)
                 case NombaWebhookEventType.VIRTUAL_ACCOUNT_CREDITED:
                 case NombaWebhookEventType.TRANSACTION_COMPLETED:
+                case "payment_success": // New Nomba format
+                case "order_success": // New Nomba format
                     await this.handleIncomingPayment(body.data);
                     break;
 
                 case NombaWebhookEventType.TRANSFER_SUCCESSFUL:
+                case "payout_success": // New Nomba format
                     await this.handleTransferSuccess(body.data);
                     break;
 
                 case NombaWebhookEventType.TRANSFER_FAILED:
+                case "payout_failed": // New Nomba format
+                case "payment_failed": // New Nomba format
                     await this.handleTransferFailed(body.data);
                     break;
 
                 default:
-                    this.logger.warn(`Unhandled Nomba webhook event: ${body.event}`);
+                    this.logger.warn(`Unhandled Nomba webhook event: ${eventType}`);
             }
 
             return { success: true, message: "Webhook processed" };
@@ -106,15 +114,29 @@ export class NombaWebhookController {
     /**
      * Handle incoming payment to virtual account
      */
-    private async handleIncomingPayment(data: NombaWebhookPayload["data"]) {
-        const { accountRef, amount, reference, senderAccountName, senderAccountNumber } = data;
+    private async handleIncomingPayment(data: any) {
+        // Handle both old format (flat data) and new format (nested data.transaction)
+        const transaction = data?.transaction || {};
+        const order = data?.order || {};
 
-        if (!accountRef || !reference) {
-            this.logger.warn("Missing accountRef or reference in incoming payment webhook");
+        // Extract reference from various possible locations
+        const reference = data?.reference
+            || transaction?.merchantTxRef
+            || order?.orderReference
+            || data?.merchantTxRef;
+
+        const amount = transaction?.transactionAmount || data?.amount;
+        const accountRef = data?.accountRef || order?.accountId;
+
+        this.logger.log(`Extracted reference: ${reference}, amount: ${amount}, accountRef: ${accountRef}`);
+
+        if (!reference) {
+            this.logger.warn("Missing reference in incoming payment webhook");
+            this.logger.warn(`Full data received: ${JSON.stringify(data)}`);
             return;
         }
 
-        this.logger.log(`Processing incoming payment: ${amount} to ${accountRef}`);
+        this.logger.log(`Processing incoming payment: ${amount} to ${accountRef || 'N/A'}`);
 
         // Find the payment by reference
         const payment = await this.prisma.payment.findFirst({
