@@ -43,7 +43,7 @@ export class WalletAddressService {
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly tradeHelpers: TradeHelpersService
-    ) {}
+    ) { }
 
     /**
      * Logs wallet-related operations with structured data
@@ -420,7 +420,14 @@ export class WalletAddressService {
                 "ensureWalletPaymentAddresses:all_networks_exist",
                 { assetSymbol: assetSymbolUpper }
             );
-            return [];
+            // Return the existing addresses instead of empty array
+            const existingFullAddresses = await this.prisma.cryptoWalletAddress.findMany({
+                where: {
+                    userId,
+                    assetSymbol: assetSymbolUpper,
+                },
+            });
+            return existingFullAddresses;
         }
 
         const creationResults = await Promise.allSettled(
