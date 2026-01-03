@@ -50,8 +50,14 @@ export class NombaWebhookController {
     @HttpCode(200)
     async handleWebhook(
         @Body() body: any, // Accept any body to handle Nomba's test requests
-        @Headers("x-nomba-signature") signature: string
+        @Headers() headers: any
+        // @Headers("x-nomba-signature") signature: string
     ) {
+        this.logger.log(`Raw Webhook Headers: ${JSON.stringify(headers)}`);
+        this.logger.log(`Raw Webhook Body: ${JSON.stringify(body)}`);
+
+        const signature = headers["x-nomba-signature"];
+
         // Handle empty body or test requests from Nomba during webhook URL verification
         if (!body || !body.event) {
             this.logger.log("Received webhook verification/test request from Nomba");
