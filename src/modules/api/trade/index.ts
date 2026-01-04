@@ -107,6 +107,8 @@ export * from "./errors";
         WsGateway,
         WsService,
         TierService,
+        TradingInjectionToken.LIVECOINWATCH,
+        TradingInjectionToken.COINCAP,
     ],
 })
 export class TradingModule { }
