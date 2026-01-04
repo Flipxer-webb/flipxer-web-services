@@ -811,36 +811,12 @@ export class SettingService {
         // Biometric doesn't need a specific "verified" check here like trading password
         // because its registration is already verified.
 
+        // NOTE: Old validation removed - 2FA is now the mandatory baseline
+        // Additional security methods (SMS, Email, Trading Password, Biometric) are OPTIONAL
+        // Users can enable/disable any of them freely - no minimum count required
 
-        // Count enabled methods
-        const enabledCount = Object.values(newMethods).filter(Boolean).length;
-
-        // Validate: at least one method must be enabled
-        if (enabledCount === 0) {
-            throw new AuthGenericException(
-                "At least one security method must be enabled",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        // Validate requiredMethodCount
-        const tierMinimums: Record<number, number> = { 0: 1, 1: 1, 2: 2, 3: 2 };
-        const minimumRequired = tierMinimums[userData?.tier ?? 0] || 1;
-        const newRequiredCount = dto.requiredMethodCount ?? userData?.requiredMethodCount ?? 1;
-
-        if (newRequiredCount < minimumRequired) {
-            throw new AuthGenericException(
-                `Your tier requires at least ${minimumRequired} verification method(s)`,
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        if (newRequiredCount > enabledCount) {
-            throw new AuthGenericException(
-                `Cannot require ${newRequiredCount} methods when only ${enabledCount} are enabled`,
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        // requiredMethodCount is deprecated but we still store it for backward compatibility
+        const newRequiredCount = dto.requiredMethodCount ?? userData?.requiredMethodCount ?? 0;
 
         await this.prisma.user.update({
             where: { id: user.id },
