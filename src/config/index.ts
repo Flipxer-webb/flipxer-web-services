@@ -166,7 +166,7 @@ export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
 export const isProduction: boolean = process.env.NODE_ENV === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
-export const frontendUrl = process.env.FRONTEND_URL || "https://flipxer.io";
+export const frontendUrl = process.env.FRONTEND_URL || "https://resolve-web-app-flipxer.vercel.app";
 // JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
