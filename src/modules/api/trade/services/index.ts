@@ -6,6 +6,7 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
+import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
 import { GetUserWalletResponse, IPaymentAddress } from "@/libs/quidax";
 import {
     AccountCreationException,
@@ -118,6 +119,8 @@ export class TradingService {
         private readonly coinGeckoService: CoinGeckoService,
         @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly liveCoinWatchService: LiveCoinWatchService,
+        @Inject(TradingInjectionToken.COINCAP)
+        private readonly coinCapService: CoinCapService,
         private readonly walletManagementService: WalletManagementService,
         private readonly lockService: DistributedLockService,
         private readonly tradeHelpers: TradeHelpersService,
@@ -300,13 +303,23 @@ export class TradingService {
     /**
      * Gets a swap estimate using cached market data.
      * Use this for the UI polling to avoid hitting Quidax rate limits.
+     * Uses LiveCoinWatch with CoinCap fallback.
      */
     async getSwapEstimate(user: User, dto: PlaceInstantSwapRequestDto) {
+        // Helper to get price with fallback
+        const getPriceWithFallback = async (asset: string): Promise<number> => {
+            try {
+                return await this.liveCoinWatchService.getPriceInUSD(asset);
+            } catch (lcwError) {
+                this.logger.warn(`[LCW] Failed for ${asset}, trying CoinCap: ${lcwError.message}`);
+                return await this.coinCapService.getPriceInUSD(asset);
+            }
+        };
+
         try {
-            // Use LiveCoinWatch to get latest prices avoiding Quidax limits
             const [fromPrice, toPrice] = await Promise.all([
-                this.liveCoinWatchService.getPriceInUSD(dto.from_currency),
-                this.liveCoinWatchService.getPriceInUSD(dto.to_currency)
+                getPriceWithFallback(dto.from_currency),
+                getPriceWithFallback(dto.to_currency)
             ]);
 
             const fromAmount = Number(dto.from_amount || 0);
@@ -332,7 +345,7 @@ export class TradingService {
             });
         } catch (error) {
             this.logger.error(`Failed to get swap estimate: ${error.message}`);
-            // Fallback to Quidax if LCW fails (though unlikely with cache)
+            // Fallback to Quidax if both LCW and CoinCap fail
             return this.swapService.createInstantSwap(user, dto);
         }
     }
@@ -1205,42 +1218,63 @@ export class TradingService {
 
     /**
      * Get market chart data for an asset including price history and market statistics
-     * Uses LiveCoinWatch for all data (ATH/ATL removed to eliminate CoinGecko rate limits)
+     * Uses LiveCoinWatch with CoinCap fallback
      */
     async getMarketChart(asset: string, days: number = 7) {
-        console.log(`📊 [LCW] Getting market chart for ${asset} (${days} days)`);
+        console.log(`📊 Getting market chart for ${asset} (${days} days)`);
 
-        // Fetch from LiveCoinWatch only (CoinGecko removed)
-        const [lcwMarketData, lcwHistory] = await Promise.all([
-            this.liveCoinWatchService.getMarketData(asset).catch(err => {
-                console.warn(`⚠️ [LCW] Market data fetch failed:`, err.message);
-                return null;
-            }),
-            this.liveCoinWatchService.getHistoricalData(asset, days).catch(err => {
-                console.warn(`⚠️ [LCW] History fetch failed:`, err.message);
-                return null;
-            }),
-        ]);
+        // Try LiveCoinWatch first, fallback to CoinCap
+        let marketData: any = null;
+        let historyData: { prices: [number, number][]; high24h: number; low24h: number } | null = null;
 
-        // Build market_data from LiveCoinWatch (ATH/ATL removed)
+        // Try LCW for market data
+        try {
+            marketData = await this.liveCoinWatchService.getMarketData(asset);
+        } catch (lcwErr) {
+            console.warn(`⚠️ [LCW] Market data failed, trying CoinCap:`, lcwErr.message);
+            try {
+                const ccData = await this.coinCapService.getBatchMarketData([asset]);
+                if (ccData[asset.toLowerCase()]) {
+                    marketData = {
+                        rate: ccData[asset.toLowerCase()].price,
+                        delta: { day: 1 + ccData[asset.toLowerCase()].change24h / 100 }
+                    };
+                }
+            } catch (ccErr) {
+                console.warn(`⚠️ [CoinCap] Market data also failed:`, ccErr.message);
+            }
+        }
+
+        // Try LCW for history
+        try {
+            historyData = await this.liveCoinWatchService.getHistoricalData(asset, days);
+        } catch (lcwErr) {
+            console.warn(`⚠️ [LCW] History failed, trying CoinCap:`, lcwErr.message);
+            try {
+                historyData = await this.coinCapService.getHistoricalData(asset, days);
+            } catch (ccErr) {
+                console.warn(`⚠️ [CoinCap] History also failed:`, ccErr.message);
+            }
+        }
+
+        // Build market_data from whichever source succeeded
         const market_data = {
-            current_price: lcwMarketData?.rate || null,
-            market_cap: lcwMarketData?.cap || null,
-            total_volume: lcwMarketData?.volume || null,
-            high_24h: lcwHistory?.high24h || null,
-            low_24h: lcwHistory?.low24h || null,
-            price_change_percentage_24h: lcwMarketData?.delta?.day
-                ? (lcwMarketData.delta.day - 1) * 100
+            current_price: marketData?.rate || null,
+            market_cap: marketData?.cap || null,
+            total_volume: marketData?.volume || null,
+            high_24h: historyData?.high24h || null,
+            low_24h: historyData?.low24h || null,
+            price_change_percentage_24h: marketData?.delta?.day
+                ? (marketData.delta.day - 1) * 100
                 : null,
-            price_change_percentage_7d: lcwMarketData?.delta?.week
-                ? (lcwMarketData.delta.week - 1) * 100
+            price_change_percentage_7d: marketData?.delta?.week
+                ? (marketData.delta.week - 1) * 100
                 : null,
-            price_change_percentage_30d: lcwMarketData?.delta?.month
-                ? (lcwMarketData.delta.month - 1) * 100
+            price_change_percentage_30d: marketData?.delta?.month
+                ? (marketData.delta.month - 1) * 100
                 : null,
-            circulating_supply: lcwMarketData?.circulatingSupply || null,
-            max_supply: lcwMarketData?.maxSupply || null,
-            // ATH/ATL removed - was causing CoinGecko rate limiting (429 errors)
+            circulating_supply: marketData?.circulatingSupply || null,
+            max_supply: marketData?.maxSupply || null,
             ath: null,
             ath_date: null,
             atl: null,
@@ -1252,7 +1286,7 @@ export class TradingService {
             data: {
                 asset: asset.toUpperCase(),
                 days,
-                prices: lcwHistory?.prices || [],
+                prices: historyData?.prices || [],
                 market_data,
             },
         });
@@ -1260,15 +1294,34 @@ export class TradingService {
 
     /**
      * Get sparkline data (7-day mini charts) for multiple assets
-     * Uses LiveCoinWatch for sparklines
+     * Uses LiveCoinWatch with CoinCap fallback
      */
     async getBatchSparklines(assets: string[]) {
-        const sparklines = await this.liveCoinWatchService.getBatchSparklines(assets);
-
-        return buildResponse({
-            message: "Sparkline data retrieved",
-            data: sparklines,
-        });
+        try {
+            const sparklines = await this.liveCoinWatchService.getBatchSparklines(assets);
+            return buildResponse({
+                message: "Sparkline data retrieved",
+                data: sparklines,
+            });
+        } catch (lcwErr) {
+            console.warn(`⚠️ [LCW] Sparklines failed, trying CoinCap:`, lcwErr.message);
+            try {
+                const sparklines = await this.coinCapService.getBatchSparklines(assets);
+                return buildResponse({
+                    message: "Sparkline data retrieved",
+                    data: sparklines,
+                });
+            } catch (ccErr) {
+                console.error(`❌ Both LCW and CoinCap sparklines failed`);
+                // Return empty sparklines instead of throwing
+                const empty: Record<string, number[]> = {};
+                assets.forEach(a => { empty[a.toLowerCase()] = []; });
+                return buildResponse({
+                    message: "Sparkline data unavailable",
+                    data: empty,
+                });
+            }
+        }
     }
 
     /**

@@ -101,7 +101,7 @@ export class LiveCoinWatchService {
                 const rate = response.data?.rate;
                 if (!rate) throw new Error(`No price data for ${asset}`);
 
-                await this.redisCacheService.set(cacheKey, rate, 60); // Cache for 1 minute
+                await this.redisCacheService.set(cacheKey, rate, 300); // Cache for 5 minutes
                 console.log(`💰 [LCW] Price for ${asset}: $${rate}`);
                 return rate;
             } catch (error) {
@@ -144,7 +144,7 @@ export class LiveCoinWatchService {
                 });
 
                 const data = response.data as LiveCoinWatchCoin;
-                await this.redisCacheService.set(cacheKey, data, 60); // Cache for 1 minute
+                await this.redisCacheService.set(cacheKey, data, 300); // Cache for 5 minutes
                 console.log(`📊 [LCW] Market data for ${asset}: $${data.rate}`);
                 return data;
             } catch (error) {
@@ -208,8 +208,8 @@ export class LiveCoinWatchService {
 
                 const result = { prices, high24h, low24h };
 
-                // Cache for 10 minutes for short periods, 1 hour for longer
-                const cacheDuration = days <= 1 ? 10 * 60 : 60 * 60;
+                // Cache for 30 minutes for short periods, 2 hours for longer
+                const cacheDuration = days <= 1 ? 30 * 60 : 2 * 60 * 60;
                 await this.redisCacheService.set(cacheKey, result, cacheDuration);
 
                 console.log(`📈 [LCW] Got ${prices.length} data points for ${asset}`);
@@ -303,7 +303,7 @@ export class LiveCoinWatchService {
         });
 
         await Promise.all(promises);
-        await this.redisCacheService.set(cacheKey, result, 5 * 60); // Cache 5 minutes
+        await this.redisCacheService.set(cacheKey, result, 30 * 60); // Cache 30 minutes
 
         return result;
     }

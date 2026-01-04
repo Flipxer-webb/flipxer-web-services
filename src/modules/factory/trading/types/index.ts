@@ -12,6 +12,7 @@ export enum TradingInjectionToken {
     TRADING_PROVIDER = "TRADING_PROVIDER", // Provider-agnostic token
     COINGECKO = "COINGECKO",
     LIVECOINWATCH = "LIVECOINWATCH",
+    COINCAP = "COINCAP",
 }
 
 export interface ITradingFactory {
@@ -20,7 +21,7 @@ export interface ITradingFactory {
      * @deprecated Use buildProvider() instead for provider-agnostic code
      */
     build<T extends Provider>(options: BuildOptions<T>): QuidaxService;
-    
+
     /**
      * Build the provider-agnostic trading provider
      */

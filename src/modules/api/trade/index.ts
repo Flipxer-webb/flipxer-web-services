@@ -32,6 +32,7 @@ import { EmailModule } from "@/modules/core/email";
 import { TransactionAmountGuard } from "@/modules/api/auth/guard";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
+import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { TransactionService } from "../auth/services/transaction.service";
 import { TierService } from "../auth/services/tier.service";
@@ -87,6 +88,10 @@ export * from "./errors";
             provide: TradingInjectionToken.LIVECOINWATCH,
             useClass: LiveCoinWatchService,
         },
+        {
+            provide: TradingInjectionToken.COINCAP,
+            useClass: CoinCapService,
+        },
     ],
     exports: [
         TradingService,
@@ -104,5 +109,5 @@ export * from "./errors";
         TierService,
     ],
 })
-export class TradingModule {}
+export class TradingModule { }
 
