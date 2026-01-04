@@ -1,0 +1,14 @@
+export interface NormalizedPaymentEvent {
+    provider: 'nomba' | 'fincra';
+    type: 'payment_success' | 'payout_success' | 'payment_failed' | 'payout_failed' | 'other';
+    reference: string;      // The internal order reference
+    providerReference?: string; // The provider's internal transaction ID
+    amount?: number;
+    currency?: string;
+    raw: any; // Keep raw payload for logging/debugging
+    metadata?: {
+        accountRef?: string;
+        customerEmail?: string;
+        fee?: number;
+    };
+}
