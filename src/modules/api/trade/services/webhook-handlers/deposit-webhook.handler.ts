@@ -86,14 +86,14 @@ export class DepositWebhookHandler {
         });
 
         if (!user) {
-            this.logger.error(
-                `User not found for deposit | ${JSON.stringify({
+            this.logger.debug(
+                `Skipping deposit for non-user wallet (likely main account) | ${JSON.stringify({
                     quidaxUserId: options.quidaxUserId,
                     referenceId: options.referenceId,
                 })}`
             );
             return buildResponse({
-                message: "User not found for deposit transaction",
+                message: "Skipped - User not found (likely main account)",
             });
         }
 

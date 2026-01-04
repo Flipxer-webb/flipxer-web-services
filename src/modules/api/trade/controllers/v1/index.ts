@@ -15,8 +15,8 @@ import {
     AuthGuard,
     CountryBlockGuard,
     TransactionAmountGuard,
-    TwoFactorGuard,
 } from "@/modules/api/auth/guard";
+import { TransactionSecurityGuard } from "../../guards";
 // import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
@@ -163,7 +163,7 @@ export class TradingController {
         summary:
             "Confirm buy order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TransactionSecurityGuard)
     @ApiBearerAuth("access-token")
     @Post("buy/order")
     async buyCryptoOrder(
@@ -190,7 +190,7 @@ export class TradingController {
         summary:
             "Confirm sell order; blocks if user is flagged or exceeds daily ($5,000/$10,000) or monthly ($100,000/$500,000) limits, flags user for monthly violations",
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TransactionSecurityGuard)
     @ApiBearerAuth("access-token")
     @Post("sell/order")
     async sellCryptoOrder(
@@ -228,7 +228,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Confirm instant swap quote" })
-    @UseGuards(AuthGuard, TwoFactorGuard)
+    @UseGuards(AuthGuard, TransactionSecurityGuard)
     @ApiBearerAuth("access-token")
     @Post("confirm-instant-swap-quote")
     async confirmInstantSwapQuote(
@@ -244,7 +244,7 @@ export class TradingController {
         summary: "Execute atomic swap - gets quote and confirms instantly",
         description: "This is the recommended endpoint for swaps. It gets a fresh quote and immediately confirms it, eliminating any timing issues with quote expiry."
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TransactionSecurityGuard)
     @ApiBearerAuth("access-token")
     @Post("execute-atomic-swap")
     async executeAtomicSwap(
@@ -269,7 +269,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Initiate withdrawal" })
-    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TransactionSecurityGuard)
     @ApiBody({ type: WithdrawerRequestDto })
     @ApiBearerAuth("access-token")
     @Post("withdrawer-request")

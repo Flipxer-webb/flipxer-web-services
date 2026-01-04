@@ -59,6 +59,11 @@ export class InitiateBuyOrderDto {
     @IsPositive()
     @IsNumber()
     amount: number;
+
+    @ApiProperty({ description: "Security verification token", required: false })
+    @IsOptional()
+    @IsString()
+    verificationToken?: string;
 }
 
 export class InitiateSellOrderDto {
@@ -198,6 +203,11 @@ export class SellCryptoOrderDto {
     @ValidateNested()
     @Type(() => BankDetailDto)
     bankDetail: BankDetailDto;
+
+    @ApiProperty({ description: "Security verification token", required: false })
+    @IsOptional()
+    @IsString()
+    verificationToken?: string;
 }
 
 export class VerifyWalletAddressDto {
@@ -293,6 +303,11 @@ export class ConfirmInstantSwapQuoteDto {
     @IsPositive()
     @Transform(({ value }) => +value)
     from_amount?: number;
+
+    @ApiProperty({ description: "Security verification token", required: false })
+    @IsOptional()
+    @IsString()
+    verificationToken?: string;
 }
 
 /**
@@ -316,6 +331,11 @@ export class ExecuteAtomicSwapDto {
     @IsPositive()
     @Transform(({ value }) => +value)
     from_amount: number;
+
+    @ApiProperty({ description: "Security verification token", required: false })
+    @IsOptional()
+    @IsString()
+    verificationToken?: string;
 }
 
 export class WithdrawerRequestDto {
@@ -363,6 +383,11 @@ export class WithdrawerRequestDto {
     @IsOptional()
     @IsString()
     twoFactorCode?: string;
+
+    @ApiProperty({ description: "Security verification token", required: false })
+    @IsOptional()
+    @IsString()
+    verificationToken?: string;
 }
 
 export class CancelWithdrawerRequestDto {
