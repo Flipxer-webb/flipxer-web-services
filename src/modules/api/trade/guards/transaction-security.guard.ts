@@ -19,12 +19,18 @@ interface TransactionVerificationPayload {
  * TransactionSecurityGuard
  * 
  * Validates that users with security methods enabled have provided
- * a valid verification token before processing transactions.
+ * valid verification tokens for ALL their enabled methods.
+ * 
+ * Logic:
+ * - If user has 1 method enabled → require 1 verification
+ * - If user has 2 methods enabled → require 2 verifications
+ * - If user has N methods enabled → require N verifications
+ * - At least 1 method must be enabled to transact
  * 
  * Flow:
- * 1. User calls verifySecurityMethod API → receives verificationToken
- * 2. User submits transaction with verificationToken in body
- * 3. This guard validates the token before allowing the transaction
+ * 1. User verifies each enabled method via verifySecurityMethod API → receives JWT tokens
+ * 2. User submits transaction with comma-separated tokens in verificationToken field
+ * 3. This guard validates each token and ensures all enabled methods are covered
  */
 @Injectable()
 export class TransactionSecurityGuard implements CanActivate {
@@ -48,7 +54,6 @@ export class TransactionSecurityGuard implements CanActivate {
             where: { id: user.id },
             select: {
                 securityMethods: true,
-                requiredMethodCount: true,
             },
         });
 
@@ -57,65 +62,88 @@ export class TransactionSecurityGuard implements CanActivate {
             .filter(([_, enabled]) => enabled)
             .map(([method]) => method);
 
-        // If no security methods enabled, allow transaction without verification
+        // If no security methods enabled, block transaction (at least 1 required)
         if (enabledMethods.length === 0) {
-            this.logger.debug(`User ${user.id} has no security methods enabled, allowing transaction`);
-            return true;
+            this.logger.warn(`User ${user.id} has no security methods enabled`);
+            throw new ForbiddenException({
+                message: "At least one security method must be enabled to transact",
+                code: "NO_SECURITY_METHODS",
+                enabledMethods: [],
+                requiredMethodCount: 1,
+            });
         }
+
+        // Required count = number of enabled methods
+        const requiredMethodCount = enabledMethods.length;
 
         // User has security methods enabled - require verification token
         const verificationToken = request.body?.verificationToken;
 
         if (!verificationToken) {
-            this.logger.warn(`User ${user.id} has security methods enabled but no verification token provided`);
+            this.logger.warn(`User ${user.id} has ${requiredMethodCount} security methods enabled but no verification token provided`);
             throw new ForbiddenException({
                 message: "Transaction verification required",
                 code: "VERIFICATION_REQUIRED",
                 enabledMethods,
-                requiredMethodCount: userData?.requiredMethodCount ?? 1,
+                requiredMethodCount,
             });
         }
 
-        // Validate the verification token
-        try {
-            const payload = await this.jwtService.verifyAsync<TransactionVerificationPayload>(
-                verificationToken
-            );
+        // Parse tokens (comma-separated for multi-method verification)
+        const tokens = verificationToken.split(',').map((t: string) => t.trim()).filter((t: string) => t);
+        const verifiedMethods = new Set<string>();
 
-            // Verify token type
-            if (payload.type !== "transaction_verification") {
-                throw new ForbiddenException("Invalid verification token type");
+        // Validate each token
+        for (const token of tokens) {
+            try {
+                const payload = await this.jwtService.verifyAsync<TransactionVerificationPayload>(token);
+
+                // Verify token type
+                if (payload.type !== "transaction_verification") {
+                    this.logger.warn(`Invalid token type: ${payload.type}`);
+                    continue;
+                }
+
+                // Verify token belongs to the same user
+                if (payload.userId !== user.id) {
+                    this.logger.warn(`Token user ${payload.userId} doesn't match request user ${user.id}`);
+                    continue;
+                }
+
+                // Check token age (5 minutes max)
+                const tokenAgeMs = Date.now() - payload.verifiedAt;
+                const maxAgeMs = 5 * 60 * 1000;
+
+                if (tokenAgeMs > maxAgeMs) {
+                    this.logger.warn(`Token for method ${payload.method} expired`);
+                    continue;
+                }
+
+                // Token is valid - record the verified method
+                verifiedMethods.add(payload.method);
+
+            } catch (error) {
+                this.logger.error(`Token verification failed: ${error.message}`);
             }
+        }
 
-            // Verify token belongs to the same user
-            if (payload.userId !== user.id) {
-                this.logger.warn(`Token user ${payload.userId} doesn't match request user ${user.id}`);
-                throw new ForbiddenException("Verification token user mismatch");
-            }
+        // Check if ALL enabled methods have been verified
+        const missingMethods = enabledMethods.filter(m => !verifiedMethods.has(m));
 
-            // Check token age (additional safety - JWT expiry should handle this)
-            const tokenAgeMs = Date.now() - payload.verifiedAt;
-            const maxAgeMs = 5 * 60 * 1000; // 5 minutes
-
-            if (tokenAgeMs > maxAgeMs) {
-                throw new ForbiddenException("Verification token expired");
-            }
-
-            this.logger.log(`User ${user.id} passed transaction security check (method: ${payload.method})`);
-            return true;
-
-        } catch (error) {
-            if (error instanceof ForbiddenException) {
-                throw error;
-            }
-
-            this.logger.error(`Token verification failed: ${error.message}`);
+        if (missingMethods.length > 0) {
+            this.logger.warn(`User ${user.id} missing verification for methods: ${missingMethods.join(', ')}`);
             throw new ForbiddenException({
-                message: "Invalid or expired verification token",
-                code: "INVALID_TOKEN",
+                message: "All enabled security methods must be verified",
+                code: "INCOMPLETE_VERIFICATION",
                 enabledMethods,
-                requiredMethodCount: userData?.requiredMethodCount ?? 1,
+                verifiedMethods: Array.from(verifiedMethods),
+                missingMethods,
+                requiredMethodCount,
             });
         }
+
+        this.logger.log(`User ${user.id} passed transaction security check (verified: ${Array.from(verifiedMethods).join(', ')})`);
+        return true;
     }
 }
+
