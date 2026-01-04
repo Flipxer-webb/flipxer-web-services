@@ -97,6 +97,13 @@ export class WithdrawalWebhookHandler {
         });
 
         if (!transaction) {
+            // Check if this is a buy order fulfillment withdrawal (format: transactionId_fulfill)
+            if (options.orderReference?.endsWith('_fulfill')) {
+                this.logger.debug(
+                    `Skipping withdrawal webhook for buy order fulfillment: ${options.orderReference}`
+                );
+                return; // This is expected - buy order fulfillments don't create separate Order records
+            }
             throw new TransactionNotFoundException(
                 "Transaction not found",
                 HttpStatus.NOT_FOUND

@@ -1093,10 +1093,11 @@ export class TradingService {
         });
 
         if (!wallet) {
-            throw new WalletAddressNotFoundException(
-                "Crypto Wallet Record not found",
-                HttpStatus.NOT_FOUND
+            // This is expected for main account wallets - skip silently
+            this.logger.debug(
+                `Skipping wallet update for non-user wallet: ${data.walletId}`
             );
+            return;
         }
 
         await this.prisma.assetWallet.update({
@@ -1351,6 +1352,21 @@ export class TradingService {
                                 status: deposit.status,
                                 amount: deposit.amount,
                                 result: "skipped - already exists",
+                            });
+                            continue;
+                        }
+
+                        // Check if this deposit is from a BUY order (same logic as webhook handler)
+                        const isBuyRelated = await this.isBuyOrderRelatedDeposit(user.id, currency, +deposit.amount);
+                        if (isBuyRelated) {
+                            this.logger.log(`Deposit ${deposit.id} is from a BUY order - skipping RECEIVE creation`);
+                            syncResults.skipped++;
+                            syncResults.details.push({
+                                currency,
+                                depositId: deposit.id,
+                                status: deposit.status,
+                                amount: deposit.amount,
+                                result: "skipped - from BUY order",
                             });
                             continue;
                         }
@@ -1729,5 +1745,43 @@ export class TradingService {
                 streamlinedStatus: transaction.streamlinedStatus,
             },
         });
+    }
+
+    /**
+     * Check if a deposit is the result of a BUY order completion
+     * This prevents duplicate RECEIVE entries when user buys crypto
+     */
+    private async isBuyOrderRelatedDeposit(userId: number, currency: string, depositAmount: number): Promise<boolean> {
+        // Look for a recent BUY order (within last 2 hours) for this user
+        // with matching currency and similar amount
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+        const recentBuyOrders = await this.prisma.order.findMany({
+            where: {
+                userId: userId,
+                orderCategory: OrderCategory.BUY,
+                currency: currency.toUpperCase(),
+                status: {
+                    in: [OrderStatus.pending, OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
+                },
+                createdAt: {
+                    gte: twoHoursAgo,
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+
+        // Check if any BUY order has a close amount match (within 25% tolerance for fees)
+        for (const buyOrder of recentBuyOrders) {
+            const buyAmount = buyOrder.amount || 0;
+            const amountDiff = Math.abs(buyAmount - depositAmount);
+            const percentDiff = buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
+
+            if (percentDiff <= 25) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

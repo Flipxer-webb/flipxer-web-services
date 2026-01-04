@@ -6,7 +6,7 @@ import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
-import { COMPANY_NAME } from "@/config";
+import { COMPANY_NAME, frontendUrl } from "@/config";
 import {
     NotificationBeneficiary,
     NotificationStatus,
@@ -257,9 +257,15 @@ export class BuyOrderService {
 
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
+
+        // Generate callback URL for Nomba to redirect after payment
+        // The frontend checks for ?buy=success and opens the success modal
+        const callbackUrl = `${frontendUrl}/dashboard?buy=success`;
+
         const { data } = await this.nombaService.initializePayment(
             userData,
-            amount
+            amount,
+            callbackUrl
         );
 
         const result = data as { link: string; reference: string; amount: number };
