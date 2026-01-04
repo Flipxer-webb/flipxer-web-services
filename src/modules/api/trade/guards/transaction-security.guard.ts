@@ -18,19 +18,19 @@ interface TransactionVerificationPayload {
 /**
  * TransactionSecurityGuard
  * 
- * Validates that users with security methods enabled have provided
- * valid verification tokens for ALL their enabled methods.
+ * Enforces 2FA as the MANDATORY BASELINE for all transactions.
+ * Additional security methods (SMS, Email, Trading Password, Biometric) 
+ * provide extra protection on top of 2FA.
  * 
  * Logic:
- * - If user has 1 method enabled → require 1 verification
- * - If user has 2 methods enabled → require 2 verifications
- * - If user has N methods enabled → require N verifications
- * - At least 1 method must be enabled to transact
+ * - 2FA (Authenticator) is ALWAYS required - if not enabled, transaction blocked
+ * - Additional methods (sms, email, tradingPassword, biometric) are optional
+ * - If additional methods are enabled, they must ALSO be verified
  * 
  * Flow:
- * 1. User verifies each enabled method via verifySecurityMethod API → receives JWT tokens
- * 2. User submits transaction with comma-separated tokens in verificationToken field
- * 3. This guard validates each token and ensures all enabled methods are covered
+ * 1. Check if 2FA is enabled → if not, block with "ENABLE_2FA_REQUIRED"
+ * 2. Check for additional security methods enabled
+ * 3. Require verification tokens for 2FA + all additional enabled methods
  */
 @Injectable()
 export class TransactionSecurityGuard implements CanActivate {
@@ -49,43 +49,54 @@ export class TransactionSecurityGuard implements CanActivate {
             throw new ForbiddenException("User not authenticated");
         }
 
-        // Get user's security settings
+        // Get user's security settings including 2FA status
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
             select: {
+                isTwoFactorEnabled: true,
+                twoFactorSecret: true,
                 securityMethods: true,
             },
         });
 
-        const securityMethods = (userData?.securityMethods as any) || {};
-        const enabledMethods = Object.entries(securityMethods)
-            .filter(([_, enabled]) => enabled)
-            .map(([method]) => method);
+        // STEP 1: Check if 2FA is enabled (MANDATORY BASELINE)
+        const has2FAEnabled = userData?.isTwoFactorEnabled && userData?.twoFactorSecret;
 
-        // If no security methods enabled, block transaction (at least 1 required)
-        if (enabledMethods.length === 0) {
-            this.logger.warn(`User ${user.id} has no security methods enabled`);
+        if (!has2FAEnabled) {
+            this.logger.warn(`User ${user.id} does not have 2FA enabled - blocking transaction`);
             throw new ForbiddenException({
-                message: "At least one security method must be enabled to transact",
-                code: "NO_SECURITY_METHODS",
-                enabledMethods: [],
-                requiredMethodCount: 1,
+                message: "Two-Factor Authentication (2FA) must be enabled to perform transactions",
+                code: "ENABLE_2FA_REQUIRED",
             });
         }
 
-        // Required count = number of enabled methods
-        const requiredMethodCount = enabledMethods.length;
+        // STEP 2: Determine required methods
+        // 2FA (authenticator) is always required
+        const requiredMethods = new Set<string>(["authenticator"]);
 
-        // User has security methods enabled - require verification token
+        // Check for additional security methods enabled (excluding authenticator)
+        const securityMethods = (userData?.securityMethods as any) || {};
+        const additionalMethods = ["sms", "email", "tradingPassword", "biometric"];
+
+        for (const method of additionalMethods) {
+            if (securityMethods[method] === true) {
+                requiredMethods.add(method);
+            }
+        }
+
+        const requiredMethodList = Array.from(requiredMethods);
+        this.logger.debug(`User ${user.id} requires verification for: ${requiredMethodList.join(', ')}`);
+
+        // STEP 3: Require verification token(s)
         const verificationToken = request.body?.verificationToken;
 
         if (!verificationToken) {
-            this.logger.warn(`User ${user.id} has ${requiredMethodCount} security methods enabled but no verification token provided`);
+            this.logger.warn(`User ${user.id} has ${requiredMethodList.length} method(s) but no token provided`);
             throw new ForbiddenException({
                 message: "Transaction verification required",
                 code: "VERIFICATION_REQUIRED",
-                enabledMethods,
-                requiredMethodCount,
+                requiredMethods: requiredMethodList,
+                requiredMethodCount: requiredMethodList.length,
             });
         }
 
@@ -127,23 +138,24 @@ export class TransactionSecurityGuard implements CanActivate {
             }
         }
 
-        // Check if ALL enabled methods have been verified
-        const missingMethods = enabledMethods.filter(m => !verifiedMethods.has(m));
+        // STEP 4: Check if ALL required methods have been verified
+        const missingMethods = requiredMethodList.filter(m => !verifiedMethods.has(m));
 
         if (missingMethods.length > 0) {
-            this.logger.warn(`User ${user.id} missing verification for methods: ${missingMethods.join(', ')}`);
+            this.logger.warn(`User ${user.id} missing verification for: ${missingMethods.join(', ')}`);
             throw new ForbiddenException({
-                message: "All enabled security methods must be verified",
+                message: "All required security methods must be verified",
                 code: "INCOMPLETE_VERIFICATION",
-                enabledMethods,
+                requiredMethods: requiredMethodList,
                 verifiedMethods: Array.from(verifiedMethods),
                 missingMethods,
-                requiredMethodCount,
+                requiredMethodCount: requiredMethodList.length,
             });
         }
 
-        this.logger.log(`User ${user.id} passed transaction security check (verified: ${Array.from(verifiedMethods).join(', ')})`);
+        this.logger.log(`User ${user.id} passed security check (verified: ${Array.from(verifiedMethods).join(', ')})`);
         return true;
     }
 }
+
 
