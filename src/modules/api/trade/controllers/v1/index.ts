@@ -15,6 +15,7 @@ import {
     AuthGuard,
     CountryBlockGuard,
     TransactionAmountGuard,
+    TwoFactorGuard,
 } from "@/modules/api/auth/guard";
 import { TransactionSecurityGuard } from "../../guards";
 // import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
@@ -228,7 +229,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Confirm instant swap quote" })
-    @UseGuards(AuthGuard, TransactionSecurityGuard)
+    @UseGuards(AuthGuard, TwoFactorGuard)
     @ApiBearerAuth("access-token")
     @Post("confirm-instant-swap-quote")
     async confirmInstantSwapQuote(
@@ -244,7 +245,7 @@ export class TradingController {
         summary: "Execute atomic swap - gets quote and confirms instantly",
         description: "This is the recommended endpoint for swaps. It gets a fresh quote and immediately confirms it, eliminating any timing issues with quote expiry."
     })
-    @UseGuards(AuthGuard, TransactionAmountGuard, TransactionSecurityGuard)
+    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
     @ApiBearerAuth("access-token")
     @Post("execute-atomic-swap")
     async executeAtomicSwap(
