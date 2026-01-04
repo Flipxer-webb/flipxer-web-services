@@ -3,21 +3,23 @@ import { ScheduleModule } from "@nestjs/schedule"; // Import ScheduleModule
 import { AccountSchedulerService } from "./services/manageAccounts";
 import { AssetBalanceSchedulerService } from "./services/manageBalance";
 import { ManageOrdersSchedulerService } from "./services/manageOrder";
-// CoinGeckoCacheSchedulerService removed - no longer using CoinGecko
+import { PriceCacheSchedulerService } from "./services/coinGecko"; // Renamed, now uses LCW+CoinCap
 import { TradingModule } from "../api/trade";
 import { BankModule } from "../api/banks";
+import { CachingModule } from "@/modules/core/redisCache";
 
 @Module({
     imports: [
         ScheduleModule.forRoot(), // Required for cron jobs
         forwardRef(() => TradingModule),
         BankModule,
+        CachingModule,
     ],
     providers: [
         AccountSchedulerService,
         AssetBalanceSchedulerService,
         ManageOrdersSchedulerService,
-        // CoinGeckoCacheSchedulerService removed - was causing 429 rate limit errors
+        PriceCacheSchedulerService, // Uses LiveCoinWatch + CoinCap (not CoinGecko)
     ],
     exports: [
         AccountSchedulerService,
@@ -26,3 +28,4 @@ import { BankModule } from "../api/banks";
     ],
 })
 export class SchedulerModule { }
+

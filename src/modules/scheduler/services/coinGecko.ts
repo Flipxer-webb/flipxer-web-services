@@ -1,22 +1,33 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, Inject } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { Mutex } from "async-mutex";
-import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
+import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { getTriggeredTime } from "@/modules/scheduler/services/utils";
+import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
+import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
 
+/**
+ * Price Cache Scheduler
+ * Pre-fetches crypto prices using LiveCoinWatch with CoinCap fallback.
+ * CoinGecko removed due to rate limiting issues.
+ */
 @Injectable()
-export class CoinGeckoCacheSchedulerService implements OnModuleInit {
-    private readonly logger = new Logger(CoinGeckoCacheSchedulerService.name);
+export class PriceCacheSchedulerService implements OnModuleInit {
+    private readonly logger = new Logger(PriceCacheSchedulerService.name);
     private mutex = new Mutex();
     private readonly coins = [
         "btc", "eth", "usdt", "usdc", "bnb", "sol", "xrp", "ada", "dot", "doge",
-        "shib", "matic", "link", "ltc", "bch", "xlm", "algo", "aave", "fil", "cake",
-        "mana", "sand", "ftm", "xtz", "ape", "ens", "arb", "op", "icp", "sui"
+        "shib", "matic", "link", "ltc", "bch", "xlm", "algo", "aave", "fil", "trx"
     ];
 
     constructor(
-        private readonly coinGeckoCacheService: CoinGeckoCacheService
-    ) {}
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
+        private readonly liveCoinWatchService: LiveCoinWatchService,
+        @Inject(TradingInjectionToken.COINCAP)
+        private readonly coinCapService: CoinCapService,
+        private readonly redisCacheService: RedisCacheService
+    ) { }
 
     // Run immediately when the server starts
     async onModuleInit() {
@@ -33,28 +44,44 @@ export class CoinGeckoCacheSchedulerService implements OnModuleInit {
         try {
             this.logger.debug("Acquired lock: Running coin prices update job");
 
-            // Fetch prices for all 30 coins in one batch
-            const prices = await this.coinGeckoCacheService.getBatchPriceInUSD(this.coins);
+            // Try LiveCoinWatch first
+            let prices: Record<string, { price: number; change24h: number } | null> = {};
 
-            for (const coin of this.coins) {
-                if (prices[coin] !== undefined && prices[coin] !== null) {
-                    this.logger.debug(`Successfully cached price for ${coin}: $${prices[coin]}`);
-                } else {
-                    this.logger.warn(`Failed to fetch price for ${coin}`);
+            try {
+                prices = await this.liveCoinWatchService.getBatchMarketData(this.coins);
+                this.logger.debug("✅ [LCW] Successfully fetched batch prices");
+            } catch (lcwError) {
+                this.logger.warn(`⚠️ [LCW] Failed, trying CoinCap: ${lcwError.message}`);
+                try {
+                    prices = await this.coinCapService.getBatchMarketData(this.coins);
+                    this.logger.debug("✅ [CoinCap] Successfully fetched batch prices");
+                } catch (ccError) {
+                    this.logger.error(`❌ Both LCW and CoinCap failed: ${ccError.message}`);
+                    return;
                 }
             }
 
-            this.logger.debug(`Completed price updates for ${this.coins.length} coins`);
+            // Cache the prices
+            let successCount = 0;
+            for (const coin of this.coins) {
+                if (prices[coin]?.price) {
+                    // Cache price with 10 min TTL (scheduler runs every 10 min)
+                    await this.redisCacheService.set(
+                        `price:${coin}:usd`,
+                        prices[coin].price,
+                        600
+                    );
+                    successCount++;
+                }
+            }
+
+            this.logger.debug(`Completed price updates: ${successCount}/${this.coins.length} coins`);
         } catch (error: any) {
             this.logger.error("Error in running coin prices update cron job:", error);
-            if (error?.message?.includes("429")) {
-                this.logger.warn(
-                    "Rate limit exceeded. Consider increasing cron interval or reducing coin count."
-                );
-            }
         } finally {
             release();
             this.logger.debug("Lock released: Job completed");
         }
     }
 }
+

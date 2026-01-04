@@ -6,8 +6,8 @@ import {
 } from "@nestjs/common";
 import { User, OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
+import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { EmailService } from "@/modules/core/email/services";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
@@ -22,12 +22,13 @@ export class TransactionService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly coinGeckoCacheService: CoinGeckoCacheService,
         @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly liveCoinWatchService: LiveCoinWatchService,
+        @Inject(TradingInjectionToken.COINCAP)
+        private readonly coinCapService: CoinCapService,
         private readonly emailService: EmailService,
         private readonly tierService: TierService
-    ) {}
+    ) { }
 
     async validateTransaction(
         user: User,
@@ -93,7 +94,7 @@ export class TransactionService {
 
         // Get tier info for the user
         const tierInfo = this.tierService.getTierInfo(user);
-        
+
         // Tier 0 users cannot transact at all
         if (!tierInfo.canTransact) {
             const transactionId = uuidv4();
@@ -108,7 +109,7 @@ export class TransactionService {
         // Get tier-based daily limit (unlimited = -1 or "unlimited")
         const tierWithdrawalLimit = tierInfo.withdrawalLimit;
         const hasUnlimitedWithdrawal = tierWithdrawalLimit === "unlimited";
-        
+
         // Fall back to monthly limits for overall transaction control
         const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
         const now = new Date();
@@ -137,7 +138,18 @@ export class TransactionService {
                 rateCache[curr] = 0;
                 continue;
             }
-            const rate = await this.coinGeckoCacheService.getPriceInUSD(curr.toLowerCase() as SupportedAssets);
+            // Try LCW first, then CoinCap as fallback
+            let rate: number | null = null;
+            try {
+                rate = await this.liveCoinWatchService.getPriceInUSD(curr.toLowerCase());
+            } catch (lcwErr) {
+                this.logger.warn(`LCW failed for ${curr}, trying CoinCap`);
+                try {
+                    rate = await this.coinCapService.getPriceInUSD(curr.toLowerCase());
+                } catch (ccErr) {
+                    this.logger.warn(`CoinCap also failed for ${curr}`);
+                }
+            }
             if (rate) {
                 rateCache[curr] = rate;
             } else {
@@ -255,18 +267,18 @@ export class TransactionService {
             this.logger.warn(`LiveCoinWatch failed for ${asset}: ${error.message}, falling back to CoinGecko`);
         }
 
-        // Backup: Fall back to CoinGecko
+        // Backup: Fall back to CoinCap
         try {
-            const rate = await this.coinGeckoCacheService.getPriceInUSD(normalizedAsset as SupportedAssets);
+            const rate = await this.coinCapService.getPriceInUSD(normalizedAsset);
             if (rate) {
-                this.logger.log(`CoinGecko fallback price for ${asset}: $${rate}`);
+                this.logger.log(`CoinCap fallback price for ${asset}: $${rate}`);
                 return {
                     amount: amount * rate,
                     rate,
                 };
             }
         } catch (error) {
-            this.logger.error(`CoinGecko fallback also failed for ${asset}: ${error.message}`);
+            this.logger.error(`CoinCap fallback also failed for ${asset}: ${error.message}`);
         }
 
         this.logger.error(`All price sources failed for ${asset}`);
