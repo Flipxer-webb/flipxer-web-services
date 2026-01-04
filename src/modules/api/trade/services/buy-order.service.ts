@@ -260,7 +260,8 @@ export class BuyOrderService {
 
         // Generate callback URL for Nomba to redirect after payment
         // The frontend checks for ?buy=success and opens the success modal
-        const callbackUrl = `${frontendUrl}/dashboard?buy=success`;
+        // Dashboard is at root path (/) in the Next.js routing
+        const callbackUrl = `${frontendUrl}/?buy=success`;
 
         const { data } = await this.nombaService.initializePayment(
             userData,
