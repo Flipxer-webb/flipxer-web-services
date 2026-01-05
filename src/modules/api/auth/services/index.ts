@@ -1466,10 +1466,8 @@ export class AuthService {
                 stack: error.stack,
             });
 
-            return buildResponse({
-                message: "Failed to save verification result",
-                success: false,
-            });
+            // Re-throw so the controller returns proper HTTP error code
+            throw error;
         }
     }
 
