@@ -319,8 +319,9 @@ export class AuthService {
     async requestPasswordReset(
         dto: SendForgotPasswordDto
     ): Promise<ApiResponse> {
+        const email = dto.email.toLowerCase().trim();
         const user = await this.prisma.user.findUnique({
-            where: { email: dto.email },
+            where: { email },
         });
         if (!user) {
             throw new UserNotFoundException("User not found");
@@ -345,12 +346,12 @@ export class AuthService {
             `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
         const username = user.email;
         const team = COMPANY_NAME;
-        const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${dto.email}`;
+        const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${email}`;
 
         try {
             await this.emailService.sendMailWithTemplate({
                 from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: dto.email } }],
+                to: [{ email_address: { address: email } }],
                 template_key: emailTemplateConfig.forgot_password,
                 merge_info: {
                     name,
@@ -369,13 +370,14 @@ export class AuthService {
 
         return buildResponse({
             message: "Password reset email sent successfully",
-            data: { email: dto.email },
+            data: { email },
         });
     }
 
     async resetPassword(dto: ResetPasswordDto): Promise<ApiResponse> {
+        const email = dto.email.toLowerCase().trim();
         const user = await this.prisma.user.findUnique({
-            where: { email: dto.email },
+            where: { email },
             include: { passwordResetRequest: true },
         });
 
@@ -414,8 +416,9 @@ export class AuthService {
     }
 
     async signUp(options: SignUpDto, ip: string): Promise<ApiResponse> {
+        const email = options.email.toLowerCase().trim();
         const existingUser = await this.prisma.user.findUnique({
-            where: { email: options.email.trim() },
+            where: { email },
             include: {
                 flaggedRecord: true
             }
@@ -469,9 +472,10 @@ export class AuthService {
         }
 
         // Store signup data in Redis instead of creating user
-        const cacheKey = `pending_signup:${options.email.trim()}`;
+        const cacheKey = `pending_signup:${email}`;
         const signupData = {
             ...options,
+            email, // Store normalized email
             ipAddress: ip,
             roleId: role.id
         };
@@ -563,12 +567,13 @@ export class AuthService {
     }
 
     async verifyEmailOtp(options: VerifyEmailOtpDto): Promise<ApiResponse> {
+        const email = options.email.toLowerCase().trim();
         let user: User | null = null;
         let isNewUser = false;
 
         // Check if user exists in DB
         const emailExist = await this.prisma.user.findUnique({
-            where: { email: options.email },
+            where: { email },
         });
 
         if (emailExist) {
@@ -581,7 +586,7 @@ export class AuthService {
             user = emailExist;
         } else {
             // Check Redis for pending signup
-            const cacheKey = `pending_signup:${options.email}`;
+            const cacheKey = `pending_signup:${email}`;
             const cachedSignup = await this.redisCacheService.get<any>(cacheKey);
 
             if (!cachedSignup) {
@@ -596,7 +601,7 @@ export class AuthService {
         const verificationData =
             await this.prisma.accountVerificationRequest.findUnique({
                 where: {
-                    email_code: { email: options.email, code: options.otp },
+                    email_code: { email, code: options.otp },
                 },
             });
 
@@ -620,7 +625,7 @@ export class AuthService {
 
         if (isNewUser) {
             // Create the user now
-            const cacheKey = `pending_signup:${options.email}`;
+            const cacheKey = `pending_signup:${email}`;
             const cachedSignup = await this.redisCacheService.get<any>(cacheKey); // Fetch again to be safe
 
             const createUserOptions: Prisma.UserUncheckedCreateInput = {
@@ -650,12 +655,12 @@ export class AuthService {
         } else {
             // Update existing user
             user = await this.prisma.user.update({
-                where: { email: options.email },
+                where: { email },
                 data: {
                     isEmailVerified: true,
                     // Auto-enable email as a security method
                     securityMethods: {
-                        ...await this.getOrCreateSecurityMethods(options.email, 'email'),
+                        ...await this.getOrCreateSecurityMethods(email, 'email'),
                         email: true,
                     },
                 },
@@ -663,7 +668,7 @@ export class AuthService {
         }
 
         await this.prisma.accountVerificationRequest.delete({
-            where: { email: options.email },
+            where: { email },
         });
 
         // Generate tokens for auto-login
@@ -1900,8 +1905,9 @@ export class AuthService {
             twoFactorSecret: true,
         };
 
+        const email = options.email.toLowerCase().trim();
         const user = await this.prisma.user.findUnique({
-            where: { email: options.email },
+            where: { email },
             select:
                 loginPlatform === LoginPlatform.USER
                     ? baseSelect
