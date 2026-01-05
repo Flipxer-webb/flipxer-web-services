@@ -177,15 +177,19 @@ export class DepositWebhookHandler {
     /**
      * Check if a deposit is the result of a BUY order completion
      * This prevents duplicate RECEIVE entries when user buys crypto
+     * 
+     * Detection strategy:
+     * 1. First, check if the deposit address matches any recent BUY order's recipient (most reliable)
+     * 2. Fall back to amount-based matching within tolerance
      */
     private async isBuyOrderRelatedDeposit(userId: number, options: DepositTransaction): Promise<boolean> {
-        // Look for a recent BUY order (within last 60 minutes) for this user
-        // with matching currency and similar amount
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        // Extend time window to 2 hours to account for slow blockchain confirmations
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
         const depositAmount = parseFloat(options.amount);
+        const depositAddress = options.recipient?.toLowerCase();
 
         // Find BUY orders that match currency and are recent
-        // Include 'processing' status because BUY orders now stay in processing until crypto is delivered
+        // Include multiple statuses to catch orders at different stages of processing
         const recentBuyOrders = await this.prisma.order.findMany({
             where: {
                 userId: userId,
@@ -195,26 +199,49 @@ export class DepositWebhookHandler {
                     in: [OrderStatus.pending, OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
                 },
                 createdAt: {
-                    gte: oneHourAgo,
+                    gte: twoHoursAgo,
                 },
             },
             orderBy: { createdAt: 'desc' },
         });
 
+        if (recentBuyOrders.length === 0) {
+            return false;
+        }
 
-        // Check if any BUY order has a close amount match (within 5% tolerance for fees)
+        // Strategy 1: Check if deposit address matches any BUY order's recipient
+        // This is the most reliable method
+        if (depositAddress) {
+            for (const buyOrder of recentBuyOrders) {
+                const orderRecipient = buyOrder.recipient?.toLowerCase();
+                if (orderRecipient && orderRecipient === depositAddress) {
+                    this.logger.log(
+                        `Found related BUY order (address match) | ${JSON.stringify({
+                            buyOrderId: buyOrder.id,
+                            transactionId: buyOrder.transactionId,
+                            depositAddress: depositAddress,
+                            currency: options.currency,
+                        })}`
+                    );
+                    return true;
+                }
+            }
+        }
+
+        // Strategy 2: Fall back to amount-based matching
+        // Check if any BUY order has a close amount match (within 30% tolerance for fees)
         for (const buyOrder of recentBuyOrders) {
             const buyAmount = buyOrder.amount || 0;
             const amountDiff = Math.abs(buyAmount - depositAmount);
             const percentDiff = buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
 
-            // If amounts are within 25% of each other, consider it a match
-            // We allow a large tolerance (25%) because network fees on small orders can be significant
-            // e.g. 1 USDT fee on a 5 USDT order is 20%
-            if (percentDiff <= 25) {
+            // If amounts are within 30% of each other, consider it a match
+            // Increased from 25% to 30% to account for high network fees on small orders
+            if (percentDiff <= 30) {
                 this.logger.log(
-                    `Found related BUY order | ${JSON.stringify({
+                    `Found related BUY order (amount match) | ${JSON.stringify({
                         buyOrderId: buyOrder.id,
+                        transactionId: buyOrder.transactionId,
                         buyAmount: buyAmount,
                         depositAmount: depositAmount,
                         percentDiff: percentDiff.toFixed(2),
@@ -225,8 +252,18 @@ export class DepositWebhookHandler {
             }
         }
 
-        return false;
+        // No match found - log for debugging
+        this.logger.debug(
+            `No related BUY order found for deposit | ${JSON.stringify({
+                userId: userId,
+                depositAmount: depositAmount,
+                depositAddress: depositAddress,
+                currency: options.currency,
+                recentBuyOrderCount: recentBuyOrders.length,
+            })}`
+        );
 
+        return false;
     }
 
     /**
