@@ -450,7 +450,8 @@ export class BuyOrderService {
                             status: OrderStatus.completed,
                             streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
                             paymentStatus: TransactionStatus.SUCCESS,
-                            providerOrderId: transferRes.data.id // Link the transfer ID
+                            providerOrderId: transferRes.data.id, // Link the transfer ID
+                            fulfilled: true, // Mark as fulfilled so deposit webhook doesn't create duplicate RECEIVE
                         },
                     });
 

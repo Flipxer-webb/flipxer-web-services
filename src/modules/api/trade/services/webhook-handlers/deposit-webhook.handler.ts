@@ -179,8 +179,9 @@ export class DepositWebhookHandler {
      * This prevents duplicate RECEIVE entries when user buys crypto
      * 
      * Detection strategy:
-     * 1. First, check if the deposit address matches any recent BUY order's recipient (most reliable)
-     * 2. Fall back to amount-based matching within tolerance
+     * 1. PRIMARY: Check if there's a fulfilled BUY order for this user/currency (deterministic)
+     * 2. FALLBACK: Address matching for orders not yet marked fulfilled
+     * 3. FALLBACK: Amount-based matching within tolerance
      */
     private async isBuyOrderRelatedDeposit(userId: number, options: DepositTransaction): Promise<boolean> {
         // Extend time window to 2 hours to account for slow blockchain confirmations
@@ -188,13 +189,40 @@ export class DepositWebhookHandler {
         const depositAmount = parseFloat(options.amount);
         const depositAddress = options.recipient?.toLowerCase();
 
-        // Find BUY orders that match currency and are recent
-        // Include multiple statuses to catch orders at different stages of processing
+        // Strategy 1 (PRIMARY): Check for fulfilled BUY orders
+        // This is the most reliable - if a BUY order is marked fulfilled, skip deposit
+        const fulfilledBuyOrder = await this.prisma.order.findFirst({
+            where: {
+                userId: userId,
+                orderCategory: OrderCategory.BUY,
+                currency: options.currency.toUpperCase(),
+                fulfilled: true,
+                createdAt: {
+                    gte: twoHoursAgo,
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+
+        if (fulfilledBuyOrder) {
+            this.logger.log(
+                `Found related BUY order (fulfilled flag) | ${JSON.stringify({
+                    buyOrderId: fulfilledBuyOrder.id,
+                    transactionId: fulfilledBuyOrder.transactionId,
+                    currency: options.currency,
+                })}`
+            );
+            return true;
+        }
+
+        // Strategy 2 & 3: Fall back to heuristics for orders not yet fulfilled
+        // (handles race condition where deposit arrives before fulfillBuyOrder completes)
         const recentBuyOrders = await this.prisma.order.findMany({
             where: {
                 userId: userId,
                 orderCategory: OrderCategory.BUY,
                 currency: options.currency.toUpperCase(),
+                fulfilled: false, // Only check non-fulfilled orders
                 status: {
                     in: [OrderStatus.pending, OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
                 },
@@ -209,8 +237,7 @@ export class DepositWebhookHandler {
             return false;
         }
 
-        // Strategy 1: Check if deposit address matches any BUY order's recipient
-        // This is the most reliable method
+        // Strategy 2: Check if deposit address matches any BUY order's recipient
         if (depositAddress) {
             for (const buyOrder of recentBuyOrders) {
                 const orderRecipient = buyOrder.recipient?.toLowerCase();
@@ -228,15 +255,12 @@ export class DepositWebhookHandler {
             }
         }
 
-        // Strategy 2: Fall back to amount-based matching
-        // Check if any BUY order has a close amount match (within 30% tolerance for fees)
+        // Strategy 3: Fall back to amount-based matching (within 30% tolerance)
         for (const buyOrder of recentBuyOrders) {
             const buyAmount = buyOrder.amount || 0;
             const amountDiff = Math.abs(buyAmount - depositAmount);
             const percentDiff = buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
 
-            // If amounts are within 30% of each other, consider it a match
-            // Increased from 25% to 30% to account for high network fees on small orders
             if (percentDiff <= 30) {
                 this.logger.log(
                     `Found related BUY order (amount match) | ${JSON.stringify({
@@ -386,7 +410,8 @@ export class DepositWebhookHandler {
                         oldBalance: assetWallet.balance.toString(),
                         depositAmount: options.amount,
                         newBalance: newBalance,
-                    })}`
+                    })
+                    } `
                 );
 
                 return true;
@@ -493,7 +518,7 @@ export class DepositWebhookHandler {
     ): Promise<{ amount?: number; rate?: number } | null> {
         const referenceCurrency = "ngn";
         const assetCurrency = asset.toLowerCase();
-        const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+        const marketSymbol = `${assetCurrency}${referenceCurrency} `;
         const marketData = await this.quidaxService.getSingleMarketTicker(marketSymbol);
 
         const ticker = marketData.data?.ticker;

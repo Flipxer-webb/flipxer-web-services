@@ -542,6 +542,7 @@ model Order {
   sender                       String?
   streamlinedStatus            OrderStreamlinedStatus @default(pending)
   transactionId                String?                @unique
+  fulfilled                    Boolean                @default(false) // Set to true when BUY order crypto has been delivered
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
 
