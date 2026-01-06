@@ -162,7 +162,15 @@ export class TierService {
             throw new Error(`User with ID ${userId} not found`);
         }
 
+        // Debug logging to track tier calculation
+        this.logger.log(`[Tier Calc] User ${userId} verification status: ` +
+            `email=${user.isEmailVerified}, bvn=${user.isBvnVerified}, nin=${user.isNinVerified}, ` +
+            `doc=${user.isDocumentVerified}, address=${user.isAddressVerified}, income=${user.isIncomeVerified}, ` +
+            `currentTier=${user.tier ?? 0}`);
+
         const newTier = this.calculateTier(user);
+
+        this.logger.log(`[Tier Calc] User ${userId} calculated tier: ${newTier}`);
 
         if ((user.tier ?? 0) !== newTier) {
             this.logger.log(
@@ -175,6 +183,7 @@ export class TierService {
             }) as Promise<UserWithTier>;
         }
 
+        this.logger.log(`[Tier Calc] User ${userId} tier unchanged at ${user.tier ?? 0}`);
         return user;
     }
 
