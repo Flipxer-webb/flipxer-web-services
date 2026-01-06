@@ -30,30 +30,30 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
     tier: TierLevel;
     check: (user: Partial<UserWithTier>) => boolean;
 }> = [
-    {
-        tier: 3,
-        check: (user) =>
-            !!user.isDocumentVerified &&
-            !!user.isAddressVerified &&
-            !!user.isIncomeVerified,
-    },
-    {
-        tier: 2,
-        check: (user) => !!user.isDocumentVerified && !!user.isAddressVerified,
-    },
-    {
-        tier: 1,
-        // Document verification (via Dojah Widget with liveness check) is sufficient for Tier 1
-        // BVN/NIN verification is an additional trust signal but not required
-        check: (user) => !!user.isDocumentVerified,
-    },
-];
+        {
+            tier: 3,
+            check: (user) =>
+                !!user.isDocumentVerified &&
+                !!user.isAddressVerified &&
+                !!user.isIncomeVerified,
+        },
+        {
+            tier: 2,
+            check: (user) => !!user.isDocumentVerified && !!user.isAddressVerified,
+        },
+        {
+            tier: 1,
+            // BVN or NIN verification is required for Tier 1
+            // Document verification is required for Tier 2 (along with address)
+            check: (user) => !!user.isBvnVerified || !!user.isNinVerified,
+        },
+    ];
 
 @Injectable()
 export class TierService {
     private readonly logger = new Logger(TierService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) { }
 
     /**
      * Calculate the tier for a user based on their verification status
