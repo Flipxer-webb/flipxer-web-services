@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { User, UserType } from "@prisma/client";
 
 export type TierLevel = 0 | 1 | 2 | 3 | 4;
@@ -77,8 +78,12 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
 @Injectable()
 export class TierService {
     private readonly logger = new Logger(TierService.name);
+    private readonly PROFILE_CACHE_KEY = (userId: number) => `user:profile:${userId}`;
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly redisCacheService: RedisCacheService
+    ) { }
 
     /**
      * Calculate the tier for a user based on their verification status
@@ -177,10 +182,16 @@ export class TierService {
                 `Updating user ${userId} tier from ${user.tier ?? 0} to ${newTier}`
             );
 
-            return this.prisma.user.update({
+            const updatedUser = await this.prisma.user.update({
                 where: { id: userId },
                 data: { tier: newTier } as any,
-            }) as Promise<UserWithTier>;
+            }) as UserWithTier;
+
+            // Invalidate profile cache so frontend gets fresh tier data
+            await this.redisCacheService.del(this.PROFILE_CACHE_KEY(userId));
+            this.logger.log(`[Tier Calc] Invalidated profile cache for user ${userId}`);
+
+            return updatedUser;
         }
 
         this.logger.log(`[Tier Calc] User ${userId} tier unchanged at ${user.tier ?? 0}`);
