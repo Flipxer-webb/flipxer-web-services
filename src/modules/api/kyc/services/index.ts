@@ -25,7 +25,7 @@ export class KycService {
         private readonly prisma: PrismaService,
         private readonly tierService: TierService,
         private readonly tierVerificationService: TierVerificationService,
-    ) {}
+    ) { }
 
     // ==================== KYC QUEUE ====================
 
@@ -42,7 +42,7 @@ export class KycService {
 
         // Build filter based on status
         let verificationFilter: Prisma.UserWhereInput = {};
-        
+
         if (status === "PENDING" || !status) {
             // Users who have incomplete KYC
             verificationFilter = {
@@ -124,11 +124,11 @@ export class KycService {
             this.prisma.user.count({ where }),
         ]);
 
-        // Enrich with verification status summary and calculate tier dynamically
+        // Enrich with verification status summary - use stored tier from database
         const enrichedUsers = users.map((user) => ({
             ...user,
-            // Calculate tier dynamically based on verification status
-            tier: this.tierService.calculateTier(user),
+            // Use stored tier from database (not calculated) so admin resets persist
+            tier: user.tier ?? 0,
             verificationSummary: {
                 email: user.isEmailVerified,
                 phone: user.isPhoneVerified,
@@ -202,7 +202,7 @@ export class KycService {
                     phone: user.phone,
                     photo: user.photo,
                     userType: user.userType,
-                    tier: this.tierService.calculateTier(user),
+                    tier: user.tier ?? 0,
                     status: user.status,
                     createdAt: user.createdAt,
                 },
@@ -515,11 +515,11 @@ export class KycService {
                     ],
                 },
             }),
-            
+
             this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isBvnVerified: true } }),
             this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isNinVerified: true } }),
             this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isDocumentVerified: true } }),
-            
+
             this.prisma.user.count({
                 where: {
                     userType: { not: UserType.ADMIN },
