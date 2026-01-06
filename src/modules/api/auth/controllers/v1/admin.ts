@@ -30,7 +30,7 @@ export class AdminAuthController {
     constructor(
         private authService: AuthService,
         private tierService: TierService
-    ) {}
+    ) { }
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "admin login" })
@@ -46,7 +46,7 @@ export class AdminAuthController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ 
+    @ApiOperation({
         summary: "Reset 2FA rate limit for a user",
         description: "Admin endpoint to unlock a user who has been rate-limited due to failed 2FA attempts"
     })
@@ -58,7 +58,7 @@ export class AdminAuthController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ 
+    @ApiOperation({
         summary: "Update tiers for all users",
         description: "One-time migration endpoint to update user tiers based on verification status"
     })
@@ -67,6 +67,22 @@ export class AdminAuthController {
         const result = await this.tierService.updateAllUserTiers();
         return buildResponse({
             message: `Updated ${result.updated} user tiers. ${result.unchanged} unchanged, ${result.errors} errors.`,
+            data: result,
+        });
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "Reset user for testing",
+        description: "Reset a user's verification status and tier to 0 for testing the verification flow. WARNING: Only use for testing."
+    })
+    @Post("reset-user-for-testing")
+    async resetUserForTesting(
+        @Body(ValidationPipe) body: { email: string }
+    ): Promise<ApiResponse> {
+        const result = await this.tierService.resetUserForTesting(body.email);
+        return buildResponse({
+            message: `User ${body.email} reset to Tier 0`,
             data: result,
         });
     }

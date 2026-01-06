@@ -298,4 +298,69 @@ export class TierService {
 
         return { canWithdraw: true };
     }
+
+    /**
+     * Reset a user's verification status for testing purposes
+     * WARNING: This should only be used for testing in non-production environments
+     * @param email - The email of the user to reset
+     * @returns The user before and after reset
+     */
+    async resetUserForTesting(email: string): Promise<{
+        before: Partial<UserWithTier>;
+        after: Partial<UserWithTier>;
+    }> {
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            select: {
+                id: true,
+                email: true,
+                tier: true,
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: true,
+                isIncomeVerified: true,
+                bvn: true,
+                nin: true,
+            },
+        });
+
+        if (!user) {
+            throw new Error(`User with email ${email} not found`);
+        }
+
+        const before = { ...user };
+
+        // Reset all verification flags and tier
+        const updated = await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                tier: 0,
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+                bvn: null,
+                nin: null,
+            },
+            select: {
+                id: true,
+                email: true,
+                tier: true,
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: true,
+                isIncomeVerified: true,
+            },
+        });
+
+        this.logger.log(`Reset user ${email} to Tier 0 for testing`);
+
+        return {
+            before,
+            after: updated,
+        };
+    }
 }
