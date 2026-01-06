@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { User, UserType } from "@prisma/client";
 
-export type TierLevel = 0 | 1 | 2 | 3;
+export type TierLevel = 0 | 1 | 2 | 3 | 4;
 
 export interface TierInfo {
     tier: TierLevel;
@@ -18,33 +18,58 @@ export type UserWithTier = User & {
     isNinVerified?: boolean;
 };
 
+/**
+ * Tier Names:
+ * 0 = Basic (deposit only)
+ * 1 = Standard (BVN/NIN verified)
+ * 2 = Intermediate (Document verified)
+ * 3 = Pro (Address verified)
+ * 4 = Premium (Income verified)
+ */
 const WITHDRAWAL_LIMITS: Record<TierLevel, number | "unlimited"> = {
-    0: 0,
-    1: 10000,
-    2: 50000,
-    3: "unlimited",
+    0: 0,        // Basic: deposit only
+    1: 10000,    // Standard: $10,000/day
+    2: 50000,    // Intermediate: $50,000/day
+    3: 100000,   // Pro: $100,000/day
+    4: "unlimited", // Premium: unlimited
 };
 
-// Tier requirement checker functions for individual users
+/**
+ * Tier requirement checker functions for individual users
+ * Checked in descending order (4 -> 3 -> 2 -> 1)
+ * Each tier builds on the previous tier's requirements
+ */
 const INDIVIDUAL_TIER_CHECKS: Array<{
     tier: TierLevel;
     check: (user: Partial<UserWithTier>) => boolean;
 }> = [
         {
-            tier: 3,
+            // Tier 4 (Premium): All verifications complete including income
+            tier: 4,
             check: (user) =>
+                (!!user.isBvnVerified || !!user.isNinVerified) &&
                 !!user.isDocumentVerified &&
                 !!user.isAddressVerified &&
                 !!user.isIncomeVerified,
         },
         {
-            tier: 2,
-            check: (user) => !!user.isDocumentVerified && !!user.isAddressVerified,
+            // Tier 3 (Pro): BVN/NIN + Document + Address verified
+            tier: 3,
+            check: (user) =>
+                (!!user.isBvnVerified || !!user.isNinVerified) &&
+                !!user.isDocumentVerified &&
+                !!user.isAddressVerified,
         },
         {
+            // Tier 2 (Intermediate): BVN/NIN + Document verified
+            tier: 2,
+            check: (user) =>
+                (!!user.isBvnVerified || !!user.isNinVerified) &&
+                !!user.isDocumentVerified,
+        },
+        {
+            // Tier 1 (Standard): BVN or NIN verified
             tier: 1,
-            // BVN or NIN verification is required for Tier 1
-            // Document verification is required for Tier 2 (along with address)
             check: (user) => !!user.isBvnVerified || !!user.isNinVerified,
         },
     ];
@@ -58,10 +83,10 @@ export class TierService {
     /**
      * Calculate the tier for a user based on their verification status
      * @param user - The user object with verification flags
-     * @returns The calculated tier level (0-3)
+     * @returns The calculated tier level (0-4 for individuals, 0-1 for business)
      */
     calculateTier(user: Partial<UserWithTier>): TierLevel {
-        // Business accounts get Tier 3 automatically when KYC is complete
+        // Business accounts have simpler 2-tier structure
         if (user.userType === UserType.BUSINESS) {
             return this.calculateBusinessTier(user);
         }
@@ -69,9 +94,16 @@ export class TierService {
         return this.calculateIndividualTier(user);
     }
 
+    /**
+     * Business tier calculation:
+     * - Tier 0: Basic (can only deposit)
+     * - Tier 1: Verified (business documents uploaded, unlimited access)
+     * Note: Returns 1 but business accounts get unlimited regardless
+     */
     private calculateBusinessTier(user: Partial<UserWithTier>): TierLevel {
-        if (user.businessRecordCompleted && user.businessDocumentsUploaded) {
-            return 3;
+        // Business docs uploaded = full access (Tier 1 for business)
+        if (user.businessDocumentsUploaded) {
+            return 1;
         }
         return 0;
     }
