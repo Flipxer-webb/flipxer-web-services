@@ -156,7 +156,7 @@ export class FincraLib {
             const proxyAgent = new HttpsProxyAgent(options.proxyUrl);
             axiosConfig.httpsAgent = proxyAgent;
             axiosConfig.proxy = false; // Disable axios's built-in proxy to use our agent
-            console.log("****FINCRA PROXY ENABLED****", options.proxyUrl.replace(/:[^:@]+@/, ":***@")); // Log with hidden password
+            // Proxy enabled - not logging for security
         }
 
         this.axios = Axios.create(axiosConfig);
@@ -237,9 +237,8 @@ export class FincraLib {
                 // Use "nuban" for Nigerian bank accounts (NUBAN = Nigerian Uniform Bank Account Number)
                 type: payload.type || "nuban",
             };
-            console.log("****FINCRA RESOLVE REQUEST PAYLOAD****", JSON.stringify(requestData));
-            console.log("****FINCRA BASE URL****", this.options.baseUrl);
-            
+            // Request payload logged via structured logger only in dev mode
+
             const requestOptions: AxiosRequestConfig<FincraResolveAccountPayload> = {
                 method: "POST",
                 url: "/core/accounts/resolve",
@@ -250,7 +249,7 @@ export class FincraLib {
             );
             return data;
         } catch (error) {
-            console.log("****FINCRA RESOLVE ERROR****", error);
+            // Error details handled by handleError()
             this.handleError(error as AxiosError);
             throw error; // This ensures TypeScript knows we always throw
         }

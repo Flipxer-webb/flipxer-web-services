@@ -103,8 +103,7 @@ export class TradingService {
 
     private logWalletFlow(step: string, payload: Record<string, unknown> = {}) {
         const safePayload = this.tradeHelpers.safeJsonStringify(payload);
-        console.log(`[WalletFlow] ${step}`, payload);
-        this.logger.log(`${step} | ${safePayload}`, "WalletFlow");
+        this.logger.debug(`[WalletFlow] ${step} | ${safePayload}`);
     }
 
     constructor(
@@ -1064,7 +1063,7 @@ export class TradingService {
         }
 
         const webhookNetwork = this.tradeHelpers.normalizeNetworkInput(data.network);
-        console.log("webhook network", webhookNetwork);
+        this.logger.debug(`webhook network: ${webhookNetwork}`);
 
         if (
             walletAddress.network &&
@@ -1221,7 +1220,7 @@ export class TradingService {
      * Uses LiveCoinWatch with CoinCap fallback
      */
     async getMarketChart(asset: string, days: number = 7) {
-        console.log(`📊 Getting market chart for ${asset} (${days} days)`);
+        this.logger.debug(`Getting market chart for ${asset} (${days} days)`);
 
         // Try LiveCoinWatch first, fallback to CoinCap
         let marketData: any = null;
@@ -1231,7 +1230,7 @@ export class TradingService {
         try {
             marketData = await this.liveCoinWatchService.getMarketData(asset);
         } catch (lcwErr) {
-            console.warn(`⚠️ [LCW] Market data failed, trying CoinCap:`, lcwErr.message);
+            this.logger.warn(`LCW Market data failed, trying CoinCap: ${lcwErr.message}`);
             try {
                 const ccData = await this.coinCapService.getBatchMarketData([asset]);
                 if (ccData[asset.toLowerCase()]) {
@@ -1241,7 +1240,7 @@ export class TradingService {
                     };
                 }
             } catch (ccErr) {
-                console.warn(`⚠️ [CoinCap] Market data also failed:`, ccErr.message);
+                this.logger.warn(`CoinCap Market data also failed: ${ccErr.message}`);
             }
         }
 
@@ -1249,11 +1248,11 @@ export class TradingService {
         try {
             historyData = await this.liveCoinWatchService.getHistoricalData(asset, days);
         } catch (lcwErr) {
-            console.warn(`⚠️ [LCW] History failed, trying CoinCap:`, lcwErr.message);
+            this.logger.warn(`LCW History failed, trying CoinCap: ${lcwErr.message}`);
             try {
                 historyData = await this.coinCapService.getHistoricalData(asset, days);
             } catch (ccErr) {
-                console.warn(`⚠️ [CoinCap] History also failed:`, ccErr.message);
+                this.logger.warn(`CoinCap History also failed: ${ccErr.message}`);
             }
         }
 
@@ -1304,7 +1303,7 @@ export class TradingService {
                 data: sparklines,
             });
         } catch (lcwErr) {
-            console.warn(`⚠️ [LCW] Sparklines failed, trying CoinCap:`, lcwErr.message);
+            this.logger.warn(`LCW Sparklines failed, trying CoinCap: ${lcwErr.message}`);
             try {
                 const sparklines = await this.coinCapService.getBatchSparklines(assets);
                 return buildResponse({
@@ -1312,7 +1311,7 @@ export class TradingService {
                     data: sparklines,
                 });
             } catch (ccErr) {
-                console.error(`❌ Both LCW and CoinCap sparklines failed`);
+                this.logger.error(`Both LCW and CoinCap sparklines failed`);
                 // Return empty sparklines instead of throwing
                 const empty: Record<string, number[]> = {};
                 assets.forEach(a => { empty[a.toLowerCase()] = []; });

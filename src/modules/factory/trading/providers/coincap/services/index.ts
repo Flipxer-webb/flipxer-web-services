@@ -1,4 +1,4 @@
-import { Injectable, HttpStatus } from "@nestjs/common";
+import { Injectable, HttpStatus, Logger } from "@nestjs/common";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import axios, { AxiosInstance } from "axios";
@@ -32,6 +32,7 @@ interface CoinCapHistoryPoint {
  */
 @Injectable()
 export class CoinCapService {
+    private readonly logger = new Logger(CoinCapService.name);
     private readonly apiClient: AxiosInstance;
     private readonly baseUrl = "https://api.coincap.io/v2";
 
@@ -71,12 +72,12 @@ export class CoinCapService {
      * Get current price for a single asset
      */
     async getPriceInUSD(asset: string, retries = 3, delay = 1000): Promise<number> {
-        console.log(`🔍 [CoinCap] Fetching price for: ${asset}`);
+        this.logger.debug(`Fetching price for: ${asset}`);
 
         const cacheKey = `coincap:price:${asset.toLowerCase()}:usd`;
         const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
         if (cachedPrice) {
-            console.log(`✅ [CoinCap] Cache hit for ${asset}: $${cachedPrice}`);
+            this.logger.debug(`Cache hit for ${asset}: $${cachedPrice}`);
             return cachedPrice;
         }
 
@@ -90,10 +91,10 @@ export class CoinCapService {
                 if (!rate || isNaN(rate)) throw new Error(`No price data for ${asset}`);
 
                 await this.redisCacheService.set(cacheKey, rate, 300); // Cache 5 min
-                console.log(`💰 [CoinCap] Price for ${asset}: $${rate}`);
+                this.logger.debug(`Price for ${asset}: $${rate}`);
                 return rate;
             } catch (error) {
-                console.error(`❌ [CoinCap] Attempt ${attempt} failed:`, error.message);
+                this.logger.error(`Attempt ${attempt} failed: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch price for ${asset}: ${error.message}`,
@@ -111,7 +112,7 @@ export class CoinCapService {
     async getBatchMarketData(
         assets: string[]
     ): Promise<Record<string, { price: number; change24h: number } | null>> {
-        console.log(`🔍 [CoinCap] Batch fetching market data for: ${assets.join(", ")}`);
+        this.logger.debug(`Batch fetching market data for: ${assets.join(", ")}`);
 
         const result: Record<string, { price: number; change24h: number } | null> = {};
 
@@ -145,7 +146,7 @@ export class CoinCapService {
 
             return result;
         } catch (error) {
-            console.error(`❌ [CoinCap] Batch fetch failed:`, error.message);
+            this.logger.error(`Batch fetch failed: ${error.message}`);
             assets.forEach(a => {
                 result[a.toLowerCase()] = null;
             });
@@ -162,12 +163,12 @@ export class CoinCapService {
         retries = 3,
         delay = 1000
     ): Promise<{ prices: [number, number][]; high24h: number; low24h: number }> {
-        console.log(`📈 [CoinCap] Fetching ${days}d history for: ${asset}`);
+        this.logger.debug(`Fetching ${days}d history for: ${asset}`);
 
         const cacheKey = `coincap:history:${asset.toLowerCase()}:${days}d`;
         const cachedData = await this.redisCacheService.get<{ prices: [number, number][]; high24h: number; low24h: number }>(cacheKey);
         if (cachedData) {
-            console.log(`✅ [CoinCap] Cache hit for ${asset} ${days}d history`);
+            this.logger.debug(`Cache hit for ${asset} ${days}d history`);
             return cachedData;
         }
 
@@ -207,10 +208,10 @@ export class CoinCapService {
                 const cacheDuration = days <= 1 ? 30 * 60 : 2 * 60 * 60;
                 await this.redisCacheService.set(cacheKey, result, cacheDuration);
 
-                console.log(`📈 [CoinCap] Got ${prices.length} data points for ${asset}`);
+                this.logger.debug(`Got ${prices.length} data points for ${asset}`);
                 return result;
             } catch (error) {
-                console.error(`❌ [CoinCap] History attempt ${attempt} failed:`, error.message);
+                this.logger.error(`History attempt ${attempt} failed: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch history for ${asset}: ${error.message}`,
@@ -226,12 +227,12 @@ export class CoinCapService {
      * Get sparkline data for multiple assets
      */
     async getBatchSparklines(assets: string[]): Promise<Record<string, number[]>> {
-        console.log(`📊 [CoinCap] Fetching sparklines for: ${assets.join(", ")}`);
+        this.logger.debug(`Fetching sparklines for: ${assets.join(", ")}`);
 
         const cacheKey = `coincap:sparklines:${assets.sort().join(",")}`;
         const cachedData = await this.redisCacheService.get<Record<string, number[]>>(cacheKey);
         if (cachedData) {
-            console.log(`✅ [CoinCap] Cache hit for sparklines`);
+            this.logger.debug(`Cache hit for sparklines`);
             return cachedData;
         }
 
@@ -243,7 +244,7 @@ export class CoinCapService {
                 const history = await this.getHistoricalData(asset, 7);
                 result[asset.toLowerCase()] = history.prices.map(p => p[1]);
             } catch (error) {
-                console.warn(`⚠️ [CoinCap] Failed to get sparkline for ${asset}`);
+                this.logger.warn(`Failed to get sparkline for ${asset}`);
                 result[asset.toLowerCase()] = [];
             }
             // Small delay between requests to avoid rate limiting

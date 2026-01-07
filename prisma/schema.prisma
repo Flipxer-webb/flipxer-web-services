@@ -71,6 +71,10 @@ model User {
   incomeDocumentUrl                  String?
   tradingPassword                    String?
   skipTwoFactorForTrustedDevices     Boolean                           @default(false)
+  // Account lockout for brute force protection
+  failedLoginAttempts                Int                               @default(0)
+  lastFailedLogin                    DateTime?
+  lockedUntil                        DateTime?
   accountLimit                       AccountLimit?
   allowedIps                         AllowedIp[]
   assetWallets                       AssetWallet[]

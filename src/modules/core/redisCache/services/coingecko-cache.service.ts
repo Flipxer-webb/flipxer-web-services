@@ -1,10 +1,11 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { RedisCacheService } from "./redis-cache.service";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 
 @Injectable()
 export class CoinGeckoCacheService {
+    private readonly logger = new Logger(CoinGeckoCacheService.name);
     private readonly CACHE_TTL = 5 * 60;
 
     constructor(
@@ -25,9 +26,9 @@ export class CoinGeckoCacheService {
             }
             return price;
         } catch (error) {
-            console.error(`Error fetching USD price for ${asset} from CoinGecko:`, error.message);
+            this.logger.error(`Error fetching USD price for ${asset} from CoinGecko: ${error.message}`);
             if (error.message.includes("429")) {
-                console.warn(
+                this.logger.warn(
                     `Rate limit exceeded for ${asset}. Consider implementing batch fetching or increasing interval.`
                 );
             }
@@ -65,9 +66,9 @@ export class CoinGeckoCacheService {
                     }
                 }
             } catch (error) {
-                console.error(`Error fetching batch USD prices from CoinGecko:`, error.message);
+                this.logger.error(`Error fetching batch USD prices from CoinGecko: ${error.message}`);
                 if (error.message.includes("429")) {
-                    console.warn(
+                    this.logger.warn(
                         `Rate limit exceeded for batch fetch. Consider increasing cron interval.`
                     );
                 }
@@ -113,9 +114,9 @@ export class CoinGeckoCacheService {
                     }
                 }
             } catch (error) {
-                console.error(`Error fetching batch market data from CoinGecko:`, error.message);
+                this.logger.error(`Error fetching batch market data from CoinGecko: ${error.message}`);
                 if (error.message.includes("429")) {
-                    console.warn(
+                    this.logger.warn(
                         `Rate limit exceeded for batch fetch. Consider increasing cron interval.`
                     );
                 }

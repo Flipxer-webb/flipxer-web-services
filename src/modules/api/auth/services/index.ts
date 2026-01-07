@@ -206,35 +206,59 @@ export class AuthService {
         }
     }
 
-    // Separated login count and flagging logic
+    // SECURITY: Account lockout after failed login attempts
+    private readonly MAX_FAILED_ATTEMPTS = 5;
+    private readonly LOCKOUT_DURATION_MINUTES = 30;
+
     private async handleFailedLogin(
         user: SignInUser,
         ip: string
     ): Promise<void> {
         const now = new Date();
-        const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
-        let updatedLoginCount = user.loginCount || 0;
-        let lastLogin = user.lastLogin || now;
+        const lockoutWindow = new Date(now.getTime() - this.LOCKOUT_DURATION_MINUTES * 60 * 1000);
 
-        if (lastLogin && lastLogin >= tenMinutesAgo) {
-            updatedLoginCount += 1;
-        } else {
-            updatedLoginCount = 1;
-            lastLogin = now;
+        // Check if user is currently locked out
+        if ((user as any).lockedUntil && new Date((user as any).lockedUntil) > now) {
+            const remainingMinutes = Math.ceil(
+                (new Date((user as any).lockedUntil).getTime() - now.getTime()) / 60000
+            );
+            throw new UserAccountDisabledException(
+                `Account temporarily locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
+                HttpStatus.TOO_MANY_REQUESTS
+            );
         }
 
-        if (updatedLoginCount >= 10) {
+        // Reset counter if outside lockout window
+        let failedAttempts = (user as any).failedLoginAttempts || 0;
+        const lastFailedLogin = (user as any).lastFailedLogin;
+        if (lastFailedLogin && new Date(lastFailedLogin) < lockoutWindow) {
+            failedAttempts = 0;
+        }
+
+        failedAttempts++;
+
+        const updateData: any = {
+            failedLoginAttempts: failedAttempts,
+            lastFailedLogin: now,
+            ipAddress: ip,
+        };
+
+        // Lock account after MAX_FAILED_ATTEMPTS
+        if (failedAttempts >= this.MAX_FAILED_ATTEMPTS) {
+            updateData.lockedUntil = new Date(now.getTime() + this.LOCKOUT_DURATION_MINUTES * 60 * 1000);
+
+            // Also flag the account
             await this.prisma.$transaction(async (tx) => {
                 const flaggedRecord = await tx.flagged.upsert({
                     where: { userId: user.id },
                     create: {
                         userId: user.id,
                         flagged: true,
-                        reason: "Multiple failed login attempts",
+                        reason: `Account locked: ${this.MAX_FAILED_ATTEMPTS} failed login attempts`,
                     },
                     update: {
                         flagged: true,
-                        reason: "Multiple failed login attempts",
+                        reason: `Account locked: ${this.MAX_FAILED_ATTEMPTS} failed login attempts`,
                         updatedAt: now,
                     },
                 });
@@ -242,23 +266,23 @@ export class AuthService {
                 await tx.user.update({
                     where: { id: user.id },
                     data: {
-                        loginCount: updatedLoginCount,
-                        lastLogin,
-                        ipAddress: ip,
+                        ...updateData,
                         flaggedId: flaggedRecord.id,
                     },
                 });
             });
-            throw new InvalidCredentialException("Invalid email or password");
+
+            this.logger.warn(`Account locked for user ${user.id} after ${this.MAX_FAILED_ATTEMPTS} failed attempts from IP: ${ip}`);
+
+            throw new UserAccountDisabledException(
+                `Account temporarily locked due to too many failed attempts. Try again in ${this.LOCKOUT_DURATION_MINUTES} minutes.`,
+                HttpStatus.TOO_MANY_REQUESTS
+            );
         }
 
         await this.prisma.user.update({
             where: { id: user.id },
-            data: {
-                loginCount: updatedLoginCount,
-                lastLogin,
-                ipAddress: ip,
-            },
+            data: updateData,
         });
     }
 
@@ -769,13 +793,14 @@ export class AuthService {
             );
         }
 
+        // SECURITY: Phone OTP codes expire after 5 minutes
+        const FIVE_MINUTES_MS = 5 * 60 * 1000;
         const timeDifference =
             Date.now() - verificationData.updatedAt.getTime();
-        const timeDiffInMin = timeDifference / (1000 * 60);
 
-        if (timeDiffInMin > 30) {
+        if (timeDifference > FIVE_MINUTES_MS) {
             throw new VerificationCodeExpiredException(
-                "Your verification code has expired. Kindly request for a new one",
+                "Your verification code has expired (valid for 5 minutes). Please request a new one.",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -884,7 +909,7 @@ export class AuthService {
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
         } catch (error) {
-            console.log("error in sub account setup", { error });
+            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         return buildResponse({
@@ -964,7 +989,7 @@ export class AuthService {
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
         } catch (error) {
-            console.log("error in sub account setup", { error });
+            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         return buildResponse({
@@ -993,7 +1018,7 @@ export class AuthService {
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
         } catch (error) {
-            console.log("error in sub account setup", { error });
+            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         return buildResponse({
@@ -1929,6 +1954,10 @@ export class AuthService {
             businessDocumentVerificationStatus: true,
             isTwoFactorEnabled: true,
             twoFactorSecret: true,
+            // Account lockout fields
+            failedLoginAttempts: true,
+            lastFailedLogin: true,
+            lockedUntil: true,
         };
 
         const email = options.email.toLowerCase().trim();

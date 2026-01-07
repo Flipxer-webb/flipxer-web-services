@@ -1,4 +1,4 @@
-import { Injectable, HttpStatus } from "@nestjs/common";
+import { Injectable, HttpStatus, Logger } from "@nestjs/common";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import axios from "axios";
@@ -6,6 +6,7 @@ import { setTimeout } from "timers/promises";
 
 @Injectable()
 export class CoinGeckoService {
+    private readonly logger = new Logger(CoinGeckoService.name);
     constructor(private readonly redisCacheService: RedisCacheService) { }
 
     private readonly coinGeckoIdMap: { [key: string]: string } = {
@@ -43,12 +44,12 @@ export class CoinGeckoService {
     };
 
     async getPriceInUSD(asset: string, retries = 3, delay = 1000): Promise<number> {
-        console.log(`🔍 Fetching price for asset: ${asset}`);
+        this.logger.debug(`Fetching price for asset: ${asset}`);
 
         const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
         const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
         if (cachedPrice) {
-            console.log(`✅ Cache hit for ${asset}: $${cachedPrice}`);
+            this.logger.debug(`Cache hit for ${asset}: $${cachedPrice}`);
             return cachedPrice;
         }
 
@@ -62,21 +63,17 @@ export class CoinGeckoService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                console.log(`🌍 Requesting CoinGecko API for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
+                this.logger.debug(`Requesting CoinGecko API for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
                 const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
                     params: { ids: coinGeckoId, vs_currencies: "usd" },
                 });
                 const rate = response.data[coinGeckoId]?.usd;
                 if (!rate) throw new Error(`No price data for ${asset} (ID: ${coinGeckoId})`);
                 await this.redisCacheService.set(cacheKey, rate, 5 * 60); // Cache for 5 minutes
-                console.log(`💰 Price for ${asset}: $${rate}`);
+                this.logger.debug(`Price for ${asset}: $${rate}`);
                 return rate;
             } catch (error) {
-                console.error(`❌ Attempt ${attempt} failed for ${asset}:`, {
-                    message: error.message,
-                    status: error.response?.status,
-                    data: error.response?.data,
-                });
+                this.logger.error(`Attempt ${attempt} failed for ${asset}: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch USD rate for ${asset} after ${retries} attempts: ${error.message}`,
@@ -89,7 +86,7 @@ export class CoinGeckoService {
     }
 
     async getBatchPriceInUSD(assets: string[], retries = 3, delay = 1000): Promise<Record<string, number | null>> {
-        console.log(`🔍 Batch fetching prices for: ${assets.join(", ")}`);
+        this.logger.debug(`Batch fetching prices for: ${assets.join(", ")}`);
 
         const result: Record<string, number | null> = {};
         assets.forEach(asset => {
@@ -109,7 +106,7 @@ export class CoinGeckoService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                console.log(`🌍 Requesting CoinGecko API for batch [${coinGeckoIds.join(", ")}], attempt ${attempt}`);
+                this.logger.debug(`Requesting CoinGecko API for batch [${coinGeckoIds.join(", ")}], attempt ${attempt}`);
                 const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
                     params: {
                         ids: coinGeckoIds.join(","),
@@ -125,20 +122,16 @@ export class CoinGeckoService {
                             const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
                             this.redisCacheService.set(cacheKey, price, 5 * 60);
                             result[asset.toLowerCase()] = price;
-                            console.log(`💰 Price for ${asset}: $${price}`);
+                            this.logger.debug(`Price for ${asset}: $${price}`);
                         } else {
-                            console.warn(`⚠️ No price data returned for ${asset} (ID: ${coinGeckoId})`);
+                            this.logger.warn(`No price data returned for ${asset} (ID: ${coinGeckoId})`);
                         }
                     }
                 });
 
                 return result;
             } catch (error) {
-                console.error(`❌ Batch fetch attempt ${attempt} failed:`, {
-                    message: error.message,
-                    status: error.response?.status,
-                    data: error.response?.data,
-                });
+                this.logger.error(`Batch fetch attempt ${attempt} failed: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch batch USD rates after ${retries} attempts: ${error.message}`,
@@ -157,7 +150,7 @@ export class CoinGeckoService {
         retries = 3,
         delay = 1000
     ): Promise<Record<string, { price: number; change24h: number } | null>> {
-        console.log(`🔍 Batch fetching market data (price + 24h change) for: ${assets.join(", ")}`);
+        this.logger.debug(`Batch fetching market data (price + 24h change) for: ${assets.join(", ")}`);
 
         const result: Record<string, { price: number; change24h: number } | null> = {};
         assets.forEach((asset) => {
@@ -175,8 +168,8 @@ export class CoinGeckoService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                console.log(
-                    `🌍 Requesting CoinGecko API for batch market data [${coinGeckoIds.join(
+                this.logger.debug(
+                    `Requesting CoinGecko API for batch market data [${coinGeckoIds.join(
                         ", "
                     )}], attempt ${attempt}`
                 );
@@ -208,10 +201,10 @@ export class CoinGeckoService {
                             const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
                             this.redisCacheService.set(cacheKey, price, 5 * 60);
 
-                            console.log(`💰 Market Data for ${asset}: $${price} (${change24h.toFixed(2)}%)`);
+                            this.logger.debug(`Market Data for ${asset}: $${price} (${change24h.toFixed(2)}%)`);
                         } else {
-                            console.warn(
-                                `⚠️ No market data returned for ${asset} (ID: ${coinGeckoId})`
+                            this.logger.warn(
+                                `No market data returned for ${asset} (ID: ${coinGeckoId})`
                             );
                         }
                     }
@@ -219,14 +212,10 @@ export class CoinGeckoService {
 
                 return result;
             } catch (error) {
-                console.error(`❌ Batch market data fetch attempt ${attempt} failed:`, {
-                    message: error.message,
-                    status: error.response?.status,
-                    data: error.response?.data,
-                });
+                this.logger.error(`Batch market data fetch attempt ${attempt} failed: ${error.message}`);
                 if (attempt === retries) {
                     // Log error but don't throw - return partial/empty results so main flow doesn't break
-                    console.error(`Failed to fetch batch market data after ${retries} attempts`);
+                    this.logger.error(`Failed to fetch batch market data after ${retries} attempts`);
                 }
                 await setTimeout(delay * attempt);
             }
@@ -247,12 +236,12 @@ export class CoinGeckoService {
         retries = 3,
         delay = 1000
     ): Promise<{ prices: [number, number][]; market_data?: any }> {
-        console.log(`📊 Fetching market chart for ${asset} (${days} days)`);
+        this.logger.debug(`Fetching market chart for ${asset} (${days} days)`);
 
         const cacheKey = `coingecko:chart:${asset.toLowerCase()}:${days}d`;
         const cachedData = await this.redisCacheService.get<{ prices: [number, number][]; market_data?: any }>(cacheKey);
         if (cachedData) {
-            console.log(`✅ Cache hit for ${asset} chart data`);
+            this.logger.debug(`Cache hit for ${asset} chart data`);
             return cachedData;
         }
 
@@ -266,7 +255,7 @@ export class CoinGeckoService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                console.log(`🌍 Requesting CoinGecko market chart for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
+                this.logger.debug(`Requesting CoinGecko market chart for ${asset} (ID: ${coinGeckoId}), attempt ${attempt}`);
 
                 // Fetch chart data and market data in parallel to reduce wait time
                 const [chartResponse, marketResponse] = await Promise.all([
@@ -294,7 +283,7 @@ export class CoinGeckoService {
                         }
                     ).catch(err => {
                         // If market data fails, continue with just chart data
-                        console.warn(`⚠️ Market data fetch failed for ${asset}, continuing with chart only:`, err.message);
+                        this.logger.warn(`Market data fetch failed for ${asset}, continuing with chart only: ${err.message}`);
                         return null;
                     })
                 ]);
@@ -346,14 +335,10 @@ export class CoinGeckoService {
                 const cacheDuration = days <= 1 ? 10 * 60 : 60 * 60;
                 await this.redisCacheService.set(cacheKey, result, cacheDuration);
 
-                console.log(`📊 Chart data for ${asset}: ${result.prices.length} data points`);
+                this.logger.debug(`Chart data for ${asset}: ${result.prices.length} data points`);
                 return result;
             } catch (error) {
-                console.error(`❌ Chart fetch attempt ${attempt} failed for ${asset}:`, {
-                    message: error.message,
-                    status: error.response?.status,
-                    data: error.response?.data,
-                });
+                this.logger.error(`Chart fetch attempt ${attempt} failed for ${asset}: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch market chart for ${asset} after ${retries} attempts: ${error.message}`,
@@ -375,7 +360,7 @@ export class CoinGeckoService {
         retries = 3,
         delay = 1000
     ): Promise<Record<string, number[]>> {
-        console.log(`✨ Fetching sparklines for: ${assets.join(", ")}`);
+        this.logger.debug(`Fetching sparklines for: ${assets.join(", ")}`);
 
         const result: Record<string, number[]> = {};
         const uncachedAssets: string[] = [];
@@ -392,7 +377,7 @@ export class CoinGeckoService {
         }
 
         if (uncachedAssets.length === 0) {
-            console.log(`✅ All sparklines from cache`);
+            this.logger.debug(`All sparklines from cache`);
             return result;
         }
 
@@ -406,7 +391,7 @@ export class CoinGeckoService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                console.log(`🌍 Requesting CoinGecko markets for sparklines, attempt ${attempt}`);
+                this.logger.debug(`Requesting CoinGecko markets for sparklines, attempt ${attempt}`);
                 const response = await axios.get(
                     "https://api.coingecko.com/api/v3/coins/markets",
                     {
@@ -432,15 +417,12 @@ export class CoinGeckoService {
                     }
                 }
 
-                console.log(`✨ Sparklines fetched for ${Object.keys(result).length} assets`);
+                this.logger.debug(`Sparklines fetched for ${Object.keys(result).length} assets`);
                 return result;
             } catch (error) {
-                console.error(`❌ Sparkline fetch attempt ${attempt} failed:`, {
-                    message: error.message,
-                    status: error.response?.status,
-                });
+                this.logger.error(`Sparkline fetch attempt ${attempt} failed: ${error.message}`);
                 if (attempt === retries) {
-                    console.warn(`⚠️ Failed to fetch sparklines, returning partial data`);
+                    this.logger.warn(`Failed to fetch sparklines, returning partial data`);
                     return result;
                 }
                 await setTimeout(delay * attempt);
@@ -467,7 +449,7 @@ export class CoinGeckoService {
         atl_date: string | null;
     }> {
         const startTime = Date.now();
-        console.log(`🏆 [CG] Fetching ATH/ATL for ${asset}`);
+        this.logger.debug(`Fetching ATH/ATL for ${asset}`);
 
         const cacheKey = `coingecko:ath_atl:${asset.toLowerCase()}`;
         const staleCacheKey = `coingecko:ath_atl:stale:${asset.toLowerCase()}`;
@@ -481,19 +463,19 @@ export class CoinGeckoService {
         }>(cacheKey);
 
         if (cachedData) {
-            console.log(`✅ [CG] Cache HIT for ${asset} ATH/ATL in ${Date.now() - startTime}ms`);
+            this.logger.debug(`Cache HIT for ${asset} ATH/ATL in ${Date.now() - startTime}ms`);
             return cachedData;
         }
 
         const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
         if (!coinGeckoId) {
-            console.warn(`⚠️ [CG] No CoinGecko ID mapping for ${asset}`);
+            this.logger.warn(`No CoinGecko ID mapping for ${asset}`);
             return { ath: null, ath_date: null, atl: null, atl_date: null };
         }
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                console.log(`🌍 [CG] Requesting ATH/ATL for ${asset}, attempt ${attempt}`);
+                this.logger.debug(`Requesting ATH/ATL for ${asset}, attempt ${attempt}`);
 
                 const response = await axios.get(
                     `https://api.coingecko.com/api/v3/coins/${coinGeckoId}`,
@@ -524,15 +506,15 @@ export class CoinGeckoService {
                     this.redisCacheService.set(staleCacheKey, result, 30 * 24 * 60 * 60), // Stale cache for 30 days
                 ]);
 
-                console.log(`🏆 [CG] ATH/ATL for ${asset} fetched in ${Date.now() - startTime}ms`);
+                this.logger.debug(`ATH/ATL for ${asset} fetched in ${Date.now() - startTime}ms`);
                 return result;
             } catch (error) {
                 const status = error.response?.status;
-                console.error(`❌ [CG] ATH/ATL attempt ${attempt} failed for ${asset}: status=${status}`);
+                this.logger.error(`ATH/ATL attempt ${attempt} failed for ${asset}: status=${status}`);
 
                 // FAST FAIL: Don't retry on rate limit (429) or client errors (4xx)
                 if (status === 429 || (status >= 400 && status < 500)) {
-                    console.warn(`⚠️ [CG] Rate limited or client error, returning stale cache for ${asset}`);
+                    this.logger.warn(`Rate limited or client error, returning stale cache for ${asset}`);
                     break; // Exit retry loop immediately
                 }
 
@@ -552,11 +534,11 @@ export class CoinGeckoService {
         }>(staleCacheKey);
 
         if (staleData) {
-            console.log(`📦 [CG] Using stale cache for ${asset} ATH/ATL (${Date.now() - startTime}ms)`);
+            this.logger.debug(`Using stale cache for ${asset} ATH/ATL (${Date.now() - startTime}ms)`);
             return staleData;
         }
 
-        console.warn(`⚠️ [CG] No data for ${asset} ATH/ATL, returning nulls (${Date.now() - startTime}ms)`);
+        this.logger.warn(`No data for ${asset} ATH/ATL, returning nulls (${Date.now() - startTime}ms)`);
         return { ath: null, ath_date: null, atl: null, atl_date: null };
     }
 }

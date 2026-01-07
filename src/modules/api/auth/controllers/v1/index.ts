@@ -12,6 +12,7 @@ import {
     UseInterceptors,
     ValidationPipe,
 } from "@nestjs/common";
+import { RateLimiterGuard, StrictRateLimit, RateLimit } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { Request } from "express";
 import {
     BvnVerificationDto,
@@ -78,8 +79,10 @@ export class AuthController {
     constructor(
         private authService: AuthService,
         private tierVerificationService: TierVerificationService
-    ) {}
+    ) { }
 
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @Post("signup")
     @ApiOperation({ summary: "individual and business signup" })
     async signUp(
@@ -89,6 +92,8 @@ export class AuthController {
         return await this.authService.signUp(signUpDto, req.ip);
     }
 
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("login")
     @ApiOperation({ summary: "user login" })
@@ -99,6 +104,8 @@ export class AuthController {
         return await this.authService.userSignIn(signInDto, req.ip);
     }
 
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("verify-2fa-login")
     @ApiOperation({ summary: "verify 2FA code to complete login" })
@@ -109,6 +116,8 @@ export class AuthController {
         return await this.authService.verify2FALogin(dto, req.ip);
     }
 
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("initiate-email-verification")
     @ApiOperation({ summary: "initiate email verification process" })
@@ -121,6 +130,8 @@ export class AuthController {
         );
     }
 
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("verify-email-otp")
     @ApiOperation({ summary: "verify email verification otp" })
@@ -179,7 +190,8 @@ export class AuthController {
         return await this.authService.ninVerification(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("initiate-phone-verification")
     @ApiOperation({ summary: "initiate phone verification process" })
@@ -191,7 +203,8 @@ export class AuthController {
         return await this.authService.sendPhoneVerificationOtp(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("verify-phone-otp")
     @ApiOperation({ summary: "verify phone verification otp" })
@@ -381,6 +394,8 @@ export class AuthController {
         );
     }
 
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("forgot-password")
     @ApiOperation({ summary: "request password reset" })
@@ -388,6 +403,8 @@ export class AuthController {
         return await this.authService.requestPasswordReset(dto);
     }
 
+    @UseGuards(RateLimiterGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("reset-password")
     @ApiOperation({ summary: "reset password" })

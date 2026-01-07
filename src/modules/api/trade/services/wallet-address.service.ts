@@ -50,8 +50,7 @@ export class WalletAddressService {
      */
     private logWalletFlow(step: string, payload: Record<string, unknown> = {}) {
         const safePayload = this.tradeHelpers.safeJsonStringify(payload);
-        console.log(`[WalletFlow] ${step}`, payload);
-        this.logger.log(`${step} | ${safePayload}`, "WalletFlow");
+        this.logger.debug(`[WalletFlow] ${step} | ${safePayload}`);
     }
 
     /**
@@ -591,9 +590,8 @@ export class WalletAddressService {
                 { count: rejectedErrors.length }
             );
             rejectedErrors.forEach((err, index) =>
-                console.error(
-                    `[WalletFlow] ensureWalletPaymentAddresses:rejected_detail index=${index}`,
-                    err.reason
+                this.logger.error(
+                    `[WalletFlow] ensureWalletPaymentAddresses:rejected_detail index=${index} reason=${err.reason}`
                 )
             );
         }

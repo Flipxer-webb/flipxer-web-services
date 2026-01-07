@@ -6,7 +6,7 @@ import * as t from "./types";
 import { Logger } from "@nestjs/common";
 
 export class QuidaxLib {
-    constructor(protected instanceOptions: t.QuidaxOptions) {}
+    constructor(protected instanceOptions: t.QuidaxOptions) { }
 
     // Quidax main API
     private mainAxios: AxiosInstance = Axios.create({
@@ -31,7 +31,7 @@ export class QuidaxLib {
         logger.error(`Quidax API Error - Status: ${error.response?.status}, URL: ${error.config?.url}`);
         logger.error(`Quidax API Error - Response: ${JSON.stringify(error.response?.data)}`);
         logger.error(`Quidax API Error - Message: ${error.message}`);
-        
+
         switch (true) {
             case error.response?.status == 401: {
                 throw new e.QuidaxAuthorizationError(
@@ -55,7 +55,7 @@ export class QuidaxLib {
             }
 
             default: {
-                console.log(error, "error");
+                logger.error(`Unknown Quidax error: ${error.message}`);
                 const err = new e.QuidaxGenericError(
                     error.response?.data?.message || error.response?.statusText
                 );
@@ -79,11 +79,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.CreateSubAccountResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.CreateSubAccountOptions> =
-                {
-                    url: `/users`,
-                    method: "POST",
-                    data: options,
-                };
+            {
+                url: `/users`,
+                method: "POST",
+                data: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreateSubAccountResponse>
             >(requestOptions);
@@ -147,7 +147,7 @@ export class QuidaxLib {
                 // Log all emails for debugging E0101 issues
                 const allEmails = result.data.map(acc => acc.email || '(no email)').join(', ');
                 logger.debug(`Available account emails: ${allEmails}`);
-                
+
                 const account = result.data.find(
                     (acc) => acc.email?.toLowerCase() === email.toLowerCase()
                 );
@@ -384,11 +384,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.CreatePaymentAddressResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.CreatePaymentAddressOptions> =
-                {
-                    url: `/users/${options.user_id}/wallets/${options.currency}/addresses`,
-                    method: "POST",
-                    data: options,
-                };
+            {
+                url: `/users/${options.user_id}/wallets/${options.currency}/addresses`,
+                method: "POST",
+                data: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreatePaymentAddressResponse>
             >(requestOptions);
@@ -460,11 +460,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.CreateWithdrawerRequestResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.CreateWithdrawerRequestOptions> =
-                {
-                    url: `/users/${options.user_id}/withdraws`,
-                    method: "POST",
-                    data: options,
-                };
+            {
+                url: `/users/${options.user_id}/withdraws`,
+                method: "POST",
+                data: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreateWithdrawerRequestResponse>
             >(requestOptions);
@@ -497,11 +497,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.CancelWithdrawerRequestResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.CancelWithdrawerRequestOptions> =
-                {
-                    url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}/cancel`,
-                    method: "POST",
-                    data: options,
-                };
+            {
+                url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}/cancel`,
+                method: "POST",
+                data: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CancelWithdrawerRequestResponse>
             >(requestOptions);
@@ -533,11 +533,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.WithdrawalListResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
-                {
-                    url: `/users/${user_id}/withdraws`,
-                    method: "GET",
-                    params: options,
-                };
+            {
+                url: `/users/${user_id}/withdraws`,
+                method: "GET",
+                params: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawalListResponse>
             >(requestOptions);
@@ -570,10 +570,10 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
-                {
-                    url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}`,
-                    method: "GET",
-                };
+            {
+                url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}`,
+                method: "GET",
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawerDetailResponse>
             >(requestOptions);
@@ -606,10 +606,10 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawerRecordByReferenceOptions> =
-                {
-                    url: `/users/${options.user_id}/withdraws/reference/${options.reference}`,
-                    method: "GET",
-                };
+            {
+                url: `/users/${options.user_id}/withdraws/reference/${options.reference}`,
+                method: "GET",
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>
             >(requestOptions);
@@ -641,11 +641,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.WithdrawerFeesResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawerFeesOptions> =
-                {
-                    url: `/fee`,
-                    method: "GET",
-                    params: options,
-                };
+            {
+                url: `/fee`,
+                method: "GET",
+                params: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.WithdrawerFeesResponse>
             >(requestOptions);
@@ -679,11 +679,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.SellOrBuyOrderRequestOptions> =
-                {
-                    url: `/users/${user_id}/orders`,
-                    method: "POST",
-                    data: options,
-                };
+            {
+                url: `/users/${user_id}/orders`,
+                method: "POST",
+                data: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
             >(requestOptions);
@@ -715,10 +715,10 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.CancelSellOrBuyOrderRequestOptions> =
-                {
-                    url: `/users/${user_id}/orders/${options.order_id}/cancel`,
-                    method: "POST",
-                };
+            {
+                url: `/users/${user_id}/orders/${options.order_id}/cancel`,
+                method: "POST",
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
             >(requestOptions);
@@ -784,10 +784,10 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.GetOrderRecordResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.GetOrderRecordOptions> =
-                {
-                    url: `/users/${options.user_id}/orders/${options.order_id}`,
-                    method: "GET",
-                };
+            {
+                url: `/users/${options.user_id}/orders/${options.order_id}`,
+                method: "GET",
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetOrderRecordResponse>
             >(requestOptions);
@@ -860,11 +860,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.CreateInstantSwapRequestResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.CreateInstantSwapRequestOptions> =
-                {
-                    url: `/users/${user_id}/swap_quotation`,
-                    method: "POST",
-                    data: options,
-                };
+            {
+                url: `/users/${user_id}/swap_quotation`,
+                method: "POST",
+                data: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.CreateInstantSwapRequestResponse>
             >(requestOptions);
@@ -895,10 +895,10 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.ConfirmInstantSwapOptions> =
-                {
-                    url: `/users/${options.user_id}/swap_quotation/${options.quotation_id}/confirm`,
-                    method: "POST",
-                };
+            {
+                url: `/users/${options.user_id}/swap_quotation/${options.quotation_id}/confirm`,
+                method: "POST",
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>
             >(requestOptions);
@@ -915,7 +915,7 @@ export class QuidaxLib {
                 data: resp.data.data,
             };
         } catch (error) {
-            console.log(error, "error");
+            // Error handled by handleQuidaxError
             this.handleQuidaxError(error);
         }
     }
@@ -933,11 +933,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.RefreshInstantSwapResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.RefreshInstantSwapOptions> =
-                {
-                    url: `/users/${user_id}/swap_quotation/${quotation_id}/refresh`,
-                    method: "POST",
-                    data: options,
-                };
+            {
+                url: `/users/${user_id}/swap_quotation/${quotation_id}/refresh`,
+                method: "POST",
+                data: options,
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.RefreshInstantSwapResponse>
             >(requestOptions);
@@ -1220,14 +1220,14 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.GetOrderBookItemsForAMarketOptions> =
-                {
-                    url: `/markets/${options.currency}/order_book`,
-                    method: "GET",
-                    params: {
-                        ask_limit: options.ask_limit,
-                        bids_limit: options.bids_limit,
-                    },
-                };
+            {
+                url: `/markets/${options.currency}/order_book`,
+                method: "GET",
+                params: {
+                    ask_limit: options.ask_limit,
+                    bids_limit: options.bids_limit,
+                },
+            };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>
             >(requestOptions);
@@ -1260,11 +1260,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PaymentMethodsOptions> =
-                {
-                    url: `/payment_methods`,
-                    method: "GET",
-                    params: options,
-                };
+            {
+                url: `/payment_methods`,
+                method: "GET",
+                params: options,
+            };
             const resp = await this.rampAxios<t.QuidaxResponse<any>>(
                 requestOptions
             );
@@ -1297,11 +1297,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseLimitBuyOptions> =
-                {
-                    url: `/purchase_limits/buy`,
-                    method: "GET",
-                    params: options,
-                };
+            {
+                url: `/purchase_limits/buy`,
+                method: "GET",
+                params: options,
+            };
             const resp = await this.rampAxios<t.QuidaxResponse<any>>(
                 requestOptions
             );
@@ -1332,11 +1332,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseLimitSellOptions> =
-                {
-                    url: `/purchase_limits/sell`,
-                    method: "GET",
-                    params: options,
-                };
+            {
+                url: `/purchase_limits/sell`,
+                method: "GET",
+                params: options,
+            };
             const resp = await this.rampAxios<t.QuidaxResponse<any>>(
                 requestOptions
             );
@@ -1367,11 +1367,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseQuoteBuyOptions> =
-                {
-                    url: `/purchase_quotes/buy`,
-                    method: "GET",
-                    params: options,
-                };
+            {
+                url: `/purchase_quotes/buy`,
+                method: "GET",
+                params: options,
+            };
             const resp = await this.rampAxios<t.QuidaxResponse<any>>(
                 requestOptions
             );
@@ -1402,11 +1402,11 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseQuoteSellOptions> =
-                {
-                    url: `/purchase_quotes/sell`,
-                    method: "GET",
-                    params: options,
-                };
+            {
+                url: `/purchase_quotes/sell`,
+                method: "GET",
+                params: options,
+            };
             const resp = await this.rampAxios<t.QuidaxResponse<any>>(
                 requestOptions
             );
