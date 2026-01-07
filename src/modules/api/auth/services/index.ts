@@ -68,6 +68,7 @@ import {
     storageDirConfig,
     TOKEN_EXPIRATION,
     COMPANY_NAME,
+    isProdEnvironment,
 } from "@/config";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
@@ -99,6 +100,7 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 
 @Injectable()
 export class AuthService {
+    private readonly logger = new Logger(AuthService.name);
     private uploadService: ImagekitService | CloudinaryService;
     private readonly SALT_ROUNDS = 10;
     private readonly SIGNUP_CACHE_TTL = 3600; // 1 hour
@@ -612,13 +614,19 @@ export class AuthService {
             );
         }
 
+        // SECURITY: OTP codes expire after 10 minutes
+        const TEN_MINUTES_MS = 10 * 60 * 1000;
         const timeDifference =
             Date.now() - verificationData.updatedAt.getTime();
-        const threeDaysInMs = 3 * 24 * 60 * 60 * 1000; // Keeping 3 days logic for existing codes, though new ones are 10m expiry in text
 
-        if (timeDifference > threeDaysInMs) {
+        if (timeDifference > TEN_MINUTES_MS) {
+            // Clean up expired code
+            await this.prisma.accountVerificationRequest.delete({
+                where: { email },
+            }).catch(() => { }); // Ignore if already deleted
+
             throw new VerificationCodeExpiredException(
-                "Your verification code has expired. Kindly request for a new one",
+                "Your verification code has expired (valid for 10 minutes). Please request a new one.",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -827,7 +835,17 @@ export class AuthService {
             bvn: dto.bvn,
         });
 
+        // SECURITY: Block test BVN bypass in production
         if (dto.bvn === "22222222222") {
+            if (isProdEnvironment) {
+                this.logger.warn(`[SECURITY] Blocked test BVN bypass attempt for user ${user.id}`);
+                throw new VerificationGenericException(
+                    "Invalid BVN number",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            // Development only - log the bypass usage
+            this.logger.warn(`[SECURITY][DEV-ONLY] Test BVN bypass used for user ${user.id}`);
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {
@@ -897,7 +915,17 @@ export class AuthService {
             nin: dto.nin,
         });
 
+        // SECURITY: Block test NIN bypass in production
         if (dto.nin === "00000000001") {
+            if (isProdEnvironment) {
+                this.logger.warn(`[SECURITY] Blocked test NIN bypass attempt for user ${user.id}`);
+                throw new VerificationGenericException(
+                    "Invalid NIN number",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            // Development only - log the bypass usage
+            this.logger.warn(`[SECURITY][DEV-ONLY] Test NIN bypass used for user ${user.id}`);
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {

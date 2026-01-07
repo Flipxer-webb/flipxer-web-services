@@ -1,4 +1,4 @@
-import { Injectable, HttpStatus } from "@nestjs/common";
+import { Injectable, HttpStatus, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
@@ -32,6 +32,7 @@ interface LiveCoinWatchHistoryPoint {
 
 @Injectable()
 export class LiveCoinWatchService {
+    private readonly logger = new Logger(LiveCoinWatchService.name);
     private readonly apiClient: AxiosInstance;
     private readonly baseUrl = "https://api.livecoinwatch.com";
 
@@ -77,12 +78,12 @@ export class LiveCoinWatchService {
      * Get current price for a single asset
      */
     async getPriceInUSD(asset: string, retries = 3, delay = 1000): Promise<number> {
-        console.log(`🔍 [LCW] Fetching price for asset: ${asset}`);
+        this.logger.debug(`Fetching price for asset: ${asset}`);
 
         const cacheKey = `lcw:price:${asset.toLowerCase()}:usd`;
         const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
         if (cachedPrice) {
-            console.log(`✅ [LCW] Cache hit for ${asset}: $${cachedPrice}`);
+            this.logger.debug(`Cache hit for ${asset}: $${cachedPrice}`);
             return cachedPrice;
         }
 
@@ -90,7 +91,7 @@ export class LiveCoinWatchService {
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                console.log(`🌍 [LCW] Requesting price for ${asset} (code: ${lcwCode}), attempt ${attempt}`);
+                this.logger.debug(`Requesting price for ${asset} (code: ${lcwCode}), attempt ${attempt}`);
 
                 const response = await this.apiClient.post("/coins/single", {
                     currency: "USD",
@@ -102,13 +103,10 @@ export class LiveCoinWatchService {
                 if (!rate) throw new Error(`No price data for ${asset}`);
 
                 await this.redisCacheService.set(cacheKey, rate, 300); // Cache for 5 minutes
-                console.log(`💰 [LCW] Price for ${asset}: $${rate}`);
+                this.logger.debug(`Price for ${asset}: $${rate}`);
                 return rate;
             } catch (error) {
-                console.error(`❌ [LCW] Attempt ${attempt} failed for ${asset}:`, {
-                    message: error.message,
-                    status: error.response?.status,
-                });
+                this.logger.error(`Attempt ${attempt} failed for ${asset}: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch price for ${asset}: ${error.message}`,
@@ -124,12 +122,12 @@ export class LiveCoinWatchService {
      * Get market data for a single asset (price, volume, market cap, % changes)
      */
     async getMarketData(asset: string, retries = 3, delay = 1000): Promise<LiveCoinWatchCoin> {
-        console.log(`📊 [LCW] Fetching market data for: ${asset}`);
+        this.logger.debug(`Fetching market data for: ${asset}`);
 
         const cacheKey = `lcw:market:${asset.toLowerCase()}`;
         const cachedData = await this.redisCacheService.get<LiveCoinWatchCoin>(cacheKey);
         if (cachedData) {
-            console.log(`✅ [LCW] Cache hit for ${asset} market data`);
+            this.logger.debug(`Cache hit for ${asset} market data`);
             return cachedData;
         }
 
@@ -145,10 +143,10 @@ export class LiveCoinWatchService {
 
                 const data = response.data as LiveCoinWatchCoin;
                 await this.redisCacheService.set(cacheKey, data, 300); // Cache for 5 minutes
-                console.log(`📊 [LCW] Market data for ${asset}: $${data.rate}`);
+                this.logger.debug(`Market data for ${asset}: $${data.rate}`);
                 return data;
             } catch (error) {
-                console.error(`❌ [LCW] Market data attempt ${attempt} failed:`, error.message);
+                this.logger.error(`Market data attempt ${attempt} failed: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch market data for ${asset}: ${error.message}`,
@@ -171,12 +169,12 @@ export class LiveCoinWatchService {
         retries = 3,
         delay = 1000
     ): Promise<{ prices: [number, number][]; high24h: number; low24h: number }> {
-        console.log(`📈 [LCW] Fetching ${days}d history for: ${asset}`);
+        this.logger.debug(`Fetching ${days}d history for: ${asset}`);
 
         const cacheKey = `lcw:history:${asset.toLowerCase()}:${days}d`;
         const cachedData = await this.redisCacheService.get<{ prices: [number, number][]; high24h: number; low24h: number }>(cacheKey);
         if (cachedData) {
-            console.log(`✅ [LCW] Cache hit for ${asset} ${days}d history`);
+            this.logger.debug(`Cache hit for ${asset} ${days}d history`);
             return cachedData;
         }
 
@@ -212,10 +210,10 @@ export class LiveCoinWatchService {
                 const cacheDuration = days <= 1 ? 30 * 60 : 2 * 60 * 60;
                 await this.redisCacheService.set(cacheKey, result, cacheDuration);
 
-                console.log(`📈 [LCW] Got ${prices.length} data points for ${asset}`);
+                this.logger.debug(`Got ${prices.length} data points for ${asset}`);
                 return result;
             } catch (error) {
-                console.error(`❌ [LCW] History attempt ${attempt} failed:`, error.message);
+                this.logger.error(`History attempt ${attempt} failed: ${error.message}`);
                 if (attempt === retries) {
                     throw new GeneralTransactionException(
                         `Failed to fetch history for ${asset}: ${error.message}`,
@@ -231,7 +229,7 @@ export class LiveCoinWatchService {
      * Get batch prices for multiple assets (for sparklines)
      */
     async getBatchPrices(assets: string[]): Promise<Record<string, number | null>> {
-        console.log(`🔍 [LCW] Batch fetching prices for: ${assets.join(", ")}`);
+        this.logger.debug(`Batch fetching prices for: ${assets.join(", ")}`);
 
         const result: Record<string, number | null> = {};
 
@@ -268,7 +266,7 @@ export class LiveCoinWatchService {
 
             return result;
         } catch (error) {
-            console.error(`❌ [LCW] Batch fetch failed:`, error.message);
+            this.logger.error(`Batch fetch failed: ${error.message}`);
             assets.forEach(a => {
                 result[a.toLowerCase()] = null;
             });
@@ -280,12 +278,12 @@ export class LiveCoinWatchService {
      * Get sparkline data (7-day mini charts) for multiple assets
      */
     async getBatchSparklines(assets: string[]): Promise<Record<string, number[]>> {
-        console.log(`📊 [LCW] Fetching sparklines for: ${assets.join(", ")}`);
+        this.logger.debug(`Fetching sparklines for: ${assets.join(", ")}`);
 
         const cacheKey = `lcw:sparklines:${assets.sort().join(",")}`;
         const cachedData = await this.redisCacheService.get<Record<string, number[]>>(cacheKey);
         if (cachedData) {
-            console.log(`✅ [LCW] Cache hit for sparklines`);
+            this.logger.debug(`Cache hit for sparklines`);
             return cachedData;
         }
 
@@ -297,7 +295,7 @@ export class LiveCoinWatchService {
                 const history = await this.getHistoricalData(asset, 7);
                 result[asset.toLowerCase()] = history.prices.map(p => p[1]);
             } catch (error) {
-                console.warn(`⚠️ [LCW] Failed to get sparkline for ${asset}`);
+                this.logger.warn(`Failed to get sparkline for ${asset}`);
                 result[asset.toLowerCase()] = [];
             }
         });
@@ -315,7 +313,7 @@ export class LiveCoinWatchService {
     async getBatchMarketData(
         assets: string[]
     ): Promise<Record<string, { price: number; change24h: number } | null>> {
-        console.log(`🔍 [LCW] Batch fetching market data for: ${assets.join(", ")}`);
+        this.logger.debug(`Batch fetching market data for: ${assets.join(", ")}`);
 
         const result: Record<string, { price: number; change24h: number } | null> = {};
 
@@ -369,7 +367,7 @@ export class LiveCoinWatchService {
 
             return result;
         } catch (error) {
-            console.error(`❌ [LCW] Batch market data fetch failed:`, error.message);
+            this.logger.error(`Batch market data fetch failed: ${error.message}`);
             assets.forEach(a => {
                 result[a.toLowerCase()] = null;
             });

@@ -1,6 +1,6 @@
 import helmet from "helmet";
 import compression from "compression";
-import { INestApplication, VersioningType } from "@nestjs/common";
+import { INestApplication, Logger, VersioningType } from "@nestjs/common";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "@/modules";
 import { CorsOptions } from "@nestjs/common/interfaces/external/cors-options.interface";
@@ -19,6 +19,8 @@ export interface CreateServerOptions {
     production?: boolean;
     whitelistedDomains?: string[];
 }
+
+const logger = new Logger('ServerBootstrap');
 
 export default async (
     options: CreateServerOptions
@@ -76,18 +78,82 @@ export default async (
         return res.sendStatus(403);
     });
 
-    app.use(helmet());
+    // SECURITY: Configure helmet with comprehensive security headers
+    app.use(helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: [
+                    "'self'",
+                    "'unsafe-inline'", // Required for some inline scripts
+                    "https://widget.intercom.io",
+                    "https://js.intercomcdn.com",
+                ],
+                styleSrc: [
+                    "'self'",
+                    "'unsafe-inline'",
+                    "https://fonts.googleapis.com",
+                ],
+                imgSrc: [
+                    "'self'",
+                    "data:",
+                    "blob:",
+                    "https://ik.imagekit.io",
+                    "https://res.cloudinary.com",
+                    "https://downloads.intercomcdn.com",
+                ],
+                connectSrc: [
+                    "'self'",
+                    "https://api.fincra.com",
+                    "https://checkout.fincra.com",
+                    "https://app.quidax.io",
+                    "https://ramp-be.quidax.io",
+                    "https://api.dojah.io",
+                    "https://api.livecoinwatch.com",
+                    "https://api.coingecko.com",
+                    "wss://*.intercom.io",
+                ],
+                fontSrc: [
+                    "'self'",
+                    "https://fonts.gstatic.com",
+                ],
+                objectSrc: ["'none'"],
+                mediaSrc: ["'self'"],
+                frameSrc: [
+                    "'self'",
+                    "https://checkout.fincra.com",
+                    "https://fincra.com",
+                ],
+                frameAncestors: ["'none'"],
+                formAction: ["'self'"],
+                baseUri: ["'self'"],
+            },
+        },
+        crossOriginEmbedderPolicy: false, // Required for third-party integrations
+        hsts: {
+            maxAge: 31536000, // 1 year
+            includeSubDomains: true,
+            preload: true,
+        },
+        referrerPolicy: {
+            policy: "strict-origin-when-cross-origin",
+        },
+        noSniff: true,
+        xssFilter: true,
+        hidePoweredBy: true,
+    }));
     app.use(compression()); // Gzip compression for 60-80% smaller responses
     app.enableCors(corsOptions);
     app.use(morgan(options.production ? "combined" : "dev"));
-    app.useBodyParser("json", { limit: "100mb" });
+    // SECURITY: Reduced from 100mb to 10mb to prevent DoS attacks
+    app.useBodyParser("json", { limit: "10mb" });
 
     // Legacy webhook routes - forward to correct internal paths
     // Fincra sends webhooks to root URL, forward to /webhook/fincra
     expressApp.post("/", (req: Request, res: Response, next: Function) => {
         // Check if this looks like a Fincra webhook (has x-fincra-signature header)
         if (req.headers["x-fincra-signature"]) {
-            console.log("[LEGACY ROUTE] Forwarding Fincra webhook from / to /webhook/fincra");
+            logger.debug("Forwarding Fincra webhook from / to /webhook/fincra");
             req.url = "/webhook/fincra";
             return next();
         }
@@ -97,21 +163,21 @@ export default async (
 
     // Fincra may also send webhooks to /api/webhook/fincra - forward to /webhook/fincra
     expressApp.post("/api/webhook/fincra", (req: Request, res: Response, next: Function) => {
-        console.log("[LEGACY ROUTE] Forwarding Fincra webhook from /api/webhook/fincra to /webhook/fincra");
+        logger.debug("Forwarding Fincra webhook from /api/webhook/fincra to /webhook/fincra");
         req.url = "/webhook/fincra";
         next();
     });
 
     // Quidax sends webhooks to /quidax, forward to /webhook/quidax
     expressApp.post("/quidax", (req: Request, res: Response, next: Function) => {
-        console.log("[LEGACY ROUTE] Forwarding Quidax webhook from /quidax to /webhook/quidax");
+        logger.debug("Forwarding Quidax webhook from /quidax to /webhook/quidax");
         req.url = "/webhook/quidax";
         next();
     });
 
     // Quidax may also send webhooks to /api/webhook/quidax - forward to /webhook/quidax
     expressApp.post("/api/webhook/quidax", (req: Request, res: Response, next: Function) => {
-        console.log("[LEGACY ROUTE] Forwarding Quidax webhook from /api/webhook/quidax to /webhook/quidax");
+        logger.debug("Forwarding Quidax webhook from /api/webhook/quidax to /webhook/quidax");
         req.url = "/webhook/quidax";
         next();
     });

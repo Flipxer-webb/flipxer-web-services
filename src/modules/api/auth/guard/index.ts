@@ -158,6 +158,7 @@ export class EnabledAccountGuard implements CanActivate {
 @Injectable()
 export class QuidaxWebhookGuard implements CanActivate {
     private readonly logger = new Logger("QuidaxWebhookGuard");
+    private readonly TIMESTAMP_TOLERANCE_SECONDS = 300; // 5 minutes
 
     canActivate(
         context: ExecutionContext
@@ -174,18 +175,11 @@ export class QuidaxWebhookGuard implements CanActivate {
             return false;
         }
 
-        // Check if this is a simple shared-key signature (no comma means simple format)
+        // SECURITY: Reject simple signature format - require HMAC
         if (!quidaxSignature.includes(",")) {
-            // Simple format: just compare with webhook key directly
-            const webhookKey = quidaxConfig.webhook_key;
-            if (quidaxSignature === webhookKey) {
-                this.logger.log(`[WEBHOOK AUTH] Simple signature verified for event: ${request.body?.event}`);
-                return true;
-            } else {
-                this.logger.error(`[WEBHOOK AUTH] Simple signature mismatch for event: ${request.body?.event}`);
-                this.logger.debug(`[WEBHOOK AUTH] Expected key, received: ${quidaxSignature.substring(0, 10)}...`);
-                return false;
-            }
+            this.logger.error("[WEBHOOK AUTH] SECURITY: Rejected simple signature format - HMAC required");
+            this.logger.warn(`[WEBHOOK AUTH] Received non-HMAC signature for event: ${request.body?.event}`);
+            return false;
         }
 
         // HMAC format: t=<timestamp>,v=<signature>
@@ -199,21 +193,51 @@ export class QuidaxWebhookGuard implements CanActivate {
         const [timestampPrefix, timestamp] = timestampSection.split("=");
         const [signaturePrefix, signature] = signatureSection.split("=");
 
+        if (timestampPrefix !== "t" || signaturePrefix !== "v" || !timestamp || !signature) {
+            this.logger.error("[WEBHOOK AUTH] Invalid signature format - expected t=<timestamp>,v=<signature>");
+            return false;
+        }
+
+        // SECURITY: Validate timestamp to prevent replay attacks
+        const webhookTimestamp = parseInt(timestamp, 10);
+        const now = Math.floor(Date.now() / 1000);
+        const timeDifference = Math.abs(now - webhookTimestamp);
+
+        if (timeDifference > this.TIMESTAMP_TOLERANCE_SECONDS) {
+            this.logger.error(`[WEBHOOK AUTH] SECURITY: Timestamp too old/future (${timeDifference}s difference)`);
+            this.logger.warn(`[WEBHOOK AUTH] Possible replay attack for event: ${request.body?.event}`);
+            return false;
+        }
+
         const requestBody = JSON.stringify(request.body);
         const payload = `${timestamp}.${requestBody}`;
 
-        const created_signature = crypto
+        const expectedSignature = crypto
             .createHmac("sha256", quidaxConfig.webhook_key)
             .update(payload)
-            .digest()
-            .toString("hex");
+            .digest("hex");
 
-        if (signature === created_signature) {
-            this.logger.log(`[WEBHOOK AUTH] Signature verified for event: ${request.body?.event}`);
-            return true;
-        } else {
-            this.logger.error(`[WEBHOOK AUTH] Signature mismatch for event: ${request.body?.event}`);
-            this.logger.debug(`[WEBHOOK AUTH] Expected: ${created_signature}, Received: ${signature}`);
+        // SECURITY: Use timing-safe comparison to prevent timing attacks
+        try {
+            const signatureBuffer = Buffer.from(signature, 'utf8');
+            const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+
+            if (signatureBuffer.length !== expectedBuffer.length) {
+                this.logger.error(`[WEBHOOK AUTH] Signature length mismatch for event: ${request.body?.event}`);
+                return false;
+            }
+
+            const isValid = crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+
+            if (isValid) {
+                this.logger.log(`[WEBHOOK AUTH] Signature verified for event: ${request.body?.event}`);
+                return true;
+            } else {
+                this.logger.error(`[WEBHOOK AUTH] Signature mismatch for event: ${request.body?.event}`);
+                return false;
+            }
+        } catch (error) {
+            this.logger.error(`[WEBHOOK AUTH] Error verifying signature: ${error}`);
             return false;
         }
     }

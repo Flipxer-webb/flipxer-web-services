@@ -5,6 +5,7 @@ import {
     Get,
     HttpCode,
     HttpStatus,
+    Logger,
     Post,
     Query,
     UseGuards,
@@ -49,6 +50,7 @@ import {
     path: "trades",
 })
 export class TradingController {
+    private readonly logger = new Logger(TradingController.name);
     constructor(private readonly tradingService: TradingService) { }
 
     @HttpCode(HttpStatus.OK)
@@ -223,7 +225,7 @@ export class TradingController {
         @Body() dto: PlaceInstantSwapRequestDto,
         @User() user: UserModel
     ) {
-        console.log("🔥 [DEBUG] LEGACY QUOTE REQUEST (OLD FRONTEND)", JSON.stringify(dto));
+        this.logger.debug(`Legacy quote request from old frontend: ${JSON.stringify(dto)}`);
         return await this.tradingService.createInstantSwap(user, dto);
     }
 
@@ -236,7 +238,7 @@ export class TradingController {
         @Body() dto: ConfirmInstantSwapQuoteDto,
         @User() user: UserModel
     ) {
-        console.log("🔥 [DEBUG] LEGACY SWAP CONFIRM RECEIVED", JSON.stringify(dto));
+        this.logger.debug(`Legacy swap confirm received: ${JSON.stringify(dto)}`);
         return await this.tradingService.confirmInstantSwapQuote(user, dto);
     }
 
@@ -252,7 +254,7 @@ export class TradingController {
         @Body() dto: { from_currency: string; to_currency: string; from_amount: number; verificationToken?: string },
         @User() user: UserModel
     ) {
-        console.log("🔥 [DEBUG] ATOMIC SWAP REQUEST RECEIVED", JSON.stringify(dto));
+        this.logger.debug(`Atomic swap request received: ${JSON.stringify(dto)}`);
         return await this.tradingService.executeAtomicSwap(user, dto);
     }
 

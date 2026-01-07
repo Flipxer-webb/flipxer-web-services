@@ -45,7 +45,7 @@ export class SendService {
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService
-    ) {}
+    ) { }
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -144,7 +144,7 @@ export class SendService {
             }),
         ]);
 
-        console.log(`Admin fee for ${currency}:`, adminFee);
+        this.logger.debug(`Admin fee for ${currency}: ${JSON.stringify(adminFee)}`);
 
         // Calculate provider fee
         const providerFee = await this.getFee(dto.amount, providerFeeInfo.data);
@@ -242,7 +242,7 @@ export class SendService {
 
         // Create and send notification for processing
         const message = `Your send of ${createdOrder.amount} ${createdOrder.currency.toUpperCase()} is being processed. Transaction ID: ${createdOrder.transactionId}`;
-        
+
         const createdNotification = await this.prisma.notification.create({
             data: {
                 title: "Send transaction initiated",
