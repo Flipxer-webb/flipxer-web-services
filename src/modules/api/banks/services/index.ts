@@ -216,6 +216,14 @@ export class BankService {
             where: { id: bankDetailId },
         });
 
+        // SECURITY: Verify the bank detail belongs to the requesting user
+        if (!bankDetail || bankDetail.userId !== userId) {
+            throw new BankDetailNotFoundException(
+                "Bank detail not found or does not belong to this user",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
         return buildResponse({
             message: "Bank detail retrieved",
             data: bankDetail,
