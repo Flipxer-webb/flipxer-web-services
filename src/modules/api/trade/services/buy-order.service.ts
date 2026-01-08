@@ -417,19 +417,18 @@ export class BuyOrderService {
                 || addresses.find(a => a.network === 'erc20')
                 || addresses[0];
 
-            this.logger.log(`Initiating Quidax internal transfer for Order ${order.id} to ${destinationAddress.address} on network ${destinationAddress.network}`);
+            this.logger.log(`Initiating Quidax internal transfer for Order ${order.id} to sub-account ${user.cryptoSubAccountId}`);
 
-            // Perform transfer from Main Account ("me") to User's Address
+            // Perform internal transfer from Main Account ("me") to User's Sub-Account (FREE - no network fees)
+            // Using cryptoSubAccountId instead of blockchain address triggers Quidax's free internal transfer
             const transferRes = await this.quidaxService.createWithdrawerRequest({
                 user_id: "me", // "me" refers to the owner of the API Key (Main Account)
                 currency: order.currency.toLowerCase(),
                 amount: order.amount.toString(),
-                fund_uid: destinationAddress.address,
-                fund_uid2: destinationAddress.destination_tag || undefined,
+                fund_uid: user.cryptoSubAccountId, // Sub-account ID for FREE internal transfer
                 transaction_note: `Fulfillment for Order ${order.transactionId}`,
                 narration: `Buy Order ${order.transactionId}`,
                 reference: `${order.transactionId}_fulfill`,
-                network: destinationAddress.network, // Pass the network to ensure correct address validation
             });
 
             if (transferRes.status !== "success") {
