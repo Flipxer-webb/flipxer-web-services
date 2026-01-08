@@ -53,7 +53,7 @@ export class SellOrderService {
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
         private readonly walletManagementService: WalletManagementService
-    ) {}
+    ) { }
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -293,14 +293,15 @@ export class SellOrderService {
             );
         }
 
+        // Perform internal transfer from User's Sub-Account to Main Account (FREE - no network fees)
+        // Using "me" as fund_uid triggers Quidax's free internal transfer
         const requestRes = await this.quidaxService.createWithdrawerRequest({
             amount: totalCryptoToAdmin.toString(),
             currency: dto.asset.toLowerCase(),
             narration: "flipxer sell order transaction",
             transaction_note: "flipxer sell order transaction",
             user_id: user.cryptoSubAccountId,
-            fund_uid: adminAssetWallet.data.deposit_address, //receiving wallet address //main account on quidax
-            fund_uid2: adminAssetWallet.data.destination_tag, // destination tag
+            fund_uid: "me", // Main account ID for FREE internal transfer
             reference: reference,
         });
 
@@ -365,7 +366,7 @@ export class SellOrderService {
 
         // Create and send notification for processing
         const message = `Your sell order of ${order.amount} ${order.currency.toUpperCase()} is processing. Transaction ID: ${order.transactionId}`;
-        
+
         const createdNotification = await this.prisma.notification.create({
             data: {
                 title: "Sell order initiated",
