@@ -397,17 +397,45 @@ export class UserService {
     }
 
     async getUserAggregatedWalletBalance(user: User) {
-        const result = await this.prisma.assetWallet.aggregate({
-            where: { userId: user.id },
-            _sum: {
-                convertedBalance: true,
+        // Fetch all user wallets with positive balance
+        const wallets = await this.prisma.assetWallet.findMany({
+            where: {
+                userId: user.id,
+                balance: { gt: 0 },
             },
         });
+
+        // Fetch live rates
+        const liveMarketData = await this.quidaxCacheService.getMarketTickers();
+        const referenceCurrency = "ngn";
+
+        let totalBalance = 0;
+
+        for (const wallet of wallets) {
+            const assetCurrency = wallet.assetCurrency.toLowerCase();
+            const marketSymbol = `${assetCurrency}${referenceCurrency}`;
+            const ticker = liveMarketData?.[marketSymbol]?.ticker;
+
+            if (ticker?.sell) {
+                // Use live rate if available
+                const rate = parseFloat(ticker.sell);
+                const balance = Number(wallet.balance);
+                if (!isNaN(rate) && !isNaN(balance)) {
+                    totalBalance += balance * rate;
+                } else {
+                    // Fallback to stored convertedBalance if math fails
+                    totalBalance += Number(wallet.convertedBalance || 0);
+                }
+            } else {
+                // Fallback to stored convertedBalance if no live rate
+                totalBalance += Number(wallet.convertedBalance || 0);
+            }
+        }
 
         return {
             message: "Aggregated wallet balance retrieved",
             data: {
-                total: result._sum.convertedBalance ?? 0,
+                total: totalBalance, // Return number, frontend handles formatting
                 referenceCurrency: "ngn",
             },
         };
@@ -512,8 +540,24 @@ export class UserService {
                 // Fallback to Quidax generic calculation if LCW is unavailable
                 const percentChange = marketData?.change24h ?? this.calculatePercentageChange(ticker);
 
+                // Calculate Live Converted Balance
+                let liveConvertedBalance: any = asset.convertedBalance; // Default to DB value
+
+                if (ticker?.sell) {
+                    const rate = parseFloat(ticker.sell);
+                    const balance = Number(asset.balance);
+
+                    if (!isNaN(rate) && !isNaN(balance)) {
+                        // Use calculated value based on live rate
+                        // Convert to string (frontend expects string for convertedBalance)
+                        // Using toFixed(2) for NGN/Fiat precision
+                        liveConvertedBalance = (balance * rate).toFixed(2);
+                    }
+                }
+
                 return {
                     ...asset,
+                    convertedBalance: liveConvertedBalance, // Override DB value with live value
                     buyRate: {
                         value: adminBuyRate.toFixed(4),
                         referenceCurrency,

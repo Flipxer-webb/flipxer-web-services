@@ -1122,6 +1122,7 @@ export class TradingService {
                 updatedAt: new Date(data.updatedAt),
                 depositAddress: data.depositAddress, // Can be null initially
                 destinationTag: data.destinationTag,
+                referenceCurrency: data.referenceCurrency,
                 ...(data.depositAddress && { addressSynced: true }), // Mark address as synced if present
                 ...(data.depositAddress && { isActive: true }), // Mark wallet as active if deposit address exists
             },

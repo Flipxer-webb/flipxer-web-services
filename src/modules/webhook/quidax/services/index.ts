@@ -325,6 +325,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     convertedBalance: eventData.converted_balance,
                     depositAddress: eventData.deposit_address,
                     destinationTag: eventData.destination_tag,
+                    referenceCurrency: eventData.reference_currency,
                     locked: eventData.locked,
                     staked: eventData.staked,
                     updatedAt: eventData.updated_at,
