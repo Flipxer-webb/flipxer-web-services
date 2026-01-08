@@ -25,6 +25,7 @@ export interface IWalletUpdated {
     updatedAt: string;
     depositAddress: string; // Can be null initially
     destinationTag: string;
+    referenceCurrency: string;
 }
 
 export enum SupportedAssets {
