@@ -242,21 +242,7 @@ export class TradingController {
         return await this.tradingService.confirmInstantSwapQuote(user, dto);
     }
 
-    @HttpCode(HttpStatus.OK)
-    @ApiOperation({
-        summary: "Execute atomic swap - gets quote and confirms instantly",
-        description: "This is the recommended endpoint for swaps. It gets a fresh quote and immediately confirms it, eliminating any timing issues with quote expiry."
-    })
-    @UseGuards(AuthGuard, TransactionAmountGuard, TwoFactorGuard)
-    @ApiBearerAuth("access-token")
-    @Post("execute-atomic-swap")
-    async executeAtomicSwap(
-        @Body() dto: { from_currency: string; to_currency: string; from_amount: number; verificationToken?: string },
-        @User() user: UserModel
-    ) {
-        this.logger.debug(`Atomic swap request received: ${JSON.stringify(dto)}`);
-        return await this.tradingService.executeAtomicSwap(user, dto);
-    }
+
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Refresh instant swap quote" })
