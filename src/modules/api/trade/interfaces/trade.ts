@@ -141,9 +141,9 @@ export interface DepositTransaction {
     fee: string;
     amount: string;
     recipient: string;
-    payment_address: string;
-    payment_address_id: string;
-    network: string;
+    payment_address?: string;
+    payment_address_id?: string;
+    network?: string;
     quidaxUserId: string;
     currency: string;
     reason: string;

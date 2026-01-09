@@ -242,7 +242,7 @@ export interface DepositTransactionEventData {
         confirmations: number;
         required_confirmations: number;
     };
-    payment_address: {
+    payment_address?: {
         id: string;
         reference: string | null;
         currency: string;

@@ -136,7 +136,7 @@ export class SellOrderService {
      * Gets a quote request for selling crypto
      */
     async sellCryptoQuoteRequest(user: User, dto: InitiateSellOrderDto) {
-        const responseData = await this.calculateSellQuote(user, dto);
+        const responseData = await this.calculateSellQuote(user, dto, true);
 
         return buildResponse({
             message: "Quotation for sell order retrieved successfully",

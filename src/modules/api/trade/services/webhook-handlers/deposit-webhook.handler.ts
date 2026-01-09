@@ -98,16 +98,19 @@ export class DepositWebhookHandler {
         }
 
         // Try to find payment address in our database (optional - for logging)
-        const paymentAddress = await this.prisma.cryptoWalletAddress.findUnique({
-            where: { walletAddressId: options.payment_address_id },
-            select: {
-                id: true,
-                userId: true,
-                assetSymbol: true,
-                network: true,
-                address: true,
-            },
-        });
+        let paymentAddress = null;
+        if (options.payment_address_id) {
+            paymentAddress = await this.prisma.cryptoWalletAddress.findUnique({
+                where: { walletAddressId: options.payment_address_id },
+                select: {
+                    id: true,
+                    userId: true,
+                    assetSymbol: true,
+                    network: true,
+                    address: true,
+                },
+            });
+        }
 
         // Log if payment address not found but continue processing
         // The Quidax userId is the source of truth for deposit ownership
