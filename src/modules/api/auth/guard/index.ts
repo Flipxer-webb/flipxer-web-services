@@ -183,18 +183,21 @@ export class QuidaxWebhookGuard implements CanActivate {
         }
 
         // HMAC format: t=<timestamp>,v=<signature>
-        const [timestampSection, signatureSection] = quidaxSignature.split(",");
+        // HMAC format: t=<timestamp>,v=<signature> (order independent)
+        const parts = quidaxSignature.split(",");
+        const timestampPart = parts.find(p => p.trim().startsWith("t="));
+        const signaturePart = parts.find(p => p.trim().startsWith("v="));
 
-        if (!timestampSection || !signatureSection) {
-            this.logger.error(`[WEBHOOK AUTH] Invalid signature format: ${quidaxSignature}`);
+        if (!timestampPart || !signaturePart) {
+            this.logger.error(`[WEBHOOK AUTH] Invalid signature format - missing t= or v= components. Received: ${quidaxSignature}`);
             return false;
         }
 
-        const [timestampPrefix, timestamp] = timestampSection.split("=");
-        const [signaturePrefix, signature] = signatureSection.split("=");
+        const timestamp = timestampPart.trim().substring(2);
+        const signature = signaturePart.trim().substring(2);
 
-        if (timestampPrefix !== "t" || signaturePrefix !== "v" || !timestamp || !signature) {
-            this.logger.error("[WEBHOOK AUTH] Invalid signature format - expected t=<timestamp>,v=<signature>");
+        if (!timestamp || !signature) {
+            this.logger.error(`[WEBHOOK AUTH] Invalid signature format - empty timestamp or signature. Received: ${quidaxSignature}`);
             return false;
         }
 
