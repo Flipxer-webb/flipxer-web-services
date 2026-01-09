@@ -184,16 +184,8 @@ export class BuyOrderService {
 
         const currency = dto.asset.toUpperCase();
         // sell rate is used when user is buying.
-        const [rate, adminFeeInCrypto] = await Promise.all([
+        const [rate] = await Promise.all([
             this.prisma.cryptoRate.findUnique({ where: { currency } }),
-            this.prisma.transactionFee.findUnique({
-                where: {
-                    category_currency: {
-                        category: TransactionFeeCategory.SELL,
-                        currency,
-                    },
-                },
-            }),
         ]);
 
         if (!rate) {
@@ -202,25 +194,13 @@ export class BuyOrderService {
             );
         }
 
-        if (!adminFeeInCrypto) {
-            throw new CryptoTransactionFeeNotFoundException(
-                `No transaction fee record found for asset ${dto.asset}`
-            );
-        }
-
-        const quidaxFeeRes = await this.quidaxService.getWithdrawerFees({
-            currency: assetExist.assetCurrency.toLowerCase(),
-            network: assetExist.defaultNetwork,
-        });
-
-        const quidaxFeeInCrypto = await this.getFee(
-            dto.amount,
-            quidaxFeeRes.data
-        );
+        // Zero out fees for buy orders as requested
+        const quidaxFeeInCrypto = { fee: 0, type: "flat" };
+        const adminFeeInCrypto = { fee: 0 };
 
         const assetValueInNaira = dto.amount * rate.sellRate;
-        const quidaxFeeInNaira = quidaxFeeInCrypto.fee * rate.sellRate;
-        const adminFeeInNaira = adminFeeInCrypto.fee * rate.sellRate;
+        const quidaxFeeInNaira = 0;
+        const adminFeeInNaira = 0;
 
         const totalToChargeInCrypto =
             dto.amount + quidaxFeeInCrypto.fee + adminFeeInCrypto.fee;
