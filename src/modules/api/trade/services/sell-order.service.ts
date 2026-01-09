@@ -228,20 +228,29 @@ export class SellOrderService {
         }
 
         // 4. Fetch Quidax withdrawal fee and compute in crypto
-        const { data: quidaxFeeData } =
-            await this.quidaxService.getWithdrawerFees({
+        let quidaxFeeCrypto = 0;
+        let adminFeeCrypto = 0;
+
+        if (!internal) {
+            const { data: quidaxFeeData } = await this.quidaxService.getWithdrawerFees({
                 currency: assetCurrency.toLowerCase(),
                 network: defaultNetwork,
             });
 
-        const { fee: quidaxFeeCrypto } = await this.getFee(
-            dto.amount,
-            quidaxFeeData
-        );
+            const { fee: calculatedFee } = await this.getFee(
+                dto.amount,
+                quidaxFeeData
+            );
+            quidaxFeeCrypto = calculatedFee;
+
+            // Only apply admin fee for external transfers if needed (currently logic uses it always, but for sell/internal it should be 0)
+            if (adminFee) {
+                adminFeeCrypto = adminFee.fee;
+            }
+        }
 
         // 5. Calculations
         const buyRate = rate.buyRate;
-        const adminFeeCrypto = adminFee.fee;
 
         const assetValueInNaira = dto.amount * buyRate;
         const quidaxFeeInNaira = quidaxFeeCrypto * buyRate;
