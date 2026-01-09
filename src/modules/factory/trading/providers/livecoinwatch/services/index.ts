@@ -315,6 +315,14 @@ export class LiveCoinWatchService {
     ): Promise<Record<string, { price: number; change24h: number } | null>> {
         this.logger.debug(`Batch fetching market data for: ${assets.join(", ")}`);
 
+        // Check cache first to prevent rate limiting
+        const cacheKey = `lcw:batch-market:${assets.sort().join(",")}`;
+        const cachedData = await this.redisCacheService.get<Record<string, { price: number; change24h: number } | null>>(cacheKey);
+        if (cachedData) {
+            this.logger.debug(`Cache hit for batch market data`);
+            return cachedData;
+        }
+
         const result: Record<string, { price: number; change24h: number } | null> = {};
 
         try {
@@ -364,6 +372,12 @@ export class LiveCoinWatchService {
                     result[a.toLowerCase()] = null;
                 }
             });
+
+            // Cache successful result for 2 minutes to prevent rate limiting
+            if (Object.values(result).some(v => v !== null)) {
+                await this.redisCacheService.set(cacheKey, result, 120);
+                this.logger.debug(`Cached batch market data for 2 minutes`);
+            }
 
             return result;
         } catch (error) {
