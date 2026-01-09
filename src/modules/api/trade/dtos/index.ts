@@ -8,6 +8,7 @@ import {
     IsString,
     Length,
     Matches,
+    Min,
     ValidateNested,
 } from "class-validator";
 import { SupportedAssets } from "../interfaces/trade";
@@ -113,8 +114,8 @@ export class BuyCryptoOrderDto {
     })
     @Transform(({ value }) => +value)
     @IsNotEmpty()
-    @IsPositive()
     @IsNumber()
+    @Min(0)
     transactionFeeInFiat: number;
 
     @ApiProperty({
@@ -183,8 +184,8 @@ export class SellCryptoOrderDto {
     })
     @Transform(({ value }) => +value)
     @IsNotEmpty()
-    @IsPositive()
     @IsNumber()
+    @Min(0)
     transactionFeeInFiat: number;
 
     @ApiProperty({
