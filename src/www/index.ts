@@ -148,6 +148,41 @@ export default async (
     // SECURITY: Reduced from 100mb to 10mb to prevent DoS attacks
     app.useBodyParser("json", { limit: "10mb" });
 
+    // SECURITY: Preserve raw body for webhook signature verification
+    // This middleware captures the original bytes before JSON parsing
+    expressApp.use("/webhook", (req: Request, res: Response, next: Function) => {
+        let rawBody = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk: string) => {
+            rawBody += chunk;
+        });
+        req.on('end', () => {
+            (req as any).rawBody = rawBody;
+            next();
+        });
+    });
+
+    // Also capture raw body for legacy webhook paths that get forwarded
+    expressApp.use(["/quidax", "/api/webhook/quidax", "/api/webhook/fincra"], (req: Request, res: Response, next: Function) => {
+        let rawBody = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk: string) => {
+            rawBody += chunk;
+        });
+        req.on('end', () => {
+            (req as any).rawBody = rawBody;
+            // Parse JSON body manually since we consumed the stream
+            if (rawBody) {
+                try {
+                    req.body = JSON.parse(rawBody);
+                } catch (e) {
+                    logger.error(`Failed to parse webhook body: ${e}`);
+                }
+            }
+            next();
+        });
+    });
+
     // Legacy webhook routes - forward to correct internal paths
     // Fincra sends webhooks to root URL, forward to /webhook/fincra
     expressApp.post("/", (req: Request, res: Response, next: Function) => {

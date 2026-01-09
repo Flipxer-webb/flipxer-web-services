@@ -209,7 +209,8 @@ export class QuidaxWebhookGuard implements CanActivate {
             return false;
         }
 
-        const requestBody = JSON.stringify(request.body);
+        // Use raw body if available (preserved by middleware), otherwise fallback to JSON.stringify
+        const requestBody = (request as any).rawBody || JSON.stringify(request.body);
         const payload = `${timestamp}.${requestBody}`;
 
         const expectedSignature = crypto
