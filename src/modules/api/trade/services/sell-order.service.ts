@@ -296,14 +296,17 @@ export class SellOrderService {
         }
 
         // Perform internal transfer from User's Sub-Account to Main Account (FREE - no network fees)
-        // Using "me" as fund_uid triggers Quidax's free internal transfer
+        // We use the Main Account's specific ID (from the wallet fetch above) instead of "me"
+        // because "me" in the request body is not resolved by the API when acting as a sub-user.
+        const adminUserId = adminAssetWallet.data.user.id;
+
         const requestRes = await this.quidaxService.createWithdrawerRequest({
             amount: totalCryptoToAdmin.toString(),
             currency: dto.asset.toLowerCase(),
             narration: "flipxer sell order transaction",
             transaction_note: "flipxer sell order transaction",
             user_id: user.cryptoSubAccountId,
-            fund_uid: "me", // Main account ID for FREE internal transfer
+            fund_uid: adminUserId, // Explicit Main User ID ensures internal transfer
             reference: reference,
         });
 
