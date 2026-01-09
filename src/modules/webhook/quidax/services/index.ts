@@ -27,7 +27,7 @@ export interface WebhookMetrics {
 @Injectable()
 export class QuidaxWebhookService implements QuidaxWebhook {
     private readonly logger = new Logger("QuidaxWebhookService");
-    
+
     // Webhook metrics for monitoring
     private metrics: WebhookMetrics = {
         totalReceived: 0,
@@ -38,11 +38,11 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         lastErrorAt: null,
         lastError: null,
     };
-    
+
     constructor(
         private prisma: PrismaService,
         private tradingService: TradingService
-    ) {}
+    ) { }
 
     /**
      * Get webhook processing metrics for monitoring
@@ -69,7 +69,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     private trackMetric(eventType: string, processingTimeMs: number, success: boolean, error?: string): void {
         this.metrics.totalReceived++;
         this.metrics.lastEventAt = new Date();
-        
+
         if (success) {
             this.metrics.successfullyProcessed++;
         } else {
@@ -89,11 +89,11 @@ export class QuidaxWebhookService implements QuidaxWebhook {
 
         const eventMetric = this.metrics.byEventType[eventType];
         eventMetric.received++;
-        
+
         if (success) {
             eventMetric.processed++;
             // Rolling average for processing time
-            eventMetric.avgProcessingMs = 
+            eventMetric.avgProcessingMs =
                 (eventMetric.avgProcessingMs * (eventMetric.processed - 1) + processingTimeMs) / eventMetric.processed;
         } else {
             eventMetric.failed++;
@@ -103,14 +103,14 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     async processWebhookEvent(eventBody: EventBody) {
         const startTime = Date.now();
         const eventType = eventBody.event;
-        
+
         // Log webhook receipt with full context for debugging
         this.logger.log(
             `[WEBHOOK_RECEIVED] Event: ${eventType} | ` +
             `Timestamp: ${new Date().toISOString()} | ` +
             `Data ID: ${(eventBody.data as any)?.id || 'N/A'}`
         );
-        
+
         try {
             switch (eventBody.event) {
                 case Event.WalletAddressGenerated: {
@@ -199,11 +199,11 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     this.logger.warn(`[WEBHOOK_UNHANDLED] Unhandled event type: ${eventType}`);
                     break;
             }
-            
+
             // Track successful processing
             const processingTime = Date.now() - startTime;
             this.trackMetric(eventType, processingTime, true);
-            
+
             this.logger.log(
                 `[WEBHOOK_PROCESSED] Event: ${eventType} | ` +
                 `Processing time: ${processingTime}ms | ` +
@@ -212,7 +212,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         } catch (error) {
             const processingTime = Date.now() - startTime;
             this.trackMetric(eventType, processingTime, false, error.message);
-            
+
             this.logger.error(
                 `[WEBHOOK_ERROR] Event: ${eventType} | ` +
                 `Error: ${error.message} | ` +
@@ -220,7 +220,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 `Total failed: ${this.metrics.failed}`,
                 error.stack
             );
-            
+
             // Re-throw if you want the webhook endpoint to return an error status
             // For now, we swallow the error to acknowledge receipt to Quidax
         }
@@ -229,11 +229,11 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     async depositHandler(eventData: DepositTransactionEventData) {
         // Normalize status - Quidax sends 'successful' or 'done' for completed deposits
         const normalizedStatus = this.normalizeDepositStatus(eventData.status);
-        
+
         this.logger.log(
             `[DEPOSIT] Processing deposit: ${eventData.id} | Amount: ${eventData.amount} ${eventData.currency} | Status: ${eventData.status} -> ${normalizedStatus}`
         );
-        
+
         const depositPayload = {
             referenceId: eventData.id,
             amount: eventData.amount,
@@ -362,21 +362,34 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     }
 
     async withdrawerTransactionHandler(eventData: WithdrawerEventData) {
+        const normalizedStatus = eventData.status.toLowerCase();
+
+        // Log the withdrawal event status for debugging
+        this.logger.log(`[WITHDRAWAL] Processing withdrawal: ${eventData.reference} | Status: ${eventData.status}`);
+
         switch (true) {
-            case eventData.status.toLowerCase() === OrderStatus.done:
+            case normalizedStatus === OrderStatus.done:
+            case normalizedStatus === "successful":
+            case normalizedStatus === "success":
+            case normalizedStatus === "completed":
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
                     status: OrderStatus.done,
                 });
                 break;
-            case eventData.status.toLowerCase() === OrderStatus.rejected:
+
+            case normalizedStatus === OrderStatus.rejected:
+            case normalizedStatus === OrderStatus.failed:
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
-                    status: OrderStatus.failed,
+                    status: OrderStatus.failed, // Map rejected/failed to OrderStatus.failed
                 });
                 break;
 
             default: {
+                this.logger.warn(
+                    `[WITHDRAWAL] Unhandled withdrawal status: ${eventData.status} for reference ${eventData.reference}`
+                );
                 break;
             }
         }

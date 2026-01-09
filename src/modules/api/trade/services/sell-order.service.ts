@@ -32,6 +32,7 @@ import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
+import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.handler";
 
 /**
  * Sell Order Service
@@ -52,7 +53,8 @@ export class SellOrderService {
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
-        private readonly walletManagementService: WalletManagementService
+        private readonly walletManagementService: WalletManagementService,
+        private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler
     ) { }
 
     /**
@@ -393,6 +395,29 @@ export class SellOrderService {
             notification: createdNotification,
             notificationList,
         });
+
+        // Check if the withdrawal was completed immediately (e.g. internal transfer)
+        // If so, trigger the handler immediately instead of waiting for webhook
+        const requestStatus = requestRes.data.status?.toLowerCase();
+        this.logger.log(`Sell Order ${order.id} | Provider Status: ${requestStatus} | Reference: ${reference}`);
+
+        if (
+            requestStatus === "successful" ||
+            requestStatus === "success" ||
+            requestStatus === "completed" ||
+            requestStatus === "done"
+        ) {
+            this.logger.log(`Sell Order ${order.id} completed immediately - triggering handler`);
+
+            // We don't await this to avoid blocking the response to the client
+            // The handler uses a lock so it's safe even if a webhook comes in simultaneously
+            this.withdrawalWebhookHandler.handle({
+                orderReference: reference,
+                status: OrderStatus.done,
+            }).catch(err => {
+                this.logger.error(`Error handling immediate completion for Sell Order ${order.id}: ${err.message}`, err.stack);
+            });
+        }
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
