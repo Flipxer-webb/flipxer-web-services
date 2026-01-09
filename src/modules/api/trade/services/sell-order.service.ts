@@ -134,7 +134,8 @@ export class SellOrderService {
      * Gets a quote request for selling crypto
      */
     async sellCryptoQuoteRequest(user: User, dto: InitiateSellOrderDto) {
-        const responseData = await this.calculateSellQuote(user, dto);
+        // Pass true as this is always an internal transfer to the platform
+        const responseData = await this.calculateSellQuote(user, dto, true);
 
         return buildResponse({
             message: "Quotation for sell order retrieved successfully",
@@ -226,16 +227,22 @@ export class SellOrderService {
         }
 
         // 4. Fetch Quidax withdrawal fee and compute in crypto
-        const { data: quidaxFeeData } =
-            await this.quidaxService.getWithdrawerFees({
-                currency: assetCurrency.toLowerCase(),
-                network: defaultNetwork,
-            });
+        // For internal transfers (Sell Order), we do NOT charge a network fee.
+        let quidaxFeeCrypto = 0;
 
-        const { fee: quidaxFeeCrypto } = await this.getFee(
-            dto.amount,
-            quidaxFeeData
-        );
+        if (!internal) {
+            const { data: quidaxFeeData } =
+                await this.quidaxService.getWithdrawerFees({
+                    currency: assetCurrency.toLowerCase(),
+                    network: defaultNetwork,
+                });
+
+            const { fee } = await this.getFee(
+                dto.amount,
+                quidaxFeeData
+            );
+            quidaxFeeCrypto = fee;
+        }
 
         // 5. Calculations
         const buyRate = rate.buyRate;
