@@ -231,7 +231,7 @@ export class TradingController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Confirm instant swap quote" })
-    @UseGuards(AuthGuard, TwoFactorGuard)
+    @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("confirm-instant-swap-quote")
     async confirmInstantSwapQuote(

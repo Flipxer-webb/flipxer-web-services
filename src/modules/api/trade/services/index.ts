@@ -305,48 +305,22 @@ export class TradingService {
      * Uses LiveCoinWatch with CoinCap fallback.
      */
     async getSwapEstimate(user: User, dto: PlaceInstantSwapRequestDto) {
-        // Helper to get price with fallback
-        const getPriceWithFallback = async (asset: string): Promise<number> => {
-            try {
-                return await this.liveCoinWatchService.getPriceInUSD(asset);
-            } catch (lcwError) {
-                this.logger.warn(`[LCW] Failed for ${asset}, trying CoinCap: ${lcwError.message}`);
-                return await this.coinCapService.getPriceInUSD(asset);
+        // Use real Quidax quotes for accurate estimation
+        // This ensures the user sees the exact rate they will get (if confirmed within expiry)
+        const quoteResponse = await this.swapService.createInstantSwap(user, dto);
+
+        // Map Quidax response to match the expected "Estimate" structure for frontend compatibility
+        // Quidax returns 'execution_price', but frontend might look for 'quoted_price'
+        const data = quoteResponse.data;
+
+        return buildResponse({
+            message: "Swap estimate retrieved",
+            data: {
+                ...data,
+                // Ensure quoted_price is available (Quote object has quoted_price)
+                quoted_price: data.quoted_price,
             }
-        };
-
-        try {
-            const [fromPrice, toPrice] = await Promise.all([
-                getPriceWithFallback(dto.from_currency),
-                getPriceWithFallback(dto.to_currency)
-            ]);
-
-            const fromAmount = Number(dto.from_amount || 0);
-            // Calculate raw conversion: (Amount * FromPrice) / ToPrice
-            const conversionRate = fromPrice / toPrice;
-            // Apply a small safety slippage buffer (e.g. 0.5%) to the estimate
-            // so user isn't disappointed if real execution is slightly lower
-            const estimatedRate = conversionRate * 0.995;
-            const toAmount = fromAmount * estimatedRate;
-
-            return buildResponse({
-                message: "Swap estimate retrieved",
-                data: {
-                    id: "estimate_" + Date.now(), // Fake ID
-                    from_currency: dto.from_currency,
-                    to_currency: dto.to_currency,
-                    from_amount: dto.from_amount,
-                    to_amount: toAmount.toFixed(8),
-                    quoted_price: estimatedRate.toFixed(8),
-                    quoted_currency: dto.to_currency,
-                    expires_at: new Date(Date.now() + 15000).toISOString(), // Mock expiry
-                }
-            });
-        } catch (error) {
-            this.logger.error(`Failed to get swap estimate: ${error.message}`);
-            // Fallback to Quidax if both LCW and CoinCap fail
-            return this.swapService.createInstantSwap(user, dto);
-        }
+        });
     }
 
     /**

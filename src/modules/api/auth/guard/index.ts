@@ -454,7 +454,7 @@ const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
         getCurrency: (body) => body.asset?.toUpperCase(),
     },
     {
-        patterns: ["request-instant-swap-quote", "refresh-instant-swap-quote"],
+        patterns: ["request-instant-swap-quote", "refresh-instant-swap-quote", "estimate-swap"],
         category: OrderCategory.SWAP,
         getAmount: (body) => body.from_amount || body.to_amount,
         getCurrency: (body) =>

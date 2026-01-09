@@ -118,55 +118,16 @@ export class SwapService {
             );
         }
 
-        try {
-            // Attempt to confirm the swap
-            const swapInfo = await this.quidaxService.confirmInstantSwap({
-                user_id: user.cryptoSubAccountId,
-                quotation_id: dto.quotationId,
-            });
+        // Attempt to confirm the swap
+        const swapInfo = await this.quidaxService.confirmInstantSwap({
+            user_id: user.cryptoSubAccountId,
+            quotation_id: dto.quotationId,
+        });
 
-            return buildResponse({
-                message: "Swap confirmed successfully",
-                data: swapInfo.data,
-            });
-        } catch (error: any) {
-            // Check if this is a quote expired error
-            const errorMessage = (error?.message || error?.response?.data?.message || "").toLowerCase();
-            const isExpiredError = errorMessage.includes("expired") ||
-                errorMessage.includes("invalid quotation") ||
-                errorMessage.includes("quotation not found");
-
-            // If expired and we have required params, get a FRESH quote and confirm
-            if (isExpiredError && dto.from_currency && dto.to_currency && dto.from_amount) {
-                this.logger.log(`Quote ${dto.quotationId} expired, getting fresh quote...`);
-
-                // Get a completely NEW quote (not refresh - which also fails with expired quote)
-                const freshQuote = await this.quidaxService.createInstantSwapRequest(
-                    user.cryptoSubAccountId,
-                    {
-                        from_currency: dto.from_currency,
-                        to_currency: dto.to_currency,
-                        from_amount: dto.from_amount.toString(),
-                    }
-                );
-
-                this.logger.log(`Got fresh quote ${freshQuote.data.id}, confirming immediately...`);
-
-                // Immediately confirm the new quote
-                const retrySwapInfo = await this.quidaxService.confirmInstantSwap({
-                    user_id: user.cryptoSubAccountId,
-                    quotation_id: freshQuote.data.id,
-                });
-
-                return buildResponse({
-                    message: "Swap confirmed successfully",
-                    data: retrySwapInfo.data,
-                });
-            }
-
-            // Re-throw if we can't auto-refresh
-            throw error;
-        }
+        return buildResponse({
+            message: "Swap confirmed successfully",
+            data: swapInfo.data,
+        });
     }
 
     /**
