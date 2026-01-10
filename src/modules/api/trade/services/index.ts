@@ -621,118 +621,13 @@ export class TradingService {
     }
 
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        const swapInfo = await this.quidaxService.confirmInstantSwap({
-            quotation_id: dto.quotationId,
-            user_id: user.cryptoSubAccountId,
-        });
-
-        const amtFiat = await this.getAmountInNaira(
-            swapInfo.data.from_currency,
-            Number(swapInfo.data?.from_amount),
-            "sell"
-        );
-        const transactionId = generateId({ type: "transaction" });
-        if (swapInfo.data) {
-            // CRITICAL: Must await the transaction to ensure order is created before continuing
-            await this.prisma.$transaction(
-                async (tx) => {
-                    await tx.order.create({
-                        data: {
-                            orderCategory: OrderCategory.SWAP,
-                            status: swapInfo.data.status,
-                            streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
-                            transactionId: transactionId,
-                            providerOrderId: swapInfo.data.id,
-                            orderReference: generateId({
-                                type: "reference",
-                            }),
-                            userId: user.id,
-                            fromCurrency:
-                                swapInfo.data.from_currency.toUpperCase(),
-                            toCurrency: swapInfo.data.to_currency.toUpperCase(),
-                            fromAmount: +swapInfo.data?.from_amount,
-                            toAmount: +swapInfo.data?.received_amount,
-                            amount: +swapInfo.data?.from_amount,
-                            quotationId: swapInfo.data.swap_quotation.id,
-                            quoted_currency:
-                                swapInfo.data.swap_quotation.quoted_currency,
-                            quoted_price:
-                                +swapInfo.data.swap_quotation.quoted_price,
-                            executionPrice: +swapInfo.data.execution_price,
-                            amountInFiat: amtFiat?.amount,
-                            rateAtConversion: amtFiat?.rate,
-                        },
-                    });
-                },
-                { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: DEFAULT_TRANSACTION_TIMEOUT_MS }
-            );
-
-            // Emit transaction update for swap
-            this.wsGateway.notifyTransactionUpdate(user.id, {
-                type: "transaction_update",
-                transaction: {
-                    id: 0, // Will be updated by webhook
-                    transactionId: transactionId,
-                    status: swapInfo.data.status,
-                    streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
-                    orderCategory: OrderCategory.SWAP,
-                    amount: +swapInfo.data?.from_amount,
-                    currency: swapInfo.data.from_currency.toUpperCase(),
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                },
-            });
-
-            // NOTE: Do NOT sync wallets immediately after swap confirmation
-            // The swap is still processing on Quidax - syncing now would show incorrect locked balances
-            // The webhook (swapTransactionHandler) will sync wallets when the swap actually completes
-            // This prevents the "balance goes down then up" UI issue
-
-            // Create and send notification for processing
-            const message = `Your swap of ${swapInfo.data.from_amount} ${swapInfo.data.from_currency.toUpperCase()} to ${swapInfo.data.to_currency.toUpperCase()} is processing. Transaction ID: ${transactionId}`;
-
-            const createdNotification = await this.prisma.notification.create({
-                data: {
-                    title: "Swap transaction initiated",
-                    body: message,
-                    userId: user.id,
-                    target: UserNotificationTarget.SINGLE,
-                    beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                    type: NotificationType.MESSAGE,
-                    status: NotificationStatus.APPROVED,
-                    senderId: null,
-                    transactionType: OrderCategory.SWAP,
-                    currency: swapInfo.data.from_currency.toUpperCase(),
-                },
-            });
-
-            const notificationList = await this.prisma.notification.findMany({
-                where: { userId: user.id },
-                orderBy: { createdAt: "desc" },
-                take: 20,
-            });
-
-            this.wsGateway.notifyUser(user.id, {
-                type: "new_notification",
-                notification: createdNotification,
-                notificationList,
-            });
-        }
-
-        return buildResponse({
-            message: "Swap request processed successfully",
-            data: {
-                ...swapInfo.data,
-                transactionId: transactionId,
-            },
-        });
+        // Delegate entirely to the new internal SwapService
+        // This handles:
+        // 1. Quidax Limit Checks
+        // 2. Internal Sell (User -> Admin)
+        // 3. Internal Buy (Admin -> User)
+        // 4. Notifications & Webhooks
+        return await this.swapService.confirmInstantSwapQuote(user, dto);
     }
 
     async verifySwapQuoteTransaction(

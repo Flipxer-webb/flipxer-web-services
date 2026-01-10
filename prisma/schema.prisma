@@ -542,6 +542,7 @@ model Order {
   totalToReceiveInFiat         Float?
   amountInFiat                 Float?
   rateAtConversion             Float?
+  estimatedProfit              Float?                 // Estimated profit in fiat (Value In - Value Out)
   referenceFiatCurrency        ReferenceFiatCurrency  @default(NGN)
   sender                       String?
   streamlinedStatus            OrderStreamlinedStatus @default(pending)
@@ -589,6 +590,19 @@ model CryptoRate {
   updatedAt DateTime @updatedAt
 
   @@map("CryptoRates")
+}
+
+model SwapPair {
+  id           Int      @id @default(autoincrement())
+  fromCurrency String
+  toCurrency   String
+  rate         Float    @default(0) // Admin set rate: 1 From = X To
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([fromCurrency, toCurrency])
+  @@map("SwapPairs")
 }
 
 model TransactionFee {
