@@ -218,6 +218,30 @@ export class DepositWebhookHandler {
             return true;
         }
 
+        // Check for SWAP orders (internal buy leg creates deposit to user)
+        // The swap service handles the entire flow atomically, so we skip duplicate deposits
+        const swapOrder = await this.prisma.order.findFirst({
+            where: {
+                userId: userId,
+                orderCategory: OrderCategory.SWAP,
+                toCurrency: options.currency.toUpperCase(),
+                status: { in: [OrderStatus.processing, OrderStatus.completed] },
+                createdAt: { gte: twoHoursAgo },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+
+        if (swapOrder) {
+            this.logger.log(
+                `Skipping deposit - related to SWAP order | ${JSON.stringify({
+                    swapOrderId: swapOrder.id,
+                    transactionId: swapOrder.transactionId,
+                    toCurrency: options.currency,
+                })}`
+            );
+            return true;
+        }
+
         // Strategy 2 & 3: Fall back to heuristics for orders not yet fulfilled
         // (handles race condition where deposit arrives before fulfillBuyOrder completes)
         const recentBuyOrders = await this.prisma.order.findMany({

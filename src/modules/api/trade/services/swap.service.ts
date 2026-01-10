@@ -262,16 +262,22 @@ export class SwapService {
                 orderReference: reference,
                 transactionId: transactionId,
                 userId: user.id,
-                currency: quote.from_currency.toUpperCase(), // Source Currency
-                amount: quote.from_amount, // Source Amount
+                // Source/destination currencies and amounts for swap
+                fromCurrency: quote.from_currency.toUpperCase(),
+                toCurrency: quote.to_currency.toUpperCase(),
+                fromAmount: quote.from_amount,
+                toAmount: quote.to_amount,
+                quoted_price: quote.rate,
+                // Legacy fields for compatibility
+                currency: quote.from_currency.toUpperCase(),
+                amount: quote.from_amount,
                 amountInFiat: quote.fiat_amount,
-                rateAtConversion: quote.rate, // Implied rate
+                rateAtConversion: quote.rate,
                 total: quote.from_amount,
                 recipient: "Internal Swap",
                 narration: `Swap ${quote.from_currency} -> ${quote.to_currency}`,
                 transaction_note: `Swapping ${quote.from_amount} ${quote.from_currency} to ${quote.to_amount.toFixed(8)} ${quote.to_currency}`,
-                // Store destination info in metadata or just notes for now
-                providerOrderId: dto.quotationId, // Trace back to quote
+                quotationId: dto.quotationId, // Track the quote ID
             }
         });
 
@@ -350,7 +356,13 @@ export class SwapService {
                 }
             });
 
-            // 6. [Non-Blocking] Calculate & Record Profit
+            // 6. Sync both wallets involved in the swap
+            await Promise.all([
+                this.walletAddressService.syncWallet(user.id, quote.from_currency),
+                this.walletAddressService.syncWallet(user.id, quote.to_currency),
+            ]);
+
+            // 7. [Non-Blocking] Calculate & Record Profit
             this.calculateAndRecordProfit(completedOrder).catch(err => {
                 this.logger.error(`Failed to record profit for swap ${reference}: ${err.message}`);
             });
@@ -469,18 +481,24 @@ export class SwapService {
             );
         }
 
-        // 2. Check Admin Liquidity again
-        if (!order.amountInFiat || !order.rateAtConversion) {
-            throw new GeneralTransactionException("Critical data missing for retry (Fiat Amount/Rate)", HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+        // 2. Get swap details - prefer stored fields, fallback to narration parsing
+        let toCurrency = order.toCurrency;
+        let toAmount = order.toAmount;
 
-        // Parsing Narration "Swap BTC -> USDT"
-        const parts = order.narration.split('->');
-        if (parts.length !== 2) {
-            throw new GeneralTransactionException("Could not determine destination currency from narration", HttpStatus.INTERNAL_SERVER_ERROR);
+        // Fallback for older orders without stored swap fields
+        if (!toCurrency || !toAmount) {
+            if (!order.rateAtConversion) {
+                throw new GeneralTransactionException("Critical data missing for retry (Rate)", HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+
+            // Parse narration "Swap BTC -> USDT" as fallback
+            const parts = order.narration?.split('->');
+            if (!parts || parts.length !== 2) {
+                throw new GeneralTransactionException("Could not determine destination currency from order", HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+            toCurrency = parts[1].trim();
+            toAmount = order.amount * order.rateAtConversion;
         }
-        const toCurrency = parts[1].trim();
-        const toAmount = order.amountInFiat / order.rateAtConversion;
 
         const reference = order.orderReference;
         const buyRef = `${reference}_buy`;
