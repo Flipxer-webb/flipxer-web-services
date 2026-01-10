@@ -240,11 +240,11 @@ export class SwapService {
         }
 
         // 2. Transaction Limit Check
-        // Explicitly check limits using NGN fiat amount and OrderCategory.SWAP
+        // Use the source crypto currency and amount for validation
         await this.transactionService.validateTransaction(
             user,
-            quote.fiat_amount,
-            "NGN",
+            quote.from_amount,
+            quote.from_currency.toUpperCase(),
             OrderCategory.SWAP,
             "swap"
         );
