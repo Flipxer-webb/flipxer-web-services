@@ -121,27 +121,65 @@ export class SwapService {
         toCurrency: string,
         amount: number
     ) {
-        // 1. Calculate Sell (Crypto A -> NGN)
-        const sellQuote = await this.sellOrderService.calculateSellQuote(user, {
-            asset: fromCurrency,
-            amount: amount,
-        }, true); // Internal = true (No fees)
+        let rate: number;
+        let fiatAmount: number | null = null;
 
-        const fiatAmount = sellQuote.totalToReceiveInFiat;
-
-        // 2. Calculate Buy (NGN -> Crypto B)
-        const buyRateRecord = await this.prisma.cryptoRate.findUnique({
-            where: { currency: toCurrency.toUpperCase() }
+        // --- HYBRID SWAP PAIR LOGIC ---
+        // 1. Check for Admin Override (SwapPair)
+        // Cast to any to avoid TS errors before migration
+        const swapPair = await (this.prisma as any).swapPair.findUnique({
+            where: {
+                fromCurrency_toCurrency: {
+                    fromCurrency: fromCurrency.toUpperCase(),
+                    toCurrency: toCurrency.toUpperCase()
+                }
+            }
         });
 
-        if (!buyRateRecord) {
-            throw new GeneralTransactionException("Rate not found for " + toCurrency, HttpStatus.BAD_REQUEST);
+        if (swapPair && swapPair.isActive && swapPair.rate > 0) {
+            // Use Admin Rate
+            rate = swapPair.rate;
+            // For fiat amount (e.g. NGN value), we still need to estimate it for limits/logging
+            // But the swap itself respects the explicit rate: 1 From = X To implies ToAmount = From * Rate
+            // We can fetch the Source->Fiat price just for reference/limits
+            const sourceRate = await this.prisma.cryptoRate.findUnique({
+                where: { currency: fromCurrency.toUpperCase() }
+            });
+            fiatAmount = sourceRate ? amount * sourceRate.buyRate : 0; // Estimate
+        } else {
+            // 2. Fallback to Auto-Pilot (Derived Cross-Rate)
+            // Use Sell Price of A and Buy Price of B to capture spread on both sides
+            // Sell A -> NGN
+            const sellQuote = await this.sellOrderService.calculateSellQuote(user, {
+                asset: fromCurrency,
+                amount: amount,
+            }, true); // Internal = true (No fees)
+
+            fiatAmount = sellQuote.totalToReceiveInFiat;
+
+            // Buy NGN -> B
+            const buyRateRecord = await this.prisma.cryptoRate.findUnique({
+                where: { currency: toCurrency.toUpperCase() }
+            });
+
+            if (!buyRateRecord) {
+                throw new GeneralTransactionException("Rate not found for " + toCurrency, HttpStatus.BAD_REQUEST);
+            }
+
+            // User 'Buys' at the system's 'SellRate'
+            // Rate for A -> B = (FiatValue of A) / (Price of B) / AmountA
+            // Effective Rate = (SellRateA * Amount) / SellRateB / Amount = SellRateA / SellRateB
+            rate = fiatAmount / amount / buyRateRecord.sellRate;
         }
 
-        // Use SellRate for user buying (User buys at higher price usually? Wait. 
-        // BuyOrderService: return { buyRate: rate.sellRate }. Yes, user buys at 'sellRate'.
-        const rate = buyRateRecord.sellRate;
-        const toAmount = fiatAmount / rate;
+        // Calculate To Amount
+        const toAmount = amount * rate;
+
+        // If fiatAmount wasn't set by the SellQuote fallback, ensure we have reasonable value for limits
+        if (fiatAmount === null) {
+            // Should have been set in override block, but double check
+            fiatAmount = 0;
+        }
 
         const quotationId = generateId({ type: "reference" });
         const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MS).toISOString();
@@ -303,13 +341,18 @@ export class SwapService {
             );
 
             // 5. Success
-            await this.prisma.order.update({
+            const completedOrder = await this.prisma.order.update({
                 where: { id: order.id },
                 data: {
                     status: OrderStatus.completed,
                     streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
                     transaction_note: `Swap Completed. Received ${quote.to_amount} ${quote.to_currency}`
                 }
+            });
+
+            // 6. [Non-Blocking] Calculate & Record Profit
+            this.calculateAndRecordProfit(completedOrder).catch(err => {
+                this.logger.error(`Failed to record profit for swap ${reference}: ${err.message}`);
             });
 
             // Final Notifications
@@ -535,4 +578,73 @@ export class SwapService {
             }
         };
     }
+
+    /**
+     * Calculates and records the estimated profit for a completed swap.
+     * Profit = (Value of Asset IN) - (Value of Asset OUT)
+     * Values are based on real-time market tickers at the moment of execution.
+     */
+    private async calculateAndRecordProfit(order: any) {
+        try {
+            // Parse narration to find toCurrency: "Swap BTC -> USDT"
+            const match = order.narration.match(/Swap (\w+) -> (\w+)/);
+            if (!match) return;
+
+            const fromSymbol = match[1];
+            const toSymbol = match[2];
+
+            const fromAmount = order.amount;
+            const toAmount = order.amount * (order.rateAtConversion || 0);
+
+            // Fetch Real-Time Market Prices
+            const response = await this.quidaxService.getMarketTickers();
+            const tickers = response.data;
+
+            if (!tickers) return;
+
+            // Construct pairs (assuming NGN base for valuation)
+            const fromPair = `${fromSymbol}ngn`.toLowerCase();
+            const toPair = `${toSymbol}ngn`.toLowerCase();
+
+            const fromTickerData = tickers[fromPair];
+            const toTickerData = tickers[toPair];
+
+            // If either ticker is missing (e.g. if one asset IS NGN, or unsupported pair), 
+            // handle gracefully. For NGN, rate is 1.
+            let fromRate = 0;
+            let toRate = 0;
+
+            if (fromSymbol.toUpperCase() === 'NGN') {
+                fromRate = 1;
+            } else if (fromTickerData && fromTickerData.ticker) {
+                fromRate = parseFloat(fromTickerData.ticker.buy); // Admin Sell Price (Bid)
+            }
+
+            if (toSymbol.toUpperCase() === 'NGN') {
+                toRate = 1;
+            } else if (toTickerData && toTickerData.ticker) {
+                toRate = parseFloat(toTickerData.ticker.sell); // Admin Buy Price (Ask)
+            }
+
+            if (fromRate === 0 || toRate === 0) return;
+
+            // Value In (We Received): Amount * Market Bid
+            const adminValueIn = fromAmount * fromRate;
+
+            // Value Out (We Sent): Amount * Market Ask
+            const adminValueOut = toAmount * toRate;
+
+            const profit = adminValueIn - adminValueOut;
+
+            await this.prisma.order.update({
+                where: { id: order.id },
+                data: { estimatedProfit: profit }
+            });
+
+        } catch (error) {
+            this.logger.error(`Failed to record profit for swap ${order.id}: ${error.message}`);
+        }
+    }
 }
+
+
