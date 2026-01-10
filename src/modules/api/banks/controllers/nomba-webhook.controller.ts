@@ -153,7 +153,8 @@ export class NombaWebhookController {
             return { success: true, message: "Webhook processed" };
         } catch (error) {
             this.logger.error(`Error processing Nomba webhook: ${error.message}`);
-            return { success: false, message: "Processing error" };
+            // Re-throw so NestJS returns 500 and Nomba retries the webhook
+            throw error;
         }
     }
 
@@ -179,14 +180,10 @@ export class NombaWebhookController {
             // Check if this payment is linked to a Buy Order
             if (payment.orderId) {
                 this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
-                try {
-                    await this.buyOrderService.fulfillBuyOrder(reference);
-                    this.logger.log(`Buy order fulfillment triggered for payment ${payment.id}`);
-                    return;
-                } catch (error) {
-                    this.logger.error(`Failed to fulfill buy order for payment ${payment.id}: ${error.message}`);
-                    return;
-                }
+                // Let errors propagate so webhook returns 5xx and Nomba retries
+                await this.buyOrderService.fulfillBuyOrder(reference);
+                this.logger.log(`Buy order fulfillment completed for payment ${payment.id}`);
+                return;
             }
 
             // Update existing payment status (Generic)

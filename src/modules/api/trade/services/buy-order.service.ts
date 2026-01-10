@@ -356,24 +356,62 @@ export class BuyOrderService {
 
     /**
      * Fulfills a buy order after successful payment
+     *
+     * Uses atomic update to prevent double-fulfillment from duplicate webhooks.
      */
     async fulfillBuyOrder(reference: string) {
         this.logger.log(
             `Fulfilling buy order for payment reference: ${reference}`
         );
 
+        // Atomic: Only update if status is still PENDING.
+        // This prevents race conditions where duplicate webhooks could both
+        // pass a non-atomic check and double-credit the user.
+        // We use APPROVED as an intermediate "claimed" status - only mark SUCCESS
+        // after Quidax transfer succeeds. If Quidax fails, we revert to PENDING
+        // and throw so the webhook handler returns 5xx and Nomba retries.
+        const updated = await this.prisma.payment.updateMany({
+            where: {
+                reference,
+                status: TransactionStatus.PENDING,
+            },
+            data: {
+                status: TransactionStatus.APPROVED, // Intermediate: claimed for processing
+                paymentStatus: TransactionStatus.APPROVED,
+            },
+        });
+
+        if (updated.count === 0) {
+            // Either payment not found, already processed (SUCCESS), or being processed (APPROVED)
+            const existing = await this.prisma.payment.findUnique({
+                where: { reference },
+            });
+            if (!existing) {
+                this.logger.error(
+                    `Payment not found for reference: ${reference}`
+                );
+            } else if (existing.status === TransactionStatus.SUCCESS) {
+                this.logger.log(`Payment ${reference} already completed successfully`);
+            } else if (existing.status === TransactionStatus.APPROVED) {
+                // Another webhook instance is currently processing - let that one finish
+                this.logger.log(`Payment ${reference} currently being processed by another instance`);
+            } else {
+                this.logger.log(`Payment ${reference} in unexpected state: ${existing.status}`);
+            }
+            return;
+        }
+
+        // We now "own" this fulfillment - fetch full payment data
         const payment = await this.prisma.payment.findUnique({
             where: { reference },
             include: { user: true },
         });
 
         if (!payment) {
-            this.logger.error(`Payment not found for reference: ${reference}`);
-            return;
-        }
-
-        if (payment.status === TransactionStatus.SUCCESS) {
-            this.logger.log(`Payment ${reference} already processed`);
+            // Shouldn't happen since updateMany succeeded, but guard anyway
+            this.logger.error(
+                `Payment disappeared after atomic update: ${reference}`
+            );
             return;
         }
 
@@ -386,15 +424,6 @@ export class BuyOrderService {
             return;
         }
 
-        // 1. Update Payment to SUCCESS (Money received)
-        await this.prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-                status: TransactionStatus.SUCCESS,
-                paymentStatus: TransactionStatus.SUCCESS,
-            },
-        });
-
         // 2. Transfer Funds from Main Account to User Sub-Account (Quidax)
         try {
             const user = payment.user;
@@ -402,8 +431,15 @@ export class BuyOrderService {
                 this.logger.error(
                     `User ${user.id} has no crypto sub-account. Cannot fulfill order.`
                 );
-                // TODO: Alert admin or queue for retry
-                return;
+                // Revert to PENDING for retry after admin fixes sub-account
+                await this.prisma.payment.update({
+                    where: { reference },
+                    data: {
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                    },
+                });
+                throw new Error(`User ${user.id} has no crypto sub-account`);
             }
 
             // Ensure user has a wallet address for this currency
@@ -419,8 +455,15 @@ export class BuyOrderService {
                 this.logger.error(
                     `No wallet address found/created for user ${user.id} asset ${order.currency}`
                 );
-                // TODO: Alert admin
-                return;
+                // Revert to PENDING for retry
+                await this.prisma.payment.update({
+                    where: { reference },
+                    data: {
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                    },
+                });
+                throw new Error(`No wallet address for user ${user.id} asset ${order.currency}`);
             }
 
             // Prefer the BEP20 network address as it's the most common default, or fallback to first
@@ -450,17 +493,34 @@ export class BuyOrderService {
                 this.logger.error(
                     `Quidax transfer failed: ${JSON.stringify(transferRes)}`
                 );
-                // Order remains PENDING
-                return;
+                // Revert payment to PENDING so next webhook retry can try again
+                await this.prisma.payment.update({
+                    where: { reference },
+                    data: {
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                    },
+                });
+                // Throw to trigger webhook retry (Nomba will get 5xx)
+                throw new Error(`Quidax transfer failed: ${transferRes.message || JSON.stringify(transferRes)}`);
             }
 
             this.logger.log(
                 `Quidax transfer successful: ${transferRes.data.id}`
             );
 
-            // 3. Update Order and Local Wallet (Only if transfer succeeded)
+            // 3. Update Order, Payment, and Local Wallet (Only if transfer succeeded)
             await this.prisma.$transaction(
                 async (tx) => {
+                    // Mark payment as SUCCESS now that Quidax transfer succeeded
+                    await tx.payment.update({
+                        where: { reference },
+                        data: {
+                            status: TransactionStatus.SUCCESS,
+                            paymentStatus: TransactionStatus.SUCCESS,
+                        },
+                    });
+
                     // Update Order
                     await tx.order.update({
                         where: { id: order.id },
@@ -534,6 +594,19 @@ export class BuyOrderService {
                 error.stack
             );
 
+            // Revert payment to PENDING so next webhook retry can try again
+            try {
+                await this.prisma.payment.update({
+                    where: { reference },
+                    data: {
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                    },
+                });
+            } catch (revertError) {
+                this.logger.error(`Failed to revert payment status: ${revertError.message}`);
+            }
+
             // Send Slack Alert for admin intervention
             await this.slackWebhookService.sendWebhookFailureAlert(
                 "quidax",
@@ -548,6 +621,9 @@ export class BuyOrderService {
                     cryptoSubAccountId: payment.user.cryptoSubAccountId,
                 }
             );
+
+            // Re-throw so webhook controller returns 5xx and Nomba retries
+            throw error;
         }
     }
 
