@@ -129,16 +129,33 @@ export class TransactionService {
             select: { amount: true, currency: true, createdAt: true, rateAtConversion: true },
         });
 
-        // Batch fetch USD rates for unique currencies
+        // Batch fetch USD rates for unique currencies using in-house rates
         const uniqueCurrencies = [...new Set(orders.map(order => order.currency).concat(normalizedCurrency))];
         const rateCache: { [key: string]: number } = {};
+
+        // Get USDT rate for NGN to USD conversion
+        const usdtRate = await this.prisma.cryptoRate.findUnique({ where: { currency: 'USDT' } });
+        const ngnToUsd = usdtRate && usdtRate.sellRate > 0 ? 1 / usdtRate.sellRate : 0;
+
         for (const curr of uniqueCurrencies) {
             if (!curr || typeof curr !== 'string') {
                 this.logger.warn(`Skipping invalid currency in rate cache: ${curr}`);
                 rateCache[curr] = 0;
                 continue;
             }
-            // Try LCW first, then CoinCap as fallback
+
+            // Primary: Use in-house CryptoRate
+            const cryptoRate = await this.prisma.cryptoRate.findUnique({ 
+                where: { currency: curr.toUpperCase() } 
+            });
+
+            if (cryptoRate && cryptoRate.sellRate > 0 && ngnToUsd > 0) {
+                // Convert NGN rate to USD rate
+                rateCache[curr] = cryptoRate.sellRate * ngnToUsd;
+                continue;
+            }
+
+            // Fallback: Try external APIs
             let rate: number | null = null;
             try {
                 rate = await this.liveCoinWatchService.getPriceInUSD(curr.toLowerCase());
@@ -251,11 +268,34 @@ export class TransactionService {
             return null;
         }
 
-        const normalizedAsset = asset.toLowerCase();
+        const normalizedAsset = asset.toUpperCase();
 
-        // Primary: Try LiveCoinWatch
+        // Primary: Use in-house CryptoRate table (rates are in NGN)
         try {
-            const rate = await this.liveCoinWatchService.getPriceInUSD(normalizedAsset);
+            const [cryptoRate, usdtRate] = await Promise.all([
+                this.prisma.cryptoRate.findUnique({ where: { currency: normalizedAsset } }),
+                this.prisma.cryptoRate.findUnique({ where: { currency: 'USDT' } }),
+            ]);
+
+            if (cryptoRate && cryptoRate.sellRate > 0 && usdtRate && usdtRate.sellRate > 0) {
+                // Convert crypto to NGN, then NGN to USD using USDT rate (USDT ≈ $1)
+                const amountInNGN = amount * cryptoRate.sellRate;
+                const usdRate = cryptoRate.sellRate / usdtRate.sellRate;
+                const amountInUSD = amountInNGN / usdtRate.sellRate;
+
+                this.logger.log(`In-house rate for ${asset}: ${cryptoRate.sellRate} NGN, USD equivalent: $${usdRate.toFixed(2)}`);
+                return {
+                    amount: amountInUSD,
+                    rate: usdRate,
+                };
+            }
+        } catch (error) {
+            this.logger.warn(`In-house rate lookup failed for ${asset}: ${error.message}, falling back to external APIs`);
+        }
+
+        // Fallback: Try LiveCoinWatch
+        try {
+            const rate = await this.liveCoinWatchService.getPriceInUSD(normalizedAsset.toLowerCase());
             if (rate) {
                 this.logger.log(`LiveCoinWatch price for ${asset}: $${rate}`);
                 return {
@@ -264,12 +304,12 @@ export class TransactionService {
                 };
             }
         } catch (error) {
-            this.logger.warn(`LiveCoinWatch failed for ${asset}: ${error.message}, falling back to CoinGecko`);
+            this.logger.warn(`LiveCoinWatch failed for ${asset}: ${error.message}, falling back to CoinCap`);
         }
 
         // Backup: Fall back to CoinCap
         try {
-            const rate = await this.coinCapService.getPriceInUSD(normalizedAsset);
+            const rate = await this.coinCapService.getPriceInUSD(normalizedAsset.toLowerCase());
             if (rate) {
                 this.logger.log(`CoinCap fallback price for ${asset}: $${rate}`);
                 return {
