@@ -47,7 +47,7 @@ import { getStreamlinedStatus } from "../interfaces/trade";
 @Injectable()
 export class SwapService {
     private readonly logger = new Logger("SwapService");
-    private readonly QUOTE_TTL_SECONDS = 15;
+    private readonly QUOTE_TTL_SECONDS = 25;
 
     constructor(
         private readonly prisma: PrismaService,

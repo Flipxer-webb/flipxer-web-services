@@ -140,7 +140,7 @@ export const ALL_SUPPORTED_CURRENCIES_FOR_SYNC = [
  * 
  * @see https://docs.quidax.com - Instant Swap documentation
  */
-export const QUOTE_EXPIRY_MS = 15 * 1000;
+export const QUOTE_EXPIRY_MS = 25 * 1000;
 
 /**
  * When to trigger auto-refresh before quote expires (in ms).
