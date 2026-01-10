@@ -216,6 +216,54 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
+    async getDel<T = any>(key: string): Promise<T | null> {
+        // Fallback implementation
+        if (this.REDIS_DISABLED || !this.client) {
+            const value = this.getFallback<T>(key);
+            if (value) this.fallbackCache.delete(key);
+            return value;
+        }
+
+        if (this.isCircuitBreakerOpen()) {
+            const value = this.getFallback<T>(key);
+            if (value) this.fallbackCache.delete(key);
+            return value;
+        }
+
+        try {
+            if (!this.isConnected) {
+                const value = this.getFallback<T>(key);
+                if (value) this.fallbackCache.delete(key);
+                return value;
+            }
+
+            // Use multi to ensure atomicity (GET + DEL)
+            // This is equivalent to GETDEL but works with older Redis versions too
+            const results = await this.client.multi().get(key).del(key).exec();
+
+            // results[0] is [error, result] for the get command
+            const getError = results?.[0]?.[0];
+            const getValue = results?.[0]?.[1] as string | null;
+
+            if (getError) throw getError;
+
+            const parsed = getValue ? JSON.parse(getValue) : null;
+
+            this.recordSuccess();
+            // Also remove from fallback to keep consistent
+            this.fallbackCache.delete(key);
+
+            return parsed;
+        } catch (error) {
+            this.recordFailure();
+            this.logger.error(`Redis GETDEL error for ${key}: ${error.message}`);
+            // Fallback attempt
+            const value = this.getFallback<T>(key);
+            if (value) this.fallbackCache.delete(key);
+            return value;
+        }
+    }
+
     async set(key: string, value: any, ttlSeconds: number): Promise<void> {
         // Always update fallback cache
         this.setFallback(key, value, ttlSeconds);
