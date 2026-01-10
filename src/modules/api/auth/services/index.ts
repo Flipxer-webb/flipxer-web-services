@@ -2010,10 +2010,15 @@ export class AuthService {
             );
         }
 
+        Logger.log(`[LoginDebug] Attempting login for ${user.email}. Hash exists: ${!!user.password}`);
+
         const passwordMatch = await this.comparePassword(
             options.password,
             user.password
         );
+
+        Logger.log(`[LoginDebug] Password match result for ${user.email}: ${passwordMatch}`);
+
         if (!passwordMatch) {
             await this.handleFailedLogin(user, ip);
             throw new InvalidCredentialException("Invalid email or password");
