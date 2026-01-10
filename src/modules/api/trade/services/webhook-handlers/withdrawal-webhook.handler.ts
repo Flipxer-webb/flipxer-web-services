@@ -110,6 +110,14 @@ export class WithdrawalWebhookHandler {
             );
         }
 
+        // CRITICAL: Ignore withdrawals related to SWAP orders.
+        // The SwapService handles the entire flow (Sell -> Buy) atomically.
+        // Processing this webhook would prematurely mark the Swap as COMPLETED when only the Sell leg is done.
+        if (transaction.orderCategory === OrderCategory.SWAP) {
+            this.logger.log(`Ignoring withdrawal webhook for SWAP order ${transaction.id}. Internal flow handles this.`);
+            return;
+        }
+
         if (transaction.status === OrderStatus.done) {
             throw new TransactionCompletedException(
                 "Transaction already completed",

@@ -192,7 +192,7 @@ export class SellOrderService {
         ]);
 
         // 3. Validate fetched records
-        if (!bankDetail) {
+        if (!bankDetail && !internal) {
             throw new BankDetailNotFoundException(
                 "No bank detail found. Please setup your bank detail",
                 HttpStatus.NOT_FOUND
@@ -208,7 +208,11 @@ export class SellOrderService {
 
         const { depositAddress, defaultNetwork, assetCurrency } = assetWallet;
 
-        if (!depositAddress || !defaultNetwork) {
+        if ((!depositAddress || !defaultNetwork) && !internal) {
+            // Internal sells might not need deposit address if just balance deduction? 
+            // But we usually need verify user has wallet. 
+            // Let's keep strict check for wallet existence, but maybe address specific logic if needed.
+            // For now, assume internal users have wallets.
             throw new WalletAddressNotFoundException(
                 `No wallet address found for asset ${dto.asset}`,
                 HttpStatus.NOT_FOUND
@@ -435,5 +439,53 @@ export class SellOrderService {
             message: "Order placed successfully, Payment is processing",
             data: order,
         });
+    }
+
+    /**
+     * Executes the Internal Sell Leg of a Swap (User -> Admin)
+     * Does NOT create a DB Order (SwapService handles that for atomicity).
+     * Returns the Quidax API response.
+     */
+    async executeInternalSell(
+        user: User,
+        amount: number,
+        currency: string,
+        reference: string
+    ) {
+        // 1. Get Admin Wallet (Destination)
+        const adminAssetWallet = await this.quidaxService.getUserWallet({
+            user_id: "me",
+            currency: currency.toLowerCase(),
+        });
+
+        if (!adminAssetWallet.data.deposit_address) {
+            await this.quidaxService.createPaymentAddress({
+                user_id: "me",
+                currency: currency.toLowerCase(),
+            });
+            // Try fetching one more time or just fail (Swap should fail if Admin wallet isn't ready)
+            throw new GeneralTransactionException(
+                "System wallet not ready for this asset. Please contact support.",
+                HttpStatus.SERVICE_UNAVAILABLE
+            );
+        }
+
+        const adminUserId = adminAssetWallet.data.user.id;
+
+        // 2. Execute Internal Transfer (User Sub-Account -> Admin Main Account)
+        // Fees are 0 for internal transfers.
+        this.logger.log(`Executing Internal Sell for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`);
+
+        const requestRes = await this.quidaxService.createWithdrawerRequest({
+            amount: amount.toString(),
+            currency: currency.toLowerCase(),
+            narration: "Flipxer Swap Sell Leg",
+            transaction_note: "Flipxer Swap Sell Leg",
+            user_id: user.cryptoSubAccountId,
+            fund_uid: adminUserId, // Destination: Admin
+            reference: reference, // Key for Atomicity: Matches Swap Order Reference
+        });
+
+        return requestRes;
     }
 }

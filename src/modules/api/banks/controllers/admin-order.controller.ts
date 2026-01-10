@@ -13,6 +13,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { AuthGuard } from '../../auth/guard';
 import { BankService } from '../services';
+import { SwapService } from '../../trade/services/swap.service';
 import { PrismaService } from '@/modules/core/prisma/services';
 import { buildResponse } from '@/utils';
 import { User } from '@/modules/api/user';
@@ -35,7 +36,8 @@ export class AdminOrderController {
 
     constructor(
         private readonly bankService: BankService,
-        private readonly prisma: PrismaService
+        private readonly prisma: PrismaService,
+        private readonly swapService: SwapService
     ) { }
 
     private async requireAdmin(userId: number): Promise<void> {
@@ -174,5 +176,28 @@ export class AdminOrderController {
                 createdAt: order.createdAt,
             })),
         });
+    }
+    @Post(':orderId/retry-swap')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: 'Retry a pending swap order',
+        description: 'Retries the buy leg of a swap order that is stuck in pending state due to insufficient liquidity.',
+    })
+    @ApiParam({
+        name: 'orderId',
+        description: 'ID of the order to retry',
+        type: Number,
+        example: 12,
+    })
+    async retrySwapOrder(
+        @User() user: UserModel,
+        @Param('orderId') orderId: string
+    ) {
+        await this.requireAdmin(user.id);
+
+        const id = parseInt(orderId);
+        this.logger.log(`Admin ${user.id} request to retry swap order ${id}`);
+
+        return await this.swapService.retryPendingSwap(id);
     }
 }

@@ -536,4 +536,43 @@ export class BuyOrderService {
             notificationList,
         });
     }
+
+    /**
+     * Executes the Internal Buy Leg of a Swap (Admin -> User)
+     * Does NOT create a DB Order (SwapService handles that).
+     * Returns the Quidax API response.
+     */
+    async executeInternalBuy(
+        user: User,
+        amount: number, // Amount of Crypto B to send to user
+        currency: string,
+        reference: string
+    ) {
+        // 1. Ensure User has Wallet for Crypto B
+        if (!user.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException("User crypto account not found", HttpStatus.BAD_REQUEST);
+        }
+
+        // Ensure wallet address exists on Quidax side (idempotent check)
+        await this.walletAddressService.ensureWalletPaymentAddresses({
+            userId: user.id,
+            cryptoSubAccountId: user.cryptoSubAccountId,
+            assetSymbol: currency,
+        });
+
+        // 2. Execute Internal Transfer (Admin Main Account -> User Sub-Account)
+        this.logger.log(`Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`);
+
+        const transferRes = await this.quidaxService.createWithdrawerRequest({
+            user_id: "me", // Source: Admin
+            currency: currency.toLowerCase(),
+            amount: amount.toString(),
+            fund_uid: user.cryptoSubAccountId, // Destination: User
+            transaction_note: "Flipxer Swap Buy Leg",
+            narration: "Flipxer Swap Buy Leg",
+            reference: reference, // Key for Atomicity
+        });
+
+        return transferRes;
+    }
 }
