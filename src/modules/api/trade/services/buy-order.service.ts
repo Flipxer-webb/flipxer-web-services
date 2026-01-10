@@ -42,7 +42,7 @@ import {
 
 /**
  * Buy Order Service
- * 
+ *
  * Handles all buy order operations including:
  * - Quote calculation for buy orders
  * - Order placement with payment gateway integration
@@ -62,7 +62,7 @@ export class BuyOrderService {
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
         private readonly slackWebhookService: SlackWebhookService
-    ) { }
+    ) {}
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -238,18 +238,27 @@ export class BuyOrderService {
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
 
+        // Generate a deterministic checkout reference so the redirect callback can
+        // include it and the frontend can verify payment status post-redirect.
+        const checkoutReference = generateId({ type: "reference" });
+
         // Generate callback URL for Nomba to redirect after payment
-        // The frontend checks for ?buy=success and opens the success modal
+        // The frontend checks for ?buy=success and then verifies using the ref
         // Dashboard is at root path (/) in the Next.js routing
-        const callbackUrl = `${frontendUrl}/?buy=success`;
+        const callbackUrl = `${frontendUrl}/?buy=success&ref=${checkoutReference}`;
 
         const { data } = await this.nombaService.initializePayment(
             userData,
             amount,
-            callbackUrl
+            callbackUrl,
+            checkoutReference
         );
 
-        const result = data as { link: string; reference: string; amount: number };
+        const result = data as {
+            link: string;
+            reference: string;
+            amount: number;
+        };
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -266,7 +275,9 @@ export class BuyOrderService {
                         fee: responseData.transactionFeeInCrypto,
                         total: responseData.totalToChargeInCrypto,
                         status: OrderStatus.pending,
-                        streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
+                        streamlinedStatus: getStreamlinedStatus(
+                            OrderStatus.pending
+                        ),
                         paymentStatus: TransactionStatus.PENDING,
                         currency: dto.asset.toUpperCase(),
                         recipient: responseData.depositAddress,
@@ -303,7 +314,10 @@ export class BuyOrderService {
 
                 return order;
             },
-            { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: EXTENDED_TRANSACTION_TIMEOUT_MS }
+            {
+                maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
+                timeout: EXTENDED_TRANSACTION_TIMEOUT_MS,
+            }
         );
 
         // Emit transaction update for new buy order
@@ -313,9 +327,19 @@ export class BuyOrderService {
         this.wsGateway.notifyWalletUpdate(user.id);
 
         // Create and send notification for processing
-        const message = `Your buy order of ${order.amount} ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId}`;
+        const message = `Your buy order of ${
+            order.amount
+        } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${
+            order.transactionId
+        }`;
 
-        await this.sendNotification(user.id, "Buy order initiated", message, order.currency, OrderCategory.BUY);
+        await this.sendNotification(
+            user.id,
+            "Buy order initiated",
+            message,
+            order.currency,
+            OrderCategory.BUY
+        );
 
         return buildResponse({
             message:
@@ -334,7 +358,9 @@ export class BuyOrderService {
      * Fulfills a buy order after successful payment
      */
     async fulfillBuyOrder(reference: string) {
-        this.logger.log(`Fulfilling buy order for payment reference: ${reference}`);
+        this.logger.log(
+            `Fulfilling buy order for payment reference: ${reference}`
+        );
 
         const payment = await this.prisma.payment.findUnique({
             where: { reference },
@@ -373,51 +399,64 @@ export class BuyOrderService {
         try {
             const user = payment.user;
             if (!user.cryptoSubAccountId) {
-                this.logger.error(`User ${user.id} has no crypto sub-account. Cannot fulfill order.`);
+                this.logger.error(
+                    `User ${user.id} has no crypto sub-account. Cannot fulfill order.`
+                );
                 // TODO: Alert admin or queue for retry
                 return;
             }
 
             // Ensure user has a wallet address for this currency
             // This ensures the address exists on Quidax end for the sub-account
-            const addresses = await this.walletAddressService.ensureWalletPaymentAddresses({
-                userId: user.id,
-                cryptoSubAccountId: user.cryptoSubAccountId,
-                assetSymbol: order.currency,
-            });
+            const addresses =
+                await this.walletAddressService.ensureWalletPaymentAddresses({
+                    userId: user.id,
+                    cryptoSubAccountId: user.cryptoSubAccountId,
+                    assetSymbol: order.currency,
+                });
 
             if (!addresses || addresses.length === 0) {
-                this.logger.error(`No wallet address found/created for user ${user.id} asset ${order.currency}`);
+                this.logger.error(
+                    `No wallet address found/created for user ${user.id} asset ${order.currency}`
+                );
                 // TODO: Alert admin
                 return;
             }
 
             // Prefer the BEP20 network address as it's the most common default, or fallback to first
-            const destinationAddress = addresses.find(a => a.network === 'bep20')
-                || addresses.find(a => a.network === 'erc20')
-                || addresses[0];
+            const destinationAddress =
+                addresses.find((a) => a.network === "bep20") ||
+                addresses.find((a) => a.network === "erc20") ||
+                addresses[0];
 
-            this.logger.log(`Initiating Quidax internal transfer for Order ${order.id} to sub-account ${user.cryptoSubAccountId}`);
+            this.logger.log(
+                `Initiating Quidax internal transfer for Order ${order.id} to sub-account ${user.cryptoSubAccountId}`
+            );
 
             // Perform internal transfer from Main Account ("me") to User's Sub-Account (FREE - no network fees)
             // Using cryptoSubAccountId instead of blockchain address triggers Quidax's free internal transfer
-            const transferRes = await this.quidaxService.createWithdrawerRequest({
-                user_id: "me", // "me" refers to the owner of the API Key (Main Account)
-                currency: order.currency.toLowerCase(),
-                amount: order.amount.toString(),
-                fund_uid: user.cryptoSubAccountId, // Sub-account ID for FREE internal transfer
-                transaction_note: `Fulfillment for Order ${order.transactionId}`,
-                narration: `Buy Order ${order.transactionId}`,
-                reference: `${order.transactionId}_fulfill`,
-            });
+            const transferRes =
+                await this.quidaxService.createWithdrawerRequest({
+                    user_id: "me", // "me" refers to the owner of the API Key (Main Account)
+                    currency: order.currency.toLowerCase(),
+                    amount: order.amount.toString(),
+                    fund_uid: user.cryptoSubAccountId, // Sub-account ID for FREE internal transfer
+                    transaction_note: `Fulfillment for Order ${order.transactionId}`,
+                    narration: `Buy Order ${order.transactionId}`,
+                    reference: `${order.transactionId}_fulfill`,
+                });
 
             if (transferRes.status !== "success") {
-                this.logger.error(`Quidax transfer failed: ${JSON.stringify(transferRes)}`);
+                this.logger.error(
+                    `Quidax transfer failed: ${JSON.stringify(transferRes)}`
+                );
                 // Order remains PENDING
                 return;
             }
 
-            this.logger.log(`Quidax transfer successful: ${transferRes.data.id}`);
+            this.logger.log(
+                `Quidax transfer successful: ${transferRes.data.id}`
+            );
 
             // 3. Update Order and Local Wallet (Only if transfer succeeded)
             await this.prisma.$transaction(
@@ -427,7 +466,9 @@ export class BuyOrderService {
                         where: { id: order.id },
                         data: {
                             status: OrderStatus.completed,
-                            streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
+                            streamlinedStatus: getStreamlinedStatus(
+                                OrderStatus.completed
+                            ),
                             paymentStatus: TransactionStatus.SUCCESS,
                             providerOrderId: transferRes.data.id, // Link the transfer ID
                             fulfilled: true, // Mark as fulfilled so deposit webhook doesn't create duplicate RECEIVE
@@ -445,7 +486,9 @@ export class BuyOrderService {
                     });
 
                     if (assetWallet) {
-                        const currentBalance = parseFloat(assetWallet.balance.toString());
+                        const currentBalance = parseFloat(
+                            assetWallet.balance.toString()
+                        );
                         const newBalance = currentBalance + order.amount; // Use order.amount
 
                         await tx.assetWallet.update({
@@ -456,27 +499,44 @@ export class BuyOrderService {
                         });
                     }
                 },
-                { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: EXTENDED_TRANSACTION_TIMEOUT_MS }
+                {
+                    maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
+                    timeout: EXTENDED_TRANSACTION_TIMEOUT_MS,
+                }
             );
 
             // Notifications
-            this.logger.log(`Buy order ${order.id} fulfilled and completed successfully`);
+            this.logger.log(
+                `Buy order ${order.id} fulfilled and completed successfully`
+            );
 
-            const updatedOrder = await this.prisma.order.findUnique({ where: { id: order.id } });
+            const updatedOrder = await this.prisma.order.findUnique({
+                where: { id: order.id },
+            });
             if (updatedOrder) {
                 this.emitTransactionUpdate(payment.userId, updatedOrder);
             }
             this.wsGateway.notifyWalletUpdate(payment.userId);
 
-            const message = `Your buy order of ${order.amount} ${order.currency.toUpperCase()} has been completed successfully.`;
-            await this.sendNotification(payment.userId, "Buy order successful", message, order.currency, OrderCategory.BUY);
-
+            const message = `Your buy order of ${
+                order.amount
+            } ${order.currency.toUpperCase()} has been completed successfully.`;
+            await this.sendNotification(
+                payment.userId,
+                "Buy order successful",
+                message,
+                order.currency,
+                OrderCategory.BUY
+            );
         } catch (error) {
-            this.logger.error(`Failed to fulfill buy order (Transfer/Update Error) for order ${order.id}: ${error.message}`, error.stack);
+            this.logger.error(
+                `Failed to fulfill buy order (Transfer/Update Error) for order ${order.id}: ${error.message}`,
+                error.stack
+            );
 
             // Send Slack Alert for admin intervention
             await this.slackWebhookService.sendWebhookFailureAlert(
-                'quidax',
+                "quidax",
                 reference,
                 error.message,
                 {
@@ -485,7 +545,7 @@ export class BuyOrderService {
                     amount: order.amount,
                     currency: order.currency,
                     userId: order.userId,
-                    cryptoSubAccountId: payment.user.cryptoSubAccountId
+                    cryptoSubAccountId: payment.user.cryptoSubAccountId,
                 }
             );
         }
@@ -508,7 +568,13 @@ export class BuyOrderService {
         });
     }
 
-    private async sendNotification(userId: number, title: string, body: string, currency: string, type: OrderCategory) {
+    private async sendNotification(
+        userId: number,
+        title: string,
+        body: string,
+        currency: string,
+        type: OrderCategory
+    ) {
         const createdNotification = await this.prisma.notification.create({
             data: {
                 title,
@@ -550,7 +616,10 @@ export class BuyOrderService {
     ) {
         // 1. Ensure User has Wallet for Crypto B
         if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException("User crypto account not found", HttpStatus.BAD_REQUEST);
+            throw new IncompleteAccountSetupException(
+                "User crypto account not found",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         // Ensure wallet address exists on Quidax side (idempotent check)
@@ -561,7 +630,9 @@ export class BuyOrderService {
         });
 
         // 2. Execute Internal Transfer (Admin Main Account -> User Sub-Account)
-        this.logger.log(`Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`);
+        this.logger.log(
+            `Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`
+        );
 
         const transferRes = await this.quidaxService.createWithdrawerRequest({
             user_id: "me", // Source: Admin

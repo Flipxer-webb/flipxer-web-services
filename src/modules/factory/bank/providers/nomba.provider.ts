@@ -1,8 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
-import {
-    NombaLib,
-    NombaBankListResponse,
-} from "@/libs/nomba";
+import { NombaLib, NombaBankListResponse } from "@/libs/nomba";
 import { PrismaService } from "@/modules/core/prisma/services";
 import logger from "moment-logger";
 import { generateId } from "@/utils";
@@ -24,10 +21,7 @@ import * as e from "../errors/nomba.error";
 import { TransactionShortDescription } from "@/modules/api/transactions/types";
 
 export class NombaBank implements TNomba.INombaBank {
-    constructor(
-        private nomba: NombaLib,
-        private prisma: PrismaService
-    ) { }
+    constructor(private nomba: NombaLib, private prisma: PrismaService) {}
 
     /**
      * Get list of Nigerian banks
@@ -48,7 +42,9 @@ export class NombaBank implements TNomba.INombaBank {
                 throw error;
             }
             throw new e.NOMBABankException(
-                error instanceof Error ? error.message : "Failed to fetch banks",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to fetch banks",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -62,7 +58,10 @@ export class NombaBank implements TNomba.INombaBank {
     ): Promise<{ status: boolean; data: NombaResolveBankAccountResponse }> {
         try {
             logger.info(
-                { accountNumber: options.account_number, bankCode: options.bank_code },
+                {
+                    accountNumber: options.account_number,
+                    bankCode: options.bank_code,
+                },
                 "****RESOLVE ACCOUNT REQUEST****** NOMBA"
             );
 
@@ -109,7 +108,9 @@ export class NombaBank implements TNomba.INombaBank {
                 throw error;
             }
             throw new e.NOMBABankException(
-                error instanceof Error ? error.message : "Failed to resolve bank account",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to resolve bank account",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -123,8 +124,10 @@ export class NombaBank implements TNomba.INombaBank {
         options?: Partial<NombaVirtualAccountOptions>
     ) {
         try {
-            const accountRef = options?.accountRef || `user-${user.id}-${Date.now()}`;
-            const accountName = options?.accountName ||
+            const accountRef =
+                options?.accountRef || `user-${user.id}-${Date.now()}`;
+            const accountName =
+                options?.accountName ||
                 `${user.firstName} ${user.lastName}`.trim() ||
                 "Flipxer User";
 
@@ -162,7 +165,9 @@ export class NombaBank implements TNomba.INombaBank {
                 throw error;
             }
             throw new e.NombaVirtualAccountException(
-                error instanceof Error ? error.message : "Failed to create virtual account",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to create virtual account",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -171,10 +176,19 @@ export class NombaBank implements TNomba.INombaBank {
     /**
      * Initialize payment using Nomba Checkout
      * Returns a checkout link for the user to complete payment
+     *
+     * NOTE: When integrating redirect-based checkout flows, callers may provide a
+     * deterministic reference so the frontend can safely verify status post-redirect.
      */
-    async initializePayment(user: NombaUserRecord, amount: number, callbackUrl?: string) {
+    async initializePayment(
+        user: NombaUserRecord,
+        amount: number,
+        callbackUrl?: string,
+        referenceOverride?: string
+    ) {
         try {
-            const reference = generateId({ type: "reference" });
+            const reference =
+                referenceOverride || generateId({ type: "reference" });
 
             logger.info(
                 { userId: user.id, amount, reference },
@@ -198,7 +212,10 @@ export class NombaBank implements TNomba.INombaBank {
             );
 
             logger.info(
-                { sentReference: reference, returnedReference: result.data?.orderReference },
+                {
+                    sentReference: reference,
+                    returnedReference: result.data?.orderReference,
+                },
                 "****REFERENCE COMPARISON****** NOMBA"
             );
 
@@ -223,7 +240,9 @@ export class NombaBank implements TNomba.INombaBank {
         } catch (error) {
             logger.error(error, "****INITIALIZE PAYMENT****** NOMBA");
             throw new e.NombaWorkflowException(
-                error instanceof Error ? error.message : "Failed to initialize payment",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to initialize payment",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -248,7 +267,9 @@ export class NombaBank implements TNomba.INombaBank {
         } catch (error) {
             logger.error(error, "****VERIFY TRANSACTION****** NOMBA");
             throw new e.NombaVerifyTransactionException(
-                error instanceof Error ? error.message : "Failed to verify transaction",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to verify transaction",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -289,7 +310,8 @@ export class NombaBank implements TNomba.INombaBank {
                         title: TransactionShortDescription.TRANSFER_FUND,
                         narration: TransactionShortDescription.TRANSFER_FUND,
                         sessionId: generateId({ type: "sessionId" }),
-                        shortDescription: TransactionShortDescription.TRANSFER_FUND,
+                        shortDescription:
+                            TransactionShortDescription.TRANSFER_FUND,
                         paymentMethod: PaymentMethod.NOMBA,
                     },
                 });
@@ -317,7 +339,9 @@ export class NombaBank implements TNomba.INombaBank {
                 throw error;
             }
             throw new e.NombaWorkflowException(
-                error instanceof Error ? error.message : "Failed to initialize transfer",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to initialize transfer",
                 HttpStatus.NOT_IMPLEMENTED
             );
         }
@@ -354,7 +378,9 @@ export class NombaBank implements TNomba.INombaBank {
                 throw error;
             }
             throw new e.NombaWorkflowException(
-                error instanceof Error ? error.message : "Failed to verify transfer",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to verify transfer",
                 HttpStatus.NOT_IMPLEMENTED
             );
         }
