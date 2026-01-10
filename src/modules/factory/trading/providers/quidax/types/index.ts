@@ -45,6 +45,13 @@ export interface VerifyAddressOptions {
     address: string;
 }
 
+export interface InternalTransferOptions {
+    currency: string;
+    amount: string;
+    recipient: string;
+    reason?: string;
+}
+
 export interface CreateWithdrawerRequestOptions {
     user_id: string;
     currency: string;
@@ -195,6 +202,11 @@ export interface IQuidaxService {
     verifyAddress(
         options: VerifyAddressOptions
     ): Promise<QD.QuidaxResponse<QD.VerifyAddressResponse>>;
+
+    internalTransfer(
+        user_id: string,
+        options: InternalTransferOptions
+    ): Promise<QD.QuidaxResponse<QD.InternalTransferResponse>>;
 
     createWithdrawerRequest(
         options: CreateWithdrawerRequestOptions

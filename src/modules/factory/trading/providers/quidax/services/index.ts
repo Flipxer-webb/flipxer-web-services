@@ -31,7 +31,7 @@ import { QuidaxPurchaseService } from "./purchase.service";
  */
 export class QuidaxService {
     private readonly logger = new Logger(QuidaxService.name);
-    
+
     // Composed services
     private readonly accountService: QuidaxAccountService;
     private readonly walletService: QuidaxWalletService;
@@ -52,7 +52,7 @@ export class QuidaxService {
     }
 
     // ============ Account Operations ============
-    
+
     async findSubAccountByEmail(email: string): Promise<QD.IAccount | null> {
         return this.accountService.findSubAccountByEmail(email);
     }
@@ -117,6 +117,13 @@ export class QuidaxService {
         options: t.VerifyAddressOptions
     ): Promise<QD.QuidaxResponse<QD.VerifyAddressResponse>> {
         return this.walletService.verifyAddress(options);
+    }
+
+    async internalTransfer(
+        user_id: string,
+        options: t.InternalTransferOptions
+    ): Promise<QD.QuidaxResponse<QD.InternalTransferResponse>> {
+        return this.walletService.internalTransfer(user_id, options);
     }
 
     // ============ Deposit Operations ============

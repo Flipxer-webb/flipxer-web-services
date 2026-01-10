@@ -445,3 +445,13 @@ export interface FetchDepositOptions {
 }
 
 export type FetchDepositResponse = IQuidaxDeposit;
+
+export interface InternalTransferOptions {
+    currency: string;
+    amount: string;
+    recipient: string; // The user_id of the recipient
+    reason?: string;
+}
+
+export type InternalTransferResponse = IQuidaxTransaction;
+

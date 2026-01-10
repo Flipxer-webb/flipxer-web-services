@@ -35,6 +35,7 @@ import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { ExposureCapService } from "@/modules/api/risk/services/exposure-cap.service";
 import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -61,8 +62,9 @@ export class BuyOrderService {
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
-        private readonly slackWebhookService: SlackWebhookService
-    ) {}
+        private readonly slackWebhookService: SlackWebhookService,
+        private readonly exposureService: ExposureCapService
+    ) { }
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -327,11 +329,9 @@ export class BuyOrderService {
         this.wsGateway.notifyWalletUpdate(user.id);
 
         // Create and send notification for processing
-        const message = `Your buy order of ${
-            order.amount
-        } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${
-            order.transactionId
-        }`;
+        const message = `Your buy order of ${order.amount
+            } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId
+            }`;
 
         await this.sendNotification(
             user.id,
@@ -365,11 +365,6 @@ export class BuyOrderService {
         );
 
         // Atomic: Only update if status is still PENDING.
-        // This prevents race conditions where duplicate webhooks could both
-        // pass a non-atomic check and double-credit the user.
-        // We use APPROVED as an intermediate "claimed" status - only mark SUCCESS
-        // after Quidax transfer succeeds. If Quidax fails, we revert to PENDING
-        // and throw so the webhook handler returns 5xx and Nomba retries.
         const updated = await this.prisma.payment.updateMany({
             where: {
                 reference,
@@ -382,38 +377,23 @@ export class BuyOrderService {
         });
 
         if (updated.count === 0) {
-            // Either payment not found, already processed (SUCCESS), or being processed (APPROVED)
             const existing = await this.prisma.payment.findUnique({
                 where: { reference },
             });
             if (!existing) {
-                this.logger.error(
-                    `Payment not found for reference: ${reference}`
-                );
-            } else if (existing.status === TransactionStatus.SUCCESS) {
-                this.logger.log(`Payment ${reference} already completed successfully`);
-            } else if (existing.status === TransactionStatus.APPROVED) {
-                // Another webhook instance is currently processing - let that one finish
-                this.logger.log(`Payment ${reference} currently being processed by another instance`);
+                this.logger.error(`Payment disappeared: ${reference}`);
             } else {
-                this.logger.log(`Payment ${reference} in unexpected state: ${existing.status}`);
+                this.logger.log(`Payment ${reference} already processed or processing (Status: ${existing.status})`);
             }
             return;
         }
 
-        // We now "own" this fulfillment - fetch full payment data
         const payment = await this.prisma.payment.findUnique({
             where: { reference },
             include: { user: true },
         });
 
-        if (!payment) {
-            // Shouldn't happen since updateMany succeeded, but guard anyway
-            this.logger.error(
-                `Payment disappeared after atomic update: ${reference}`
-            );
-            return;
-        }
+        if (!payment) return;
 
         const order = await this.prisma.order.findUnique({
             where: { id: payment.orderId },
@@ -424,95 +404,62 @@ export class BuyOrderService {
             return;
         }
 
-        // 2. Transfer Funds from Main Account to User Sub-Account (Quidax)
         try {
             const user = payment.user;
-            if (!user.cryptoSubAccountId) {
-                this.logger.error(
-                    `User ${user.id} has no crypto sub-account. Cannot fulfill order.`
-                );
-                // Revert to PENDING for retry after admin fixes sub-account
-                await this.prisma.payment.update({
-                    where: { reference },
-                    data: {
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                    },
-                });
-                throw new Error(`User ${user.id} has no crypto sub-account`);
-            }
 
-            // Ensure user has a wallet address for this currency
-            // This ensures the address exists on Quidax end for the sub-account
-            const addresses =
+            // Ensure AssetWallet exists (Lazy creation if needed via ensureWalletPaymentAddresses)
+            // Even though we don't transfer on Quidax, we need the local DB record to exist.
+            if (user.cryptoSubAccountId) {
                 await this.walletAddressService.ensureWalletPaymentAddresses({
                     userId: user.id,
                     cryptoSubAccountId: user.cryptoSubAccountId,
                     assetSymbol: order.currency,
                 });
-
-            if (!addresses || addresses.length === 0) {
-                this.logger.error(
-                    `No wallet address found/created for user ${user.id} asset ${order.currency}`
-                );
-                // Revert to PENDING for retry
-                await this.prisma.payment.update({
-                    where: { reference },
-                    data: {
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                    },
-                });
-                throw new Error(`No wallet address for user ${user.id} asset ${order.currency}`);
-            }
-
-            // Prefer the BEP20 network address as it's the most common default, or fallback to first
-            const destinationAddress =
-                addresses.find((a) => a.network === "bep20") ||
-                addresses.find((a) => a.network === "erc20") ||
-                addresses[0];
-
-            this.logger.log(
-                `Initiating Quidax internal transfer for Order ${order.id} to sub-account ${user.cryptoSubAccountId}`
-            );
-
-            // Perform internal transfer from Main Account ("me") to User's Sub-Account (FREE - no network fees)
-            // Using cryptoSubAccountId instead of blockchain address triggers Quidax's free internal transfer
-            const transferRes =
-                await this.quidaxService.createWithdrawerRequest({
-                    user_id: "me", // "me" refers to the owner of the API Key (Main Account)
-                    currency: order.currency.toLowerCase(),
-                    amount: order.amount.toString(),
-                    fund_uid: user.cryptoSubAccountId, // Sub-account ID for FREE internal transfer
-                    transaction_note: `Fulfillment for Order ${order.transactionId}`,
-                    narration: `Buy Order ${order.transactionId}`,
-                    reference: `${order.transactionId}_fulfill`,
-                });
-
-            if (transferRes.status !== "success") {
-                this.logger.error(
-                    `Quidax transfer failed: ${JSON.stringify(transferRes)}`
-                );
-                // Revert payment to PENDING so next webhook retry can try again
-                await this.prisma.payment.update({
-                    where: { reference },
-                    data: {
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                    },
-                });
-                // Throw to trigger webhook retry (Nomba will get 5xx)
-                throw new Error(`Quidax transfer failed: ${transferRes.message || JSON.stringify(transferRes)}`);
             }
 
             this.logger.log(
-                `Quidax transfer successful: ${transferRes.data.id}`
+                `Processing Internal Ledger Credit for Buy Order ${order.id}`
             );
 
-            // 3. Update Order, Payment, and Local Wallet (Only if transfer succeeded)
+            // EXPOSURE CAP CHECK
+            const isBreached = await this.exposureService.isExposureBreached(order.currency, order.amount);
+            if (isBreached) {
+                this.logger.warn(`Exposure Cap Breached for ${order.currency}: Blocking Buy Order ${order.id}`);
+
+                // Mark Payment as SUCCESS (we took the money) but Order as PENDING_REVIEW
+                await this.prisma.$transaction([
+                    this.prisma.payment.update({
+                        where: { reference },
+                        data: {
+                            status: TransactionStatus.SUCCESS,
+                            paymentStatus: TransactionStatus.SUCCESS,
+                        },
+                    }),
+                    this.prisma.order.update({
+                        where: { id: order.id },
+                        data: {
+                            status: OrderStatus.pending_liquidity_review,
+                            streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
+                            paymentStatus: TransactionStatus.SUCCESS,
+                            providerOrderId: "INTERNAL_LEDGER_HELD",
+                        },
+                    })
+                ]);
+
+                await this.sendNotification(
+                    payment.userId,
+                    "Order Pending Review",
+                    `Your buy order for ${order.amount} ${order.currency} is pending a liquidity review. This usually resolves quickly.`,
+                    order.currency,
+                    OrderCategory.BUY
+                );
+                return;
+            }
+
+            // 3. Update Order, Payment, and Local Wallet (Atomic DB Transaction)
             await this.prisma.$transaction(
                 async (tx) => {
-                    // Mark payment as SUCCESS now that Quidax transfer succeeded
+                    // Mark Payment as SUCCESS
                     await tx.payment.update({
                         where: { reference },
                         data: {
@@ -526,37 +473,35 @@ export class BuyOrderService {
                         where: { id: order.id },
                         data: {
                             status: OrderStatus.completed,
-                            streamlinedStatus: getStreamlinedStatus(
-                                OrderStatus.completed
-                            ),
+                            streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
                             paymentStatus: TransactionStatus.SUCCESS,
-                            providerOrderId: transferRes.data.id, // Link the transfer ID
-                            fulfilled: true, // Mark as fulfilled so deposit webhook doesn't create duplicate RECEIVE
+                            providerOrderId: "INTERNAL_LEDGER", // Internal fulfilled
+                            fulfilled: true,
                         },
                     });
 
-                    // Update Local Wallet
-                    const assetWallet = await tx.assetWallet.findUnique({
+                    // Create/Update AssetWallet
+                    // We use upsert to be safe, though ensureWalletPaymentAddresses should have handled creation.
+                    // But to be strictly atomic on balance update:
+                    const wallet = await tx.assetWallet.findUnique({
                         where: {
                             userId_assetCurrency: {
                                 userId: payment.userId,
                                 assetCurrency: order.currency.toUpperCase(),
-                            },
-                        },
+                            }
+                        }
                     });
 
-                    if (assetWallet) {
-                        const currentBalance = parseFloat(
-                            assetWallet.balance.toString()
-                        );
-                        const newBalance = currentBalance + order.amount; // Use order.amount
-
+                    if (wallet) {
                         await tx.assetWallet.update({
-                            where: { id: assetWallet.id },
+                            where: { id: wallet.id },
                             data: {
-                                balance: newBalance.toString(),
-                            },
+                                balance: { increment: order.amount }
+                            }
                         });
+                    } else {
+                        // Should not happen if ensureWalletPaymentAddresses succeeded, but fallback:
+                        throw new Error(`AssetWallet not found for user ${payment.userId} currency ${order.currency}`);
                     }
                 },
                 {
@@ -567,7 +512,7 @@ export class BuyOrderService {
 
             // Notifications
             this.logger.log(
-                `Buy order ${order.id} fulfilled and completed successfully`
+                `Buy order ${order.id} fulfilled (Ledger Credit) successfully`
             );
 
             const updatedOrder = await this.prisma.order.findUnique({
@@ -578,9 +523,8 @@ export class BuyOrderService {
             }
             this.wsGateway.notifyWalletUpdate(payment.userId);
 
-            const message = `Your buy order of ${
-                order.amount
-            } ${order.currency.toUpperCase()} has been completed successfully.`;
+            const message = `Your buy order of ${order.amount
+                } ${order.currency.toUpperCase()} has been completed successfully.`;
             await this.sendNotification(
                 payment.userId,
                 "Buy order successful",
@@ -590,7 +534,7 @@ export class BuyOrderService {
             );
         } catch (error) {
             this.logger.error(
-                `Failed to fulfill buy order (Transfer/Update Error) for order ${order.id}: ${error.message}`,
+                `Failed to fulfill buy order (Ledger Error) for order ${order.id}: ${error.message}`,
                 error.stack
             );
 
@@ -607,7 +551,7 @@ export class BuyOrderService {
                 this.logger.error(`Failed to revert payment status: ${revertError.message}`);
             }
 
-            // Send Slack Alert for admin intervention
+            // Send Slack Alert
             await this.slackWebhookService.sendWebhookFailureAlert(
                 "quidax",
                 reference,
@@ -615,14 +559,10 @@ export class BuyOrderService {
                 {
                     orderId: order.id,
                     transactionId: order.transactionId,
-                    amount: order.amount,
-                    currency: order.currency,
                     userId: order.userId,
-                    cryptoSubAccountId: payment.user.cryptoSubAccountId,
                 }
             );
 
-            // Re-throw so webhook controller returns 5xx and Nomba retries
             throw error;
         }
     }
@@ -681,8 +621,8 @@ export class BuyOrderService {
 
     /**
      * Executes the Internal Buy Leg of a Swap (Admin -> User)
-     * Does NOT create a DB Order (SwapService handles that).
-     * Returns the Quidax API response.
+     * Broker Model: Just verifying wallet existence.
+     * Actual Balance update handled by SwapService Transaction.
      */
     async executeInternalBuy(
         user: User,
@@ -698,28 +638,24 @@ export class BuyOrderService {
             );
         }
 
-        // Ensure wallet address exists on Quidax side (idempotent check)
+        // Ensure wallet address exists on Quidax side (and local DB)
         await this.walletAddressService.ensureWalletPaymentAddresses({
             userId: user.id,
             cryptoSubAccountId: user.cryptoSubAccountId,
             assetSymbol: currency,
         });
 
-        // 2. Execute Internal Transfer (Admin Main Account -> User Sub-Account)
-        this.logger.log(
-            `Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`
-        );
+        // 2. Broker Model: We do NOT send funds Quidax-side.
+        // We return a mock response indicating readiness.
+        this.logger.log(`Internal Buy Check passed for Swap Ref: ${reference}`);
 
-        const transferRes = await this.quidaxService.createWithdrawerRequest({
-            user_id: "me", // Source: Admin
-            currency: currency.toLowerCase(),
-            amount: amount.toString(),
-            fund_uid: user.cryptoSubAccountId, // Destination: User
-            transaction_note: "Flipxer Swap Buy Leg",
-            narration: "Flipxer Swap Buy Leg",
-            reference: reference, // Key for Atomicity
-        });
-
-        return transferRes;
+        return {
+            status: "success",
+            data: {
+                id: "INTERNAL_LEDGER_CHK",
+                currency: currency,
+                amount: amount.toString()
+            }
+        };
     }
 }

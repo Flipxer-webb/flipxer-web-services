@@ -106,9 +106,18 @@ export class BankService {
     async verifyNombaCheckout(orderReference: string) {
         const result = await this.nombaService.verifyTransaction(orderReference);
 
+        // Fetch local order status to handle PENDING_LIQUIDITY_REVIEW logic
+        const payment = await this.prisma.payment.findUnique({
+            where: { reference: orderReference },
+            include: { order: true }
+        });
+
         return buildResponse({
             message: "Checkout status retrieved",
-            data: result.data,
+            data: {
+                ...result.data,
+                orderStatus: payment?.order?.status
+            },
         });
     }
 

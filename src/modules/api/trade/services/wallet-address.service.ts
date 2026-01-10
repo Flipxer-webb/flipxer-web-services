@@ -60,41 +60,15 @@ export class WalletAddressService {
      * @param currency - The cryptocurrency symbol (e.g., "BTC", "ETH")
      */
     async syncWallet(userId: number, currency: string): Promise<void> {
-        try {
-            const user = await this.prisma.user.findUnique({
-                where: { id: userId },
-                select: { cryptoSubAccountId: true },
-            });
-
-            if (!user?.cryptoSubAccountId) return;
-
-            const { data } = await this.quidaxService.getUserWallet({
-                user_id: user.cryptoSubAccountId,
-                currency: currency.toLowerCase(),
-            });
-
-            if (data) {
-                await this.prisma.assetWallet.update({
-                    where: {
-                        userId_assetCurrency: {
-                            userId: userId,
-                            assetCurrency: currency.toUpperCase(),
-                        },
-                    },
-                    data: {
-                        balance: data.balance,
-                        locked: data.locked,
-                        staked: data.staked,
-                        convertedBalance: data.converted_balance,
-                        updatedAt: new Date(),
-                    },
-                });
-            }
-        } catch (error) {
-            this.logger.error(
-                `Failed to sync wallet for ${currency}: ${error.message}`
-            );
-        }
+        // LEDGER MODE ACTIVE:
+        // We use the internal database (AssetWallet) as the source of truth.
+        // Funds are swept from Quidax sub-accounts to the Master Wallet.
+        // Therefore, syncing with the sub-account would wrongly overwrite the user's balance to 0.
+        // We log seeing this call but take no action.
+        this.logger.debug(
+            `[LedgerMode] Skipping syncWallet for user ${userId} currency ${currency} - Logic disabled to protect Ledger integrity.`
+        );
+        return;
     }
 
     /**

@@ -54,8 +54,7 @@ export class WithdrawalWebhookHandler {
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
-        private readonly lockService: DistributedLockService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly lockService: DistributedLockService
     ) { }
 
     /**
@@ -467,10 +466,10 @@ export class WithdrawalWebhookHandler {
      * Handle successful withdrawal completion
      */
     private async handleWithdrawalDone(transaction: any) {
-        // Sync wallet with Quidax to ensure balance is up to date
-        await this.walletAddressService.syncWallet(transaction.user.id, transaction.currency);
+        // No sync needed, ledger is source of truth.
+        // Funds were already deducted at creation.
 
-        // Emit wallet update after sync
+        // Emit wallet update (just to refresh UI state if needed)
         this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
         // Send success notification
@@ -481,8 +480,26 @@ export class WithdrawalWebhookHandler {
      * Handle failed withdrawal
      */
     private async handleWithdrawalFailed(transaction: any) {
-        // Sync wallet on failure too (in case funds were returned)
-        await this.walletAddressService.syncWallet(transaction.user.id, transaction.currency);
+        // Refund User Logic (Atomic)
+        // Deductible was Amount + Fee. We refund the total.
+        // Note: transaction.total should store the deducted amount. 
+        // If undefined, fallback to amount + fee.
+        const refundAmount = Number(transaction.total) || (Number(transaction.amount) + Number(transaction.fee));
+
+        this.logger.log(`Refunding failed withdrawal ${transaction.id} | Amount: ${refundAmount}`);
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.assetWallet.update({
+                where: {
+                    userId_assetCurrency: {
+                        userId: transaction.userId,
+                        assetCurrency: transaction.currency
+                    }
+                },
+                data: { balance: { increment: refundAmount } }
+            });
+        });
+
         this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
         // Send failure notification

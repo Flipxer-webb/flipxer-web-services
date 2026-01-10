@@ -13,6 +13,7 @@ import {
     TransactionFeeCategory,
     User,
     UserNotificationTarget,
+    NetworkTypes,
 } from "@prisma/client";
 import { IncompleteAccountSetupException, UnknownFeeStructureException } from "../errors";
 import {
@@ -25,6 +26,7 @@ import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { getStreamlinedStatus } from "../interfaces/trade";
 import { DEFAULT_TRANSACTION_TIMEOUT_MS } from "../constants";
+import { WithdrawalGuardService } from "@/modules/api/risk/services/withdrawal-guard.service";
 
 /**
  * Send Service
@@ -44,7 +46,8 @@ export class SendService {
         private readonly quidaxService: QuidaxService,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly walletAddressService: WalletAddressService,
+        private readonly withdrawalGuard: WithdrawalGuardService
     ) { }
 
     /**
@@ -170,6 +173,9 @@ export class SendService {
     /**
      * Creates a withdrawal/send request
      */
+    /**
+     * Creates a withdrawal/send request
+     */
     async withdrawerRequest(user: User, dto: WithdrawerRequestDto) {
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
@@ -178,104 +184,202 @@ export class SendService {
             );
         }
 
+        const currency = dto.currency.toUpperCase();
+
+        // 0. Risk Management Check
+        const riskCheck = await this.withdrawalGuard.checkWithdrawalRisk(user.id, currency, dto.amount);
+        if (!riskCheck.safe) {
+            throw new IncompleteAccountSetupException(
+                `Withdrawal blocked by safety guard: ${riskCheck.reason}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // 1. Calculate Fees (Re-fetch to ensure accuracy)
+        const [feeData, adminFeeRecord] = await Promise.all([
+            this.getCryptoWithdrawerFee({
+                amount: dto.amount,
+                currency: dto.currency,
+                network: dto.network as NetworkTypes
+            }),
+            this.prisma.transactionFee.findUnique({
+                where: {
+                    category_currency: {
+                        category: TransactionFeeCategory.SEND,
+                        currency: currency,
+                    },
+                },
+            }),
+        ]);
+
+        const networkFee = typeof feeData.data.networkFee === 'number' ? feeData.data.networkFee : 0;
+        const paramAdminFee = typeof feeData.data.adminFee === 'number' ? feeData.data.adminFee : 0;
+
+        // Total Amount to Deduct from User = AmountToSend + NetworkFee + AdminFee
+        // Note: Quidax usually charges the fee on top or from amount. 
+        // If we send 'Amount', Quidax charges 'NetworkFee' from our Master Wallet Balance.
+        // So User must pay us 'Amount + NetworkFee + AdminFee'.
+        const totalDeductible = dto.amount + networkFee + paramAdminFee;
+
+        // 2. Atomic Ledger Deduction
         const reference = generateId({ type: "reference" });
-        const requestRes = await this.quidaxService.createWithdrawerRequest({
-            amount: dto.amount.toString(),
-            currency: dto.currency,
-            narration: dto.narration,
-            transaction_note: dto.transaction_note,
-            user_id: user.cryptoSubAccountId,
-            fund_uid: dto.recipientWalletAddress, //receiving wallet address
-            fund_uid2: dto.destinationTag, // destination tag
-            reference: reference,
-            network: dto.network, // blockchain network for the transaction
+        const transactionId = generateId({ type: "transaction" });
+
+        const order = await this.prisma.$transaction(async (tx) => {
+            const wallet = await tx.assetWallet.findUnique({
+                where: {
+                    userId_assetCurrency: {
+                        userId: user.id,
+                        assetCurrency: currency
+                    }
+                }
+            });
+
+            if (!wallet || parseFloat(wallet.balance.toString()) < totalDeductible) {
+                this.logger.warn(`Insufficient funds for send. Req: ${totalDeductible}, Bal: ${wallet?.balance}`);
+                throw new IncompleteAccountSetupException("Insufficient funds for transaction", HttpStatus.BAD_REQUEST);
+            }
+
+            // Deduct Total
+            await tx.assetWallet.update({
+                where: { id: wallet.id },
+                data: {
+                    balance: { decrement: totalDeductible }
+                }
+            });
+
+            // Calculate Fiat Equivalent for Reporting
+            const amtFiat = await this.getAmountInNaira(dto.currency, dto.amount);
+
+            // Create Order
+            return await tx.order.create({
+                data: {
+                    orderCategory: OrderCategory.SEND,
+                    status: OrderStatus.processing,
+                    streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
+                    orderReference: reference,
+                    transactionId: transactionId,
+                    userId: user.id,
+                    currency: dto.currency,
+                    narration: dto.narration,
+                    transaction_note: dto.transaction_note,
+                    recipient: dto.recipientWalletAddress,
+                    amount: dto.amount,
+                    fee: networkFee + paramAdminFee,
+                    total: totalDeductible,
+                    destinationTag: dto.destinationTag,
+                    sourceType: "wallet",
+                    amountInFiat: amtFiat?.amount,
+                    rateAtConversion: amtFiat?.rate,
+                },
+            });
         });
 
-        const amtFiat = await this.getAmountInNaira(
-            requestRes.data.currency,
-            Number(requestRes.data.amount)
-        );
+        // 3. Execute Internal/External Withdrawal (From Master Wallet)
+        try {
+            const requestRes = await this.quidaxService.createWithdrawerRequest({
+                amount: dto.amount.toString(),
+                currency: dto.currency,
+                narration: dto.narration,
+                transaction_note: dto.transaction_note,
+                user_id: "me", // SOURCE IS MASTER WALLET
+                fund_uid: dto.recipientWalletAddress,
+                fund_uid2: dto.destinationTag,
+                reference: reference, // Link reference
+                network: dto.network as NetworkTypes,
+            });
 
-        const createdOrder = await this.prisma.order.create({
-            data: {
-                orderCategory: OrderCategory.SEND,
-                status: OrderStatus.processing,
-                streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
-                orderReference: reference,
-                transactionId: generateId({ type: "transaction" }),
-                providerOrderId: requestRes.data.id,
-                userId: user.id,
-                currency: requestRes.data.currency,
-                narration: requestRes.data.narration,
-                transaction_note: requestRes.data.transaction_note,
-                recipient: requestRes.data.recipient.details.address,
-                amount: +requestRes.data.amount,
-                fee: +requestRes.data.fee,
-                total: +requestRes.data.total,
-                sourceType: requestRes.data.type,
-                amountInFiat: amtFiat?.amount,
-                rateAtConversion: amtFiat?.rate,
-            },
-        });
+            // 4. Update Order with Provider ID
+            await this.prisma.order.update({
+                where: { id: order.id },
+                data: {
+                    providerOrderId: requestRes.data.id,
+                    status: OrderStatus.processing, // Still processing until webhook confirms? 
+                    // Actually Quidax returns "pending" or "success".
+                    // If immediate success (unlikely for crypto), update.
+                    // Usually it's pending.
+                }
+            });
 
-        // Emit transaction update immediately so UI shows the new transaction
-        this.wsGateway.notifyTransactionUpdate(user.id, {
-            type: "transaction_update",
-            transaction: {
-                id: createdOrder.id,
-                transactionId: createdOrder.transactionId,
-                status: createdOrder.status,
-                streamlinedStatus: createdOrder.streamlinedStatus,
-                orderCategory: createdOrder.orderCategory,
-                amount: createdOrder.amount,
-                currency: createdOrder.currency,
-                createdAt: createdOrder.createdAt,
-                updatedAt: createdOrder.updatedAt,
-            },
-        });
+            // 5. Notifications
+            this.wsGateway.notifyTransactionUpdate(user.id, {
+                type: "transaction_update",
+                transaction: { ...order, providerOrderId: requestRes.data.id }
+            });
+            this.wsGateway.notifyWalletUpdate(user.id);
 
-        // Sync wallet with Quidax to ensure balance is up to date
-        await this.walletAddressService.syncWallet(user.id, dto.currency);
+            const message = `Your send of ${dto.amount} ${dto.currency.toUpperCase()} is being processed. Transaction ID: ${transactionId}`;
+            await this.createNotification(user.id, "Send transaction initiated", message, dto.currency, OrderCategory.SEND);
 
-        // Emit wallet update since balance changes immediately with send
-        this.wsGateway.notifyWalletUpdate(user.id);
+            return buildResponse({
+                message: "Withdrawer request placed successfully",
+                data: {
+                    ...requestRes.data,
+                    transactionId: transactionId,
+                },
+            });
 
-        // Create and send notification for processing
-        const message = `Your send of ${createdOrder.amount} ${createdOrder.currency.toUpperCase()} is being processed. Transaction ID: ${createdOrder.transactionId}`;
+        } catch (error) {
+            this.logger.error(`Send Request Failed: ${error.message}`, error.stack);
 
+            // 6. Refund on Failure
+            await this.prisma.$transaction(async (tx) => {
+                await tx.assetWallet.update({
+                    where: {
+                        userId_assetCurrency: { userId: user.id, assetCurrency: currency }
+                    },
+                    data: { balance: { increment: totalDeductible } }
+                });
+
+                await tx.order.update({
+                    where: { id: order.id },
+                    data: {
+                        status: OrderStatus.failed,
+                        streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
+                        transaction_note: `Failed: ${error.message}`
+                    }
+                });
+            });
+
+            this.wsGateway.notifyWalletUpdate(user.id);
+            this.wsGateway.notifyTransactionUpdate(user.id, {
+                type: "transaction_update",
+                transaction: { ...order, status: OrderStatus.failed }
+            });
+
+            throw new IncompleteAccountSetupException(
+                `Withdrawal failed: ${error.message}`,
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        }
+    }
+
+    private async createNotification(userId: number, title: string, body: string, currency: string, type: OrderCategory) {
         const createdNotification = await this.prisma.notification.create({
             data: {
-                title: "Send transaction initiated",
-                body: message,
-                userId: user.id,
+                title,
+                body,
+                userId,
                 target: UserNotificationTarget.SINGLE,
                 beneficiary: NotificationBeneficiary.INDIVIDUAL,
                 type: NotificationType.MESSAGE,
                 status: NotificationStatus.APPROVED,
                 senderId: null,
-                transactionType: OrderCategory.SEND,
-                currency: createdOrder.currency,
+                transactionType: type,
+                currency: currency,
             },
         });
 
         const notificationList = await this.prisma.notification.findMany({
-            where: { userId: user.id },
+            where: { userId },
             orderBy: { createdAt: "desc" },
             take: 20,
         });
 
-        this.wsGateway.notifyUser(user.id, {
+        this.wsGateway.notifyUser(userId, {
             type: "new_notification",
             notification: createdNotification,
             notificationList,
-        });
-
-        return buildResponse({
-            message: "Withdrawer request placed successfully",
-            data: {
-                ...requestRes.data,
-                transactionId: createdOrder.transactionId,
-            },
         });
     }
 

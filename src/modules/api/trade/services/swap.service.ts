@@ -249,127 +249,149 @@ export class SwapService {
             "swap"
         );
 
-        // 3. Create Pending "Order-First" Record
-        // We create one atomic SWAP order record.
         const reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });
 
-        const order = await this.prisma.order.create({
-            data: {
-                orderCategory: OrderCategory.SWAP,
-                status: OrderStatus.processing, // Processing while we do the legs
-                streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
-                orderReference: reference,
-                transactionId: transactionId,
-                userId: user.id,
-                // Source/destination currencies and amounts for swap
-                fromCurrency: quote.from_currency.toUpperCase(),
-                toCurrency: quote.to_currency.toUpperCase(),
-                fromAmount: quote.from_amount,
-                toAmount: quote.to_amount,
-                quoted_price: quote.rate,
-                // Legacy fields for compatibility
-                currency: quote.from_currency.toUpperCase(),
-                amount: quote.from_amount,
-                amountInFiat: quote.fiat_amount,
-                rateAtConversion: quote.rate,
-                total: quote.from_amount,
-                recipient: "Internal Swap",
-                narration: `Swap ${quote.from_currency} -> ${quote.to_currency}`,
-                transaction_note: `Swapping ${quote.from_amount} ${quote.from_currency} to ${quote.to_amount.toFixed(8)} ${quote.to_currency}`,
-                quotationId: dto.quotationId, // Track the quote ID
-            }
+        // 3. Liquidity Check (Check Master Wallet Solvency)
+        // We perform this check BEFORE the DB Transaction to fail fast.
+        // However, we don't block the actual swap if we want to allow "Paper Trading" until withdrawal.
+        // But for safety, we currently enforce solvency.
+        const adminWallet = await this.quidaxService.getUserWallet({
+            user_id: "me",
+            currency: quote.to_currency.toLowerCase()
         });
 
-        // 4. Orchestrate Internal Swap Flow
-        try {
-            // --- LEG A: SELL (User -> Admin) ---
-            // If this fails, the whole swap fails (atomic).
-            await this.sellOrderService.executeInternalSell(
-                user,
-                quote.from_amount,
-                quote.from_currency,
-                reference // Use Swap Reference
-            );
+        // Safety check if API fails
+        const adminBalance = parseFloat(adminWallet?.data?.balance || "0");
+        const requiredAmount = quote.to_amount;
 
-            // Notify Progress
-            this.wsGateway.notifyWalletUpdate(user.id); // Balance deducted
-            this.emitTransactionUpdate(user.id, { ...order, status: OrderStatus.processing });
+        if (adminBalance < requiredAmount) {
+            // Create PENDING Order and Alert Admin
+            this.logger.warn(`Insufficient Admin Liquidity for Swap. Req: ${requiredAmount}, Avail: ${adminBalance}`);
 
-            // --- LEG B: BUY (Admin -> User) ---
-
-            // Liquidity Check: Does Admin have enough Crypto B?
-            const adminWallet = await this.quidaxService.getUserWallet({
-                user_id: "me",
-                currency: quote.to_currency.toLowerCase()
-            });
-            const adminBalance = parseFloat(adminWallet.data.balance || "0");
-
-            if (adminBalance < quote.to_amount) {
-                this.logger.warn(`Insufficient Admin Liquidity for Swap ${order.id}. Holding Order.`);
-
-                // Mark ON_HOLD (Pending Admin)
-                await this.prisma.order.update({
-                    where: { id: order.id },
-                    data: {
-                        status: OrderStatus.pending, // Stuck state
-                        streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
-                        transaction_note: `ON_HOLD: Insufficient Liquidity for ${quote.to_currency}. Waiting for Admin.`
-                    }
-                });
-
-                // Alert Admin via Slack
-                await this.slackWebhookService.sendWebhookFailureAlert(
-                    'quidax',
-                    reference,
-                    `Insufficient Liquidity for Swap Buy Leg. Order ${order.id} Pending.`,
-                    {
-                        orderId: order.id,
-                        required: quote.to_amount,
-                        currency: quote.to_currency,
-                        available: adminBalance
-                    }
-                );
-
-                return buildResponse({
-                    message: "Swap processing. Pending completion.",
-                    data: this.mapToSwapResponse(order, quote, user),
-                });
-            }
-
-            // Execute Buy
-            const buyRef = `${reference}_buy`;
-            await this.buyOrderService.executeInternalBuy(
-                user,
-                quote.to_amount,
-                quote.to_currency,
-                buyRef
-            );
-
-            // 5. Success
-            const completedOrder = await this.prisma.order.update({
-                where: { id: order.id },
+            const pendingOrder = await this.prisma.order.create({
                 data: {
-                    status: OrderStatus.completed,
-                    streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
-                    transaction_note: `Swap Completed. Received ${quote.to_amount} ${quote.to_currency}`
+                    orderCategory: OrderCategory.SWAP,
+                    status: OrderStatus.pending,
+                    streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
+                    orderReference: reference,
+                    transactionId: transactionId,
+                    userId: user.id,
+                    fromCurrency: quote.from_currency.toUpperCase(),
+                    toCurrency: quote.to_currency.toUpperCase(),
+                    fromAmount: quote.from_amount,
+                    toAmount: quote.to_amount,
+                    quoted_price: quote.rate,
+                    currency: quote.from_currency.toUpperCase(),
+                    amount: quote.from_amount,
+                    amountInFiat: quote.fiat_amount,
+                    rateAtConversion: quote.rate,
+                    total: quote.from_amount,
+                    recipient: "Internal Swap",
+                    narration: `Swap ${quote.from_currency} -> ${quote.to_currency}`,
+                    transaction_note: `ON_HOLD: Insufficient Liquidity for ${quote.to_currency}. Waiting for Admin.`,
+                    quotationId: dto.quotationId,
                 }
             });
 
-            // 6. Sync both wallets involved in the swap
-            await Promise.all([
-                this.walletAddressService.syncWallet(user.id, quote.from_currency),
-                this.walletAddressService.syncWallet(user.id, quote.to_currency),
-            ]);
+            await this.slackWebhookService.sendWebhookFailureAlert(
+                'quidax',
+                reference,
+                `Insufficient Liquidity for Swap. Order ${pendingOrder.id} Pending.`,
+                {
+                    orderId: pendingOrder.id,
+                    required: requiredAmount,
+                    currency: quote.to_currency,
+                    available: adminBalance
+                }
+            );
 
-            // 7. [Non-Blocking] Calculate & Record Profit
-            this.calculateAndRecordProfit(completedOrder).catch(err => {
-                this.logger.error(`Failed to record profit for swap ${reference}: ${err.message}`);
+            return buildResponse({
+                message: "Swap processing. Pending completion.",
+                data: this.mapToSwapResponse(pendingOrder, quote, user),
+            });
+        }
+
+        // 4. Atomic Execution (Ledger)
+        try {
+            const resultOrder = await this.prisma.$transaction(async (tx) => {
+                // A. Check & Deduct Source Balance
+                const sourceWallet = await tx.assetWallet.findUnique({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: user.id,
+                            assetCurrency: quote.from_currency.toUpperCase(),
+                        }
+                    }
+                });
+
+                if (!sourceWallet || parseFloat(sourceWallet.balance.toString()) < quote.from_amount) {
+                    throw new GeneralTransactionException("Insufficient balance for swap", HttpStatus.BAD_REQUEST);
+                }
+
+                await tx.assetWallet.update({
+                    where: { id: sourceWallet.id },
+                    data: {
+                        balance: { decrement: quote.from_amount }
+                    }
+                });
+
+                // B. Credit Destination Balance (Lazy Create)
+                await tx.assetWallet.upsert({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: user.id,
+                            assetCurrency: quote.to_currency.toUpperCase(),
+                        }
+                    },
+                    create: {
+                        userId: user.id,
+                        assetCurrency: quote.to_currency.toUpperCase(),
+                        balance: quote.to_amount,
+                        pendingSweepBalance: 0,
+                    },
+                    update: {
+                        balance: { increment: quote.to_amount }
+                    }
+                });
+
+                // C. Create Completed Order
+                return await tx.order.create({
+                    data: {
+                        orderCategory: OrderCategory.SWAP,
+                        status: OrderStatus.completed,
+                        streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
+                        orderReference: reference,
+                        transactionId: transactionId,
+                        userId: user.id,
+                        fromCurrency: quote.from_currency.toUpperCase(),
+                        toCurrency: quote.to_currency.toUpperCase(),
+                        fromAmount: quote.from_amount,
+                        toAmount: quote.to_amount,
+                        quoted_price: quote.rate,
+                        currency: quote.from_currency.toUpperCase(),
+                        amount: quote.from_amount,
+                        amountInFiat: quote.fiat_amount,
+                        rateAtConversion: quote.rate,
+                        total: quote.from_amount,
+                        recipient: "Internal Swap",
+                        narration: `Swap ${quote.from_currency} -> ${quote.to_currency}`,
+                        transaction_note: `Swapping ${quote.from_amount} ${quote.from_currency} to ${quote.to_amount.toFixed(8)} ${quote.to_currency}`,
+                        quotationId: dto.quotationId,
+                        providerOrderId: "INTERNAL_LEDGER",
+                        paymentStatus: "SUCCESS",
+                        fulfilled: true,
+                    }
+                });
+            }, {
+                maxWait: 5000, // 5s max wait
+                timeout: 10000 // 10s timeout
             });
 
-            // Final Notifications
+
+            // 5. Post-Transaction Notifications
             this.wsGateway.notifyWalletUpdate(user.id);
-            this.emitTransactionUpdate(user.id, { ...order, status: OrderStatus.completed });
+            this.emitTransactionUpdate(user.id, resultOrder);
 
             await this.sendNotification(
                 user.id,
@@ -379,29 +401,22 @@ export class SwapService {
                 OrderCategory.SWAP
             );
 
+            // Record Profit Async
+            this.calculateAndRecordProfit(resultOrder).catch(err => {
+                this.logger.error(`Failed to record profit for swap ${reference}: ${err.message}`);
+            });
+
             return buildResponse({
                 message: "Swap confirmed successfully",
-                data: this.mapToSwapResponse(order, quote, user),
+                data: this.mapToSwapResponse(resultOrder, quote, user),
             });
 
         } catch (error) {
             this.logger.error(`Swap Failed: ${error.message}`, error.stack);
 
-            // Mark Order as FAILED if it was in processing
-            await this.prisma.order.update({
-                where: { id: order.id },
-                data: {
-                    status: OrderStatus.failed,
-                    streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
-                    transaction_note: `Failed: ${error.message}`
-                }
-            });
-
-            this.emitTransactionUpdate(user.id, { ...order, status: OrderStatus.failed });
-
-            // If Sell succeeded but Buy failed (caught above?), we handle that logic inside checks.
-            // If ExecuteInternalSell failed, we are here. User funds NOT deducted (atomic external call failed).
-            // So failing the order is correct.
+            // Note: If transaction fails, DB rolled back. No Order created (unless liquidity check created one beforehand).
+            // We just throw.
+            if (error instanceof GeneralTransactionException) throw error;
 
             throw new GeneralTransactionException(
                 "Swap failed. Please try again or contact support.",
@@ -459,6 +474,7 @@ export class SwapService {
     /**
      * Admin Action: Retry a pending swap order (e.g. after adding liquidity).
      * Only works for SWAP orders that are stuck in PENDING status.
+     * Uses Atomic Transaction to execute the swap if liquidity is now available.
      */
     async retryPendingSwap(orderId: number) {
         // 1. Fetch Order
@@ -490,8 +506,6 @@ export class SwapService {
             if (!order.rateAtConversion) {
                 throw new GeneralTransactionException("Critical data missing for retry (Rate)", HttpStatus.INTERNAL_SERVER_ERROR);
             }
-
-            // Parse narration "Swap BTC -> USDT" as fallback
             const parts = order.narration?.split('->');
             if (!parts || parts.length !== 2) {
                 throw new GeneralTransactionException("Could not determine destination currency from order", HttpStatus.INTERNAL_SERVER_ERROR);
@@ -499,9 +513,6 @@ export class SwapService {
             toCurrency = parts[1].trim();
             toAmount = order.amount * order.rateAtConversion;
         }
-
-        const reference = order.orderReference;
-        const buyRef = `${reference}_buy`;
 
         // 3. Liquidity Check
         const adminWallet = await this.quidaxService.getUserWallet({
@@ -517,26 +528,68 @@ export class SwapService {
             );
         }
 
-        // 4. Execute Buy (Admin -> User)
+        // 4. Atomic Execution (Ledger) for Retry
+        // NOTE: In the original 'confirm', we validated balances and deducted. 
+        // For a PENDING order, did we deduct source balance already? 
+        // Logic above says: Liquidity Check fails -> Create PENDING Order. NO DEDUCTION happened.
+        // So we MUST deduct source balance now.
+
         const user = await this.prisma.user.findUnique({ where: { id: order.userId } });
-        if (!user) throw new GeneralTransactionException("User not found", HttpStatus.NOT_FOUND);
 
         try {
-            await this.buyOrderService.executeInternalBuy(
-                user,
-                toAmount,
-                toCurrency,
-                buyRef
-            );
+            await this.prisma.$transaction(async (tx) => {
+                // A. Check & Deduct Source Balance
+                const sourceWallet = await tx.assetWallet.findUnique({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: order.userId,
+                            assetCurrency: order.fromCurrency || order.currency, // fallback
+                        }
+                    }
+                });
 
-            // 5. Success Update
-            await this.prisma.order.update({
-                where: { id: order.id },
-                data: {
-                    status: OrderStatus.completed,
-                    streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
-                    transaction_note: `Swap Completed (Retried). Received ${toAmount} ${toCurrency}`
+                // Must use order.amount (Source Amount)
+                if (!sourceWallet || parseFloat(sourceWallet.balance.toString()) < order.amount) {
+                    throw new GeneralTransactionException("Insufficient user balance for retry", HttpStatus.BAD_REQUEST);
                 }
+
+                await tx.assetWallet.update({
+                    where: { id: sourceWallet.id },
+                    data: {
+                        balance: { decrement: order.amount }
+                    }
+                });
+
+                // B. Credit Destination Balance
+                await tx.assetWallet.upsert({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: order.userId,
+                            assetCurrency: toCurrency.toUpperCase(),
+                        }
+                    },
+                    create: {
+                        userId: order.userId,
+                        assetCurrency: toCurrency.toUpperCase(),
+                        balance: toAmount,
+                        pendingSweepBalance: 0,
+                    },
+                    update: {
+                        balance: { increment: toAmount }
+                    }
+                });
+
+                // C. Update Order to Completed
+                await tx.order.update({
+                    where: { id: order.id },
+                    data: {
+                        status: OrderStatus.completed,
+                        streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
+                        transaction_note: `Swap Completed (Retried). Received ${toAmount} ${toCurrency}`,
+                        paymentStatus: "SUCCESS",
+                        providerOrderId: "INTERNAL_LEDGER_RETRY"
+                    }
+                });
             });
 
             // Notifications

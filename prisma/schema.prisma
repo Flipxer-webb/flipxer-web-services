@@ -58,13 +58,13 @@ model User {
   isTwoFactorEnabled                 Boolean                           @default(false)
   tier                               Int                               @default(0)
   twoFactorSecret                    String?
-  twoFactorBackupCodes               String?                           // JSON array of hashed backup codes (universal fallback)
+  twoFactorBackupCodes               String? // JSON array of hashed backup codes (universal fallback)
   // Multi-factor security settings
-  securityMethods                    Json?                             // {sms, email, authenticator, tradingPassword}
+  securityMethods                    Json? // {sms, email, authenticator, tradingPassword}
   requiredMethodCount                Int                               @default(1)
   backupCodesGeneratedAt             DateTime?
   // Tier 2/3 verification fields
-  documentVerificationStatus         DocumentVerificationStatus?       // Identity document verification status
+  documentVerificationStatus         DocumentVerificationStatus? // Identity document verification status
   addressVerificationStatus          DocumentVerificationStatus?
   addressDocumentUrl                 String?
   incomeVerificationStatus           DocumentVerificationStatus?
@@ -121,7 +121,7 @@ model Session {
   os             String?
   ipAddress      String?
   location       String?
-  deviceToken    String?   // Unique token for device recognition
+  deviceToken    String? // Unique token for device recognition
   isActive       Boolean   @default(true)
   isCurrent      Boolean   @default(false)
   isTrusted      Boolean   @default(false)
@@ -142,18 +142,18 @@ model Session {
 
 // WebAuthn/Passkey biometric credential storage
 model UserBiometricCredential {
-  id                 String   @id // WebAuthn credential ID (base64url encoded)
+  id                 String    @id // WebAuthn credential ID (base64url encoded)
   userId             Int
-  publicKey          String   @db.Text // Base64-encoded public key
-  publicKeyAlgorithm Int      // COSE algorithm identifier (e.g., -7 for ES256)
-  counter            Int      @default(0) // Signature counter for replay protection
+  publicKey          String    @db.Text // Base64-encoded public key
+  publicKeyAlgorithm Int // COSE algorithm identifier (e.g., -7 for ES256)
+  counter            Int       @default(0) // Signature counter for replay protection
   transports         String[] // Array of authenticator transports (e.g., ["internal", "usb"])
-  deviceName         String   // User-friendly name for the device
-  aaguid             String?  // Authenticator Attestation GUID
+  deviceName         String // User-friendly name for the device
+  aaguid             String? // Authenticator Attestation GUID
   lastUsedAt         DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, createdAt(sort: Desc)])
@@ -167,9 +167,9 @@ model UserPreferences {
   defaultFiatCurrency String   @default("NGN")
   favoriteAssets      String[] @default([]) // Array of currency codes
   quickActionOrder    String[] @default([]) // Manual override for action ordering
-  quickActionUsage    Json?    // { buy: 45, sell: 30, swap: 12, send: 5, receive: 8 }
+  quickActionUsage    Json? // { buy: 45, sell: 30, swap: 12, send: 5, receive: 8 }
   hideZeroBalances    Boolean  @default(false)
-  dashboardLayout     Json?    // Widget order preferences
+  dashboardLayout     Json? // Widget order preferences
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -188,8 +188,8 @@ model NotificationPreferences {
   pushSecurityAlerts  Boolean  @default(true)
   pushMarketing       Boolean  @default(false)
   quietHoursEnabled   Boolean  @default(false)
-  quietHoursStart     String?  // "22:00" in 24hr format
-  quietHoursEnd       String?  // "07:00" in 24hr format
+  quietHoursStart     String? // "22:00" in 24hr format
+  quietHoursEnd       String? // "07:00" in 24hr format
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -200,12 +200,12 @@ model NotificationPreferences {
 model PriceAlert {
   id          Int            @id @default(autoincrement())
   userId      Int
-  currency    String         // e.g., "BTC", "ETH"
-  targetPrice Float          // Target price in user's default fiat currency
+  currency    String // e.g., "BTC", "ETH"
+  targetPrice Float // Target price in user's default fiat currency
   direction   PriceDirection // ABOVE or BELOW
   isActive    Boolean        @default(true)
-  triggeredAt DateTime?      // When the alert was triggered
-  expiresAt   DateTime?      // Optional expiration date
+  triggeredAt DateTime? // When the alert was triggered
+  expiresAt   DateTime? // Optional expiration date
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -224,7 +224,7 @@ enum PriceDirection {
 model TransactionOTP {
   id        Int      @id @default(autoincrement())
   userId    Int
-  method    String   // "sms" or "email"
+  method    String // "sms" or "email"
   code      String
   expiresAt DateTime
   createdAt DateTime @default(now())
@@ -322,30 +322,30 @@ model BusinessRecord {
 }
 
 model UserDocument {
-  id                       Int                         @id @default(autoincrement())
-  userId                   Int?                        @unique
-  type                     DocumentType
-  country                  Country
-  documentNumber           String
-  documentImageUrl         String
-  documentImageFieldId     String
-  documentImage2FieldId    String?
-  documentImageUrl2        String?
+  id                      Int                        @id @default(autoincrement())
+  userId                  Int?                       @unique
+  type                    DocumentType
+  country                 Country
+  documentNumber          String
+  documentImageUrl        String
+  documentImageFieldId    String
+  documentImage2FieldId   String?
+  documentImageUrl2       String?
   // Dojah verification fields
-  verificationStatus       DocumentVerificationStatus  @default(PENDING)
-  dojahVerified            Boolean                     @default(false)
-  dojahDocumentType        String?                     // e.g., "International Passport - Nigeria"
-  dojahCountryCode         String?                     // e.g., "NGA"
-  dojahExtractedFirstName  String?
-  dojahExtractedLastName   String?
-  dojahExtractedDob        String?
-  dojahExtractedDocNumber  String?
-  dojahNameMatches         Boolean?
-  dojahVerifiedAt          DateTime?
-  dojahRawResponse         String?                     // JSON string of full response for audit
-  createdAt                DateTime                    @default(now())
-  updatedAt                DateTime                    @updatedAt
-  user                     User?                       @relation(fields: [userId], references: [id])
+  verificationStatus      DocumentVerificationStatus @default(PENDING)
+  dojahVerified           Boolean                    @default(false)
+  dojahDocumentType       String? // e.g., "International Passport - Nigeria"
+  dojahCountryCode        String? // e.g., "NGA"
+  dojahExtractedFirstName String?
+  dojahExtractedLastName  String?
+  dojahExtractedDob       String?
+  dojahExtractedDocNumber String?
+  dojahNameMatches        Boolean?
+  dojahVerifiedAt         DateTime?
+  dojahRawResponse        String? // JSON string of full response for audit
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  user                    User?                      @relation(fields: [userId], references: [id])
 
   @@map("UserDocuments")
 }
@@ -451,27 +451,29 @@ model RolePermission {
 }
 
 model AssetWallet {
-  id                String   @id @default(uuid())
-  userId            Int
-  quidaxWalletId    String   @unique
-  assetName         String
-  assetCurrency     String
-  balance           Decimal  @db.Decimal(20, 18)
-  locked            Decimal  @db.Decimal(20, 18)
-  staked            Decimal  @db.Decimal(20, 18)
-  convertedBalance  Decimal  @db.Decimal(20, 8)
-  referenceCurrency String
-  isCrypto          Boolean
-  defaultNetwork    String
-  blockchainEnabled Boolean
-  depositAddress    String?
-  destinationTag    String?
-  isActive          Boolean  @default(false)
-  addressSynced     Boolean  @default(false)
-  networks          Json
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  user              User     @relation(fields: [userId], references: [id])
+  id                  String    @id @default(uuid())
+  userId              Int
+  quidaxWalletId      String    @unique
+  assetName           String
+  assetCurrency       String
+  balance             Decimal   @db.Decimal(20, 18)
+  locked              Decimal   @db.Decimal(20, 18)
+  staked              Decimal   @db.Decimal(20, 18)
+  convertedBalance    Decimal   @db.Decimal(20, 8)
+  referenceCurrency   String
+  isCrypto            Boolean
+  defaultNetwork      String
+  blockchainEnabled   Boolean
+  depositAddress      String?
+  destinationTag      String?
+  isActive            Boolean   @default(false)
+  addressSynced       Boolean   @default(false)
+  networks            Json
+  lastSyncedAt        DateTime?
+  pendingSweepBalance Decimal   @default(0.0) @db.Decimal(20, 18)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  user                User      @relation(fields: [userId], references: [id])
 
   @@unique([userId, assetCurrency])
   @@index([userId])
@@ -542,12 +544,13 @@ model Order {
   totalToReceiveInFiat         Float?
   amountInFiat                 Float?
   rateAtConversion             Float?
-  estimatedProfit              Float?                 // Estimated profit in fiat (Value In - Value Out)
+  estimatedProfit              Decimal?               @db.Decimal(20, 8) // Estimated profit in fiat (Value In - Value Out)
   referenceFiatCurrency        ReferenceFiatCurrency  @default(NGN)
   sender                       String?
   streamlinedStatus            OrderStreamlinedStatus @default(pending)
   transactionId                String?                @unique
   fulfilled                    Boolean                @default(false) // Set to true when BUY order crypto has been delivered
+  snapshotData                 Json?                  @db.Json // Stores balanceSnapshot {before, after} for ledger audit
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
 
@@ -925,6 +928,7 @@ enum OrderStatus {
   submitted
   on_hold
   accepted
+  pending_liquidity_review
 }
 
 enum OrderStreamlinedStatus {

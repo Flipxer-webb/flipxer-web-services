@@ -177,13 +177,6 @@ export class TradingService {
     }
 
     /**
-     * Syncs wallet balance - delegates to WalletAddressService
-     */
-    private async syncWallet(userId: number, currency: string): Promise<void> {
-        return this.walletAddressService.syncWallet(userId, currency);
-    }
-
-    /**
      * Extracts deposit-enabled networks - delegates to WalletAddressService
      */
     private extractDepositEnabledNetworkMap(
@@ -604,8 +597,21 @@ export class TradingService {
             },
         });
 
-        // Sync wallet with Quidax to ensure balance is up to date
-        await this.syncWallet(user.id, updatedOrder.currency);
+        // Refund User Logic (Atomic)
+        // Deductible was Amount + Fee. We refund the total.
+        const refundAmount = Number(updatedOrder.amount) + Number(updatedOrder.fee);
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.assetWallet.update({
+                where: {
+                    userId_assetCurrency: {
+                        userId: user.id,
+                        assetCurrency: updatedOrder.currency
+                    }
+                },
+                data: { balance: { increment: refundAmount } }
+            });
+        });
 
         // Emit wallet update to refresh balance after cancellation
         this.wsGateway.notifyWalletUpdate(user.id);

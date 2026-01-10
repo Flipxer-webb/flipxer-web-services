@@ -44,8 +44,7 @@ export class DepositWebhookHandler {
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
-        private readonly lockService: DistributedLockService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly lockService: DistributedLockService
     ) { }
 
     /**
@@ -258,8 +257,8 @@ export class DepositWebhookHandler {
         if (swapOrderByNarration) {
             // Verify amount matches within 1% tolerance
             const swapToAmount = swapOrderByNarration.toAmount || 0;
-            const percentDiff = swapToAmount > 0 
-                ? Math.abs(swapToAmount - depositAmount) / swapToAmount * 100 
+            const percentDiff = swapToAmount > 0
+                ? Math.abs(swapToAmount - depositAmount) / swapToAmount * 100
                 : 100;
 
             if (percentDiff <= 1) {
@@ -434,12 +433,40 @@ export class DepositWebhookHandler {
      * Handle deposit accepted - update wallet balance and send notifications
      * Uses a database transaction to ensure atomicity of wallet balance update
      */
+    private static MAIN_ACCOUNT_ID: string | null = null;
+
+    /**
+     * Helper to get Main Account ID (Master Wallet)
+     */
+    private async getMainAccountId(): Promise<string> {
+        if (DepositWebhookHandler.MAIN_ACCOUNT_ID) {
+            return DepositWebhookHandler.MAIN_ACCOUNT_ID;
+        }
+        try {
+            const response = await this.quidaxService.getAccountDetail({ user_id: "me" });
+            if (response.status === "success" && response.data?.id) {
+                DepositWebhookHandler.MAIN_ACCOUNT_ID = response.data.id;
+                return response.data.id;
+            }
+            throw new Error("Failed to fetch Main Account ID");
+        } catch (error) {
+            this.logger.error(`Error fetching Main Account ID: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Handle deposit accepted - update wallet balance and sweep funds to Master Wallet
+     * Uses a database transaction to ensure atomicity of wallet balance update
+     */
     private async handleDepositAccepted(
         user: any,
         options: DepositTransaction,
         transactionId: string
     ) {
-        // Update user's wallet balance atomically
+        const depositAmount = parseFloat(options.amount);
+
+        // 1. Update AssetWallet: Credit Balance & Mark as Pending Sweep
         const walletUpdated = await this.prisma.$transaction(
             async (tx) => {
                 const assetWallet = await tx.assetWallet.findUnique({
@@ -456,23 +483,28 @@ export class DepositWebhookHandler {
                 }
 
                 const currentBalance = parseFloat(assetWallet.balance.toString());
-                const depositAmount = parseFloat(options.amount);
+                const currentPendingSweep = parseFloat(assetWallet.pendingSweepBalance?.toString() || "0");
+
                 const newBalance = (currentBalance + depositAmount).toString();
+                const newPendingSweep = (currentPendingSweep + depositAmount).toString();
 
                 await tx.assetWallet.update({
                     where: { id: assetWallet.id },
-                    data: { balance: newBalance },
+                    data: {
+                        balance: newBalance,
+                        pendingSweepBalance: newPendingSweep,
+                        lastSyncedAt: new Date() // Audit timestamp
+                    },
                 });
 
                 this.logger.log(
-                    `Wallet balance updated | ${JSON.stringify({
+                    `Wallet credited (Pending Sweep) | ${JSON.stringify({
                         userId: user.id,
                         currency: options.currency,
-                        oldBalance: assetWallet.balance.toString(),
                         depositAmount: options.amount,
                         newBalance: newBalance,
-                    })
-                    } `
+                        newPendingSweep: newPendingSweep
+                    })}`
                 );
 
                 return true;
@@ -480,9 +512,56 @@ export class DepositWebhookHandler {
             { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: EXTENDED_TRANSACTION_TIMEOUT_MS }
         );
 
-        if (walletUpdated) {
-            // Sync wallet with Quidax to ensure balance is up to date (outside transaction)
-            await this.walletAddressService.syncWallet(user.id, options.currency);
+        if (!walletUpdated) {
+            this.logger.error(`Failed to update user wallet for deposit ${transactionId}`);
+            return;
+        }
+
+        // 2. Execute Sweep: Internal Transfer from Sub-account to Master Wallet
+        try {
+            const masterId = await this.getMainAccountId();
+
+            // Only sweep if the user has a valid sub-account ID
+            if (user.cryptoSubAccountId) {
+                this.logger.log(`Initiating Sweep | User: ${user.cryptoSubAccountId} -> Master: ${masterId} | Amount: ${options.amount} ${options.currency}`);
+
+                const transferResponse = await this.quidaxService.internalTransfer(user.cryptoSubAccountId, {
+                    currency: options.currency.toLowerCase(),
+                    amount: options.amount,
+                    recipient: masterId,
+                    reason: `Sweep deposit ${options.referenceId}`
+                });
+
+                if (transferResponse.status === "success") {
+                    this.logger.log(`Sweep Successful | TxID: ${transferResponse.data.id}`);
+
+                    // 3. Success: Decrement Pending Sweep Balance
+                    await this.prisma.assetWallet.update({
+                        where: {
+                            userId_assetCurrency: {
+                                userId: user.id,
+                                assetCurrency: options.currency.toUpperCase(),
+                            },
+                        },
+                        data: {
+                            pendingSweepBalance: {
+                                decrement: depositAmount
+                            }
+                        }
+                    });
+                } else {
+                    throw new Error(`Sweep API failed: ${transferResponse.message}`);
+                }
+            } else {
+                this.logger.warn(`Skipping sweep: User ${user.id} has no cryptoSubAccountId`);
+            }
+
+        } catch (error) {
+            this.logger.error(
+                `Sweep Failed | Ref: ${options.referenceId} | Error: ${error.message} | PendingSweepBalance remains inflated for retry.`
+            );
+            // We DO NOT revert the user's balance credit. The user gets the funds. 
+            // The platform takes the risk until the sweep is retried (by a future cron job).
         }
 
         // Send notifications (outside transaction - not critical for data integrity)

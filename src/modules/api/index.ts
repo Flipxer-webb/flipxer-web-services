@@ -17,6 +17,8 @@ import { OperationsModule } from "./operations";
 import { ReportsModule } from "./reports";
 import { SystemConfigModule } from "./system-config";
 
+import { RiskModule } from "./risk/risk.module";
+
 @Module({
     imports: [
         WebExtension,
@@ -36,6 +38,7 @@ import { SystemConfigModule } from "./system-config";
         OperationsModule,
         ReportsModule,
         SystemConfigModule,
+        RiskModule,
     ],
 })
-export class APIModule {}
+export class APIModule { }

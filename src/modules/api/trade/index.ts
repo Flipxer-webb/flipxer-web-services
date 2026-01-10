@@ -39,6 +39,7 @@ import { TierService } from "../auth/services/tier.service";
 import { OperationsModule } from "../operations";
 import { NotificationModule } from "../notification/notification.module";
 import { CachingModule } from "@/modules/core/redisCache";
+import { RiskModule } from "@/modules/api/risk/risk.module"; // Import RiskModule
 export * from "./interfaces";
 export * from "./errors";
 
@@ -56,6 +57,7 @@ export * from "./errors";
         OperationsModule,
         NotificationModule,
         CachingModule,
+        RiskModule, // Add RiskModule
     ],
     controllers: [TradingController, PriceAlertController],
     providers: [

@@ -40,8 +40,7 @@ export class SwapWebhookHandler {
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
-        private readonly lockService: DistributedLockService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly lockService: DistributedLockService
     ) { }
 
     /**
@@ -118,13 +117,10 @@ export class SwapWebhookHandler {
      * Handle swap completion - sync wallets and send notifications
      */
     private async handleSwapCompleted(transaction: any) {
-        // Sync both wallets involved in the swap
-        await Promise.all([
-            this.walletAddressService.syncWallet(transaction.user.id, transaction.fromCurrency),
-            this.walletAddressService.syncWallet(transaction.user.id, transaction.toCurrency),
-        ]);
+        // No sync needed, ledger is source of truth.
+        // Atomic swap service already handled balance updates.
 
-        // Emit wallet update after sync
+        // Emit wallet update (just to refresh UI state if needed)
         this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
         // Send notification

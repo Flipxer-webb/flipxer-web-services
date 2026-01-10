@@ -239,6 +239,9 @@ export interface IWsTransactionUpdate {
         currency: string;
         createdAt: Date;
         updatedAt: Date;
+        providerOrderId?: string;
+        fee?: number;
+        total?: number;
     };
 }
 

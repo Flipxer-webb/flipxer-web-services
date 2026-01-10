@@ -443,6 +443,40 @@ export class QuidaxLib {
         }
     }
 
+    /**
+     *
+     * @param user_id sender (sub-account)
+     * @param options transfer options
+     * @returns transfer details
+     * @description Transfer funds from a sub-account to another account (e.g. Master Wallet)
+     */
+    async internalTransfer(
+        user_id: string,
+        options: t.InternalTransferOptions
+    ): Promise<t.QuidaxResponse<t.InternalTransferResponse>> {
+        try {
+            const requestOptions: AxiosRequestConfig<t.InternalTransferOptions> = {
+                url: `/users/${user_id}/wallets/${options.currency}/transfer`,
+                method: "POST",
+                data: options,
+            };
+            const resp = await this.mainAxios<t.QuidaxResponse<t.InternalTransferResponse>>(requestOptions);
+
+            if (!resp.data) {
+                const error = new e.QuidaxError("Failed to initiate internal transfer");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: resp.data.status,
+                message: resp.data.message,
+                data: resp.data.data,
+            };
+        } catch (error) {
+            this.handleQuidaxError(error);
+        }
+    }
+
     /************************** Withdrawals  *************************/
     /*
       The Withdrawals A.P.I collection enables authenticated users to send cryptocurrency to internal or external wallets, 

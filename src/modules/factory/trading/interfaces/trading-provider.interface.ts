@@ -266,176 +266,181 @@ export interface ITradingProvider {
     readonly providerName: string;
 
     // ============ Account Operations ============
-    
+
     /**
      * Create a sub-account for a user on the trading platform
      */
     createSubAccount(options: CreateSubAccountOptions): Promise<ProviderResponse<SubAccount>>;
-    
+
     /**
      * Find a sub-account by email
      */
     findSubAccountByEmail(email: string): Promise<SubAccount | null>;
-    
+
     /**
      * Get account details by user ID
      */
     getAccountDetail(userId: string): Promise<ProviderResponse<AccountDetail>>;
 
     // ============ Wallet Operations ============
-    
+
     /**
      * Get all wallet balances for a user
      */
     getUserWalletList(userId: string): Promise<ProviderResponse<WalletBalance[]>>;
-    
+
     /**
      * Get specific wallet balance for a user
      */
     getUserWallet(userId: string, currency: string): Promise<ProviderResponse<WalletBalance>>;
-    
+
     /**
      * Create a new payment/deposit address
      */
     createPaymentAddress(options: CreatePaymentAddressOptions): Promise<ProviderResponse<PaymentAddress>>;
-    
+
+    /**
+     * Transfer funds internally (e.g., Sub-account to Master)
+     */
+    internalTransfer(options: any): Promise<ProviderResponse<any>>; // Using 'any' for now to avoid circular deps or complex types, will refine if possible
+
     /**
      * Get payment address by ID
      */
     getPaymentAddressById(userId: string, addressId: string): Promise<ProviderResponse<PaymentAddress>>;
-    
+
     /**
      * Get all payment addresses for a user's currency
      */
     getPaymentAddressList(userId: string, currency: string): Promise<ProviderResponse<PaymentAddress[]>>;
-    
+
     /**
      * Verify if an external address is valid
      */
     verifyAddress(options: VerifyAddressOptions): Promise<ProviderResponse<AddressVerificationResult>>;
 
     // ============ Order Operations ============
-    
+
     /**
      * Place a buy or sell order
      */
     placeOrder(options: PlaceOrderOptions): Promise<ProviderResponse<OrderResult>>;
-    
+
     /**
      * Cancel an existing order
      */
     cancelOrder(options: CancelOrderOptions): Promise<ProviderResponse<OrderResult>>;
-    
+
     /**
      * Get order details by ID
      */
     getOrderById(userId: string, orderId: string): Promise<ProviderResponse<OrderResult>>;
-    
+
     /**
      * Get all orders for a user
      */
     getOrderList(userId: string, options?: PaginationOptions): Promise<ProviderResponse<OrderResult[]>>;
 
     // ============ Swap Operations ============
-    
+
     /**
      * Create a swap quote (not yet executed)
      */
     createSwapQuote(options: CreateSwapQuoteOptions): Promise<ProviderResponse<SwapQuote>>;
-    
+
     /**
      * Confirm and execute a swap quote
      */
     confirmSwap(options: ConfirmSwapOptions): Promise<ProviderResponse<SwapTransaction>>;
-    
+
     /**
      * Get swap transaction details
      */
     getSwapTransaction(userId: string, transactionId: string): Promise<ProviderResponse<SwapTransaction>>;
-    
+
     /**
      * Get all swap transactions for a user
      */
     getSwapTransactionList(userId: string): Promise<ProviderResponse<SwapTransaction[]>>;
 
     // ============ Withdrawal Operations ============
-    
+
     /**
      * Create a withdrawal request
      */
     createWithdrawal(options: CreateWithdrawalOptions): Promise<ProviderResponse<WithdrawalResult>>;
-    
+
     /**
      * Cancel a pending withdrawal
      */
     cancelWithdrawal(options: CancelWithdrawalOptions): Promise<ProviderResponse<WithdrawalResult>>;
-    
+
     /**
      * Get withdrawal details by ID
      */
     getWithdrawalById(userId: string, withdrawalId: string): Promise<ProviderResponse<WithdrawalResult>>;
-    
+
     /**
      * Get withdrawal by reference
      */
     getWithdrawalByReference(userId: string, reference: string): Promise<ProviderResponse<WithdrawalResult>>;
-    
+
     /**
      * Get all withdrawals for a user
      */
     getWithdrawalList(userId: string, options?: PaginationOptions): Promise<ProviderResponse<WithdrawalResult[]>>;
-    
+
     /**
      * Get withdrawal fees for a currency
      */
     getWithdrawalFees(userId: string, currency: string, network?: string): Promise<ProviderResponse<WithdrawalFee>>;
 
     // ============ Deposit Operations ============
-    
+
     /**
      * Get deposit history for a user
      */
     fetchDeposits(options: FetchDepositsOptions): Promise<ProviderResponse<DepositRecord[]>>;
-    
+
     /**
      * Get specific deposit by ID
      */
     fetchDeposit(userId: string, depositId: string): Promise<ProviderResponse<DepositRecord>>;
 
     // ============ Market Data Operations ============
-    
+
     /**
      * Get all market tickers
      */
     getMarketTickers(): Promise<ProviderResponse<MarketTicker[]>>;
-    
+
     /**
      * Get ticker for a specific market
      */
     getSingleMarketTicker(pair: string): Promise<ProviderResponse<MarketTicker>>;
-    
+
     /**
      * Get list of available markets/pairs
      */
     getMarketList(): Promise<ProviderResponse<string[]>>;
 
     // ============ Purchase Operations ============
-    
+
     /**
      * Get purchase limits for buying crypto
      */
     getPurchaseLimitForBuy(userId: string, currency: string): Promise<ProviderResponse<PurchaseLimit>>;
-    
+
     /**
      * Get purchase limits for selling crypto
      */
     getPurchaseLimitForSell(userId: string, currency: string): Promise<ProviderResponse<PurchaseLimit>>;
-    
+
     /**
      * Get quote for buying crypto with fiat
      */
     getPurchaseQuoteForBuy(userId: string, currency: string, amount: string): Promise<ProviderResponse<PurchaseQuote>>;
-    
+
     /**
      * Get quote for selling crypto for fiat
      */
@@ -499,6 +504,10 @@ export class MockTradingProvider implements ITradingProvider {
 
     async createPaymentAddress(_options: CreatePaymentAddressOptions): Promise<ProviderResponse<PaymentAddress>> {
         return this.getResponse('createPaymentAddress');
+    }
+
+    async internalTransfer(_options: any): Promise<ProviderResponse<any>> {
+        return this.getResponse('internalTransfer');
     }
 
     async getPaymentAddressById(_userId: string, _addressId: string): Promise<ProviderResponse<PaymentAddress>> {

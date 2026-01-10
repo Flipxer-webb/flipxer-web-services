@@ -8,7 +8,7 @@ import { executeQuidaxCall } from "./error-handler";
  */
 export class QuidaxWalletService {
     private readonly logger = new Logger(QuidaxWalletService.name);
-    constructor(private readonly quidax: QD.QuidaxLib) {}
+    constructor(private readonly quidax: QD.QuidaxLib) { }
 
     async getUserWalletList(
         options: t.GetUserWalletListOptions
@@ -76,6 +76,17 @@ export class QuidaxWalletService {
         return executeQuidaxCall(
             () => this.quidax.verifyAddress(options),
             "verify address",
+            this.logger
+        );
+    }
+
+    async internalTransfer(
+        user_id: string,
+        options: t.InternalTransferOptions
+    ): Promise<QD.QuidaxResponse<QD.InternalTransferResponse>> {
+        return executeQuidaxCall(
+            () => this.quidax.internalTransfer(user_id, options),
+            "internal transfer",
             this.logger
         );
     }
