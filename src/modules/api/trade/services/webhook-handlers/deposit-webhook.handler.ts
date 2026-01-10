@@ -220,7 +220,8 @@ export class DepositWebhookHandler {
 
         // Check for SWAP orders (internal buy leg creates deposit to user)
         // The swap service handles the entire flow atomically, so we skip duplicate deposits
-        const swapOrder = await this.prisma.order.findFirst({
+        // Strategy 1: Check by toCurrency field
+        const swapOrderByToCurrency = await this.prisma.order.findFirst({
             where: {
                 userId: userId,
                 orderCategory: OrderCategory.SWAP,
@@ -231,15 +232,48 @@ export class DepositWebhookHandler {
             orderBy: { createdAt: 'desc' },
         });
 
-        if (swapOrder) {
+        if (swapOrderByToCurrency) {
             this.logger.log(
-                `Skipping deposit - related to SWAP order | ${JSON.stringify({
-                    swapOrderId: swapOrder.id,
-                    transactionId: swapOrder.transactionId,
+                `Skipping deposit - related to SWAP order (toCurrency match) | ${JSON.stringify({
+                    swapOrderId: swapOrderByToCurrency.id,
+                    transactionId: swapOrderByToCurrency.transactionId,
                     toCurrency: options.currency,
                 })}`
             );
             return true;
+        }
+
+        // Strategy 2: Check by narration pattern and amount (fallback for orders without toCurrency)
+        const swapOrderByNarration = await this.prisma.order.findFirst({
+            where: {
+                userId: userId,
+                orderCategory: OrderCategory.SWAP,
+                narration: { contains: `-> ${options.currency.toUpperCase()}` },
+                status: { in: [OrderStatus.processing, OrderStatus.completed] },
+                createdAt: { gte: twoHoursAgo },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+
+        if (swapOrderByNarration) {
+            // Verify amount matches within 1% tolerance
+            const swapToAmount = swapOrderByNarration.toAmount || 0;
+            const percentDiff = swapToAmount > 0 
+                ? Math.abs(swapToAmount - depositAmount) / swapToAmount * 100 
+                : 100;
+
+            if (percentDiff <= 1) {
+                this.logger.log(
+                    `Skipping deposit - related to SWAP order (narration match) | ${JSON.stringify({
+                        swapOrderId: swapOrderByNarration.id,
+                        transactionId: swapOrderByNarration.transactionId,
+                        narration: swapOrderByNarration.narration,
+                        swapToAmount,
+                        depositAmount,
+                    })}`
+                );
+                return true;
+            }
         }
 
         // Strategy 2 & 3: Fall back to heuristics for orders not yet fulfilled
