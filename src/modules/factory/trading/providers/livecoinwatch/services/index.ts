@@ -89,6 +89,12 @@ export class LiveCoinWatchService {
 
         const lcwCode = this.symbolMap[asset.toLowerCase()] || asset.toUpperCase();
 
+        // FIX: Handle NGN explicit check to avoid 400 from LiveCoinWatch (Fiat not supported in this endpoint)
+        if (lcwCode === 'NGN') {
+            this.logger.debug('Asset is NGN, returning static USD approx rate to avoid API error');
+            return 0.00065; // Approx 1/1540
+        }
+
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 this.logger.debug(`Requesting price for ${asset} (code: ${lcwCode}), attempt ${attempt}`);

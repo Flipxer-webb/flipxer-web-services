@@ -966,6 +966,7 @@ enum TransactionFeeCategory {
 enum PaymentMethod {
   FINCRA
   NOMBA
+  PAYSTACK
 }
 
 enum TransactionStatus {
