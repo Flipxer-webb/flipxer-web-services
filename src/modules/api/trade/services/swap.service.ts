@@ -174,6 +174,7 @@ export class SwapService {
             from_amount: amount.toString(),
             to_amount: toAmount.toString(),
             rate: rate.toString(),
+            quoted_price: rate.toString(), // Added for compatibility
             expires_at: expiresAt,
             // Mock other fields if needed
             created_at: new Date().toISOString(),
