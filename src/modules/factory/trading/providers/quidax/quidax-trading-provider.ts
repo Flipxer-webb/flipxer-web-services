@@ -233,6 +233,38 @@ export class QuidaxTradingProvider implements ITradingProvider {
         };
     }
 
+    async internalTransfer(options: any): Promise<ProviderResponse<any>> {
+        // Extract userId and transfer options from the input
+        // Expected structure: { userId: string, currency: string, amount: string, recipient?: string, reason?: string }
+        const userId = options.userId || options.user_id;
+        if (!userId) {
+            throw new Error('userId is required for internalTransfer');
+        }
+
+        const result = await this.quidaxService.internalTransfer(userId, {
+            currency: options.currency?.toLowerCase() || options.currency,
+            amount: options.amount,
+            recipient: options.recipient || 'me', // Default to master account if not specified
+            reason: options.reason,
+        });
+
+        const data: any = result.data;
+        return {
+            status: result.status === 'successful' ? 'success' : 'error',
+            message: result.message,
+            data: {
+                id: data?.id || '',
+                currency: data?.currency || options.currency,
+                amount: data?.amount?.toString() || options.amount,
+                recipient: options.recipient || data?.recipient,
+                status: data?.state || 'pending',
+                txHash: data?.txid,
+                createdAt: new Date(data?.created_at || Date.now()),
+                completedAt: data?.done_at ? new Date(data.done_at) : undefined,
+            },
+        };
+    }
+
     // ============ Order Operations ============
 
     async placeOrder(options: PlaceOrderOptions): Promise<ProviderResponse<OrderResult>> {

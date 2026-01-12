@@ -1,7 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { VolatilityMonitorService } from "./volatility-monitor.service";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { OrderCategory, OrderStatus } from "@prisma/client";
 
 @Injectable()
@@ -14,6 +15,7 @@ export class WithdrawalGuardService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly volatilityService: VolatilityMonitorService,
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly lcwService: LiveCoinWatchService
     ) { }
 

@@ -1,7 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { WalletManagementService } from "@/modules/api/operations/services/wallet-management.service";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { OrderStatus } from "@prisma/client";
 
 // Maximum allowable deficit in USD before blocking "Buy" orders
@@ -15,6 +16,7 @@ export class ExposureCapService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly walletManagement: WalletManagementService,
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly liveCoinWatch: LiveCoinWatchService
     ) { }
 

@@ -1,7 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { TradingInjectionToken } from "@/modules/factory/trading/types";
 
 @Injectable()
 export class VolatilityMonitorService {
@@ -11,6 +12,7 @@ export class VolatilityMonitorService {
     private readonly MONITORED_ASSETS = ["BTC", "ETH", "USDT", "USDC", "BNB", "SOL", "XRP", "ADA", "DOGE", "SHIB", "TRX", "LTC"]; // Major assets + those we support
 
     constructor(
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly lcwService: LiveCoinWatchService,
         private readonly redisService: RedisCacheService
     ) { }

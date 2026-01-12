@@ -312,7 +312,66 @@ export class SwapService {
             });
         }
 
-        // 4. Atomic Execution (Ledger)
+        // 4. Ensure Destination Wallet Exists (Before Transaction)
+        // Fetch wallet data from Quidax to ensure AssetWallet exists with all required fields
+        try {
+            const destinationWalletData = await this.quidaxService.getUserWallet({
+                user_id: user.cryptoSubAccountId,
+                currency: quote.to_currency.toLowerCase(),
+            });
+
+            if (destinationWalletData.status === "success" && destinationWalletData.data) {
+                const data = destinationWalletData.data;
+                await this.prisma.assetWallet.upsert({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: user.id,
+                            assetCurrency: quote.to_currency.toUpperCase(),
+                        },
+                    },
+                    update: {
+                        quidaxWalletId: data.id,
+                        assetName: data.name,
+                        locked: data.locked,
+                        staked: data.staked,
+                        convertedBalance: data.converted_balance,
+                        blockchainEnabled: data.blockchain_enabled,
+                        defaultNetwork: data.default_network,
+                        isCrypto: data.is_crypto,
+                        networks: data.networks,
+                        referenceCurrency: data.reference_currency,
+                        depositAddress: data.deposit_address,
+                        destinationTag: data.destination_tag,
+                        ...(data.deposit_address && { addressSynced: true }),
+                        ...(data.deposit_address && { isActive: true }),
+                    },
+                    create: {
+                        quidaxWalletId: data.id,
+                        assetCurrency: data.currency.toUpperCase(),
+                        assetName: data.name,
+                        balance: data.balance,
+                        locked: data.locked,
+                        staked: data.staked,
+                        convertedBalance: data.converted_balance,
+                        blockchainEnabled: data.blockchain_enabled,
+                        defaultNetwork: data.default_network,
+                        isCrypto: data.is_crypto,
+                        networks: data.networks,
+                        referenceCurrency: data.reference_currency,
+                        depositAddress: data.deposit_address,
+                        destinationTag: data.destination_tag,
+                        userId: user.id,
+                        ...(data.deposit_address && { addressSynced: true }),
+                        ...(data.deposit_address && { isActive: true }),
+                    },
+                });
+            }
+        } catch (walletError) {
+            this.logger.warn(`Failed to ensure destination wallet exists: ${walletError?.message}`);
+            // Continue with transaction - wallet might already exist
+        }
+
+        // 5. Atomic Execution (Ledger)
         try {
             const resultOrder = await this.prisma.$transaction(async (tx) => {
                 // A. Check & Deduct Source Balance
@@ -336,21 +395,26 @@ export class SwapService {
                     }
                 });
 
-                // B. Credit Destination Balance (Lazy Create)
-                await tx.assetWallet.upsert({
+                // B. Credit Destination Balance (Wallet should exist now)
+                const destinationWallet = await tx.assetWallet.findUnique({
                     where: {
                         userId_assetCurrency: {
                             userId: user.id,
                             assetCurrency: quote.to_currency.toUpperCase(),
                         }
-                    },
-                    create: {
-                        userId: user.id,
-                        assetCurrency: quote.to_currency.toUpperCase(),
-                        balance: quote.to_amount,
-                        pendingSweepBalance: 0,
-                    },
-                    update: {
+                    }
+                });
+
+                if (!destinationWallet) {
+                    throw new GeneralTransactionException(
+                        `Destination wallet not found for ${quote.to_currency}`,
+                        HttpStatus.INTERNAL_SERVER_ERROR
+                    );
+                }
+
+                await tx.assetWallet.update({
+                    where: { id: destinationWallet.id },
+                    data: {
                         balance: { increment: quote.to_amount }
                     }
                 });
@@ -528,13 +592,79 @@ export class SwapService {
             );
         }
 
-        // 4. Atomic Execution (Ledger) for Retry
+        // 4. Ensure Destination Wallet Exists (Before Transaction)
+        const user = await this.prisma.user.findUnique({ where: { id: order.userId } });
+        
+        if (!user?.cryptoSubAccountId) {
+            throw new IncompleteAccountSetupException(
+                "User crypto account not found",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // Fetch wallet data from Quidax to ensure AssetWallet exists with all required fields
+        try {
+            const destinationWalletData = await this.quidaxService.getUserWallet({
+                user_id: user.cryptoSubAccountId,
+                currency: toCurrency.toLowerCase(),
+            });
+
+            if (destinationWalletData.status === "success" && destinationWalletData.data) {
+                const data = destinationWalletData.data;
+                await this.prisma.assetWallet.upsert({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: order.userId,
+                            assetCurrency: toCurrency.toUpperCase(),
+                        },
+                    },
+                    update: {
+                        quidaxWalletId: data.id,
+                        assetName: data.name,
+                        locked: data.locked,
+                        staked: data.staked,
+                        convertedBalance: data.converted_balance,
+                        blockchainEnabled: data.blockchain_enabled,
+                        defaultNetwork: data.default_network,
+                        isCrypto: data.is_crypto,
+                        networks: data.networks,
+                        referenceCurrency: data.reference_currency,
+                        depositAddress: data.deposit_address,
+                        destinationTag: data.destination_tag,
+                        ...(data.deposit_address && { addressSynced: true }),
+                        ...(data.deposit_address && { isActive: true }),
+                    },
+                    create: {
+                        quidaxWalletId: data.id,
+                        assetCurrency: data.currency.toUpperCase(),
+                        assetName: data.name,
+                        balance: data.balance,
+                        locked: data.locked,
+                        staked: data.staked,
+                        convertedBalance: data.converted_balance,
+                        blockchainEnabled: data.blockchain_enabled,
+                        defaultNetwork: data.default_network,
+                        isCrypto: data.is_crypto,
+                        networks: data.networks,
+                        referenceCurrency: data.reference_currency,
+                        depositAddress: data.deposit_address,
+                        destinationTag: data.destination_tag,
+                        userId: order.userId,
+                        ...(data.deposit_address && { addressSynced: true }),
+                        ...(data.deposit_address && { isActive: true }),
+                    },
+                });
+            }
+        } catch (walletError) {
+            this.logger.warn(`Failed to ensure destination wallet exists: ${walletError?.message}`);
+            // Continue with transaction - wallet might already exist
+        }
+
+        // 5. Atomic Execution (Ledger) for Retry
         // NOTE: In the original 'confirm', we validated balances and deducted. 
         // For a PENDING order, did we deduct source balance already? 
         // Logic above says: Liquidity Check fails -> Create PENDING Order. NO DEDUCTION happened.
         // So we MUST deduct source balance now.
-
-        const user = await this.prisma.user.findUnique({ where: { id: order.userId } });
 
         try {
             await this.prisma.$transaction(async (tx) => {
@@ -560,21 +690,26 @@ export class SwapService {
                     }
                 });
 
-                // B. Credit Destination Balance
-                await tx.assetWallet.upsert({
+                // B. Credit Destination Balance (Wallet should exist now)
+                const destinationWallet = await tx.assetWallet.findUnique({
                     where: {
                         userId_assetCurrency: {
                             userId: order.userId,
                             assetCurrency: toCurrency.toUpperCase(),
                         }
-                    },
-                    create: {
-                        userId: order.userId,
-                        assetCurrency: toCurrency.toUpperCase(),
-                        balance: toAmount,
-                        pendingSweepBalance: 0,
-                    },
-                    update: {
+                    }
+                });
+
+                if (!destinationWallet) {
+                    throw new GeneralTransactionException(
+                        `Destination wallet not found for ${toCurrency}`,
+                        HttpStatus.INTERNAL_SERVER_ERROR
+                    );
+                }
+
+                await tx.assetWallet.update({
+                    where: { id: destinationWallet.id },
+                    data: {
                         balance: { increment: toAmount }
                     }
                 });
