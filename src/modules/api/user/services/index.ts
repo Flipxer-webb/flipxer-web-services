@@ -66,7 +66,6 @@ export class UserService {
         @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly liveCoinWatchService: LiveCoinWatchService,
         private readonly redisCacheService: RedisCacheService,
-        @Inject(forwardRef(() => LedgerService))
         private readonly ledgerService: LedgerService
     ) {
         this.uploadService = this.uploadFactory.build({

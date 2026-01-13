@@ -1,6 +1,5 @@
 import { forwardRef, Global, Module } from "@nestjs/common";
 import { AuthModule } from "../auth";
-import { TradingModule } from "../trade";
 import { UserController } from "./controllers/v1";
 import { PreferencesController } from "./controllers/v1/preferences.controller";
 import { UserService } from "./services";
@@ -10,15 +9,16 @@ import { AdminUserController } from "./controllers/v1/admin";
 import { CachingModule } from "@/modules/core/redisCache";
 import { TierService } from "../auth/services/tier.service";
 import { PrismaModule } from "@/modules/core/prisma";
+import { LedgerService } from "../trade/services/ledger/ledger.service";
 export * from "./interfaces";
 export * from "./errors";
 export * from "./decorators";
 
 @Global()
 @Module({
-    imports: [forwardRef(() => AuthModule), forwardRef(() => TradingModule), CachingModule, PrismaModule],
+    imports: [forwardRef(() => AuthModule), CachingModule, PrismaModule],
     controllers: [UserController, AdminUserController, PreferencesController],
-    providers: [UserService, AdminUserService, TierService, PreferencesService],
+    providers: [UserService, AdminUserService, TierService, PreferencesService, LedgerService],
     exports: [UserService, TierService, PreferencesService],
 })
 export class UserModule {}
