@@ -172,13 +172,7 @@ export class RateService {
             };
         }
 
-        // Check for DB override (admin can set specific rates for any asset)
-        const dbOverride = await this.getDbOverride(normalizedCurrency);
-        if (dbOverride) {
-            return dbOverride;
-        }
-
-        // Calculate dynamic rate
+        // Calculate dynamic rate for all other assets
         return this.calculateDynamicRate(normalizedCurrency);
     }
 
@@ -207,30 +201,7 @@ export class RateService {
     }
 
     /**
-     * Check for database override (when admin wants to set a specific rate)
-     */
-    private async getDbOverride(currency: string): Promise<AssetRate | null> {
-        const rate = await this.prisma.cryptoRate.findUnique({
-            where: { currency },
-        });
-
-        // If rate exists AND has non-zero values, use it as override
-        if (rate && (rate.buyRate > 0 || rate.sellRate > 0)) {
-            this.logger.debug(`Using DB override for ${currency}`);
-            return {
-                currency,
-                buyRate: rate.buyRate,
-                sellRate: rate.sellRate,
-                source: "database",
-                lastUpdated: rate.updatedAt,
-            };
-        }
-
-        return null;
-    }
-
-    /**
-     * Calculate dynamic rate from USDT base rate and Binance price
+     * Calculate dynamic rate from USDT base rate and LiveCoinWatch price
      *
      * Formula:
      * - sellRate = assetUsdtPrice × usdtBaseRate.sellRate
