@@ -580,6 +580,10 @@ export class UserService {
                         // Using toFixed(2) for NGN/Fiat precision
                         liveConvertedBalance = (balance * rate).toFixed(2);
                     }
+                } else if (adminBuyRate > 0) {
+                    // Fallback to admin rate (cryptoRate) if live ticker is missing
+                    // This ensures assets like USDC (which have no live ticker) still show a fiat value
+                    liveConvertedBalance = (balance * adminBuyRate).toFixed(2);
                 }
 
                 return {

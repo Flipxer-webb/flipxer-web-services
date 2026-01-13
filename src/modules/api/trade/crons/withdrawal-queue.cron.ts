@@ -24,9 +24,6 @@ import { Decimal } from "@prisma/client/runtime/library";
 export class WithdrawalQueueCron {
     private readonly logger = new Logger(WithdrawalQueueCron.name);
 
-    // Currencies to process (supported assets)
-    private readonly SUPPORTED_CURRENCIES = ["BTC", "ETH", "USDT", "USDC", "SOL"];
-
     constructor(
         private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
@@ -69,9 +66,15 @@ export class WithdrawalQueueCron {
 
             this.logger.log(`Queue stats: ${JSON.stringify(stats)}`);
 
-            // 3. Process each currency
+            // 3. Get currencies that have pending withdrawals (dynamic)
+            const pendingCurrencies = await this.prisma.withdrawalQueue.groupBy({
+                by: ['currency'],
+                where: { status: 'pending' },
+            });
+
+            // 4. Process each currency with pending entries
             let totalProcessed = 0;
-            for (const currency of this.SUPPORTED_CURRENCIES) {
+            for (const { currency } of pendingCurrencies) {
                 const processed = await this.processCurrencyQueue(currency);
                 totalProcessed += processed;
             }
