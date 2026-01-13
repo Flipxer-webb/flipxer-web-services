@@ -235,6 +235,7 @@ export class RateService {
 
     /**
      * Get rates for all supported assets
+     * Optimized: Fetches USDT base rate and all prices once for consistency
      *
      * @returns Array of asset rates
      */
@@ -257,27 +258,69 @@ export class RateService {
             }));
         }
 
-        // Dynamic mode: Calculate all rates
-        const rates: AssetRate[] = [];
-
-        for (const dbRate of dbRates) {
+        // Dynamic mode: Fetch all data upfront for consistency
+        // This ensures all rates use the same USDT base rate and price snapshot
+        const usdtBaseRate = await this.getUsdtBaseRate();
+        
+        // Fetch all USDT prices in parallel for consistency
+        const currencies = dbRates.map(r => r.currency);
+        const pricePromises = currencies.map(async (currency) => {
+            if (currency === "USDT") {
+                return { currency, price: 1.0 };
+            }
             try {
-                const rate = await this.getAssetRate(dbRate.currency);
-                rates.push(rate);
+                const price = await this.getAssetUsdtPrice(currency);
+                return { currency, price };
             } catch (error) {
-                this.logger.warn(
-                    `Failed to get rate for ${dbRate.currency}: ${error.message}`
-                );
-                // Include DB rate as fallback
-                rates.push({
-                    currency: dbRate.currency,
+                this.logger.warn(`Failed to get USDT price for ${currency}: ${error.message}`);
+                return { currency, price: null };
+            }
+        });
+        
+        const priceResults = await Promise.all(pricePromises);
+        const priceMap = new Map(priceResults.map(r => [r.currency, r.price]));
+
+        // Calculate all rates using the same base rate and prices
+        const rates: AssetRate[] = dbRates.map((dbRate) => {
+            const currency = dbRate.currency;
+            const assetUsdtPrice = priceMap.get(currency);
+
+            // USDT uses database rate directly (admin-managed)
+            if (currency === "USDT") {
+                return {
+                    currency: "USDT",
+                    buyRate: usdtBaseRate.buyRate,
+                    sellRate: usdtBaseRate.sellRate,
+                    source: "database" as const,
+                    usdtPrice: 1.0,
+                    lastUpdated: new Date(),
+                };
+            }
+
+            // If price fetch failed, fallback to DB rate
+            if (assetUsdtPrice === null || assetUsdtPrice === undefined) {
+                return {
+                    currency,
                     buyRate: dbRate.buyRate,
                     sellRate: dbRate.sellRate,
-                    source: "database",
+                    source: "database" as const,
                     lastUpdated: dbRate.updatedAt,
-                });
+                };
             }
-        }
+
+            // Calculate dynamic rate
+            const buyRate = assetUsdtPrice * usdtBaseRate.buyRate;
+            const sellRate = assetUsdtPrice * usdtBaseRate.sellRate;
+
+            return {
+                currency,
+                buyRate,
+                sellRate,
+                source: "dynamic" as const,
+                usdtPrice: assetUsdtPrice,
+                lastUpdated: new Date(),
+            };
+        });
 
         return rates;
     }
