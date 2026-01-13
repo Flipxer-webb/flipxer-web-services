@@ -10,6 +10,7 @@ import { CachingModule } from "@/modules/core/redisCache";
 import { TierService } from "../auth/services/tier.service";
 import { PrismaModule } from "@/modules/core/prisma";
 import { LedgerService } from "../trade/services/ledger/ledger.service";
+import { RateService } from "../trade/services/rate.service";
 export * from "./interfaces";
 export * from "./errors";
 export * from "./decorators";
@@ -18,7 +19,7 @@ export * from "./decorators";
 @Module({
     imports: [forwardRef(() => AuthModule), CachingModule, PrismaModule],
     controllers: [UserController, AdminUserController, PreferencesController],
-    providers: [UserService, AdminUserService, TierService, PreferencesService, LedgerService],
+    providers: [UserService, AdminUserService, TierService, PreferencesService, LedgerService, RateService],
     exports: [UserService, TierService, PreferencesService],
 })
 export class UserModule {}

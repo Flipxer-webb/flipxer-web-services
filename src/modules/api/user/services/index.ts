@@ -45,6 +45,7 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { LedgerService } from "@/modules/api/trade/services/ledger/ledger.service";
+import { RateService } from "@/modules/api/trade/services/rate.service";
 
 @Injectable()
 export class UserService {
@@ -66,7 +67,8 @@ export class UserService {
         @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly liveCoinWatchService: LiveCoinWatchService,
         private readonly redisCacheService: RedisCacheService,
-        private readonly ledgerService: LedgerService
+        private readonly ledgerService: LedgerService,
+        private readonly rateService: RateService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -490,7 +492,7 @@ export class UserService {
 
         // OPTIMIZATION: Run all queries in parallel instead of sequential
         const dbStartTime = Date.now();
-        const [assetsResult, adminRates, liveMarketData, ledgerBalances] = await Promise.all([
+        const [assetsResult, dynamicRates, liveMarketData, ledgerBalances] = await Promise.all([
             // Query 1: Fetch user assets + count in a transaction
             this.prisma.$transaction([
                 this.prisma.assetWallet.findMany({
@@ -502,8 +504,8 @@ export class UserService {
                 }),
                 this.prisma.assetWallet.count({ where: dbQuery.where }),
             ]),
-            // Query 2: Fetch admin-defined crypto rates
-            this.prisma.cryptoRate.findMany(),
+            // Query 2: Fetch dynamic rates from RateService (uses LiveCoinWatch)
+            this.rateService.getAllRates(),
             // Query 3: Fetch live Quidax rates (from cache or API)
             this.quidaxCacheService.getMarketTickers(),
             // Query 4: Fetch ledger balances (virtual balance system)
@@ -520,8 +522,9 @@ export class UserService {
         const lcwData = await this.liveCoinWatchService.getBatchMarketData(uniqueAssets);
         this.logger.log(`[PERF] LiveCoinWatch batch fetch for ${uniqueAssets.length} assets: ${Date.now() - lcwStartTime}ms`);
 
-        const adminRatesMap = new Map(
-            adminRates.map((rate) => [rate.currency.toLowerCase(), rate])
+        // Create a map of dynamic rates by currency
+        const dynamicRatesMap = new Map(
+            dynamicRates.map((rate) => [rate.currency.toLowerCase(), rate])
         );
         const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
 
@@ -552,10 +555,10 @@ export class UserService {
                     ? Number(ledgerBalance.total)
                     : 0;
 
-                // Admin rate lookup
-                const adminRate = adminRatesMap.get(assetCurrency);
-                const adminBuyRate = adminRate?.buyRate ?? 0;
-                const adminSellRate = adminRate?.sellRate ?? 0;
+                // Dynamic rate lookup (from RateService - uses LiveCoinWatch)
+                const dynamicRate = dynamicRatesMap.get(assetCurrency);
+                const buyRate = dynamicRate?.buyRate ?? 0;
+                const sellRate = dynamicRate?.sellRate ?? 0;
 
                 // Live market data lookup
                 const marketSymbol = `${assetCurrency}${referenceCurrency}`;
@@ -568,22 +571,18 @@ export class UserService {
                 // Fallback to Quidax generic calculation if LCW is unavailable
                 const percentChange = marketData?.change24h ?? this.calculatePercentageChange(ticker);
 
-                // Calculate Live Converted Balance using ledger balance
+                // Calculate Live Converted Balance using dynamic rate
                 let liveConvertedBalance: any = "0";
 
-                if (ticker?.sell) {
+                // Use dynamic rate for conversion (consistent with buy/sell operations)
+                if (sellRate > 0) {
+                    liveConvertedBalance = (balance * sellRate).toFixed(2);
+                } else if (ticker?.sell) {
+                    // Fallback to Quidax ticker if dynamic rate unavailable
                     const rate = parseFloat(ticker.sell);
-
                     if (!isNaN(rate) && !isNaN(balance)) {
-                        // Use calculated value based on live rate and ledger balance
-                        // Convert to string (frontend expects string for convertedBalance)
-                        // Using toFixed(2) for NGN/Fiat precision
                         liveConvertedBalance = (balance * rate).toFixed(2);
                     }
-                } else if (adminBuyRate > 0) {
-                    // Fallback to admin rate (cryptoRate) if live ticker is missing
-                    // This ensures assets like USDC (which have no live ticker) still show a fiat value
-                    liveConvertedBalance = (balance * adminBuyRate).toFixed(2);
                 }
 
                 return {
@@ -592,11 +591,11 @@ export class UserService {
                     locked: heldBalance.toString(), // Use ledger held amount
                     convertedBalance: liveConvertedBalance, // Override DB value with live value
                     buyRate: {
-                        value: adminBuyRate.toFixed(4),
+                        value: buyRate.toFixed(4),
                         referenceCurrency,
                     },
                     sellRate: {
-                        value: adminSellRate.toFixed(4),
+                        value: sellRate.toFixed(4),
                         referenceCurrency,
                     },
                     liveRate: {
