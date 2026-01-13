@@ -32,7 +32,7 @@ export class WithdrawalQueueCron {
         private readonly ledgerService: LedgerService,
         private readonly slackWebhookService: SlackWebhookService,
         private readonly wsGateway: WsGateway
-    ) {}
+    ) { }
 
     /**
      * Main cron job - runs every 5 minutes
@@ -58,7 +58,7 @@ export class WithdrawalQueueCron {
 
             // 2. Get queue stats for monitoring
             const stats = await this.withdrawalQueueService.getQueueStats();
-            
+
             if (stats.totalQueued === 0) {
                 this.logger.log("No queued withdrawals to process");
                 return;
@@ -67,9 +67,13 @@ export class WithdrawalQueueCron {
             this.logger.log(`Queue stats: ${JSON.stringify(stats)}`);
 
             // 3. Get currencies that have pending withdrawals (dynamic)
+            // Pending = not yet processed and not released
             const pendingCurrencies = await this.prisma.withdrawalQueue.groupBy({
                 by: ['currency'],
-                where: { status: 'pending' },
+                where: {
+                    processedAt: null,
+                    releasedAt: null,
+                },
             });
 
             // 4. Process each currency with pending entries
@@ -99,7 +103,7 @@ export class WithdrawalQueueCron {
         try {
             // Get main wallet balance for this currency
             const mainWalletBalance = await this.getMainWalletBalance(currency);
-            
+
             if (mainWalletBalance.lte(0)) {
                 this.logger.debug(`No balance available for ${currency}`);
                 return 0;
@@ -122,14 +126,14 @@ export class WithdrawalQueueCron {
                 try {
                     // Execute the withdrawal
                     const success = await this.executeQueuedWithdrawal(queueEntry);
-                    
+
                     if (success) {
                         processed++;
                         availableBalance = availableBalance.sub(queueEntry.amount);
-                        
+
                         // Mark as processed
                         await this.withdrawalQueueService.markProcessed(queueEntry.id);
-                        
+
                         // Send WebSocket notification
                         this.wsGateway.notifyWithdrawalProcessed(queueEntry.userId, {
                             queueId: queueEntry.id,
@@ -160,7 +164,7 @@ export class WithdrawalQueueCron {
      */
     private async executeQueuedWithdrawal(queueEntry: any): Promise<boolean> {
         const { holdEntry } = queueEntry;
-        
+
         if (!holdEntry) {
             this.logger.error(`No hold entry found for queue entry ${queueEntry.id}`);
             return false;
@@ -266,7 +270,7 @@ export class WithdrawalQueueCron {
         // Alert if entries are close to timing out (approaching 72h)
         if (stats.oldestQueuedAt) {
             const hoursInQueue = (Date.now() - new Date(stats.oldestQueuedAt).getTime()) / (1000 * 60 * 60);
-            
+
             if (hoursInQueue > 48) {
                 await this.slackWebhookService.sendSystemAlert(
                     "withdrawal_queue",
