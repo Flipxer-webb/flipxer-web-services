@@ -805,7 +805,7 @@ export class LedgerService {
      * Gets all balances for a user across all currencies
      *
      * @param userId User ID
-     * @returns Map of currency to balance info
+     * @returns Map of currency (uppercase) to balance info
      */
     async getAllBalances(userId: number): Promise<Map<string, BalanceInfo>> {
         // Get distinct currencies this user has entries for
@@ -820,7 +820,8 @@ export class LedgerService {
         for (const { currency } of currencies) {
             const balance = await this.getBalance(userId, currency);
             if (!balance.total.isZero()) {
-                balances.set(currency, balance);
+                // Store with uppercase key for consistent lookup
+                balances.set(currency.toUpperCase(), balance);
             }
         }
 
