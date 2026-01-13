@@ -5,14 +5,14 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 import { getTriggeredTime } from "@/modules/scheduler/services/utils";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
-import { BinanceService } from "@/modules/factory/trading/providers/binance/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 
 /**
  * Price Cache Scheduler
  * Pre-fetches crypto prices using LiveCoinWatch with CoinCap fallback for USD prices.
- * Uses Binance for X/USDT prices (for dynamic rate calculation).
+ * Uses LiveCoinWatch for X/USDT prices (for dynamic rate calculation).
  * CoinGecko removed due to rate limiting issues.
+ * Binance removed due to geo-blocking (HTTP 451) on Render servers.
  */
 @Injectable()
 export class PriceCacheSchedulerService implements OnModuleInit {
@@ -29,8 +29,6 @@ export class PriceCacheSchedulerService implements OnModuleInit {
         private readonly liveCoinWatchService: LiveCoinWatchService,
         @Inject(TradingInjectionToken.COINCAP)
         private readonly coinCapService: CoinCapService,
-        @Inject(TradingInjectionToken.BINANCE)
-        private readonly binanceService: BinanceService,
         private readonly redisCacheService: RedisCacheService
     ) { }
 
@@ -93,9 +91,8 @@ export class PriceCacheSchedulerService implements OnModuleInit {
     }
 
     /**
-     * Update X/USDT prices from Binance for dynamic rate calculation
-     * Runs every 60 seconds for more accurate trading rates
-     * Uses LiveCoinWatch as fallback (with currency: "USDT")
+     * Update X/USDT prices from LiveCoinWatch for dynamic rate calculation
+     * Runs every 60 seconds for accurate trading rates
      */
     @Cron("*/60 * * * * *", { timeZone: "Africa/Lagos" })
     async updateUsdtPrices() {
@@ -105,40 +102,24 @@ export class PriceCacheSchedulerService implements OnModuleInit {
         try {
             this.logger.debug("Acquired lock: Running USDT prices update job");
 
-            // Get batch prices from Binance
-            let usdtPrices: Map<string, number>;
-            let source = "binance";
+            const usdtPrices = new Map<string, number>();
 
-            try {
-                usdtPrices = await this.binanceService.getBatchPricesInUSDT(this.coins);
-                this.logger.debug(`✅ [Binance] Successfully fetched ${usdtPrices.size} USDT prices`);
-            } catch (binanceError) {
-                this.logger.warn(`⚠️ [Binance] Failed, trying LiveCoinWatch: ${binanceError.message}`);
-                source = "livecoinwatch";
-
-                // Fallback to LiveCoinWatch with USDT currency
-                usdtPrices = new Map();
+            for (const coin of this.coins) {
+                if (coin.toLowerCase() === "usdt") {
+                    usdtPrices.set("USDT", 1.0);
+                    continue;
+                }
                 try {
-                    for (const coin of this.coins) {
-                        if (coin.toLowerCase() === "usdt") {
-                            usdtPrices.set("USDT", 1.0);
-                            continue;
-                        }
-                        try {
-                            const price = await this.liveCoinWatchService.getPriceInUSDT(coin);
-                            usdtPrices.set(coin.toUpperCase(), price);
-                        } catch (err) {
-                            this.logger.warn(`Failed to get USDT price for ${coin}: ${err.message}`);
-                        }
-                    }
-                    this.logger.debug(`✅ [LCW] Successfully fetched ${usdtPrices.size} USDT prices`);
-                } catch (lcwError) {
-                    this.logger.error(`❌ Both Binance and LCW failed: ${lcwError.message}`);
-                    return;
+                    const price = await this.liveCoinWatchService.getPriceInUSDT(coin);
+                    usdtPrices.set(coin.toUpperCase(), price);
+                } catch (err) {
+                    this.logger.warn(`Failed to get USDT price for ${coin}: ${err.message}`);
                 }
             }
 
-            // Cache USDT prices (BinanceService already caches, but we store metadata)
+            this.logger.debug(`✅ [LiveCoinWatch] Fetched ${usdtPrices.size} USDT prices`);
+
+            // Cache USDT prices
             let successCount = 0;
             const timestamp = Date.now();
 
@@ -157,12 +138,12 @@ export class PriceCacheSchedulerService implements OnModuleInit {
             // Store metadata for admin/debugging
             await this.redisCacheService.set(
                 "price:usdt:meta",
-                { source, timestamp, count: successCount },
+                { source: "livecoinwatch", timestamp, count: successCount },
                 90
             );
 
             this.logger.debug(
-                `[${source}] Completed USDT price updates: ${successCount}/${this.coins.length} coins`
+                `[LiveCoinWatch] Completed USDT price updates: ${successCount}/${this.coins.length} coins`
             );
         } catch (error: any) {
             this.logger.error("Error in running USDT prices update cron job:", error);
