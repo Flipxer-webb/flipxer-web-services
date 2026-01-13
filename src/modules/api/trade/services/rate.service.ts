@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { BinanceService } from "@/modules/factory/trading/providers/binance/services";
+import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import { HttpStatus } from "@nestjs/common";
@@ -45,7 +46,9 @@ export class RateService {
         private readonly prisma: PrismaService,
         private readonly redisCacheService: RedisCacheService,
         @Inject(TradingInjectionToken.BINANCE)
-        private readonly binanceService: BinanceService
+        private readonly binanceService: BinanceService,
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
+        private readonly liveCoinWatchService: LiveCoinWatchService
     ) {}
 
     /**
@@ -106,7 +109,8 @@ export class RateService {
     }
 
     /**
-     * Get the X/USDT price from Binance cache
+     * Get the X/USDT price from cache or external providers
+     * Uses Binance as primary, LiveCoinWatch as fallback
      */
     async getAssetUsdtPrice(currency: string): Promise<number> {
         const normalizedCurrency = currency.toUpperCase();
@@ -125,16 +129,29 @@ export class RateService {
             return cachedPrice;
         }
 
-        // Fallback to direct Binance call
+        // Try Binance first (may fail with 451 in certain regions)
         try {
             const price = await this.binanceService.getPriceInUSDT(currency);
             return price;
-        } catch (error) {
-            this.logger.error(`Failed to get USDT price for ${currency}: ${error.message}`);
-            throw new GeneralTransactionException(
-                `Unable to fetch current rate for ${currency}`,
-                HttpStatus.SERVICE_UNAVAILABLE
+        } catch (binanceError) {
+            this.logger.warn(
+                `Binance failed for ${currency}: ${binanceError.message}, trying LiveCoinWatch...`
             );
+
+            // Fallback to LiveCoinWatch
+            try {
+                const price = await this.liveCoinWatchService.getPriceInUSDT(currency);
+                this.logger.log(`LiveCoinWatch fallback succeeded for ${currency}: ${price} USDT`);
+                return price;
+            } catch (lcwError) {
+                this.logger.error(
+                    `Both Binance and LiveCoinWatch failed for ${currency}: ${lcwError.message}`
+                );
+                throw new GeneralTransactionException(
+                    `Unable to fetch current rate for ${currency}`,
+                    HttpStatus.SERVICE_UNAVAILABLE
+                );
+            }
         }
     }
 
