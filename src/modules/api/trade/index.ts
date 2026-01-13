@@ -6,6 +6,7 @@ import { BuyOrderService } from "./services/buy-order.service";
 import { SellOrderService } from "./services/sell-order.service";
 import { SwapService } from "./services/swap.service";
 import { SendService } from "./services/send.service";
+import { RateService } from "./services/rate.service";
 import { WebhookHandlerService } from "./services/webhook-handler.service";
 import { DepositWebhookHandler } from "./services/webhook-handlers/deposit-webhook.handler";
 import { SwapWebhookHandler } from "./services/webhook-handlers/swap-webhook.handler";
@@ -40,6 +41,7 @@ import { TransactionAmountGuard } from "@/modules/api/auth/guard";
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
+import { BinanceService } from "@/modules/factory/trading/providers/binance/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { TransactionService } from "../auth/services/transaction.service";
 import { TierService } from "../auth/services/tier.service";
@@ -73,6 +75,7 @@ export * from "./errors";
         SellOrderService,
         SwapService,
         SendService,
+        RateService,
         WebhookHandlerService,
         DepositWebhookHandler,
         SwapWebhookHandler,
@@ -105,6 +108,10 @@ export * from "./errors";
             provide: TradingInjectionToken.COINCAP,
             useClass: CoinCapService,
         },
+        {
+            provide: TradingInjectionToken.BINANCE,
+            useClass: BinanceService,
+        },
     ],
     exports: [
         TradingService,
@@ -114,6 +121,7 @@ export * from "./errors";
         SellOrderService,
         SwapService,
         SendService,
+        RateService,
         WebhookHandlerService,
         LedgerService,
         WithdrawalQueueService,
@@ -127,6 +135,7 @@ export * from "./errors";
         TierService,
         TradingInjectionToken.LIVECOINWATCH,
         TradingInjectionToken.COINCAP,
+        TradingInjectionToken.BINANCE,
     ],
 })
 export class TradingModule { }

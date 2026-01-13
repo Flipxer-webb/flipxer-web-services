@@ -7,6 +7,7 @@ import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { COMPANY_NAME, frontendUrl } from "@/config";
+import { RateService } from "./rate.service";
 import {
     LedgerType,
     NotificationBeneficiary,
@@ -65,7 +66,8 @@ export class BuyOrderService {
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
         private readonly slackWebhookService: SlackWebhookService,
-        private readonly ledgerService: LedgerService
+        private readonly ledgerService: LedgerService,
+        private readonly rateService: RateService
     ) { }
 
     /**
@@ -130,16 +132,15 @@ export class BuyOrderService {
         currency: string,
         amount: number
     ): Promise<{ amount: number; rate: number } | null> {
-        const rate = await this.prisma.cryptoRate.findUnique({
-            where: { currency: currency.toUpperCase() },
-        });
-
-        if (!rate) return null;
-
-        return {
-            amount: amount * rate.sellRate,
-            rate: rate.sellRate,
-        };
+        try {
+            const rate = await this.rateService.getAssetRate(currency.toUpperCase());
+            return {
+                amount: amount * rate.sellRate,
+                rate: rate.sellRate,
+            };
+        } catch {
+            return null;
+        }
     }
 
     /**
@@ -188,15 +189,7 @@ export class BuyOrderService {
 
         const currency = dto.asset.toUpperCase();
         // sell rate is used when user is buying.
-        const [rate] = await Promise.all([
-            this.prisma.cryptoRate.findUnique({ where: { currency } }),
-        ]);
-
-        if (!rate) {
-            throw new CryptoRateNotFoundException(
-                `No rate found for asset ${dto.asset}`
-            );
-        }
+        const rate = await this.rateService.getAssetRate(currency);
 
         // Zero out fees for buy orders as requested
         const quidaxFeeInCrypto = { fee: 0, type: "flat" };

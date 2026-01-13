@@ -4,6 +4,7 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
+import { RateService } from "./rate.service";
 import {
     LedgerType,
     NotificationBeneficiary,
@@ -62,7 +63,8 @@ export class SendService {
         private readonly ledgerService: LedgerService,
         private readonly withdrawalQueueService: WithdrawalQueueService,
         private readonly sweepService: SweepService,
-        private readonly slackWebhookService: SlackWebhookService
+        private readonly slackWebhookService: SlackWebhookService,
+        private readonly rateService: RateService
     ) { }
 
     /**
@@ -181,17 +183,16 @@ export class SendService {
         currency: string,
         amount: number
     ): Promise<{ amount: number; rate: number } | null> {
-        const rate = await this.prisma.cryptoRate.findUnique({
-            where: { currency: currency.toUpperCase() },
-        });
-
-        if (!rate) return null;
-
-        // Use buy rate for outgoing (what user sends out)
-        return {
-            amount: amount * rate.buyRate,
-            rate: rate.buyRate,
-        };
+        try {
+            const rate = await this.rateService.getAssetRate(currency.toUpperCase());
+            // Use buy rate for outgoing (what user sends out)
+            return {
+                amount: amount * rate.buyRate,
+                rate: rate.buyRate,
+            };
+        } catch {
+            return null;
+        }
     }
 
     /**

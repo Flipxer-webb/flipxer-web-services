@@ -13,6 +13,7 @@ export enum TradingInjectionToken {
     COINGECKO = "COINGECKO",
     LIVECOINWATCH = "LIVECOINWATCH",
     COINCAP = "COINCAP",
+    BINANCE = "BINANCE",
 }
 
 export interface ITradingFactory {

@@ -4,6 +4,7 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
+import { RateService } from "./rate.service";
 import {
     NotificationBeneficiary,
     NotificationStatus,
@@ -60,7 +61,8 @@ export class SwapService {
         private readonly walletAddressService: WalletAddressService,
         private readonly wsGateway: WsGateway,
         private readonly slackWebhookService: SlackWebhookService,
-        private readonly walletManagementService: WalletManagementService
+        private readonly walletManagementService: WalletManagementService,
+        private readonly rateService: RateService
     ) { }
 
     /**
@@ -142,10 +144,8 @@ export class SwapService {
             // For fiat amount (e.g. NGN value), we still need to estimate it for limits/logging
             // But the swap itself respects the explicit rate: 1 From = X To implies ToAmount = From * Rate
             // We can fetch the Source->Fiat price just for reference/limits
-            const sourceRate = await this.prisma.cryptoRate.findUnique({
-                where: { currency: fromCurrency.toUpperCase() }
-            });
-            fiatAmount = sourceRate ? amount * sourceRate.buyRate : 0; // Estimate
+            const sourceRate = await this.rateService.getAssetRate(fromCurrency.toUpperCase());
+            fiatAmount = amount * sourceRate.buyRate; // Estimate
         } else {
             // 2. Fallback to Auto-Pilot (Derived Cross-Rate)
             // Use Sell Price of A and Buy Price of B to capture spread on both sides
@@ -158,13 +158,7 @@ export class SwapService {
             fiatAmount = sellQuote.totalToReceiveInFiat;
 
             // Buy NGN -> B
-            const buyRateRecord = await this.prisma.cryptoRate.findUnique({
-                where: { currency: toCurrency.toUpperCase() }
-            });
-
-            if (!buyRateRecord) {
-                throw new GeneralTransactionException("Rate not found for " + toCurrency, HttpStatus.BAD_REQUEST);
-            }
+            const buyRateRecord = await this.rateService.getAssetRate(toCurrency.toUpperCase());
 
             // User 'Buys' at the system's 'SellRate'
             // Rate for A -> B = (FiatValue of A) / (Price of B) / AmountA

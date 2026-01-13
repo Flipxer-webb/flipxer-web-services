@@ -1,0 +1,9 @@
+All USDC LedgerEntries:
+  userId=11: credit=1.035, balanceAfter=1.035
+  userId=7: credit=3.2387, balanceAfter=3.2387
+
+All USDT LedgerEntries:
+  userId=22: credit=2, balanceAfter=2
+  userId=11: credit=1.56883, balanceAfter=1.56883
+  userId=7: credit=0.931, balanceAfter=0.931
+  userId=6: credit=2.0867, balanceAfter=2.0867

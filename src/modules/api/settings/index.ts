@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { SettingService } from "./services";
 import { SettingController } from "./controllers/v1";
@@ -7,6 +7,7 @@ import { AdminSwapPairController } from "./controllers/v1/admin-swap-pairs.contr
 import { SmsModule } from "@/modules/core/sms";
 import { EmailModule } from "@/modules/core/email";
 import { jwtSecret } from "@/config";
+import { TradingModule } from "@/modules/api/trade";
 
 @Module({
     imports: [
@@ -16,6 +17,7 @@ import { jwtSecret } from "@/config";
             secret: jwtSecret,
             signOptions: { expiresIn: "5m" },
         }),
+        forwardRef(() => TradingModule),
     ],
     controllers: [SettingController, AdminSettingController, AdminSwapPairController],
     providers: [SettingService],

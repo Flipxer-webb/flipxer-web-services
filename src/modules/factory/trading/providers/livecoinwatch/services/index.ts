@@ -125,6 +125,59 @@ export class LiveCoinWatchService {
     }
 
     /**
+     * Get current price for a single asset in USDT
+     * Used for dynamic rate calculation fallback when Binance is unavailable
+     */
+    async getPriceInUSDT(asset: string, retries = 3, delay = 1000): Promise<number> {
+        const normalizedAsset = asset.toUpperCase();
+
+        // USDT itself is always 1:1
+        if (normalizedAsset === "USDT") {
+            return 1.0;
+        }
+
+        this.logger.debug(`Fetching USDT price for asset: ${asset}`);
+
+        const cacheKey = `lcw:price:${asset.toLowerCase()}:usdt`;
+        const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
+        if (cachedPrice) {
+            this.logger.debug(`Cache hit for ${asset}: ${cachedPrice} USDT`);
+            return cachedPrice;
+        }
+
+        const lcwCode = this.symbolMap[asset.toLowerCase()] || asset.toUpperCase();
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                this.logger.debug(`Requesting USDT price for ${asset} (code: ${lcwCode}), attempt ${attempt}`);
+
+                // LiveCoinWatch supports any currency including USDT
+                const response = await this.apiClient.post("/coins/single", {
+                    currency: "USDT",
+                    code: lcwCode,
+                    meta: false,
+                });
+
+                const rate = response.data?.rate;
+                if (!rate) throw new Error(`No USDT price data for ${asset}`);
+
+                await this.redisCacheService.set(cacheKey, rate, 60); // Cache for 1 minute (60s TTL)
+                this.logger.debug(`USDT price for ${asset}: ${rate}`);
+                return rate;
+            } catch (error) {
+                this.logger.error(`USDT price attempt ${attempt} failed for ${asset}: ${error.message}`);
+                if (attempt === retries) {
+                    throw new GeneralTransactionException(
+                        `Failed to fetch USDT price for ${asset}: ${error.message}`,
+                        HttpStatus.INTERNAL_SERVER_ERROR
+                    );
+                }
+                await setTimeout(delay * attempt);
+            }
+        }
+    }
+
+    /**
      * Get market data for a single asset (price, volume, market cap, % changes)
      */
     async getMarketData(asset: string, retries = 3, delay = 1000): Promise<LiveCoinWatchCoin> {

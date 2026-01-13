@@ -1,4 +1,4 @@
-import { SwaggerResponse, ApiResponse } from "@/utils/api-response-util";
+import { SwaggerResponse, ApiResponse, buildResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -13,6 +13,7 @@ import {
 } from "@nestjs/common";
 
 import { SettingService } from "../../services";
+import { RateService } from "@/modules/api/trade/services/rate.service";
 import {
     ApiTags,
     ApiOperation,
@@ -36,7 +37,10 @@ import {
     path: "admin/settings",
 })
 export class AdminSettingController {
-    constructor(private settingService: SettingService) {}
+    constructor(
+        private settingService: SettingService,
+        private rateService: RateService
+    ) {}
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get crypto rate list" })
@@ -100,5 +104,58 @@ export class AdminSettingController {
         @Param("transactionFeeId", ParseIntPipe) transactionFeeId: number
     ) {
         return this.settingService.deleteCryptoTransactionFee(transactionFeeId);
+    }
+
+    // ============ Dynamic Rates Endpoints ============
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get calculated rates with dynamic pricing info" })
+    @Get("crypto/calculated-rates")
+    async getCalculatedRates() {
+        const rates = await this.rateService.getAllRates();
+        const status = await this.rateService.getStatus();
+        return buildResponse({
+            message: "Calculated rates retrieved",
+            data: {
+                isDynamic: status.isDynamic,
+                usdtBaseRate: status.usdtRate,
+                priceSource: status.priceSource,
+                lastPriceUpdate: status.lastPriceUpdate,
+                rates,
+            },
+        });
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get dynamic rates feature status" })
+    @Get("crypto/dynamic-rates/status")
+    async getDynamicRatesStatus() {
+        const status = await this.rateService.getStatus();
+        return buildResponse({
+            message: "Dynamic rates status retrieved",
+            data: status,
+        });
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Toggle dynamic rates feature on/off" })
+    @Post("crypto/dynamic-rates/toggle")
+    async toggleDynamicRates(@Body() dto: { enabled: boolean }) {
+        await this.rateService.setDynamicRatesEnabled(dto.enabled);
+        return buildResponse({
+            message: `Dynamic rates ${dto.enabled ? "enabled" : "disabled"}`,
+            data: { enabled: dto.enabled },
+        });
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Invalidate USDT rate cache (after admin updates USDT rate)" })
+    @Post("crypto/dynamic-rates/invalidate-cache")
+    async invalidateRateCache() {
+        await this.rateService.invalidateUsdtCache();
+        return buildResponse({
+            message: "USDT rate cache invalidated",
+            data: null,
+        });
     }
 }
