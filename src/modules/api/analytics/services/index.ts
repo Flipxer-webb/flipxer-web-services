@@ -33,7 +33,7 @@ import {
 export class AnalyticsService {
     private readonly logger = new Logger(AnalyticsService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) { }
 
     // ==================== DASHBOARD OVERVIEW ====================
 
@@ -51,7 +51,7 @@ export class AnalyticsService {
         ] = await Promise.all([
             // Total users
             this.prisma.user.count({ where: { userType: { not: UserType.ADMIN } } }),
-            
+
             // New users in period
             this.prisma.user.count({
                 where: {
@@ -59,7 +59,7 @@ export class AnalyticsService {
                     createdAt: { gte: startDate, lte: endDate },
                 },
             }),
-            
+
             // Active users (users with transactions in period)
             this.prisma.order.groupBy({
                 by: ["userId"],
@@ -68,7 +68,7 @@ export class AnalyticsService {
                     streamlinedStatus: OrderStreamlinedStatus.completed,
                 },
             }).then(r => r.length),
-            
+
             // Total transactions in period
             this.prisma.order.count({
                 where: {
@@ -76,7 +76,7 @@ export class AnalyticsService {
                     streamlinedStatus: OrderStreamlinedStatus.completed,
                 },
             }),
-            
+
             // Transaction volume in period
             this.prisma.order.aggregate({
                 _sum: { amountInFiat: true },
@@ -85,7 +85,7 @@ export class AnalyticsService {
                     streamlinedStatus: OrderStreamlinedStatus.completed,
                 },
             }),
-            
+
             // Fetch orders with fee and rate to calculate revenue in fiat
             this.prisma.order.findMany({
                 where: {
@@ -98,7 +98,7 @@ export class AnalyticsService {
                     rateAtConversion: true,
                 },
             }),
-            
+
             // KYC pending count
             this.prisma.user.count({
                 where: {
@@ -229,7 +229,7 @@ export class AnalyticsService {
         const { startDate, endDate } = this.getDateRange(query.period || "month");
         const granularity = query.granularity || "daily";
 
-        const categoryFilter = query.category && query.category !== "all" 
+        const categoryFilter = query.category && query.category !== "all"
             ? { orderCategory: query.category as OrderCategory }
             : {};
 
@@ -574,35 +574,72 @@ export class AnalyticsService {
     async getAssetDistribution(query: GetAssetDistributionDto): Promise<ApiResponse> {
         const limit = query.limit || 10;
 
-        // Get asset wallet balances
-        const assetBalances = await this.prisma.assetWallet.groupBy({
-            by: ["assetCurrency"],
-            _sum: { convertedBalance: true },
-            _count: true,
-            orderBy: { _sum: { convertedBalance: "desc" } },
-            take: limit,
+        // Get asset balances from LedgerEntries (virtual balance system)
+        // Aggregate by currency using the latest balanceAfter for each user
+        const [ledgerBalances, cryptoRates, assetVolume] = await Promise.all([
+            this.prisma.$queryRaw<
+                { currency: string; total_balance: number; user_count: number }[]
+            >`
+                WITH latest_entries AS (
+                    SELECT DISTINCT ON ("userId", currency)
+                        "userId",
+                        currency,
+                        "balanceAfter"
+                    FROM "LedgerEntries"
+                    WHERE status != 'FAILED'
+                    ORDER BY "userId", currency, "createdAt" DESC
+                )
+                SELECT 
+                    currency,
+                    SUM("balanceAfter")::float as total_balance,
+                    COUNT(DISTINCT "userId")::int as user_count
+                FROM latest_entries
+                WHERE "balanceAfter" > 0
+                GROUP BY currency
+                ORDER BY total_balance DESC
+                LIMIT ${limit}
+            `,
+            // Fetch crypto rates for NGN conversion (using buyRate which is in NGN)
+            this.prisma.cryptoRate.findMany(),
+            // Get transaction volume by asset
+            this.prisma.order.groupBy({
+                by: ["currency"],
+                where: {
+                    streamlinedStatus: OrderStreamlinedStatus.completed,
+                },
+                _sum: { amountInFiat: true },
+                _count: true,
+                orderBy: { _sum: { amountInFiat: "desc" } },
+                take: limit,
+            }),
+        ]);
+
+        // Create rate map: currency -> buyRate (NGN per 1 crypto unit)
+        const rateMap = new Map<string, number>();
+        for (const rate of cryptoRates) {
+            rateMap.set(rate.currency.toUpperCase(), rate.buyRate || 0);
+        }
+
+        // Calculate NGN value for each currency
+        const byBalanceWithNGN = ledgerBalances.map((a) => {
+            const rate = rateMap.get(a.currency.toUpperCase()) || 0;
+            const totalBalanceNGN = (a.total_balance || 0) * rate;
+            return {
+                asset: a.currency,
+                totalBalance: a.total_balance || 0,
+                totalBalanceNGN: totalBalanceNGN,
+                walletsCount: a.user_count || 0,
+            };
         });
 
-        // Get transaction volume by asset
-        const assetVolume = await this.prisma.order.groupBy({
-            by: ["currency"],
-            where: {
-                streamlinedStatus: OrderStreamlinedStatus.completed,
-            },
-            _sum: { amountInFiat: true },
-            _count: true,
-            orderBy: { _sum: { amountInFiat: "desc" } },
-            take: limit,
-        });
+        // Calculate total NGN value across all assets
+        const totalValueNGN = byBalanceWithNGN.reduce((sum, a) => sum + a.totalBalanceNGN, 0);
 
         return buildResponse({
             message: "Asset distribution retrieved successfully",
             data: {
-                byBalance: assetBalances.map((a) => ({
-                    asset: a.assetCurrency,
-                    totalBalance: a._sum.convertedBalance,
-                    walletsCount: a._count,
-                })),
+                byBalance: byBalanceWithNGN,
+                totalValueNGN,
                 byVolume: assetVolume.map((a) => ({
                     asset: a.currency,
                     volume: a._sum.amountInFiat || 0,
@@ -633,7 +670,7 @@ export class AnalyticsService {
                     createdAt: { gte: startDate, lte: endDate },
                 },
             }),
-            
+
             // Email verified
             this.prisma.user.count({
                 where: {
@@ -642,7 +679,7 @@ export class AnalyticsService {
                     isEmailVerified: true,
                 },
             }),
-            
+
             // Phone verified
             this.prisma.user.count({
                 where: {
@@ -651,7 +688,7 @@ export class AnalyticsService {
                     isPhoneVerified: true,
                 },
             }),
-            
+
             // KYC started (tier >= 1)
             this.prisma.user.count({
                 where: {
@@ -660,7 +697,7 @@ export class AnalyticsService {
                     tier: { gte: 1 },
                 },
             }),
-            
+
             // KYC completed (tier >= 2)
             this.prisma.user.count({
                 where: {
@@ -669,7 +706,7 @@ export class AnalyticsService {
                     tier: { gte: 2 },
                 },
             }),
-            
+
             // First transaction (users who signed up in period and made a transaction)
             this.prisma.order.groupBy({
                 by: ["userId"],
@@ -684,29 +721,29 @@ export class AnalyticsService {
 
         const funnel = [
             { stage: "Signups", count: signups, percentage: 100 },
-            { 
-                stage: "Email Verified", 
-                count: emailVerified, 
+            {
+                stage: "Email Verified",
+                count: emailVerified,
                 percentage: signups > 0 ? ((emailVerified / signups) * 100).toFixed(2) : 0,
             },
-            { 
-                stage: "Phone Verified", 
-                count: phoneVerified, 
+            {
+                stage: "Phone Verified",
+                count: phoneVerified,
                 percentage: signups > 0 ? ((phoneVerified / signups) * 100).toFixed(2) : 0,
             },
-            { 
-                stage: "KYC Started", 
-                count: kycStarted, 
+            {
+                stage: "KYC Started",
+                count: kycStarted,
                 percentage: signups > 0 ? ((kycStarted / signups) * 100).toFixed(2) : 0,
             },
-            { 
-                stage: "KYC Completed", 
-                count: kycCompleted, 
+            {
+                stage: "KYC Completed",
+                count: kycCompleted,
                 percentage: signups > 0 ? ((kycCompleted / signups) * 100).toFixed(2) : 0,
             },
-            { 
-                stage: "First Transaction", 
-                count: firstTransaction, 
+            {
+                stage: "First Transaction",
+                count: firstTransaction,
                 percentage: signups > 0 ? ((firstTransaction / signups) * 100).toFixed(2) : 0,
             },
         ];

@@ -399,13 +399,8 @@ export class UserService {
     }
 
     async getUserAggregatedWalletBalance(user: User) {
-        // Fetch all user wallets with positive balance
-        const wallets = await this.prisma.assetWallet.findMany({
-            where: {
-                userId: user.id,
-                balance: { gt: 0 },
-            },
-        });
+        // Fetch all user balances from ledger system (virtual balances)
+        const ledgerBalances = await this.ledgerService.getAllBalances(user.id);
 
         // Fetch live rates
         const liveMarketData = await this.quidaxCacheService.getMarketTickers();
@@ -413,25 +408,21 @@ export class UserService {
 
         let totalBalance = 0;
 
-        for (const wallet of wallets) {
-            const assetCurrency = wallet.assetCurrency.toLowerCase();
+        for (const [currency, balanceInfo] of ledgerBalances) {
+            const assetCurrency = currency.toLowerCase();
             const marketSymbol = `${assetCurrency}${referenceCurrency}`;
             const ticker = liveMarketData?.[marketSymbol]?.ticker;
+
+            const balance = Number(balanceInfo.available);
 
             if (ticker?.sell) {
                 // Use live rate if available
                 const rate = parseFloat(ticker.sell);
-                const balance = Number(wallet.balance);
                 if (!isNaN(rate) && !isNaN(balance)) {
                     totalBalance += balance * rate;
-                } else {
-                    // Fallback to stored convertedBalance if math fails
-                    totalBalance += Number(wallet.convertedBalance || 0);
                 }
-            } else {
-                // Fallback to stored convertedBalance if no live rate
-                totalBalance += Number(wallet.convertedBalance || 0);
             }
+            // Note: No fallback to convertedBalance since ledger doesn't store it
         }
 
         return {

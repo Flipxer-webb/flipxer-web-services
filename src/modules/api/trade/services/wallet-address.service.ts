@@ -74,6 +74,8 @@ export class WalletAddressService {
             });
 
             if (data) {
+                // VIRTUAL BALANCE SYSTEM: Only sync metadata, not balance
+                // User balances are tracked in LedgerEntry table
                 await this.prisma.assetWallet.update({
                     where: {
                         userId_assetCurrency: {
@@ -82,10 +84,12 @@ export class WalletAddressService {
                         },
                     },
                     data: {
-                        balance: data.balance,
-                        locked: data.locked,
-                        staked: data.staked,
-                        convertedBalance: data.converted_balance,
+                        // Metadata only - balance is in LedgerEntry
+                        depositAddress: data.deposit_address,
+                        destinationTag: data.destination_tag,
+                        defaultNetwork: data.default_network,
+                        networks: data.networks,
+                        blockchainEnabled: data.blockchain_enabled,
                         updatedAt: new Date(),
                     },
                 });

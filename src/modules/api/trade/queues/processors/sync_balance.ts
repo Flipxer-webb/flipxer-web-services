@@ -29,7 +29,7 @@ export class QuidaxTradingBalanceSyncProcessor {
         private prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService
-    ) {}
+    ) { }
 
     @Process(QuidaxTradingQueue.SYNC_CRYPTO_BALANCE)
     async handleSyncBalance(job: Job<QuidaxTradingJobOptions>) {
@@ -70,21 +70,13 @@ export class QuidaxTradingBalanceSyncProcessor {
             }
 
             // VIRTUAL BALANCE SYSTEM:
-            // We sync metadata (addresses, networks, etc.) but NOT the balance.
+            // We sync only wallet METADATA (addresses, networks, etc.)
             // User balances are tracked in the LedgerEntry table.
-            // The assetWallet.balance field is kept for backwards compatibility
-            // during the transition period only.
+            // Balance fields are NO LONGER synced from Quidax sub-accounts.
             await this.prisma.assetWallet.update({
                 where: { id: wallet.id },
                 data: {
-                    // NOTE: balance, locked, staked, convertedBalance are updated
-                    // for backwards compatibility only. The source of truth for
-                    // user balances is now the LedgerEntry table.
-                    balance: updated.balance,
-                    locked: updated.locked,
-                    staked: updated.staked,
-                    convertedBalance: updated.converted_balance,
-                    // Metadata - still needed
+                    // Metadata only - balance is in LedgerEntry
                     blockchainEnabled: updated.blockchain_enabled,
                     defaultNetwork: updated.default_network,
                     isCrypto: updated.is_crypto,

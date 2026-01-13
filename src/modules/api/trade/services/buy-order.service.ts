@@ -66,7 +66,7 @@ export class BuyOrderService {
         private readonly walletAddressService: WalletAddressService,
         private readonly slackWebhookService: SlackWebhookService,
         private readonly ledgerService: LedgerService
-    ) {}
+    ) { }
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -331,11 +331,9 @@ export class BuyOrderService {
         this.wsGateway.notifyWalletUpdate(user.id);
 
         // Create and send notification for processing
-        const message = `Your buy order of ${
-            order.amount
-        } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${
-            order.transactionId
-        }`;
+        const message = `Your buy order of ${order.amount
+            } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId
+            }`;
 
         await this.sendNotification(
             user.id,
@@ -570,29 +568,8 @@ export class BuyOrderService {
                         },
                     });
 
-                    // Update Local Wallet (Legacy - keeping for backwards compatibility during transition)
-                    const assetWallet = await tx.assetWallet.findUnique({
-                        where: {
-                            userId_assetCurrency: {
-                                userId: payment.userId,
-                                assetCurrency: order.currency.toUpperCase(),
-                            },
-                        },
-                    });
-
-                    if (assetWallet) {
-                        const currentBalance = parseFloat(
-                            assetWallet.balance.toString()
-                        );
-                        const newBalance = currentBalance + order.amount; // Use order.amount
-
-                        await tx.assetWallet.update({
-                            where: { id: assetWallet.id },
-                            data: {
-                                balance: newBalance.toString(),
-                            },
-                        });
-                    }
+                    // Note: AssetWallet balance updates removed - Ledger is now the source of truth
+                    // The ledger credit above (line ~550) handles the balance update
                 },
                 {
                     maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -613,9 +590,8 @@ export class BuyOrderService {
             }
             this.wsGateway.notifyWalletUpdate(payment.userId);
 
-            const message = `Your buy order of ${
-                order.amount
-            } ${order.currency.toUpperCase()} has been completed successfully.`;
+            const message = `Your buy order of ${order.amount
+                } ${order.currency.toUpperCase()} has been completed successfully.`;
             await this.sendNotification(
                 payment.userId,
                 "Buy order successful",

@@ -981,13 +981,12 @@ export class TradingService {
             return;
         }
 
+        // VIRTUAL BALANCE SYSTEM: Only sync metadata, not balance
+        // User balances are tracked in LedgerEntry table
         await this.prisma.assetWallet.update({
             where: { id: wallet.id },
             data: {
-                balance: data.balance,
-                locked: data.locked,
-                staked: data.staked,
-                convertedBalance: data.convertedBalance,
+                // Metadata only - balance is in LedgerEntry
                 updatedAt: new Date(data.updatedAt),
                 depositAddress: data.depositAddress, // Can be null initially
                 destinationTag: data.destinationTag,

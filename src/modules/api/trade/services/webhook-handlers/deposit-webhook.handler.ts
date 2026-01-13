@@ -300,8 +300,8 @@ export class DepositWebhookHandler {
         if (swapOrderByNarration) {
             // Verify amount matches within 1% tolerance
             const swapToAmount = swapOrderByNarration.toAmount || 0;
-            const percentDiff = swapToAmount > 0 
-                ? Math.abs(swapToAmount - depositAmount) / swapToAmount * 100 
+            const percentDiff = swapToAmount > 0
+                ? Math.abs(swapToAmount - depositAmount) / swapToAmount * 100
                 : 100;
 
             if (percentDiff <= 1) {
@@ -552,9 +552,7 @@ export class DepositWebhookHandler {
             });
         }
 
-        // LEGACY: Still update assetWallet for backwards compatibility
-        // This will be removed once migration is complete
-        await this.updateLegacyWalletBalance(user, options);
+        // NOTE: AssetWallet balance updates removed - Ledger is now the source of truth
 
         // Send notifications (outside transaction - not critical for data integrity)
         await this.sendDepositNotification(user, options, transactionId);
@@ -563,53 +561,6 @@ export class DepositWebhookHandler {
         this.wsGateway.notifyWalletUpdate(user.id);
     }
 
-    /**
-     * LEGACY: Update assetWallet for backwards compatibility during transition
-     * This method will be removed once all users are migrated to the ledger system
-     */
-    private async updateLegacyWalletBalance(user: any, options: DepositTransaction) {
-        try {
-            const assetWallet = await this.prisma.assetWallet.findUnique({
-                where: {
-                    userId_assetCurrency: {
-                        userId: user.id,
-                        assetCurrency: options.currency.toUpperCase(),
-                    },
-                },
-            });
-
-            if (assetWallet) {
-                const currentBalance = parseFloat(assetWallet.balance.toString());
-                const depositAmount = parseFloat(options.amount);
-                const newBalance = (currentBalance + depositAmount).toString();
-
-                await this.prisma.assetWallet.update({
-                    where: { id: assetWallet.id },
-                    data: { balance: newBalance },
-                });
-
-                this.logger.debug(
-                    `Legacy wallet balance updated | ${JSON.stringify({
-                        userId: user.id,
-                        currency: options.currency,
-                        newBalance: newBalance,
-                    })}`
-                );
-            }
-
-            // Sync with Quidax
-            await this.walletAddressService.syncWallet(user.id, options.currency);
-        } catch (error) {
-            // Non-critical - log but don't fail
-            this.logger.warn(
-                `Failed to update legacy wallet | ${JSON.stringify({
-                    userId: user.id,
-                    currency: options.currency,
-                    error: error.message,
-                })}`
-            );
-        }
-    }
 
     /**
      * Send deposit notification to user

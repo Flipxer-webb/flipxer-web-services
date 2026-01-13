@@ -4,10 +4,10 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
 import { QuidaxLib } from "@/libs/quidax";
 import { quidaxConfig } from "@/config";
-import { 
-    WalletBalance, 
+import {
+    WalletBalance,
     AggregatedWalletBalance,
-    LiquidityThreshold 
+    LiquidityThreshold
 } from "../types";
 
 const WALLET_CACHE_KEY = "admin:quidax:wallets";
@@ -50,7 +50,7 @@ export class WalletManagementService {
                 // Get USDT/NGN rate from Quidax
                 const marketData = await this.quidax.getSingleMarketTicker("usdtngn");
                 const usdtNgnRate = parseFloat(marketData.data?.ticker?.last || "0");
-                
+
                 if (usdtNgnRate > 0) {
                     // NGN/USD = (USDT/USD) / (USDT/NGN)
                     const ngnUsdRate = usdtPriceUsd / usdtNgnRate;
@@ -87,10 +87,10 @@ export class WalletManagementService {
         try {
             // Fetch main account wallets from Quidax using "me" as user_id
             const walletsResponse = await this.quidax.getUserWalletList({ user_id: "me" });
-            
+
             // Get dynamic NGN/USD rate
             const ngnUsdRate = await this.getNgnUsdRate();
-            
+
             let wallets: WalletBalance[] = [];
             let totalNgnValue = 0;
             let totalUsdValue = 0;
@@ -101,7 +101,7 @@ export class WalletManagementService {
                     const locked = parseFloat(wallet.locked) || 0;
                     const staked = parseFloat(wallet.staked) || 0;
                     const availableBalance = balance - locked - staked;
-                    
+
                     // Get converted balance in NGN (using Quidax's converted_balance if available)
                     const ngnValue = parseFloat(wallet.converted_balance) || 0;
                     // Use dynamic NGN/USD rate instead of hardcoded value
@@ -133,19 +133,19 @@ export class WalletManagementService {
 
             // Cache the result for 45 seconds
             await this.cacheService.set(WALLET_CACHE_KEY, result, WALLET_CACHE_TTL);
-            
+
             this.logger.log(`Cached ${wallets.length} wallet balances`);
             return result;
         } catch (error) {
             this.logger.error(`Failed to fetch wallet balances: ${error.message}`);
-            
+
             // Try to return stale cache if available
             const staleCache = await this.cacheService.get<AggregatedWalletBalance>(WALLET_CACHE_KEY);
             if (staleCache) {
                 this.logger.warn("Returning stale cached data due to API error");
                 return staleCache;
             }
-            
+
             // Return empty wallet data instead of throwing to gracefully handle Quidax unavailability
             this.logger.warn("No cached data available, returning empty wallet data");
             return {
@@ -182,7 +182,7 @@ export class WalletManagementService {
     async checkLiquidityThresholds(): Promise<{ breaches: Array<{ wallet: WalletBalance; threshold: LiquidityThreshold; breachType: 'low' | 'high' }> }> {
         const thresholds = await this.getLiquidityThresholds();
         const wallets = await this.getWalletBalances();
-        
+
         const breaches: Array<{ wallet: WalletBalance; threshold: LiquidityThreshold; breachType: 'low' | 'high' }> = [];
 
         for (const wallet of wallets.wallets) {
@@ -192,7 +192,7 @@ export class WalletManagementService {
 
             if (threshold && threshold.alertEnabled) {
                 const balance = parseFloat(wallet.availableBalance);
-                
+
                 if (balance < threshold.minBalance) {
                     breaches.push({ wallet, threshold, breachType: 'low' });
                 } else if (balance > threshold.maxBalance && threshold.maxBalance > 0) {
@@ -257,31 +257,63 @@ export class WalletManagementService {
         totalValueNGN: number;
         topCurrencies: Array<{ currency: string; totalBalance: number; userCount: number }>;
     }> {
-        const [totalUsers, assetWalletStats] = await Promise.all([
+        // Get balances from LedgerEntries (virtual balance system)
+        const [totalUsers, ledgerStats, cryptoRates] = await Promise.all([
             this.prisma.user.count({
                 where: { userType: { not: "ADMIN" }, isDeleted: false },
             }),
-            this.prisma.assetWallet.groupBy({
-                by: ["assetCurrency"],
-                _sum: { convertedBalance: true },
-                _count: { userId: true },
-            }),
+            this.prisma.$queryRaw<
+                { currency: string; total_balance: number; user_count: number }[]
+            >`
+                WITH latest_entries AS (
+                    SELECT DISTINCT ON ("userId", currency)
+                        "userId",
+                        currency,
+                        "balanceAfter"
+                    FROM "LedgerEntries"
+                    WHERE status != 'FAILED'
+                    ORDER BY "userId", currency, "createdAt" DESC
+                )
+                SELECT 
+                    currency,
+                    SUM("balanceAfter")::float as total_balance,
+                    COUNT(DISTINCT "userId")::int as user_count
+                FROM latest_entries
+                WHERE "balanceAfter" > 0
+                GROUP BY currency
+                ORDER BY total_balance DESC
+            `,
+            // Fetch crypto rates for NGN conversion (using buyRate which is in NGN)
+            this.prisma.cryptoRate.findMany(),
         ]);
 
-        const topCurrencies = assetWalletStats
-            .map(stat => ({
-                currency: stat.assetCurrency,
-                totalBalance: stat._sum.convertedBalance?.toNumber() || 0,
-                userCount: stat._count.userId,
-            }))
-            .sort((a, b) => b.totalBalance - a.totalBalance)
+        // Create rate map: currency -> buyRate (NGN per 1 crypto unit)
+        const rateMap = new Map<string, number>();
+        for (const rate of cryptoRates) {
+            rateMap.set(rate.currency.toUpperCase(), rate.buyRate || 0);
+        }
+
+        // Calculate NGN value for each currency
+        const topCurrencies = ledgerStats
+            .map(stat => {
+                const rate = rateMap.get(stat.currency.toUpperCase()) || 0;
+                const balanceNGN = (stat.total_balance || 0) * rate;
+                return {
+                    currency: stat.currency,
+                    totalBalance: stat.total_balance || 0,
+                    totalBalanceNGN: balanceNGN,
+                    userCount: stat.user_count || 0,
+                };
+            })
+            .sort((a, b) => b.totalBalanceNGN - a.totalBalanceNGN)
             .slice(0, 10);
 
-        const totalValueNGN = topCurrencies.reduce((sum, c) => sum + c.totalBalance, 0);
+        // Sum all NGN values for total
+        const totalValueNGN = topCurrencies.reduce((sum, c) => sum + c.totalBalanceNGN, 0);
 
         return {
             totalUsers,
-            totalWallets: assetWalletStats.length,
+            totalWallets: ledgerStats.length,
             totalValueNGN,
             topCurrencies,
         };
