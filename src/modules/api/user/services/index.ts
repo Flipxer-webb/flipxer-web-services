@@ -399,12 +399,19 @@ export class UserService {
     }
 
     async getUserAggregatedWalletBalance(user: User) {
-        // Fetch all user balances from ledger system (virtual balances)
-        const ledgerBalances = await this.ledgerService.getAllBalances(user.id);
+        // Fetch all data in parallel
+        const [ledgerBalances, liveMarketData, cryptoRates] = await Promise.all([
+            this.ledgerService.getAllBalances(user.id),
+            this.quidaxCacheService.getMarketTickers(),
+            this.prisma.cryptoRate.findMany(),
+        ]);
 
-        // Fetch live rates
-        const liveMarketData = await this.quidaxCacheService.getMarketTickers();
         const referenceCurrency = "ngn";
+
+        // Create map for fallback rates
+        const cryptoRateMap = new Map(
+            cryptoRates.map(r => [r.currency.toUpperCase(), r.buyRate])
+        );
 
         let totalBalance = 0;
 
@@ -414,15 +421,27 @@ export class UserService {
             const ticker = liveMarketData?.[marketSymbol]?.ticker;
 
             const balance = Number(balanceInfo.available);
+            let usedRate = 0;
 
             if (ticker?.sell) {
-                // Use live rate if available
+                // Use live rate if available (ticker.sell is Ask price)
                 const rate = parseFloat(ticker.sell);
-                if (!isNaN(rate) && !isNaN(balance)) {
-                    totalBalance += balance * rate;
+                if (!isNaN(rate)) {
+                    usedRate = rate;
                 }
             }
-            // Note: No fallback to convertedBalance since ledger doesn't store it
+
+            // Fallback to cryptoRate table if no valid live rate
+            if (!usedRate) {
+                const fallbackRate = cryptoRateMap.get(currency.toUpperCase());
+                if (fallbackRate) {
+                    usedRate = fallbackRate;
+                }
+            }
+
+            if (usedRate > 0 && !isNaN(balance)) {
+                totalBalance += balance * usedRate;
+            }
         }
 
         return {
