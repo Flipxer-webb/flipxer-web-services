@@ -310,63 +310,32 @@ export class SellOrderService {
             );
         }
 
-        //step 1: send crypto to admin quidax account
+        // Generate reference for the order
         const reference = generateId({ type: "reference" });
-        const adminAssetWallet = await this.quidaxService.getUserWallet({
-            user_id: "me",
-            currency: dto.asset.toLowerCase(),
-        });
 
-        if (!adminAssetWallet.data.deposit_address) {
-            // Release hold if we can't proceed (don't settle, just release)
-            await this.ledgerService.releaseHold(holdReference, false, "Admin wallet not ready");
+        // OMNIBUS VIRTUAL BALANCE SYSTEM
+        // In omnibus mode, crypto is already in the main wallet - no Quidax transfer needed
+        // We just settle the ledger hold to confirm the debit from user's virtual balance
 
-            await this.quidaxService.createPaymentAddress({
-                user_id: "me",
-                currency: dto.asset.toLowerCase(),
-            });
+        this.logger.log(
+            `[Omnibus] Settling virtual balance for sell order | User: ${user.id} | Amount: ${totalCryptoToAdmin} ${dto.asset}`
+        );
 
-            throw new GeneralTransactionException(
-                "Destination crypto address is being set, Please try again",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        // Perform internal transfer from User's Sub-Account to Main Account (FREE - no network fees)
-        // We use the Main Account's specific ID (from the wallet fetch above) instead of "me"
-        // because "me" in the request body is not resolved by the API when acting as a sub-user.
-        const adminUserId = adminAssetWallet.data.user.id;
-
-        let requestRes;
-        try {
-            requestRes = await this.quidaxService.createWithdrawerRequest({
-                amount: totalCryptoToAdmin.toString(),
-                currency: dto.asset.toLowerCase(),
-                narration: "flipxer sell order transaction",
-                transaction_note: "flipxer sell order transaction",
-                user_id: user.cryptoSubAccountId,
-                fund_uid: adminUserId, // Explicit Main User ID ensures internal transfer
-                reference: reference,
-            });
-        } catch (error) {
-            // Release hold if Quidax transfer fails (don't settle, just release)
-            await this.ledgerService.releaseHold(holdReference, false, "Quidax transfer failed");
-            throw error;
-        }
-
-        // Virtual Balance: Settle the hold (converts HOLD to confirmed DEBIT)
+        // Settle the hold (converts HOLD to confirmed DEBIT)
         const settleResult = await this.ledgerService.releaseHold(
             holdReference,
             true, // settle = true converts hold to debit
-            `Sell order completed: ${requestRes.data.id}`
+            `Sell order: ${reference}`
         );
 
         if (!settleResult.success) {
             this.logger.error(
-                `Failed to settle hold after successful Quidax transfer for sell order: ${settleResult.error}`
+                `Failed to settle hold for sell order: ${settleResult.error}`
             );
-            // This is a critical error - Quidax transfer succeeded but ledger failed
-            // We should continue with the order and log for investigation
+            throw new GeneralTransactionException(
+                `Failed to process sell order: ${settleResult.error}`,
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
         }
 
         const amtFiat = await this.getAmountInNaira(
@@ -381,17 +350,15 @@ export class SellOrderService {
                 streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
                 orderReference: reference,
                 transactionId: generateId({ type: "transaction" }),
-                providerOrderId: requestRes.data.id,
                 userId: user.id,
-                currency: requestRes.data.currency.toUpperCase(),
-                narration: requestRes.data.narration,
-                transaction_note: requestRes.data.transaction_note,
-                recipient: requestRes.data.recipient.details.address,
+                currency: dto.asset.toUpperCase(),
+                narration: "Flipxer sell order",
+                transaction_note: "Flipxer sell order",
                 amount: +responseData.cryptoSellAmount,
                 fee: +responseData.transactionFeeInCrypto,
                 total: +responseData.totalCostInCrypto,
                 totalToReceiveInFiat: sendAmountToSeller,
-                sourceType: requestRes.data.type,
+                sourceType: "omnibus", // Flag: no Quidax transfer, virtual balance only
                 destinationBankName: dto.bankDetail.bankName,
                 destinationBankAccountNumber: dto.bankDetail.accountNumber,
                 destinationBankAccountName: dto.bankDetail.accountName,
@@ -458,29 +425,18 @@ export class SellOrderService {
             notification: createdNotification,
             notificationList,
         });
+        // OMNIBUS: Sell order is "complete" from ledger perspective immediately
+        // Trigger fiat payout handler since virtual balance is already debited
+        this.logger.log(`[Omnibus] Sell Order ${order.id} ledger debit complete - triggering fiat payout | Reference: ${reference}`);
 
-        // Check if the withdrawal was completed immediately (e.g. internal transfer)
-        // If so, trigger the handler immediately instead of waiting for webhook
-        const requestStatus = requestRes.data.status?.toLowerCase();
-        this.logger.log(`Sell Order ${order.id} | Provider Status: ${requestStatus} | Reference: ${reference}`);
-
-        if (
-            requestStatus === "successful" ||
-            requestStatus === "success" ||
-            requestStatus === "completed" ||
-            requestStatus === "done"
-        ) {
-            this.logger.log(`Sell Order ${order.id} completed immediately - triggering handler`);
-
-            // We don't await this to avoid blocking the response to the client
-            // The handler uses a lock so it's safe even if a webhook comes in simultaneously
-            this.withdrawalWebhookHandler.handle({
-                orderReference: reference,
-                status: OrderStatus.done,
-            }).catch(err => {
-                this.logger.error(`Error handling immediate completion for Sell Order ${order.id}: ${err.message}`, err.stack);
-            });
-        }
+        // Trigger handler immediately since the "crypto transfer" (ledger debit) is done
+        // We don't await this to avoid blocking the response to the client
+        this.withdrawalWebhookHandler.handle({
+            orderReference: reference,
+            status: OrderStatus.done,
+        }).catch(err => {
+            this.logger.error(`Error handling omnibus sell order completion for Order ${order.id}: ${err.message}`, err.stack);
+        });
 
         return buildResponse({
             message: "Order placed successfully, Payment is processing",
@@ -524,63 +480,36 @@ export class SellOrderService {
             );
         }
 
-        // 1. Get Admin Wallet (Destination)
-        const adminAssetWallet = await this.quidaxService.getUserWallet({
-            user_id: "me",
-            currency: currency.toLowerCase(),
-        });
+        // OMNIBUS VIRTUAL BALANCE SYSTEM
+        // Crypto is already in main omnibus wallet - no Quidax transfer needed
+        // We just settle the ledger hold to confirm the debit from user's virtual balance
 
-        if (!adminAssetWallet.data.deposit_address) {
-            // Release hold if we can't proceed
-            await this.ledgerService.releaseHold(holdReference, false, "Admin wallet not ready");
+        this.logger.log(
+            `[Omnibus] Executing Internal Sell for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`
+        );
 
-            await this.quidaxService.createPaymentAddress({
-                user_id: "me",
-                currency: currency.toLowerCase(),
-            });
-            throw new GeneralTransactionException(
-                "System wallet not ready for this asset. Please contact support.",
-                HttpStatus.SERVICE_UNAVAILABLE
-            );
-        }
-
-        const adminUserId = adminAssetWallet.data.user.id;
-
-        // 2. Execute Internal Transfer (User Sub-Account -> Admin Main Account)
-        // Fees are 0 for internal transfers.
-        this.logger.log(`Executing Internal Sell for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`);
-
-        let requestRes;
-        try {
-            requestRes = await this.quidaxService.createWithdrawerRequest({
-                amount: amount.toString(),
-                currency: currency.toLowerCase(),
-                narration: "Flipxer Swap Sell Leg",
-                transaction_note: "Flipxer Swap Sell Leg",
-                user_id: user.cryptoSubAccountId,
-                fund_uid: adminUserId, // Destination: Admin
-                reference: reference, // Key for Atomicity: Matches Swap Order Reference
-            });
-        } catch (error) {
-            // Release hold if Quidax transfer fails
-            await this.ledgerService.releaseHold(holdReference, false, "Quidax transfer failed");
-            throw error;
-        }
-
-        // Virtual Balance: Settle the hold (converts HOLD to confirmed DEBIT)
+        // Settle the hold (converts HOLD to confirmed DEBIT)
         const settleResult = await this.ledgerService.releaseHold(
             holdReference,
             true, // settle = true converts hold to debit
-            `Swap sell leg completed: ${requestRes.data.id}`
+            `Swap sell leg: ${reference}`
         );
 
         if (!settleResult.success) {
             this.logger.error(
                 `Failed to settle hold for swap sell leg: ${settleResult.error}`
             );
-            // Quidax transfer succeeded, continue - hold is still protecting the balance
+            throw new Error(`Ledger settle failed: ${settleResult.error}`);
         }
 
-        return requestRes;
+        // Return a success result (matches interface callers expect)
+        return {
+            status: "success",
+            data: {
+                id: settleResult.entry?.id,
+                amount,
+                currency: currency.toUpperCase(),
+            },
+        };
     }
 }
