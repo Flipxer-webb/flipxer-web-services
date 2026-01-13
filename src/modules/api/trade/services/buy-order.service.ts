@@ -419,93 +419,17 @@ export class BuyOrderService {
             return;
         }
 
-        // 2. Transfer Funds from Main Account to User Sub-Account (Quidax)
+        // OMNIBUS VIRTUAL BALANCE SYSTEM
+        // Crypto stays in the main (omnibus) wallet - we only credit the user's virtual balance (ledger)
+        // No Quidax transfers needed - the platform holds all crypto in one main account
         try {
             const user = payment.user;
-            if (!user.cryptoSubAccountId) {
-                this.logger.error(
-                    `User ${user.id} has no crypto sub-account. Cannot fulfill order.`
-                );
-                // Revert to PENDING for retry after admin fixes sub-account
-                await this.prisma.payment.update({
-                    where: { reference },
-                    data: {
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                    },
-                });
-                throw new Error(`User ${user.id} has no crypto sub-account`);
-            }
-
-            // Ensure user has a wallet address for this currency
-            // This ensures the address exists on Quidax end for the sub-account
-            const addresses =
-                await this.walletAddressService.ensureWalletPaymentAddresses({
-                    userId: user.id,
-                    cryptoSubAccountId: user.cryptoSubAccountId,
-                    assetSymbol: order.currency,
-                });
-
-            if (!addresses || addresses.length === 0) {
-                this.logger.error(
-                    `No wallet address found/created for user ${user.id} asset ${order.currency}`
-                );
-                // Revert to PENDING for retry
-                await this.prisma.payment.update({
-                    where: { reference },
-                    data: {
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                    },
-                });
-                throw new Error(`No wallet address for user ${user.id} asset ${order.currency}`);
-            }
-
-            // Prefer the BEP20 network address as it's the most common default, or fallback to first
-            const destinationAddress =
-                addresses.find((a) => a.network === "bep20") ||
-                addresses.find((a) => a.network === "erc20") ||
-                addresses[0];
 
             this.logger.log(
-                `Initiating Quidax internal transfer for Order ${order.id} to sub-account ${user.cryptoSubAccountId}`
+                `[Omnibus] Crediting virtual balance for Order ${order.id} | User: ${user.id} | Amount: ${order.amount} ${order.currency}`
             );
 
-            // Perform internal transfer from Main Account ("me") to User's Sub-Account (FREE - no network fees)
-            // Using cryptoSubAccountId instead of blockchain address triggers Quidax's free internal transfer
-            const transferRes =
-                await this.quidaxService.createWithdrawerRequest({
-                    user_id: "me", // "me" refers to the owner of the API Key (Main Account)
-                    currency: order.currency.toLowerCase(),
-                    amount: order.amount.toString(),
-                    fund_uid: user.cryptoSubAccountId, // Sub-account ID for FREE internal transfer
-                    transaction_note: `Fulfillment for Order ${order.transactionId}`,
-                    narration: `Buy Order ${order.transactionId}`,
-                    reference: `${order.transactionId}_fulfill`,
-                });
-
-            if (transferRes.status !== "success") {
-                this.logger.error(
-                    `Quidax transfer failed: ${JSON.stringify(transferRes)}`
-                );
-                // Revert payment to PENDING so next webhook retry can try again
-                await this.prisma.payment.update({
-                    where: { reference },
-                    data: {
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                    },
-                });
-                // Throw to trigger webhook retry (Nomba will get 5xx)
-                throw new Error(`Quidax transfer failed: ${transferRes.message || JSON.stringify(transferRes)}`);
-            }
-
-            this.logger.log(
-                `Quidax transfer successful: ${transferRes.data.id}`
-            );
-
-            // 3. Update Order, Payment, and Local Wallet (Only if transfer succeeded)
-            // First, credit the user's ledger for the buy order
+            // Credit the user's ledger (virtual balance)
             const creditResult = await this.ledgerService.credit({
                 userId: payment.userId,
                 currency: order.currency.toUpperCase(),
@@ -513,11 +437,11 @@ export class BuyOrderService {
                 type: LedgerType.BUY,
                 reference: `buy:${order.transactionId}`,
                 metadata: {
-                    transferId: transferRes.data.id,
                     orderId: order.id,
                     paymentReference: reference,
+                    omnibus: true, // Flag indicating this is omnibus (no Quidax transfer)
                 },
-                sweepStatus: SweepStatus.NOT_APPLICABLE, // Buy orders don't need sweep - funds come from platform
+                sweepStatus: SweepStatus.NOT_APPLICABLE, // Buy orders don't need sweep - funds stay in omnibus
             });
 
             if (!creditResult.success) {
@@ -537,7 +461,7 @@ export class BuyOrderService {
 
             await this.prisma.$transaction(
                 async (tx) => {
-                    // Mark payment as SUCCESS now that Quidax transfer succeeded
+                    // Mark payment as SUCCESS
                     await tx.payment.update({
                         where: { reference },
                         data: {
@@ -555,14 +479,13 @@ export class BuyOrderService {
                                 OrderStatus.completed
                             ),
                             paymentStatus: TransactionStatus.SUCCESS,
-                            providerOrderId: transferRes.data.id, // Link the transfer ID
-                            fulfilled: true, // Mark as fulfilled so deposit webhook doesn't create duplicate RECEIVE
+                            fulfilled: true, // Mark as fulfilled
                             ledgerEntryId: creditResult.entry?.id, // Link to ledger entry
                         },
                     });
 
-                    // Note: AssetWallet balance updates removed - Ledger is now the source of truth
-                    // The ledger credit above (line ~550) handles the balance update
+                    // Note: No Quidax transfer needed - omnibus virtual balance system
+                    // Crypto stays in main wallet, user has virtual balance in ledger
                 },
                 {
                     maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -686,47 +609,23 @@ export class BuyOrderService {
     /**
      * Executes the Internal Buy Leg of a Swap (Admin -> User)
      * Does NOT create a DB Order (SwapService handles that).
-     * Returns the Quidax API response.
+     * Returns a success result.
      * 
-     * Virtual Balance: Credits the target currency to user's ledger
+     * OMNIBUS VIRTUAL BALANCE: Only credits the target currency to user's ledger
+     * No actual crypto transfer happens - crypto stays in omnibus wallet
      */
     async executeInternalBuy(
         user: User,
-        amount: number, // Amount of Crypto B to send to user
+        amount: number, // Amount of Crypto B to credit to user's virtual balance
         currency: string,
         reference: string
     ) {
-        // 1. Ensure User has Wallet for Crypto B
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "User crypto account not found",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        // Ensure wallet address exists on Quidax side (idempotent check)
-        await this.walletAddressService.ensureWalletPaymentAddresses({
-            userId: user.id,
-            cryptoSubAccountId: user.cryptoSubAccountId,
-            assetSymbol: currency,
-        });
-
-        // 2. Execute Internal Transfer (Admin Main Account -> User Sub-Account)
         this.logger.log(
-            `Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`
+            `[Omnibus] Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`
         );
 
-        const transferRes = await this.quidaxService.createWithdrawerRequest({
-            user_id: "me", // Source: Admin
-            currency: currency.toLowerCase(),
-            amount: amount.toString(),
-            fund_uid: user.cryptoSubAccountId, // Destination: User
-            transaction_note: "Flipxer Swap Buy Leg",
-            narration: "Flipxer Swap Buy Leg",
-            reference: reference, // Key for Atomicity
-        });
-
-        // Virtual Balance: Credit the target currency to user's ledger
+        // OMNIBUS: Credit the target currency to user's ledger (virtual balance)
+        // No Quidax transfer needed - crypto stays in main omnibus wallet
         const creditResult = await this.ledgerService.credit({
             userId: user.id,
             currency: currency.toUpperCase(),
@@ -734,20 +633,27 @@ export class BuyOrderService {
             type: LedgerType.SWAP_IN,
             reference: `swap-buy:${reference}`,
             metadata: {
-                transferId: transferRes.data.id,
                 swapReference: reference,
+                omnibus: true, // Flag indicating this is omnibus (no Quidax transfer)
             },
-            sweepStatus: SweepStatus.NOT_APPLICABLE, // Swap buy doesn't need sweep - funds come from platform
+            sweepStatus: SweepStatus.NOT_APPLICABLE, // Swap buy doesn't need sweep - funds stay in omnibus
         });
 
         if (!creditResult.success) {
             this.logger.error(
                 `Failed to credit ledger for swap buy leg: ${creditResult.error}`
             );
-            // Critical error - Quidax transfer succeeded but ledger credit failed
-            // Continue and log for investigation - user received crypto on Quidax side
+            throw new Error(`Ledger credit failed: ${creditResult.error}`);
         }
 
-        return transferRes;
+        // Return a success result (matches the interface callers expect)
+        return {
+            status: "success",
+            data: {
+                id: creditResult.entry?.id,
+                amount,
+                currency: currency.toUpperCase(),
+            },
+        };
     }
 }
