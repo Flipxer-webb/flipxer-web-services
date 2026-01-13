@@ -1,0 +1,78 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm.
+npm warn Unknown project config "strict-peer-dependencies". This will stop working in the next major version of npm.
+
+╔══════════════════════════════════════════════════════════╗
+║       Sweep Sub-accounts to Main Wallet                  ║
+╚══════════════════════════════════════════════════════════╝
+
+🔸 DRY RUN MODE - No actual transfers will be made
+
+Found 12 users with sub-accounts
+
+Fetching main wallet addresses...
+Failed to get main wallet address for btc: Request failed with status code 403
+  BTC: ❌ No address found
+Failed to get main wallet address for eth: Request failed with status code 403
+  ETH: ❌ No address found
+Failed to get main wallet address for usdt: Request failed with status code 403
+  USDT: ❌ No address found
+Failed to get main wallet address for usdc: Request failed with status code 403
+  USDC: ❌ No address found
+Failed to get main wallet address for trx: Request failed with status code 403
+  TRX: ❌ No address found
+Failed to get main wallet address for sol: Request failed with status code 403
+  SOL: ❌ No address found
+Failed to get main wallet address for xrp: Request failed with status code 403
+  XRP: ❌ No address found
+Failed to get main wallet address for bnb: Request failed with status code 403
+  BNB: ❌ No address found
+
+--- Starting sweep ---
+
+
+User 10 (doctest@flipxer.com):
+  Sub-account: 70ab070c-458c-4d01-ba31-4f6a86ca3efc
+
+User 14 (tier0.test@flipxer.com):
+  Sub-account: 5d8085df-c2f7-42f6-9da9-6b88ae4fda9e
+
+User 16 (tier2.test@flipxer.com):
+  Sub-account: 31bb7f3e-ee1e-4308-8fa0-7a046b9c8429
+
+User 11 (eleshooluwatobidaniel.eod@gmail.com):
+  Sub-account: ba188122-4aa2-4b5a-a4d5-ad980f7f25ab
+
+User 12 (testuser12345@gmail.com):
+  Sub-account: 001bd3f0-4e43-494c-9c2f-ccc39dc5adbe
+
+User 7 (magpiep18@gmail.com):
+  Sub-account: beb9e402-40e6-4201-aa95-bc350a74db19
+
+User 6 (testuser@flipxer.com):
+  Sub-account: f51454e2-c853-4f12-8005-bbf9b43b688a
+
+User 15 (tier1.test@flipxer.com):
+  Sub-account: 99cc6a08-0f0e-4f7f-9a7b-81d93e277a36
+
+User 22 (mhidheylawal@yahoo.com):
+  Sub-account: b194fb41-b0d7-4b75-85af-14942cd35af9
+
+User 9 (sethfarley0@gmail.com):
+  Sub-account: a0c76bce-fe19-4dca-a223-8bc9c53ca1de
+
+User 21 (admin@resolve.ng):
+  Sub-account: 10d5a3fc-a35d-4315-982b-a00799de4f27
+
+User 23 (mdhani212@proton.me):
+  Sub-account: 28d08636-16b4-46a7-9a4a-eb70ee7f8a64
+
+╔══════════════════════════════════════════════════════════╗
+║                       Summary                            ║
+╚══════════════════════════════════════════════════════════╝
+
+Total users processed: 12
+Sweeps executed: 0
+Skipped (below minimum): 0
+Failed: 0
+
+⚠️  This was a DRY RUN. Run without --dry-run to execute sweeps.

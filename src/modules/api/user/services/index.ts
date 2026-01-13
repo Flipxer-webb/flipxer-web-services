@@ -44,6 +44,7 @@ import { Ticker } from "@/libs/quidax/types/trade";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
+import { LedgerService } from "@/modules/api/trade/services/ledger/ledger.service";
 
 @Injectable()
 export class UserService {
@@ -64,7 +65,9 @@ export class UserService {
         private readonly tierService: TierService,
         @Inject(TradingInjectionToken.LIVECOINWATCH)
         private readonly liveCoinWatchService: LiveCoinWatchService,
-        private readonly redisCacheService: RedisCacheService
+        private readonly redisCacheService: RedisCacheService,
+        @Inject(forwardRef(() => LedgerService))
+        private readonly ledgerService: LedgerService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -478,7 +481,7 @@ export class UserService {
 
         // OPTIMIZATION: Run all queries in parallel instead of sequential
         const dbStartTime = Date.now();
-        const [assetsResult, adminRates, liveMarketData] = await Promise.all([
+        const [assetsResult, adminRates, liveMarketData, ledgerBalances] = await Promise.all([
             // Query 1: Fetch user assets + count in a transaction
             this.prisma.$transaction([
                 this.prisma.assetWallet.findMany({
@@ -494,6 +497,8 @@ export class UserService {
             this.prisma.cryptoRate.findMany(),
             // Query 3: Fetch live Quidax rates (from cache or API)
             this.quidaxCacheService.getMarketTickers(),
+            // Query 4: Fetch ledger balances (virtual balance system)
+            this.ledgerService.getAllBalances(userId),
         ]);
 
         this.logger.log(`[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`);
@@ -523,6 +528,20 @@ export class UserService {
             }),
             records: assets.map((asset) => {
                 const assetCurrency = asset.assetCurrency.toLowerCase();
+                const assetCurrencyUpper = asset.assetCurrency.toUpperCase();
+
+                // Get ledger balance (virtual balance system)
+                const ledgerBalance = ledgerBalances.get(assetCurrencyUpper);
+                // Use ledger balance if available, otherwise fall back to 0 (swept to main wallet)
+                const balance = ledgerBalance
+                    ? Number(ledgerBalance.available)
+                    : 0;
+                const heldBalance = ledgerBalance
+                    ? Number(ledgerBalance.held)
+                    : 0;
+                const totalBalance = ledgerBalance
+                    ? Number(ledgerBalance.total)
+                    : 0;
 
                 // Admin rate lookup
                 const adminRate = adminRatesMap.get(assetCurrency);
@@ -540,15 +559,14 @@ export class UserService {
                 // Fallback to Quidax generic calculation if LCW is unavailable
                 const percentChange = marketData?.change24h ?? this.calculatePercentageChange(ticker);
 
-                // Calculate Live Converted Balance
-                let liveConvertedBalance: any = asset.convertedBalance; // Default to DB value
+                // Calculate Live Converted Balance using ledger balance
+                let liveConvertedBalance: any = "0";
 
                 if (ticker?.sell) {
                     const rate = parseFloat(ticker.sell);
-                    const balance = Number(asset.balance);
 
                     if (!isNaN(rate) && !isNaN(balance)) {
-                        // Use calculated value based on live rate
+                        // Use calculated value based on live rate and ledger balance
                         // Convert to string (frontend expects string for convertedBalance)
                         // Using toFixed(2) for NGN/Fiat precision
                         liveConvertedBalance = (balance * rate).toFixed(2);
@@ -557,6 +575,8 @@ export class UserService {
 
                 return {
                     ...asset,
+                    balance: balance.toString(), // Override with ledger balance
+                    locked: heldBalance.toString(), // Use ledger held amount
                     convertedBalance: liveConvertedBalance, // Override DB value with live value
                     buyRate: {
                         value: adminBuyRate.toFixed(4),

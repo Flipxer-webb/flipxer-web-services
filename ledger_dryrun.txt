@@ -1,0 +1,32 @@
+npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of npm.
+npm warn Unknown project config "strict-peer-dependencies". This will stop working in the next major version of npm.
+
+╔══════════════════════════════════════════════════════════╗
+║        Virtual Balance Ledger Migration Script           ║
+╚══════════════════════════════════════════════════════════╝
+
+🔸 DRY RUN MODE - No changes will be made
+
+📊 Processing 23 users...
+
+  ⏭️ Skipping usdt - already migrated
+  ⏭️ Skipping usdc - already migrated
+  ⏭️ Skipping usdt - already migrated
+  ⏭️ Skipping btc - already migrated
+  ⏭️ Skipping trx - already migrated
+  ⏭️ Skipping usdc - already migrated
+  ⏭️ Skipping usdt - already migrated
+  ⏭️ Skipping usdt - already migrated
+📈 Progress: 100% (23/23)
+
+╔══════════════════════════════════════════════════════════╗
+║                    Migration Complete                     ║
+╚══════════════════════════════════════════════════════════╝
+
+📊 Summary:
+   - Total users: 23
+   - Processed: 12
+   - Skipped (no balance): 11
+   - Ledger entries created: 0
+   - Errors: 0
+   - Duration: 14.49s
