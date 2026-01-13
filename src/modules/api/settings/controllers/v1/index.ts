@@ -1,4 +1,4 @@
-import { SwaggerResponse, ApiResponse } from "@/utils/api-response-util";
+import { SwaggerResponse, ApiResponse, buildResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -14,6 +14,7 @@ import {
 } from "@nestjs/common";
 
 import { SettingService } from "../../services";
+import { RateService } from "@/modules/api/trade/services/rate.service";
 import {
     ApiTags,
     ApiOperation,
@@ -41,20 +42,45 @@ import { User as UserModel } from "@prisma/client";
     path: "settings",
 })
 export class SettingController {
-    constructor(private settingService: SettingService) {}
+    constructor(
+        private settingService: SettingService,
+        private rateService: RateService
+    ) {}
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get crypto rate list" })
+    @ApiOperation({ summary: "get crypto rate list (dynamic)" })
     @Get("crypto/rates")
     async getCryptoRateList() {
-        return this.settingService.getCryptoRateList();
+        // Use dynamic rates from RateService
+        const rates = await this.rateService.getAllRates();
+        return buildResponse({
+            message: "Crypto rate list retrieved",
+            data: rates.map((rate) => ({
+                id: 0, // Dynamic rates don't have DB id
+                currency: rate.currency,
+                buyRate: rate.buyRate,
+                sellRate: rate.sellRate,
+                createdAt: rate.lastUpdated || new Date(),
+            })),
+        });
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "get crypto rate per asset" })
+    @ApiOperation({ summary: "get crypto rate per asset (dynamic)" })
     @Get("crypto/rates/:asset_name")
     async getCryptoRatePerAsset(@Param("asset_name") asset_name: string) {
-        return this.settingService.getCryptoRatePerAsset(asset_name);
+        // Use dynamic rate from RateService
+        const rate = await this.rateService.getAssetRate(asset_name);
+        return buildResponse({
+            message: "Crypto rate retrieved",
+            data: {
+                id: 0,
+                currency: rate.currency,
+                buyRate: rate.buyRate,
+                sellRate: rate.sellRate,
+                createdAt: rate.lastUpdated || new Date(),
+            },
+        });
     }
 
     @HttpCode(HttpStatus.OK)
