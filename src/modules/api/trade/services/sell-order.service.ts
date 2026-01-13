@@ -5,6 +5,7 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import {
+    LedgerType,
     NotificationBeneficiary,
     NotificationStatus,
     NotificationType,
@@ -19,6 +20,7 @@ import {
     AssetNotFoundException,
     GeneralTransactionException,
     IncompleteAccountSetupException,
+    InsufficientBalanceException,
     WalletAddressNotFoundException,
 } from "../errors";
 import {
@@ -33,6 +35,7 @@ import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.handler";
+import { LedgerService } from "./ledger/ledger.service";
 
 /**
  * Sell Order Service
@@ -54,7 +57,8 @@ export class SellOrderService {
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
         private readonly walletManagementService: WalletManagementService,
-        private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler
+        private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
+        private readonly ledgerService: LedgerService
     ) { }
 
     /**
@@ -289,6 +293,30 @@ export class SellOrderService {
         const sendAmountToSeller = +responseData.totalToReceiveInFiat;
         const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
 
+        // Virtual Balance: HOLD the crypto amount on user's ledger before proceeding
+        const currency = dto.asset.toUpperCase();
+        const holdAmount = totalCryptoToAdmin;
+        const holdReference = `sell-hold:${generateId({ type: "reference" })}`;
+
+        const holdResult = await this.ledgerService.hold({
+            userId: user.id,
+            currency,
+            amount: holdAmount,
+            type: LedgerType.SELL,
+            reference: holdReference,
+            description: `Hold for sell order: ${dto.amount} ${currency}`,
+        });
+
+        if (!holdResult.success) {
+            this.logger.error(
+                `Failed to hold funds for sell order: ${holdResult.error}`
+            );
+            throw new InsufficientBalanceException(
+                `Insufficient ${currency} balance. ${holdResult.error}`,
+                { currency, requiredAmount: holdAmount, error: holdResult.error }
+            );
+        }
+
         //step 1: send crypto to admin quidax account
         const reference = generateId({ type: "reference" });
         const adminAssetWallet = await this.quidaxService.getUserWallet({
@@ -297,6 +325,9 @@ export class SellOrderService {
         });
 
         if (!adminAssetWallet.data.deposit_address) {
+            // Release hold if we can't proceed (don't settle, just release)
+            await this.ledgerService.releaseHold(holdReference, false, "Admin wallet not ready");
+
             await this.quidaxService.createPaymentAddress({
                 user_id: "me",
                 currency: dto.asset.toLowerCase(),
@@ -313,15 +344,37 @@ export class SellOrderService {
         // because "me" in the request body is not resolved by the API when acting as a sub-user.
         const adminUserId = adminAssetWallet.data.user.id;
 
-        const requestRes = await this.quidaxService.createWithdrawerRequest({
-            amount: totalCryptoToAdmin.toString(),
-            currency: dto.asset.toLowerCase(),
-            narration: "flipxer sell order transaction",
-            transaction_note: "flipxer sell order transaction",
-            user_id: user.cryptoSubAccountId,
-            fund_uid: adminUserId, // Explicit Main User ID ensures internal transfer
-            reference: reference,
-        });
+        let requestRes;
+        try {
+            requestRes = await this.quidaxService.createWithdrawerRequest({
+                amount: totalCryptoToAdmin.toString(),
+                currency: dto.asset.toLowerCase(),
+                narration: "flipxer sell order transaction",
+                transaction_note: "flipxer sell order transaction",
+                user_id: user.cryptoSubAccountId,
+                fund_uid: adminUserId, // Explicit Main User ID ensures internal transfer
+                reference: reference,
+            });
+        } catch (error) {
+            // Release hold if Quidax transfer fails (don't settle, just release)
+            await this.ledgerService.releaseHold(holdReference, false, "Quidax transfer failed");
+            throw error;
+        }
+
+        // Virtual Balance: Settle the hold (converts HOLD to confirmed DEBIT)
+        const settleResult = await this.ledgerService.releaseHold(
+            holdReference,
+            true, // settle = true converts hold to debit
+            `Sell order completed: ${requestRes.data.id}`
+        );
+
+        if (!settleResult.success) {
+            this.logger.error(
+                `Failed to settle hold after successful Quidax transfer for sell order: ${settleResult.error}`
+            );
+            // This is a critical error - Quidax transfer succeeded but ledger failed
+            // We should continue with the order and log for investigation
+        }
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -352,6 +405,7 @@ export class SellOrderService {
                 destinationBankCode: dto.bankDetail.bankCode,
                 amountInFiat: amtFiat?.amount,
                 rateAtConversion: amtFiat?.rate,
+                ledgerEntryId: settleResult.entry?.id, // Link to ledger entry (from settled hold)
             },
         });
 
@@ -445,6 +499,8 @@ export class SellOrderService {
      * Executes the Internal Sell Leg of a Swap (User -> Admin)
      * Does NOT create a DB Order (SwapService handles that for atomicity).
      * Returns the Quidax API response.
+     * 
+     * Virtual Balance: HOLD -> Settle (debit) the source currency
      */
     async executeInternalSell(
         user: User,
@@ -452,6 +508,29 @@ export class SellOrderService {
         currency: string,
         reference: string
     ) {
+        const currencyUpper = currency.toUpperCase();
+        const holdReference = `swap-sell-hold:${reference}`;
+
+        // Virtual Balance: HOLD the crypto amount on user's ledger
+        const holdResult = await this.ledgerService.hold({
+            userId: user.id,
+            currency: currencyUpper,
+            amount,
+            type: LedgerType.SWAP_OUT,
+            reference: holdReference,
+            description: `Hold for swap sell leg: ${amount} ${currencyUpper}`,
+        });
+
+        if (!holdResult.success) {
+            this.logger.error(
+                `Failed to hold funds for swap sell leg: ${holdResult.error}`
+            );
+            throw new InsufficientBalanceException(
+                `Insufficient ${currencyUpper} balance for swap. ${holdResult.error}`,
+                { currency: currencyUpper, requiredAmount: amount, error: holdResult.error }
+            );
+        }
+
         // 1. Get Admin Wallet (Destination)
         const adminAssetWallet = await this.quidaxService.getUserWallet({
             user_id: "me",
@@ -459,11 +538,13 @@ export class SellOrderService {
         });
 
         if (!adminAssetWallet.data.deposit_address) {
+            // Release hold if we can't proceed
+            await this.ledgerService.releaseHold(holdReference, false, "Admin wallet not ready");
+
             await this.quidaxService.createPaymentAddress({
                 user_id: "me",
                 currency: currency.toLowerCase(),
             });
-            // Try fetching one more time or just fail (Swap should fail if Admin wallet isn't ready)
             throw new GeneralTransactionException(
                 "System wallet not ready for this asset. Please contact support.",
                 HttpStatus.SERVICE_UNAVAILABLE
@@ -476,15 +557,36 @@ export class SellOrderService {
         // Fees are 0 for internal transfers.
         this.logger.log(`Executing Internal Sell for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`);
 
-        const requestRes = await this.quidaxService.createWithdrawerRequest({
-            amount: amount.toString(),
-            currency: currency.toLowerCase(),
-            narration: "Flipxer Swap Sell Leg",
-            transaction_note: "Flipxer Swap Sell Leg",
-            user_id: user.cryptoSubAccountId,
-            fund_uid: adminUserId, // Destination: Admin
-            reference: reference, // Key for Atomicity: Matches Swap Order Reference
-        });
+        let requestRes;
+        try {
+            requestRes = await this.quidaxService.createWithdrawerRequest({
+                amount: amount.toString(),
+                currency: currency.toLowerCase(),
+                narration: "Flipxer Swap Sell Leg",
+                transaction_note: "Flipxer Swap Sell Leg",
+                user_id: user.cryptoSubAccountId,
+                fund_uid: adminUserId, // Destination: Admin
+                reference: reference, // Key for Atomicity: Matches Swap Order Reference
+            });
+        } catch (error) {
+            // Release hold if Quidax transfer fails
+            await this.ledgerService.releaseHold(holdReference, false, "Quidax transfer failed");
+            throw error;
+        }
+
+        // Virtual Balance: Settle the hold (converts HOLD to confirmed DEBIT)
+        const settleResult = await this.ledgerService.releaseHold(
+            holdReference,
+            true, // settle = true converts hold to debit
+            `Swap sell leg completed: ${requestRes.data.id}`
+        );
+
+        if (!settleResult.success) {
+            this.logger.error(
+                `Failed to settle hold for swap sell leg: ${settleResult.error}`
+            );
+            // Quidax transfer succeeded, continue - hold is still protecting the balance
+        }
 
         return requestRes;
     }

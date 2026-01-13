@@ -25,6 +25,14 @@ export interface LockOptions {
      * @default 100
      */
     retryIntervalMs?: number;
+
+    /**
+     * When true, throws an exception if Redis is unavailable instead of 
+     * allowing the operation to proceed without a lock.
+     * CRITICAL: Set to true for all financial/ledger operations.
+     * @default false (for backward compatibility)
+     */
+    strict?: boolean;
 }
 
 /**
@@ -111,6 +119,7 @@ export class DistributedLockService {
             ttlMs = this.DEFAULT_TTL_MS,
             maxWaitMs = this.DEFAULT_MAX_WAIT_MS,
             retryIntervalMs = this.DEFAULT_RETRY_INTERVAL_MS,
+            strict = false,
         } = options;
 
         const lockKey = `${this.LOCK_PREFIX}${key}`;
@@ -120,6 +129,9 @@ export class DistributedLockService {
         while (Date.now() - startTime < maxWaitMs) {
             try {
                 if (!this.isConnected) {
+                    if (strict) {
+                        throw new Error(`Redis lock service unavailable - cannot proceed with lock for: ${key}`);
+                    }
                     this.logger.warn(`Lock service unavailable, proceeding without lock for: ${key}`);
                     return lockToken; // Allow operation to proceed when Redis is down
                 }
@@ -141,8 +153,17 @@ export class DistributedLockService {
                 // Lock not acquired, wait and retry
                 await this.sleep(retryIntervalMs);
             } catch (error) {
+                // Re-throw if it's our strict mode error
+                if (error.message?.includes("Redis lock service unavailable")) {
+                    throw error;
+                }
+                
+                if (strict) {
+                    throw new Error(`Redis lock error for ${key}: ${error.message}`);
+                }
+                
                 this.logger.error(`Error acquiring lock for ${key}: ${error.message}`);
-                // On error, allow operation to proceed
+                // On error, allow operation to proceed (non-strict mode)
                 return lockToken;
             }
         }

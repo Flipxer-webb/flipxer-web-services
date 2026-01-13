@@ -1,0 +1,275 @@
+import {
+    Controller,
+    Get,
+    Post,
+    Body,
+    Query,
+    Param,
+    UseGuards,
+    Logger,
+    ParseIntPipe,
+} from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from "@nestjs/swagger";
+import {
+    AuthGuard,
+    EnabledAccountGuard,
+} from "@/modules/api/auth/guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserType, User as UserEntity } from "@prisma/client";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { User } from "@/modules/api/user/decorators";
+import { ReconciliationService } from "../../services/ledger/reconciliation.service";
+import { WithdrawalQueueService } from "../../services/ledger/withdrawal-queue.service";
+import { FloatConfigService } from "../../services/ledger/float-config.service";
+import { LedgerService } from "../../services/ledger/ledger.service";
+import { SweepService } from "../../services/ledger/sweep.service";
+import { buildResponse } from "@/utils/api-response-util";
+
+/**
+ * Admin Ledger Controller
+ *
+ * Provides admin-only endpoints for managing the virtual balance ledger system.
+ * All endpoints require:
+ * - Valid authentication (AuthGuard)
+ * - ADMIN user type (RoleGuard + UserTypes)
+ * - Enabled account (EnabledAccountGuard)
+ *
+ * Endpoints:
+ * - Reconciliation: View status, run reconciliation, acknowledge discrepancies
+ * - Withdrawal Queue: View queue, pause/resume processing
+ * - Float Status: View current float levels and alerts
+ * - User Balance: Query user ledger balances
+ */
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+@UserTypes([UserType.ADMIN])
+@ApiTags("admin-ledger")
+@ApiBearerAuth("access-token")
+@Controller({
+    path: "admin/ledger",
+})
+export class AdminLedgerController {
+    private readonly logger = new Logger(AdminLedgerController.name);
+
+    constructor(
+        private readonly reconciliationService: ReconciliationService,
+        private readonly withdrawalQueueService: WithdrawalQueueService,
+        private readonly floatConfigService: FloatConfigService,
+        private readonly ledgerService: LedgerService,
+        private readonly sweepService: SweepService
+    ) {}
+
+    // =========================================================================
+    // RECONCILIATION ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get last reconciliation result" })
+    @Get("reconciliation/status")
+    async getReconciliationStatus() {
+        this.logger.log("Admin fetching reconciliation status");
+        const results = await this.reconciliationService.getLatestReconciliations();
+        return buildResponse({
+            message: "Reconciliation status retrieved",
+            data: Object.fromEntries(results),
+        });
+    }
+
+    @ApiOperation({ summary: "Run reconciliation check now" })
+    @Post("reconciliation/run")
+    async runReconciliation() {
+        this.logger.log("Admin triggering manual reconciliation");
+        const result = await this.reconciliationService.runReconciliation();
+        return buildResponse({
+            message: "Reconciliation completed",
+            data: result,
+        });
+    }
+
+    @ApiOperation({ summary: "Acknowledge discrepancy and resume processing" })
+    @Post("reconciliation/acknowledge")
+    async acknowledgeDiscrepancy(
+        @User() user: UserEntity,
+        @Body() body: { currency: string; reason: string }
+    ) {
+        this.logger.log(
+            `Admin ${user.id} acknowledging ${body.currency} discrepancy with reason: ${body.reason}`
+        );
+        await this.reconciliationService.acknowledgeAndResume(
+            body.currency.toUpperCase(),
+            user.id,
+            body.reason
+        );
+        return buildResponse({
+            message: "Discrepancy acknowledged and processing resumed",
+        });
+    }
+
+    // =========================================================================
+    // WITHDRAWAL QUEUE ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get withdrawal queue status and items" })
+    @ApiQuery({ name: "currency", required: false, description: "Filter by currency" })
+    @Get("withdrawal-queue")
+    async getWithdrawalQueue(@Query("currency") currency?: string) {
+        this.logger.log("Admin fetching withdrawal queue");
+
+        const queue = await this.withdrawalQueueService.getPendingQueue(currency);
+        const isPaused = await this.withdrawalQueueService.isProcessingPaused();
+
+        return buildResponse({
+            message: "Withdrawal queue retrieved",
+            data: {
+                items: queue,
+                count: queue.length,
+                isPaused,
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Pause withdrawal queue processing" })
+    @Post("withdrawal-queue/pause")
+    async pauseWithdrawalQueue(@Body() body: { reason: string }) {
+        this.logger.log(`Admin pausing withdrawal queue: ${body.reason}`);
+        await this.withdrawalQueueService.pauseProcessing(body.reason);
+        return buildResponse({
+            message: "Withdrawal queue processing paused",
+        });
+    }
+
+    @ApiOperation({ summary: "Resume withdrawal queue processing" })
+    @Post("withdrawal-queue/resume")
+    async resumeWithdrawalQueue() {
+        this.logger.log("Admin resuming withdrawal queue");
+        await this.withdrawalQueueService.resumeProcessing();
+        return buildResponse({
+            message: "Withdrawal queue processing resumed",
+        });
+    }
+
+    @ApiOperation({ summary: "Process queue timeouts (release expired holds)" })
+    @Post("withdrawal-queue/process-timeouts")
+    async processWithdrawalQueueTimeouts() {
+        this.logger.log("Admin triggering withdrawal queue timeout processing");
+        const processed = await this.withdrawalQueueService.processTimeouts();
+        return buildResponse({
+            message: "Queue timeout processing completed",
+            data: { processedCount: processed },
+        });
+    }
+
+    @ApiOperation({ summary: "Get withdrawal queue statistics" })
+    @Get("withdrawal-queue/stats")
+    async getWithdrawalQueueStats() {
+        this.logger.log("Admin fetching withdrawal queue stats");
+        const stats = await this.withdrawalQueueService.getQueueStats();
+        return buildResponse({
+            message: "Queue statistics retrieved",
+            data: stats,
+        });
+    }
+
+    // =========================================================================
+    // FLOAT STATUS ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get float configuration for all currencies" })
+    @Get("float/config")
+    async getFloatConfig() {
+        this.logger.log("Admin fetching float configuration");
+        const configs = await this.floatConfigService.getAllFloatConfigs();
+        return buildResponse({
+            message: "Float configuration retrieved",
+            data: configs,
+        });
+    }
+
+    // =========================================================================
+    // USER BALANCE ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get user ledger balance" })
+    @Get("balance/:userId/:currency")
+    async getUserBalance(
+        @Param("userId", ParseIntPipe) userId: number,
+        @Param("currency") currency: string
+    ) {
+        this.logger.log(`Admin fetching balance for user ${userId}, currency ${currency}`);
+        const balance = await this.ledgerService.getBalance(userId, currency.toUpperCase());
+        return buildResponse({
+            message: "User balance retrieved",
+            data: {
+                userId,
+                currency: currency.toUpperCase(),
+                ...balance,
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Get user ledger history" })
+    @ApiQuery({ name: "limit", required: false, description: "Max entries to return" })
+    @Get("history/:userId/:currency")
+    async getUserLedgerHistory(
+        @Param("userId", ParseIntPipe) userId: number,
+        @Param("currency") currency: string,
+        @Query("limit") limit?: string
+    ) {
+        this.logger.log(`Admin fetching ledger history for user ${userId}, currency ${currency}`);
+
+        const parsedLimit = limit ? parseInt(limit, 10) : 100;
+        const history = await this.ledgerService.getHistory(
+            userId,
+            currency.toUpperCase(),
+            parsedLimit
+        );
+
+        return buildResponse({
+            message: "User ledger history retrieved",
+            data: {
+                userId,
+                currency: currency.toUpperCase(),
+                entries: history,
+                count: history.length,
+            },
+        });
+    }
+
+    // =========================================================================
+    // SWEEP STATUS ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get pending sweeps" })
+    @Get("sweeps/pending")
+    async getPendingSweeps() {
+        this.logger.log("Admin fetching pending sweeps");
+        const sweeps = await this.sweepService.getPendingSweeps();
+        return buildResponse({
+            message: "Pending sweeps retrieved",
+            data: {
+                sweeps,
+                count: sweeps.length,
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Process pending sweeps now" })
+    @Post("sweeps/process")
+    async processPendingSweeps() {
+        this.logger.log("Admin triggering sweep processing");
+        const processedCount = await this.sweepService.processPendingSweeps();
+        return buildResponse({
+            message: "Sweep processing completed",
+            data: { processedCount },
+        });
+    }
+
+    @ApiOperation({ summary: "Get sweep statistics" })
+    @Get("sweeps/stats")
+    async getSweepStats() {
+        this.logger.log("Admin fetching sweep stats");
+        const stats = await this.sweepService.getSweepStats();
+        return buildResponse({
+            message: "Sweep statistics retrieved",
+            data: stats,
+        });
+    }
+}

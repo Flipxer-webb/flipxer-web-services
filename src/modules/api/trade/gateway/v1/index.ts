@@ -57,6 +57,32 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.wsService.emitWalletUpdateToUser(userId, this.server);
     }
 
+    /**
+     * Notify user that their withdrawal has been queued
+     */
+    notifyWithdrawalQueued(userId: number, payload: {
+        queueId: string;
+        currency: string;
+        amount: string;
+        position: number;
+        reason: string;
+    }) {
+        this.server.to(`user:${userId}`).emit("withdrawalQueued", payload);
+    }
+
+    /**
+     * Notify user that their queued withdrawal has been processed
+     */
+    notifyWithdrawalProcessed(userId: number, payload: {
+        queueId: string;
+        currency: string;
+        amount: string;
+    }) {
+        this.server.to(`user:${userId}`).emit("withdrawalProcessed", payload);
+        // Also trigger wallet update since balance changed
+        this.wsService.emitWalletUpdateToUser(userId, this.server);
+    }
+
     broadcastWalletUpdatesToUser() {
         this.wsService.broadcastWalletUpdates(this.server);
     }

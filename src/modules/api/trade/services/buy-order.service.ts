@@ -8,12 +8,14 @@ import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { COMPANY_NAME, frontendUrl } from "@/config";
 import {
+    LedgerType,
     NotificationBeneficiary,
     NotificationStatus,
     NotificationType,
     OrderCategory,
     OrderStatus,
     PaymentMethod,
+    SweepStatus,
     TransactionFeeCategory,
     TransactionStatus,
     TransactionType,
@@ -35,6 +37,7 @@ import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { LedgerService } from "./ledger/ledger.service";
 import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -61,7 +64,8 @@ export class BuyOrderService {
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
-        private readonly slackWebhookService: SlackWebhookService
+        private readonly slackWebhookService: SlackWebhookService,
+        private readonly ledgerService: LedgerService
     ) {}
 
     /**
@@ -510,6 +514,36 @@ export class BuyOrderService {
             );
 
             // 3. Update Order, Payment, and Local Wallet (Only if transfer succeeded)
+            // First, credit the user's ledger for the buy order
+            const creditResult = await this.ledgerService.credit({
+                userId: payment.userId,
+                currency: order.currency.toUpperCase(),
+                amount: order.amount,
+                type: LedgerType.BUY,
+                reference: `buy:${order.transactionId}`,
+                metadata: {
+                    transferId: transferRes.data.id,
+                    orderId: order.id,
+                    paymentReference: reference,
+                },
+                sweepStatus: SweepStatus.NOT_APPLICABLE, // Buy orders don't need sweep - funds come from platform
+            });
+
+            if (!creditResult.success) {
+                this.logger.error(
+                    `Failed to credit ledger for buy order ${order.id}: ${creditResult.error}`
+                );
+                // Revert payment to PENDING so next webhook retry can try again
+                await this.prisma.payment.update({
+                    where: { reference },
+                    data: {
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                    },
+                });
+                throw new Error(`Ledger credit failed: ${creditResult.error}`);
+            }
+
             await this.prisma.$transaction(
                 async (tx) => {
                     // Mark payment as SUCCESS now that Quidax transfer succeeded
@@ -521,7 +555,7 @@ export class BuyOrderService {
                         },
                     });
 
-                    // Update Order
+                    // Update Order with ledger entry link
                     await tx.order.update({
                         where: { id: order.id },
                         data: {
@@ -532,10 +566,11 @@ export class BuyOrderService {
                             paymentStatus: TransactionStatus.SUCCESS,
                             providerOrderId: transferRes.data.id, // Link the transfer ID
                             fulfilled: true, // Mark as fulfilled so deposit webhook doesn't create duplicate RECEIVE
+                            ledgerEntryId: creditResult.entry?.id, // Link to ledger entry
                         },
                     });
 
-                    // Update Local Wallet
+                    // Update Local Wallet (Legacy - keeping for backwards compatibility during transition)
                     const assetWallet = await tx.assetWallet.findUnique({
                         where: {
                             userId_assetCurrency: {
@@ -683,6 +718,8 @@ export class BuyOrderService {
      * Executes the Internal Buy Leg of a Swap (Admin -> User)
      * Does NOT create a DB Order (SwapService handles that).
      * Returns the Quidax API response.
+     * 
+     * Virtual Balance: Credits the target currency to user's ledger
      */
     async executeInternalBuy(
         user: User,
@@ -719,6 +756,28 @@ export class BuyOrderService {
             narration: "Flipxer Swap Buy Leg",
             reference: reference, // Key for Atomicity
         });
+
+        // Virtual Balance: Credit the target currency to user's ledger
+        const creditResult = await this.ledgerService.credit({
+            userId: user.id,
+            currency: currency.toUpperCase(),
+            amount,
+            type: LedgerType.SWAP_IN,
+            reference: `swap-buy:${reference}`,
+            metadata: {
+                transferId: transferRes.data.id,
+                swapReference: reference,
+            },
+            sweepStatus: SweepStatus.NOT_APPLICABLE, // Swap buy doesn't need sweep - funds come from platform
+        });
+
+        if (!creditResult.success) {
+            this.logger.error(
+                `Failed to credit ledger for swap buy leg: ${creditResult.error}`
+            );
+            // Critical error - Quidax transfer succeeded but ledger credit failed
+            // Continue and log for investigation - user received crypto on Quidax side
+        }
 
         return transferRes;
     }

@@ -384,5 +384,72 @@ export class SlackWebhookService {
             return { success: false, error: error.message };
         }
     }
+
+    /**
+     * Send a generic system alert
+     * Used for withdrawal queue, reconciliation, and other system alerts
+     */
+    async sendSystemAlert(
+        category: string,
+        title: string,
+        message: string,
+        details: Record<string, any> = {},
+        severity: 'info' | 'warning' | 'error' = 'warning'
+    ): Promise<{ sent: boolean; error?: string }> {
+        const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+
+        if (!webhookUrl) {
+            this.logger.debug('SLACK_WEBHOOK_URL not configured, skipping alert');
+            return { sent: false, error: 'SLACK_WEBHOOK_URL not configured' };
+        }
+
+        const emoji = severity === 'error' ? '🔴' : severity === 'warning' ? '🟡' : 'ℹ️';
+
+        const slackMessage: SlackMessage = {
+            text: `${emoji} [${category.toUpperCase()}] ${title}`,
+            blocks: [
+                {
+                    type: "header",
+                    text: {
+                        type: "plain_text",
+                        text: `${emoji} ${title}`,
+                        emoji: true,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Category:* ${category}\n*Message:* ${message}`,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Details:*\n\`\`\`${JSON.stringify(details, null, 2)}\`\`\``,
+                    },
+                },
+                {
+                    type: "context",
+                    elements: [
+                        {
+                            type: "mrkdwn",
+                            text: `🕐 ${new Date().toISOString()}`,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        try {
+            await this.sendToWebhook(webhookUrl, slackMessage);
+            this.logger.log(`System alert sent: ${category} - ${title}`);
+            return { sent: true };
+        } catch (error) {
+            this.logger.error(`Failed to send system alert: ${error.message}`);
+            return { sent: false, error: error.message };
+        }
+    }
 }
 

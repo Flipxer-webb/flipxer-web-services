@@ -43,6 +43,7 @@ export enum TradeErrorCode {
     // General errors (1900-1999)
     GENERAL_TRANSACTION_ERROR = "TRADE_1901",
     LOCK_ACQUISITION_FAILED = "TRADE_1902",
+    RATE_LIMIT_EXCEEDED = "TRADE_1903",
 }
 
 /**
@@ -291,5 +292,21 @@ export class LockAcquisitionException extends BaseTradingException {
         details?: Record<string, unknown>
     ) {
         super(message, HttpStatus.CONFLICT, details);
+    }
+}
+
+// =============================================================================
+// RATE LIMIT EXCEPTIONS
+// =============================================================================
+
+export class RateLimitExceededException extends BaseTradingException {
+    name = "RateLimitExceededException";
+    readonly errorCode = TradeErrorCode.RATE_LIMIT_EXCEEDED;
+
+    constructor(
+        message: string = "Rate limit exceeded",
+        details?: Record<string, unknown>
+    ) {
+        super(message, HttpStatus.TOO_MANY_REQUESTS, details);
     }
 }

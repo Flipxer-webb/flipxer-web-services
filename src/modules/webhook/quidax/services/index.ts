@@ -28,6 +28,9 @@ export interface WebhookMetrics {
 export class QuidaxWebhookService implements QuidaxWebhook {
     private readonly logger = new Logger("QuidaxWebhookService");
 
+    // Maximum age for webhook events (5 minutes)
+    private readonly MAX_WEBHOOK_AGE_MS = 5 * 60 * 1000;
+
     // Webhook metrics for monitoring
     private metrics: WebhookMetrics = {
         totalReceived: 0,
@@ -43,6 +46,37 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         private prisma: PrismaService,
         private tradingService: TradingService
     ) { }
+
+    /**
+     * Validates webhook event timestamp to prevent replay attacks
+     * 
+     * @param eventData Event data containing created_at timestamp
+     * @returns true if valid, false if too old
+     */
+    private isWebhookTimestampValid(eventData: any): { valid: boolean; ageMs: number } {
+        const createdAt = eventData?.created_at || eventData?.data?.created_at;
+        
+        if (!createdAt) {
+            // If no timestamp, allow for backward compatibility but log warning
+            this.logger.warn(`Webhook received without timestamp - allowing for compatibility`);
+            return { valid: true, ageMs: 0 };
+        }
+
+        const eventTime = new Date(createdAt).getTime();
+        const now = Date.now();
+        const ageMs = now - eventTime;
+
+        // Allow future timestamps (clock skew) up to 1 minute
+        if (ageMs < -60000) {
+            this.logger.warn(`Webhook has future timestamp | age: ${ageMs}ms`);
+            return { valid: false, ageMs };
+        }
+
+        return {
+            valid: ageMs <= this.MAX_WEBHOOK_AGE_MS,
+            ageMs,
+        };
+    }
 
     /**
      * Get webhook processing metrics for monitoring
@@ -110,6 +144,19 @@ export class QuidaxWebhookService implements QuidaxWebhook {
             `Timestamp: ${new Date().toISOString()} | ` +
             `Data ID: ${(eventBody.data as any)?.id || 'N/A'}`
         );
+
+        // SECURITY: Validate webhook timestamp to prevent replay attacks
+        const timestampCheck = this.isWebhookTimestampValid(eventBody.data);
+        if (!timestampCheck.valid) {
+            this.logger.error(
+                `[WEBHOOK_REJECTED] Stale webhook rejected | ` +
+                `Event: ${eventType} | ` +
+                `Age: ${Math.round(timestampCheck.ageMs / 1000)}s | ` +
+                `Max allowed: ${this.MAX_WEBHOOK_AGE_MS / 1000}s | ` +
+                `Data ID: ${(eventBody.data as any)?.id || 'N/A'}`
+            );
+            throw new Error(`Webhook rejected: event is ${Math.round(timestampCheck.ageMs / 1000)} seconds old (max: ${this.MAX_WEBHOOK_AGE_MS / 1000}s)`);
+        }
 
         try {
             switch (eventBody.event) {

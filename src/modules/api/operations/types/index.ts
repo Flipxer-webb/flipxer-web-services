@@ -25,6 +25,9 @@ export interface LiquidityThreshold {
     minBalance: number;
     maxBalance: number;
     alertEnabled: boolean;
+    // Virtual Balance: Float configuration
+    floatPercentage?: number;      // Percentage of user balances kept as float (0-100)
+    absoluteReserve?: number;      // Minimum absolute reserve in currency units
 }
 
 export interface SlackMessage {

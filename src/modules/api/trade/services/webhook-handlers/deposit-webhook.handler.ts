@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
@@ -8,11 +8,13 @@ import {
     getStreamlinedStatus,
 } from "../../interfaces/trade";
 import {
+    LedgerType,
     NotificationBeneficiary,
     NotificationStatus,
     NotificationType,
     OrderCategory,
     OrderStatus,
+    SweepStatus,
     UserNotificationTarget,
 } from "@prisma/client";
 import { generateId } from "@/utils";
@@ -21,6 +23,8 @@ import { NotificationMessageService } from "@/modules/core/messages/services/not
 import { WsGateway } from "../../gateway/v1";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { WalletAddressService } from "../wallet-address.service";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { LedgerService } from "../ledger/ledger.service";
 import {
     DEFAULT_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -45,7 +49,9 @@ export class DepositWebhookHandler {
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
         private readonly lockService: DistributedLockService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly walletAddressService: WalletAddressService,
+        private readonly slackWebhookService: SlackWebhookService,
+        private readonly ledgerService: LedgerService
     ) { }
 
     /**
@@ -125,13 +131,49 @@ export class DepositWebhookHandler {
                 })}`
             );
         } else if (paymentAddress.userId !== user.id) {
-            // Log mismatch but still process - Quidax user ID is the source of truth
-            this.logger.warn(
-                `Payment address userId mismatch, using Quidax userId | ${JSON.stringify({
+            // SECURITY: Payment address belongs to different user - reject and alert
+            const alertMessage = [
+                `🚨 *SECURITY ALERT: Payment Address Mismatch*`,
+                ``,
+                `A deposit was received to an address belonging to a different user.`,
+                ``,
+                `*Deposit Details:*`,
+                `• Amount: ${options.amount} ${options.currency}`,
+                `• Reference: ${options.referenceId}`,
+                `• Network: ${options.network || "N/A"}`,
+                ``,
+                `*User Mismatch:*`,
+                `• Payment Address Owner: User #${paymentAddress.userId}`,
+                `• Quidax Sub-Account Owner: User #${user.id}`,
+                `• Address ID: ${options.payment_address_id}`,
+                ``,
+                `⚠️ *Action Required*: Manual investigation needed. Deposit has been rejected.`,
+            ].join("\n");
+
+            this.logger.error(
+                `SECURITY: Payment address userId mismatch - REJECTING deposit | ${JSON.stringify({
                     paymentAddressUserId: paymentAddress.userId,
                     quidaxUserId: user.id,
                     payment_address_id: options.payment_address_id,
+                    amount: options.amount,
+                    currency: options.currency,
                 })}`
+            );
+
+            // Send Slack alert
+            try {
+                await this.slackWebhookService.sendAlert(
+                    "SECURITY_ALERT",
+                    { text: alertMessage },
+                    { alertKey: `deposit-mismatch:${options.referenceId}` }
+                );
+            } catch (alertError) {
+                this.logger.error(`Failed to send security alert: ${alertError.message}`);
+            }
+
+            throw new HttpException(
+                "Rejected - Payment address owner mismatch",
+                HttpStatus.FORBIDDEN
             );
         }
 
@@ -431,65 +473,142 @@ export class DepositWebhookHandler {
     }
 
     /**
-     * Handle deposit accepted - update wallet balance and send notifications
-     * Uses a database transaction to ensure atomicity of wallet balance update
+     * Handle deposit accepted - credit user's ledger and send notifications
+     * 
+     * NEW VIRTUAL BALANCE FLOW:
+     * 1. Credit user's ledger (instead of updating assetWallet)
+     * 2. Set sweepStatus = PENDING (user can't withdraw until sweep confirms)
+     * 3. Link ledger entry to the order
+     * 4. Sweep will be processed by SweepService cron
      */
     private async handleDepositAccepted(
         user: any,
         options: DepositTransaction,
         transactionId: string
     ) {
-        // Update user's wallet balance atomically
-        const walletUpdated = await this.prisma.$transaction(
-            async (tx) => {
-                const assetWallet = await tx.assetWallet.findUnique({
-                    where: {
-                        userId_assetCurrency: {
-                            userId: user.id,
-                            assetCurrency: options.currency.toUpperCase(),
-                        },
-                    },
-                });
+        const depositAmount = parseFloat(options.amount);
+        const currency = options.currency.toUpperCase();
 
-                if (!assetWallet) {
-                    return false;
-                }
-
-                const currentBalance = parseFloat(assetWallet.balance.toString());
-                const depositAmount = parseFloat(options.amount);
-                const newBalance = (currentBalance + depositAmount).toString();
-
-                await tx.assetWallet.update({
-                    where: { id: assetWallet.id },
-                    data: { balance: newBalance },
-                });
-
-                this.logger.log(
-                    `Wallet balance updated | ${JSON.stringify({
-                        userId: user.id,
-                        currency: options.currency,
-                        oldBalance: assetWallet.balance.toString(),
-                        depositAmount: options.amount,
-                        newBalance: newBalance,
-                    })
-                    } `
-                );
-
-                return true;
+        // Credit user's ledger with deposit amount
+        // sweepStatus = PENDING means user can't withdraw until sweep confirms
+        const creditResult = await this.ledgerService.credit({
+            userId: user.id,
+            currency: currency,
+            amount: depositAmount,
+            type: LedgerType.DEPOSIT,
+            reference: `deposit:${options.referenceId}`,
+            metadata: {
+                txid: options.txid,
+                paymentAddress: options.payment_address,
+                recipient: options.recipient,
+                network: options.network,
+                fee: options.fee,
+                providerOrderId: options.referenceId,
+                transactionId: transactionId,
             },
-            { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: EXTENDED_TRANSACTION_TIMEOUT_MS }
+            sweepStatus: SweepStatus.PENDING, // Block withdrawal until sweep confirms
+        });
+
+        if (!creditResult.success) {
+            this.logger.error(
+                `Failed to credit ledger for deposit | ${JSON.stringify({
+                    userId: user.id,
+                    currency: currency,
+                    amount: depositAmount,
+                    error: creditResult.error,
+                })}`
+            );
+            // Don't throw - the order is already created, log for investigation
+            await this.slackWebhookService.sendAlert(
+                "DEPOSIT_LEDGER_FAILED",
+                {
+                    text: `⚠️ Failed to credit ledger for deposit!\n` +
+                        `User: ${user.id} (${user.email})\n` +
+                        `Amount: ${depositAmount} ${currency}\n` +
+                        `Transaction: ${transactionId}\n` +
+                        `Error: ${creditResult.error}`,
+                },
+                { alertKey: `deposit-ledger-fail:${options.referenceId}` }
+            );
+            return;
+        }
+
+        this.logger.log(
+            `Deposit credited to ledger | ${JSON.stringify({
+                userId: user.id,
+                currency: currency,
+                amount: depositAmount,
+                ledgerEntryId: creditResult.entry?.id,
+                balanceAfter: creditResult.entry?.balanceAfter.toString(),
+                sweepStatus: SweepStatus.PENDING,
+            })}`
         );
 
-        if (walletUpdated) {
-            // Sync wallet with Quidax to ensure balance is up to date (outside transaction)
-            await this.walletAddressService.syncWallet(user.id, options.currency);
+        // Link ledger entry to the order
+        if (creditResult.entry) {
+            await this.prisma.order.updateMany({
+                where: { transactionId: transactionId },
+                data: { ledgerEntryId: creditResult.entry.id },
+            });
         }
+
+        // LEGACY: Still update assetWallet for backwards compatibility
+        // This will be removed once migration is complete
+        await this.updateLegacyWalletBalance(user, options);
 
         // Send notifications (outside transaction - not critical for data integrity)
         await this.sendDepositNotification(user, options, transactionId);
 
         // Emit wallet update after deposit
         this.wsGateway.notifyWalletUpdate(user.id);
+    }
+
+    /**
+     * LEGACY: Update assetWallet for backwards compatibility during transition
+     * This method will be removed once all users are migrated to the ledger system
+     */
+    private async updateLegacyWalletBalance(user: any, options: DepositTransaction) {
+        try {
+            const assetWallet = await this.prisma.assetWallet.findUnique({
+                where: {
+                    userId_assetCurrency: {
+                        userId: user.id,
+                        assetCurrency: options.currency.toUpperCase(),
+                    },
+                },
+            });
+
+            if (assetWallet) {
+                const currentBalance = parseFloat(assetWallet.balance.toString());
+                const depositAmount = parseFloat(options.amount);
+                const newBalance = (currentBalance + depositAmount).toString();
+
+                await this.prisma.assetWallet.update({
+                    where: { id: assetWallet.id },
+                    data: { balance: newBalance },
+                });
+
+                this.logger.debug(
+                    `Legacy wallet balance updated | ${JSON.stringify({
+                        userId: user.id,
+                        currency: options.currency,
+                        newBalance: newBalance,
+                    })}`
+                );
+            }
+
+            // Sync with Quidax
+            await this.walletAddressService.syncWallet(user.id, options.currency);
+        } catch (error) {
+            // Non-critical - log but don't fail
+            this.logger.warn(
+                `Failed to update legacy wallet | ${JSON.stringify({
+                    userId: user.id,
+                    currency: options.currency,
+                    error: error.message,
+                })}`
+            );
+        }
     }
 
     /**

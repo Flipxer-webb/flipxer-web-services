@@ -213,12 +213,12 @@ export class WalletManagementService {
         });
 
         if (!setting) {
-            // Return default thresholds
+            // Return default thresholds with float configuration
             return [
-                { currency: "btc", minBalance: 0.1, maxBalance: 10, alertEnabled: true },
-                { currency: "eth", minBalance: 1, maxBalance: 100, alertEnabled: true },
-                { currency: "usdt", minBalance: 10000, maxBalance: 1000000, alertEnabled: true },
-                { currency: "usdc", minBalance: 10000, maxBalance: 1000000, alertEnabled: true },
+                { currency: "btc", minBalance: 0.1, maxBalance: 10, alertEnabled: true, floatPercentage: 20, absoluteReserve: 0.01 },
+                { currency: "eth", minBalance: 1, maxBalance: 100, alertEnabled: true, floatPercentage: 20, absoluteReserve: 0.1 },
+                { currency: "usdt", minBalance: 10000, maxBalance: 1000000, alertEnabled: true, floatPercentage: 20, absoluteReserve: 1000 },
+                { currency: "usdc", minBalance: 10000, maxBalance: 1000000, alertEnabled: true, floatPercentage: 20, absoluteReserve: 1000 },
             ];
         }
 

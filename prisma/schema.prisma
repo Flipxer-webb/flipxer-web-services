@@ -99,6 +99,9 @@ model User {
   priceAlerts                        PriceAlert[]
   biometricCredentials               UserBiometricCredential[]
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  // Virtual Balance / Ledger System relations
+  ledgerEntries                      LedgerEntry[]
+  withdrawalQueues                   WithdrawalQueue[]
 
   // Existing indexes
   @@index([id, bvn])
@@ -548,6 +551,8 @@ model Order {
   streamlinedStatus            OrderStreamlinedStatus @default(pending)
   transactionId                String?                @unique
   fulfilled                    Boolean                @default(false) // Set to true when BUY order crypto has been delivered
+  // Virtual Balance / Ledger System
+  ledgerEntryId                String?                // Link to main ledger entry for this order
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
 
@@ -1045,4 +1050,228 @@ enum FeatureFlagAction {
   DISABLED
   CONDITIONS_UPDATED
   DELETED
+}
+
+// =============================================================================
+// VIRTUAL BALANCE / LEDGER SYSTEM
+// =============================================================================
+
+// Ledger entry types for double-entry accounting
+enum LedgerType {
+  DEPOSIT
+  WITHDRAWAL
+  HOLD
+  RELEASE
+  BUY
+  SELL
+  SWAP_IN
+  SWAP_OUT
+  SEND
+  RECEIVE
+  FEE
+  SWEEP
+  ADJUSTMENT
+  MIGRATION       // Initial balance migration from AssetWallet
+  MIGRATION_HOLD  // Migrated locked/held balance
+}
+
+// Status of a ledger entry
+enum EntryStatus {
+  PENDING     // Entry created but not finalized
+  HOLD        // Funds reserved but not deducted
+  SETTLED     // Entry finalized, balance updated
+  CANCELLED   // Hold was released/refunded
+  FAILED      // Entry failed to process
+}
+
+// Status of sweep operation from sub-account to main wallet
+enum SweepStatus {
+  PENDING         // Deposit received, sweep not started
+  IN_PROGRESS     // Sweep initiated to main wallet
+  COMPLETED       // Sweep confirmed on blockchain
+  FAILED          // Sweep failed
+  NOT_APPLICABLE  // Entry type doesn't require sweep
+}
+
+// Reason why a withdrawal was queued
+enum QueueReason {
+  DEPOSIT_SETTLING
+  LOW_LIQUIDITY
+}
+
+// Type of ledger adjustment
+enum AdjustmentType {
+  CREDIT
+  DEBIT
+}
+
+// Status of adjustment approval workflow
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Status of data migration run
+enum MigrationStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  PAUSED
+}
+
+// Core ledger entry for double-entry accounting
+// Each balance change creates an entry; balanceAfter provides O(1) balance lookup
+model LedgerEntry {
+  id                 String        @id @default(uuid())
+  userId             Int           // 0 = platform account, -1 = network fees account
+  currency           String
+  type               LedgerType
+  debit              Decimal       @db.Decimal(20, 8)
+  credit             Decimal       @db.Decimal(20, 8)
+  balanceAfter       Decimal       @db.Decimal(20, 8)
+  status             EntryStatus   @default(PENDING)
+  sweepStatus        SweepStatus?  // Only for DEPOSIT entries
+  holdAmount         Decimal?      @db.Decimal(20, 8) // Amount held for HOLD entries
+  reference          String        // External reference (txid, orderId, etc.)
+  tradeGroupId       String?       // Groups related entries (e.g., buy order + fee)
+  exchangeRate       Decimal?      @db.Decimal(20, 8)
+  counterpartyUserId Int?          // For SEND/RECEIVE, the other party
+  paymentReference   String?       // Fiat payment reference
+  description        String?       // Human-readable description for audit
+  metadata           Json?         // Additional data
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  // Relations
+  user               User?         @relation(fields: [userId], references: [id])
+  withdrawalQueue    WithdrawalQueue?
+
+  // Prevent duplicate entries for same transaction
+  @@unique([type, reference])
+  // Fast balance lookups
+  @@index([userId, currency, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([sweepStatus])
+  @@index([tradeGroupId])
+  @@map("LedgerEntries")
+}
+
+// Per-currency float configuration for omnibus wallet
+model FloatConfig {
+  id              String   @id @default(uuid())
+  currency        String   @unique
+  floatAllowance  Decimal  @db.Decimal(20, 8) // Maximum allowed float
+  alertThreshold  Decimal  @db.Decimal(5, 2)  // Alert at this % of allowance (e.g., 80.00)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("FloatConfigs")
+}
+
+// Queue for withdrawals waiting for liquidity
+model WithdrawalQueue {
+  id           String      @id @default(uuid())
+  userId       Int
+  currency     String
+  amount       Decimal     @db.Decimal(20, 8)
+  holdEntryId  String      @unique
+  reason       QueueReason
+  position     Int         // Queue position (1 = next to process)
+  queuedAt     DateTime    @default(now())
+  processedAt  DateTime?   // When withdrawal was executed
+  releasedAt   DateTime?   // When HOLD was released (timeout/cancel)
+
+  // Relations
+  user         User        @relation(fields: [userId], references: [id])
+  holdEntry    LedgerEntry @relation(fields: [holdEntryId], references: [id])
+
+  @@index([currency, position])
+  @@index([queuedAt])
+  @@map("WithdrawalQueues")
+}
+
+// Hourly reconciliation snapshots
+model ReconciliationLog {
+  id                String    @id @default(uuid())
+  currency          String
+  ledgerTotal       Decimal   @db.Decimal(20, 8) // Sum of all user balances
+  blockchainTotal   Decimal   @db.Decimal(20, 8) // Actual blockchain balance
+  discrepancy       Decimal   @db.Decimal(20, 8) // Absolute difference
+  discrepancyPct    Decimal   @db.Decimal(10, 4) // Percentage difference
+  isWithinTolerance Boolean
+  pausedWithdrawals Boolean   @default(false) // True if auto-paused
+  resolvedAt        DateTime?
+  resolvedBy        Int?      // Admin who resolved
+  notes             String?
+  createdAt         DateTime  @default(now())
+
+  @@index([currency, createdAt(sort: Desc)])
+  @@map("ReconciliationLogs")
+}
+
+// Manual ledger adjustment requests requiring super-admin approval
+model AdjustmentRequest {
+  id            String         @id @default(uuid())
+  userId        Int            // User whose balance is adjusted
+  currency      String
+  amount        Decimal        @db.Decimal(20, 8)
+  type          AdjustmentType
+  reason        String
+  status        ApprovalStatus @default(PENDING)
+  requestedBy   Int            // Admin who requested
+  approvedBy    Int?           // Super-admin who approved
+  rejectedBy    Int?           // Super-admin who rejected
+  rejectionNote String?
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  ledgerEntryId String?        // Created when approved
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([status])
+  @@index([userId])
+  @@map("AdjustmentRequests")
+}
+
+// Webhook idempotency log
+model WebhookLog {
+  id          String   @id @default(uuid())
+  provider    String   // quidax, nomba, fincra
+  eventType   String
+  externalId  String   // Provider's unique ID for the event
+  payload     Json
+  processedAt DateTime @default(now())
+
+  // Prevent duplicate webhook processing
+  @@unique([provider, eventType, externalId])
+  @@index([provider, processedAt])
+  @@map("WebhookLogs")
+}
+
+// Track data migration progress for resume capability
+model MigrationRun {
+  id             String          @id @default(uuid())
+  name           String          // Migration identifier
+  lastUserId     Int             @default(0) // Last successfully migrated user
+  totalUsers     Int             @default(0)
+  processedUsers Int             @default(0)
+  status         MigrationStatus @default(RUNNING)
+  errorMessage   String?
+  startedAt      DateTime        @default(now())
+  completedAt    DateTime?
+
+  @@index([name, status])
+  @@map("MigrationRuns")
+}
+
+// Track admin queue badge "seen" state
+model AdminQueueSeen {
+  id              String   @id @default(uuid())
+  adminUserId     Int      @unique
+  lastSeenQueueId String?  // Last queue item ID seen
+  lastSeenAt      DateTime @default(now())
+
+  @@map("AdminQueueSeens")
 }

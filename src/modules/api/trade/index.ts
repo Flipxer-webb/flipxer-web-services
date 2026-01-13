@@ -11,8 +11,15 @@ import { DepositWebhookHandler } from "./services/webhook-handlers/deposit-webho
 import { SwapWebhookHandler } from "./services/webhook-handlers/swap-webhook.handler";
 import { WithdrawalWebhookHandler } from "./services/webhook-handlers/withdrawal-webhook.handler";
 import { PriceAlertService } from "./services/price-alert.service";
+import { LedgerService } from "./services/ledger/ledger.service";
+import { WithdrawalQueueService } from "./services/ledger/withdrawal-queue.service";
+import { FloatConfigService } from "./services/ledger/float-config.service";
+import { ReconciliationService } from "./services/ledger/reconciliation.service";
+import { SweepService } from "./services/ledger/sweep.service";
+import { WithdrawalQueueCron } from "./crons/withdrawal-queue.cron";
 import { TradingController } from "./controllers/v1";
 import { PriceAlertController } from "./controllers/v1/price-alert.controller";
+import { AdminLedgerController } from "./controllers/v1/admin-ledger.controller";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
 import { BullModule } from "@nestjs/bull";
@@ -57,7 +64,7 @@ export * from "./errors";
         NotificationModule,
         CachingModule,
     ],
-    controllers: [TradingController, PriceAlertController],
+    controllers: [TradingController, PriceAlertController, AdminLedgerController],
     providers: [
         TradingService,
         TradeHelpersService,
@@ -71,6 +78,12 @@ export * from "./errors";
         SwapWebhookHandler,
         WithdrawalWebhookHandler,
         PriceAlertService,
+        LedgerService,
+        WithdrawalQueueService,
+        FloatConfigService,
+        ReconciliationService,
+        SweepService,
+        WithdrawalQueueCron,
         TradingEvent,
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
@@ -102,6 +115,11 @@ export * from "./errors";
         SwapService,
         SendService,
         WebhookHandlerService,
+        LedgerService,
+        WithdrawalQueueService,
+        FloatConfigService,
+        ReconciliationService,
+        SweepService,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,
