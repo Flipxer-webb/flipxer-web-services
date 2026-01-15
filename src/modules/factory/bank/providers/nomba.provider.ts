@@ -21,7 +21,7 @@ import * as e from "../errors/nomba.error";
 import { TransactionShortDescription } from "@/modules/api/transactions/types";
 
 export class NombaBank implements TNomba.INombaBank {
-    constructor(private nomba: NombaLib, private prisma: PrismaService) {}
+    constructor(private nomba: NombaLib, private prisma: PrismaService) { }
 
     /**
      * Get list of Nigerian banks
@@ -231,9 +231,10 @@ export class NombaBank implements TNomba.INombaBank {
                 message: "Checkout created successfully",
                 data: {
                     link: result.data.checkoutLink,
-                    // CRITICAL: Return OUR reference, not Nomba's returned reference
-                    // This ensures the webhook orderReference matches what we store
-                    reference: reference,
+                    // Use Nomba's orderReference as our internal reference
+                    // This ensures the redirect URL ref param and webhook orderReference 
+                    // match what we store in Payment.reference for verification
+                    reference: result.data.orderReference,
                     amount: result.data.amount,
                 },
             };

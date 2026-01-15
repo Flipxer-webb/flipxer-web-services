@@ -235,25 +235,21 @@ export class BuyOrderService {
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
 
-        // Generate a deterministic checkout reference so the redirect callback can
-        // include it and the frontend can verify payment status post-redirect.
-        const checkoutReference = generateId({ type: "reference" });
-
         // Generate callback URL for Nomba to redirect after payment
-        // The frontend checks for ?buy=success and then verifies using the ref
-        // Dashboard is at root path (/) in the Next.js routing
-        const callbackUrl = `${frontendUrl}/?buy=success&ref=${checkoutReference}`;
+        // The frontend checks for ?buy=success and uses the stored reference for verification
+        // We don't include ref in URL since Nomba returns their own orderReference which we store
+        const callbackUrl = `${frontendUrl}/?buy=success`;
 
         const { data } = await this.nombaService.initializePayment(
             userData,
             amount,
-            callbackUrl,
-            checkoutReference
+            callbackUrl
+            // No checkoutReference override - let Nomba generate and use their orderReference
         );
 
         const result = data as {
             link: string;
-            reference: string;
+            reference: string;  // This is now Nomba's orderReference
             amount: number;
         };
 
