@@ -351,7 +351,7 @@ export class TierService {
 
         const before = { ...user };
 
-        // Reset all verification flags and tier
+        // Reset all verification flags, status enums, and tier
         const updated = await this.prisma.user.update({
             where: { id: user.id },
             data: {
@@ -363,6 +363,13 @@ export class TierService {
                 isIncomeVerified: false,
                 bvn: null,
                 nin: null,
+                // Reset verification status enums
+                documentVerificationStatus: null,
+                addressVerificationStatus: null,
+                incomeVerificationStatus: null,
+                // Clear document URLs
+                addressDocumentUrl: null,
+                incomeDocumentUrl: null,
             },
             select: {
                 id: true,
@@ -373,10 +380,18 @@ export class TierService {
                 isDocumentVerified: true,
                 isAddressVerified: true,
                 isIncomeVerified: true,
+                documentVerificationStatus: true,
+                addressVerificationStatus: true,
+                incomeVerificationStatus: true,
             },
         });
 
-        this.logger.log(`Reset user ${email} to Tier 0 for testing`);
+        // Also delete any UserDocument records for this user
+        await this.prisma.userDocument.deleteMany({
+            where: { userId: user.id },
+        });
+
+        this.logger.log(`Reset user ${email} to Tier 0 for testing (cleared all verification data)`);
 
         return {
             before,

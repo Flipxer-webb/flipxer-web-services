@@ -70,4 +70,20 @@ export class AdminAuthController {
             data: result,
         });
     }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ 
+        summary: "Reset user verification for testing",
+        description: "Admin endpoint to reset a user's verification status and tier to 0 for testing purposes"
+    })
+    @Post("reset-user-for-testing")
+    async resetUserForTesting(
+        @Body(ValidationPipe) dto: { email: string }
+    ): Promise<ApiResponse> {
+        const result = await this.tierService.resetUserForTesting(dto.email);
+        return buildResponse({
+            message: `User ${dto.email} reset to Tier 0`,
+            data: result,
+        });
+    }
 }
