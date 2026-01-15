@@ -34,6 +34,8 @@ import { WithdrawalQueueService } from "./ledger/withdrawal-queue.service";
 import { SweepService } from "./ledger/sweep.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { Decimal } from "@prisma/client/runtime/library";
+import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
+import { GeneralTransactionException } from "../errors";
 
 // Withdrawal rate limit: 5 per hour per user
 const WITHDRAWAL_RATE_LIMIT = 5;
@@ -64,7 +66,8 @@ export class SendService {
         private readonly withdrawalQueueService: WithdrawalQueueService,
         private readonly sweepService: SweepService,
         private readonly slackWebhookService: SlackWebhookService,
-        private readonly rateService: RateService
+        private readonly rateService: RateService,
+        private readonly transactionMonitor: TransactionMonitorService
     ) { }
 
     /**
@@ -266,7 +269,7 @@ export class SendService {
         if (hasPendingSweeps) {
             return buildResponse({
                 message: "Please wait for your recent deposit to be confirmed before withdrawing.",
-                data: { 
+                data: {
                     status: "pending_sweep",
                     hint: "Your deposit is being processed. This usually takes a few minutes.",
                 },
@@ -284,6 +287,25 @@ export class SendService {
 
         const reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });
+
+        // Phase 2: Real-time monitoring for high-value transactions
+        const monitorResult = await this.transactionMonitor.validateBeforeExecution({
+            userId: user.id,
+            currency,
+            amount: totalAmount,
+            operationType: "WITHDRAWAL",
+            reference: `withdrawal:${reference}`,
+        });
+
+        if (!monitorResult.success) {
+            this.logger.warn(
+                `Transaction monitor blocked withdrawal | User: ${user.id} | Amount: ${totalAmount} ${currency} | Reason: ${monitorResult.reason}`
+            );
+            throw new GeneralTransactionException(
+                monitorResult.reason || "Transaction blocked by monitoring system",
+                HttpStatus.FORBIDDEN
+            );
+        }
 
         // HOLD the amount on user's ledger
         const holdResult = await this.ledgerService.hold({

@@ -37,6 +37,7 @@ import { WalletAddressService } from "./wallet-address.service";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.handler";
 import { LedgerService } from "./ledger/ledger.service";
+import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
 
 /**
  * Sell Order Service
@@ -60,7 +61,8 @@ export class SellOrderService {
         private readonly walletManagementService: WalletManagementService,
         private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
         private readonly ledgerService: LedgerService,
-        private readonly rateService: RateService
+        private readonly rateService: RateService,
+        private readonly transactionMonitor: TransactionMonitorService
     ) { }
 
     /**
@@ -290,6 +292,25 @@ export class SellOrderService {
         const currency = dto.asset.toUpperCase();
         const holdAmount = totalCryptoToAdmin;
         const holdReference = `sell-hold:${generateId({ type: "reference" })}`;
+
+        // Phase 2: Real-time monitoring for high-value transactions
+        const monitorResult = await this.transactionMonitor.validateBeforeExecution({
+            userId: user.id,
+            currency,
+            amount: holdAmount,
+            operationType: "SELL",
+            reference: holdReference,
+        });
+
+        if (!monitorResult.success) {
+            this.logger.warn(
+                `Transaction monitor blocked sell order | User: ${user.id} | Amount: ${holdAmount} ${currency} | Reason: ${monitorResult.reason}`
+            );
+            throw new GeneralTransactionException(
+                monitorResult.reason || "Transaction blocked by monitoring system",
+                HttpStatus.FORBIDDEN
+            );
+        }
 
         const holdResult = await this.ledgerService.hold({
             userId: user.id,
