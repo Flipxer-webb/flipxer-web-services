@@ -1193,7 +1193,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        // TODO: Add dojahExtractedExpiryDate after migration
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
@@ -1219,7 +1219,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        // TODO: Add dojahExtractedExpiryDate after migration
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
@@ -1495,7 +1495,7 @@ export class AuthService {
                     dojahExtractedLastName: dto.idData?.last_name || null,
                     dojahExtractedDob: dto.idData?.date_of_birth || null,
                     dojahExtractedDocNumber: dto.idData?.document_number || null,
-                    // TODO: Add dojahExtractedExpiryDate after migration
+                    dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
                     dojahNameMatches: true, // Verified via widget
                     dojahVerifiedAt: new Date(),
                     dojahRawResponse: JSON.stringify({
@@ -1526,7 +1526,7 @@ export class AuthService {
                     dojahExtractedLastName: dto.idData?.last_name || null,
                     dojahExtractedDob: dto.idData?.date_of_birth || null,
                     dojahExtractedDocNumber: dto.idData?.document_number || null,
-                    // TODO: Add dojahExtractedExpiryDate after migration
+                    dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
                     dojahNameMatches: true,
                     dojahVerifiedAt: new Date(),
                     dojahRawResponse: JSON.stringify({
@@ -1762,7 +1762,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        // TODO: Add dojahExtractedExpiryDate after migration
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
@@ -1788,7 +1788,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        // TODO: Add dojahExtractedExpiryDate after migration
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
