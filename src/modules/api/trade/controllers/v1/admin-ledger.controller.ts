@@ -24,6 +24,7 @@ import { FloatConfigService } from "../../services/ledger/float-config.service";
 import { LedgerService } from "../../services/ledger/ledger.service";
 import { SweepService } from "../../services/ledger/sweep.service";
 import { OrphanedHoldService } from "../../services/ledger/orphaned-hold.service";
+import { DepositReviewService } from "../../services/ledger/deposit-review.service";
 import { HoldResolution } from "@prisma/client";
 import { buildResponse } from "@/utils/api-response-util";
 
@@ -58,7 +59,8 @@ export class AdminLedgerController {
         private readonly floatConfigService: FloatConfigService,
         private readonly ledgerService: LedgerService,
         private readonly sweepService: SweepService,
-        private readonly orphanedHoldService: OrphanedHoldService
+        private readonly orphanedHoldService: OrphanedHoldService,
+        private readonly depositReviewService: DepositReviewService
     ) { }
 
     // =========================================================================
@@ -405,4 +407,76 @@ export class AdminLedgerController {
             },
         });
     }
+
+    // =========================================================================
+    // DEPOSIT REVIEW ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get pending deposit reviews" })
+    @Get("deposit-reviews")
+    async getPendingDepositReviews() {
+        this.logger.log("Admin fetching pending deposit reviews");
+        const reviews = await this.depositReviewService.getPendingReviews();
+        return buildResponse({
+            message: "Pending deposit reviews retrieved",
+            data: {
+                reviews,
+                count: reviews.length,
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Approve a queued deposit" })
+    @Post("deposit-reviews/:id/approve")
+    async approveDeposit(
+        @Param("id") id: string,
+        @User() admin: UserEntity,
+        @Body("notes") notes?: string
+    ) {
+        this.logger.log(`Admin ${admin.id} approving deposit ${id}`);
+        const result = await this.depositReviewService.approveDeposit(id, admin.id, notes);
+        if (!result.success) {
+            return buildResponse({
+                message: result.error || "Failed to approve deposit",
+                data: null,
+            });
+        }
+        return buildResponse({
+            message: "Deposit approved successfully",
+            data: result.entry,
+        });
+    }
+
+    @ApiOperation({ summary: "Reject a queued deposit" })
+    @Post("deposit-reviews/:id/reject")
+    async rejectDeposit(
+        @Param("id") id: string,
+        @User() admin: UserEntity,
+        @Body("notes") notes?: string
+    ) {
+        this.logger.log(`Admin ${admin.id} rejecting deposit ${id}`);
+        const result = await this.depositReviewService.rejectDeposit(id, admin.id, notes);
+        if (!result.success) {
+            return buildResponse({
+                message: result.error || "Failed to reject deposit",
+                data: null,
+            });
+        }
+        return buildResponse({
+            message: "Deposit rejected",
+            data: null,
+        });
+    }
+
+    @ApiOperation({ summary: "Get deposit review queue statistics" })
+    @Get("deposit-review-stats")
+    async getDepositReviewStats() {
+        this.logger.log("Admin fetching deposit review stats");
+        const stats = await this.depositReviewService.getStats();
+        return buildResponse({
+            message: "Deposit review statistics retrieved",
+            data: stats,
+        });
+    }
 }
+

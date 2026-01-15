@@ -103,6 +103,8 @@ model User {
   ledgerEntries                      LedgerEntry[]
   withdrawalQueues                   WithdrawalQueue[]
   orphanedHoldReviews                OrphanedHoldReview[]              @relation("OrphanedHoldResolver")
+  depositReviewQueues                DepositReviewQueue[]
+  depositReviewsReviewed             DepositReviewQueue[]              @relation("DepositReviewer")
 
   // Existing indexes
   @@index([id, bvn])
@@ -1167,11 +1169,47 @@ model FloatConfig {
   currency        String   @unique
   floatAllowance  Decimal  @db.Decimal(20, 8) // Maximum allowed float
   alertThreshold  Decimal  @db.Decimal(5, 2)  // Alert at this % of allowance (e.g., 80.00)
+  blockThreshold  Decimal  @db.Decimal(5, 2) @default(95.00) // Block deposits at this % (e.g., 95.00)
+  autoApproveHours Int     @default(24)      // Auto-approve queued deposits after this many hours (0 = disabled)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@map("FloatConfigs")
+}
+
+// Status for deposit review queue
+enum DepositReviewStatus {
+  PENDING      // Awaiting admin review
+  APPROVED     // Admin approved, will be credited
+  REJECTED     // Admin rejected, won't be credited
+  AUTO_APPROVED // Automatically approved after timeout
+  EXPIRED      // Deposit window expired
+}
+
+// Queue for deposits that exceed float threshold
+model DepositReviewQueue {
+  id              String             @id @default(uuid())
+  userId          Int
+  currency        String
+  amount          Decimal            @db.Decimal(20, 8)
+  depositAddress  String             // Address deposit was received on
+  txHash          String?            // Blockchain transaction hash
+  floatAtDeposit  Decimal            @db.Decimal(5, 2)  // Float % at time of deposit
+  status          DepositReviewStatus @default(PENDING)
+  reviewedAt      DateTime?
+  reviewedBy      Int?               // Admin who reviewed
+  notes           String?
+  autoApproveAt   DateTime?          // When auto-approve will trigger
+  queuedAt        DateTime           @default(now())
+
+  // Relations
+  user            User               @relation(fields: [userId], references: [id])
+  reviewer        User?              @relation("DepositReviewer", fields: [reviewedBy], references: [id])
+
+  @@index([status, queuedAt])
+  @@index([userId, currency])
+  @@map("DepositReviewQueues")
 }
 
 // Queue for withdrawals waiting for liquidity
