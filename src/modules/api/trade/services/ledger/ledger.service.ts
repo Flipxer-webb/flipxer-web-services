@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Prisma, LedgerType, EntryStatus, SweepStatus } from "@prisma/client";
+import { Prisma, LedgerType, EntryStatus, SweepStatus, AuditAction } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -85,7 +85,7 @@ export class LedgerService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly lockService: DistributedLockService
-    ) {}
+    ) { }
 
     /**
      * Credits an amount to a user's ledger (increases balance)
@@ -208,7 +208,7 @@ export class LedgerService {
                 const newBalance = currentBalance.plus(amount);
 
                 // Determine sweep status - use passed value or default based on type
-                const entrySweepStatus = sweepStatus ?? 
+                const entrySweepStatus = sweepStatus ??
                     (type === LedgerType.DEPOSIT ? SweepStatus.PENDING : SweepStatus.NOT_APPLICABLE);
 
                 // Create credit entry (credit column has the amount, debit is 0)
@@ -1088,4 +1088,90 @@ export class LedgerService {
             }
         );
     }
+
+    // =========================================================================
+    // AUDIT LOGGING METHODS
+    // =========================================================================
+
+    /**
+     * Logs an audit entry for a ledger operation
+     *
+     * @param ledgerEntryId The ledger entry being audited
+     * @param action The audit action
+     * @param actor Who performed the action (e.g., "system", "user:123", "admin:1")
+     * @param reason Optional reason for the action
+     * @param metadata Optional additional data
+     */
+    async logAudit(
+        ledgerEntryId: string,
+        action: AuditAction,
+        actor: string,
+        reason?: string,
+        metadata?: Record<string, any>
+    ): Promise<void> {
+        try {
+            await this.prisma.ledgerAuditLog.create({
+                data: {
+                    ledgerEntryId,
+                    action,
+                    actor,
+                    reason,
+                    metadata: metadata ? metadata : undefined,
+                },
+            });
+        } catch (error) {
+            // Don't fail the main operation if audit logging fails
+            this.logger.error(
+                `Failed to create audit log | ${JSON.stringify({
+                    ledgerEntryId,
+                    action,
+                    actor,
+                    error: error.message,
+                })}`
+            );
+        }
+    }
+
+    /**
+     * Gets the audit trail for a ledger entry
+     *
+     * @param ledgerEntryId The ledger entry ID
+     * @returns Array of audit log entries
+     */
+    async getAuditTrail(ledgerEntryId: string) {
+        return this.prisma.ledgerAuditLog.findMany({
+            where: { ledgerEntryId },
+            orderBy: { createdAt: "asc" },
+        });
+    }
+
+    /**
+     * Gets recent audit logs across all entries
+     *
+     * @param limit Maximum number of entries to return
+     * @param action Optional filter by action type
+     * @returns Array of audit log entries with ledger entry details
+     */
+    async getRecentAuditLogs(limit: number = 100, action?: AuditAction) {
+        return this.prisma.ledgerAuditLog.findMany({
+            where: action ? { action } : undefined,
+            orderBy: { createdAt: "desc" },
+            take: limit,
+            include: {
+                ledgerEntry: {
+                    select: {
+                        id: true,
+                        userId: true,
+                        currency: true,
+                        type: true,
+                        debit: true,
+                        credit: true,
+                        status: true,
+                        reference: true,
+                    },
+                },
+            },
+        });
+    }
 }
+

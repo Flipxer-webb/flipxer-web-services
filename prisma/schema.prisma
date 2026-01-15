@@ -1149,6 +1149,7 @@ model LedgerEntry {
   user               User?         @relation(fields: [userId], references: [id])
   withdrawalQueue    WithdrawalQueue?
   orphanedHoldReview OrphanedHoldReview?
+  auditLogs          LedgerAuditLog[]
 
   // Prevent duplicate entries for same transaction
   @@unique([type, reference])
@@ -1310,4 +1311,33 @@ model OrphanedHoldReview {
   @@index([resolvedAt])
   @@index([detectedAt])
   @@map("OrphanedHoldReviews")
+}
+
+// Actions tracked in ledger audit log
+enum AuditAction {
+  CREATED       // Entry created
+  SETTLED       // Hold converted to debit
+  FAILED        // Operation failed
+  CANCELLED     // Entry cancelled
+  RETRIED       // Operation retried
+  HOLD_PLACED   // Hold placed on balance
+  HOLD_RELEASED // Hold released back to available
+}
+
+// Audit trail for all ledger entry state changes
+model LedgerAuditLog {
+  id            String       @id @default(uuid())
+  ledgerEntryId String
+  action        AuditAction
+  actor         String       // "system", "cron:<name>", "user:<id>", "admin:<id>"
+  reason        String?
+  metadata      Json?
+  createdAt     DateTime     @default(now())
+
+  // Relations
+  ledgerEntry   LedgerEntry  @relation(fields: [ledgerEntryId], references: [id])
+
+  @@index([ledgerEntryId])
+  @@index([createdAt])
+  @@map("LedgerAuditLogs")
 }

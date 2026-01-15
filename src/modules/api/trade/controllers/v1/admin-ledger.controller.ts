@@ -363,4 +363,46 @@ export class AdminLedgerController {
             data: stats,
         });
     }
+
+    // =========================================================================
+    // AUDIT LOG ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get audit trail for a ledger entry" })
+    @Get("audit/:entryId")
+    async getAuditTrail(@Param("entryId") entryId: string) {
+        this.logger.log(`Admin fetching audit trail for entry ${entryId}`);
+        const auditLogs = await this.ledgerService.getAuditTrail(entryId);
+        return buildResponse({
+            message: "Audit trail retrieved",
+            data: {
+                entryId,
+                logs: auditLogs,
+                count: auditLogs.length,
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Get recent audit logs" })
+    @ApiQuery({ name: "limit", required: false, description: "Max entries to return (default: 100)" })
+    @ApiQuery({ name: "action", required: false, description: "Filter by action type" })
+    @Get("audit-logs")
+    async getRecentAuditLogs(
+        @Query("limit") limit?: string,
+        @Query("action") action?: string
+    ) {
+        this.logger.log("Admin fetching recent audit logs");
+        const parsedLimit = limit ? parseInt(limit, 10) : 100;
+        const logs = await this.ledgerService.getRecentAuditLogs(
+            parsedLimit,
+            action as any // Will be validated by Prisma
+        );
+        return buildResponse({
+            message: "Audit logs retrieved",
+            data: {
+                logs,
+                count: logs.length,
+            },
+        });
+    }
 }
