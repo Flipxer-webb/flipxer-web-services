@@ -257,9 +257,18 @@ export class KycService {
                 const verificationMap: Record<string, Prisma.UserUpdateInput> = {
                     BVN: { isBvnVerified: true },
                     NIN: { isNinVerified: true },
-                    DOCUMENT: { isDocumentVerified: true },
-                    ADDRESS: { isAddressVerified: true },
-                    INCOME: { isIncomeVerified: true },
+                    DOCUMENT: { 
+                        isDocumentVerified: true,
+                        documentVerificationStatus: "VERIFIED",
+                    },
+                    ADDRESS: { 
+                        isAddressVerified: true,
+                        addressVerificationStatus: "VERIFIED",
+                    },
+                    INCOME: { 
+                        isIncomeVerified: true,
+                        incomeVerificationStatus: "VERIFIED",
+                    },
                 };
                 updateData = verificationMap[verificationType] || {};
             }
@@ -269,8 +278,23 @@ export class KycService {
                 updateData.tier = newTier;
             }
         } else if (action === "REJECT") {
-            // For rejection, we might want to clear the submitted data
-            // But typically we just note the rejection
+            // For rejection, update status to DECLINED and clear document URL
+            if (verificationType) {
+                const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
+                    DOCUMENT: {
+                        documentVerificationStatus: "DECLINED",
+                    },
+                    ADDRESS: { 
+                        addressVerificationStatus: "DECLINED",
+                        addressDocumentUrl: null,
+                    },
+                    INCOME: { 
+                        incomeVerificationStatus: "DECLINED",
+                        incomeDocumentUrl: null,
+                    },
+                };
+                updateData = rejectionMap[verificationType] || {};
+            }
         } else if (action === "ESCALATE") {
             // Mark for senior review - could add a flag
         }
@@ -285,8 +309,38 @@ export class KycService {
                 isBvnVerified: true,
                 isNinVerified: true,
                 isDocumentVerified: true,
+                isAddressVerified: true,
+                isIncomeVerified: true,
+                addressVerificationStatus: true,
+                incomeVerificationStatus: true,
+                documentVerificationStatus: true,
             },
         });
+
+        // Recalculate tier after approval
+        if (action === "APPROVE") {
+            await this.tierService.updateUserTier(userId);
+        }
+
+        // Create KycVerification record for audit trail
+        if (verificationType) {
+            const kycStatusMap: Record<string, "APPROVED" | "REJECTED" | "ESCALATED"> = {
+                APPROVE: "APPROVED",
+                REJECT: "REJECTED",
+                ESCALATE: "ESCALATED",
+            };
+            
+            await this.prisma.kycVerification.create({
+                data: {
+                    userId,
+                    verificationType: verificationType as any, // KycVerificationType enum
+                    status: kycStatusMap[action] || "PENDING",
+                    reviewerId: adminId,
+                    reviewNote: note,
+                    reviewedAt: new Date(),
+                },
+            });
+        }
 
         // Create audit log
         await this.prisma.auditLog.create({
@@ -487,6 +541,7 @@ export class KycService {
         let tier1Count = 0;
         let tier2Count = 0;
         let tier3Count = 0;
+        let tier4Count = 0;
 
         for (const user of allUsers) {
             const calculatedTier = this.tierService.calculateTier(user);
@@ -495,6 +550,7 @@ export class KycService {
                 case 1: tier1Count++; break;
                 case 2: tier2Count++; break;
                 case 3: tier3Count++; break;
+                case 4: tier4Count++; break;
             }
         }
 
@@ -548,6 +604,7 @@ export class KycService {
                     tier1: { count: tier1Count, percentage: ((tier1Count / totalUsers) * 100).toFixed(2) },
                     tier2: { count: tier2Count, percentage: ((tier2Count / totalUsers) * 100).toFixed(2) },
                     tier3: { count: tier3Count, percentage: ((tier3Count / totalUsers) * 100).toFixed(2) },
+                    tier4: { count: tier4Count, percentage: ((tier4Count / totalUsers) * 100).toFixed(2) },
                 },
                 verificationBreakdown: {
                     bvn: { verified: bvnVerified, rate: ((bvnVerified / totalUsers) * 100).toFixed(2) },

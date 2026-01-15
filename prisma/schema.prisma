@@ -343,6 +343,7 @@ model UserDocument {
   dojahExtractedLastName   String?
   dojahExtractedDob        String?
   dojahExtractedDocNumber  String?
+  dojahExtractedExpiryDate String?                     // Document expiry date from Dojah
   dojahNameMatches         Boolean?
   dojahVerifiedAt          DateTime?
   dojahRawResponse         String?                     // JSON string of full response for audit

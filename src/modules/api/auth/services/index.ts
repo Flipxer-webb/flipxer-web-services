@@ -153,6 +153,48 @@ export class AuthService {
         return `Document verification failed: ${originalMessage}. Please try with a clearer image.`;
     }
 
+    /**
+     * Check if a document is expired based on expiry date string
+     * Returns true if expired, false if valid or no expiry date
+     */
+    private isDocumentExpired(expiryDateStr: string | null | undefined): boolean {
+        if (!expiryDateStr) return false;
+        
+        try {
+            // Parse common date formats (YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY)
+            let expiryDate: Date | null = null;
+            
+            if (/^\d{4}-\d{2}-\d{2}$/.test(expiryDateStr)) {
+                // YYYY-MM-DD format
+                expiryDate = new Date(expiryDateStr);
+            } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(expiryDateStr)) {
+                // DD/MM/YYYY format
+                const [day, month, year] = expiryDateStr.split('/');
+                expiryDate = new Date(`${year}-${month}-${day}`);
+            } else if (/^\d{2}-\d{2}-\d{4}$/.test(expiryDateStr)) {
+                // DD-MM-YYYY format
+                const [day, month, year] = expiryDateStr.split('-');
+                expiryDate = new Date(`${year}-${month}-${day}`);
+            } else {
+                // Try parsing as generic date
+                expiryDate = new Date(expiryDateStr);
+            }
+
+            if (isNaN(expiryDate.getTime())) {
+                this.logger.warn(`Could not parse expiry date: ${expiryDateStr}`);
+                return false;
+            }
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            return expiryDate < today;
+        } catch (error) {
+            this.logger.warn(`Error parsing expiry date ${expiryDateStr}:`, error);
+            return false;
+        }
+    }
+
     constructor(
         private jwtService: JwtService,
         private prisma: PrismaService,
@@ -1086,10 +1128,18 @@ export class AuthService {
             dojahParsed = verificationResult.parsed;
             dojahRawResponse = JSON.stringify(verificationResult);
 
+            // Check if document is expired
+            if (isDocumentValid && this.isDocumentExpired(dojahParsed?.expiryDate)) {
+                logger.warn(`Document for user ${user.id} is expired: ${dojahParsed?.expiryDate}`);
+                isDocumentValid = false;
+                dojahParsed.reason = "Document has expired";
+            }
+
             logger.log(
                 `Document analysis for user ${user.id}: ` +
                 `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
-                `docType=${dojahParsed?.documentType || "unknown"}`
+                `docType=${dojahParsed?.documentType || "unknown"}, ` +
+                `expiryDate=${dojahParsed?.expiryDate || "unknown"}`
             );
 
             // Document must be valid AND name must match for auto-approval
@@ -1143,6 +1193,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
@@ -1168,6 +1219,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
@@ -1443,6 +1495,7 @@ export class AuthService {
                     dojahExtractedLastName: dto.idData?.last_name || null,
                     dojahExtractedDob: dto.idData?.date_of_birth || null,
                     dojahExtractedDocNumber: dto.idData?.document_number || null,
+                    dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
                     dojahNameMatches: true, // Verified via widget
                     dojahVerifiedAt: new Date(),
                     dojahRawResponse: JSON.stringify({
@@ -1473,6 +1526,7 @@ export class AuthService {
                     dojahExtractedLastName: dto.idData?.last_name || null,
                     dojahExtractedDob: dto.idData?.date_of_birth || null,
                     dojahExtractedDocNumber: dto.idData?.document_number || null,
+                    dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
                     dojahNameMatches: true,
                     dojahVerifiedAt: new Date(),
                     dojahRawResponse: JSON.stringify({
@@ -1626,7 +1680,7 @@ export class AuthService {
             })(),
         ]);
 
-        const { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse, error: dojahError } = dojahResult;
+        let { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse, error: dojahError } = dojahResult;
 
         // If Dojah failed with an error, throw it to the frontend with a user-friendly message
         if (!dojahResult.success && dojahError) {
@@ -1637,10 +1691,20 @@ export class AuthService {
             );
         }
 
+        // Check if document is expired
+        if (isDocumentValid && this.isDocumentExpired(dojahParsed?.expiryDate)) {
+            logger.warn(`Document for user ${user.id} is expired: ${dojahParsed?.expiryDate}`);
+            isDocumentValid = false;
+            if (dojahParsed) {
+                dojahParsed.reason = "Document has expired";
+            }
+        }
+
         logger.log(
             `Document analysis for user ${user.id}: ` +
             `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
             `docType=${dojahParsed?.documentType || "unknown"}, ` +
+            `expiryDate=${dojahParsed?.expiryDate || "unknown"}, ` +
             `reason=${dojahParsed?.reason || "unknown"}`
         );
 
@@ -1698,6 +1762,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
@@ -1723,6 +1788,7 @@ export class AuthService {
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
                         dojahNameMatches: nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,

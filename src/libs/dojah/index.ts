@@ -213,4 +213,34 @@ export class DojahLib {
             hasBackSide: !!entity.document_images?.document_back_side,
         };
     }
+
+    /**
+     * Get verification result by reference/verification ID
+     * Used to validate widget verification results server-to-server
+     */
+    async getVerificationResult(verificationId: string): Promise<t.DojahResponse<any> | null> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: `/api/v1/verification/${verificationId}`,
+                method: "GET",
+            };
+            const resp = await this.axios<any>(requestOptions);
+
+            if (!resp.data) {
+                return null;
+            }
+
+            return {
+                status: true,
+                responseCode: resp.status,
+                data: resp.data,
+            };
+        } catch (error) {
+            // Return null for 404 (not found) rather than throwing
+            if ((error as AxiosError)?.response?.status === 404) {
+                return null;
+            }
+            this.handleDojahError(error as AxiosError);
+        }
+    }
 }

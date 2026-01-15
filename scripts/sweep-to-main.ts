@@ -19,10 +19,10 @@ const isDryRun = process.argv.includes("--dry-run");
 
 // Quidax API config
 const QUIDAX_BASE_URL = process.env.QUIDAX_BASE_URL || "https://www.quidax.com/api/v1";
-const QUIDAX_SECRET_KEY = process.env.QUIDAX_SECRET_KEY;
+const QUIDAX_SECRET_KEY = process.env.QUIDAX_API_SECRET || process.env.QUIDAX_SECRET_KEY;
 
 if (!QUIDAX_SECRET_KEY) {
-    console.error("ERROR: QUIDAX_SECRET_KEY environment variable is required");
+    console.error("ERROR: QUIDAX_API_SECRET environment variable is required");
     process.exit(1);
 }
 

@@ -100,6 +100,16 @@ export class TierVerificationService {
                 },
             });
 
+            // Create KycVerification record for audit trail
+            await this.prisma.kycVerification.create({
+                data: {
+                    userId: user.id,
+                    verificationType: "ADDRESS",
+                    status: "PENDING",
+                    documentUrl,
+                },
+            });
+
             return buildResponse({
                 message:
                     "Document uploaded successfully. It will be reviewed by our team.",
@@ -117,6 +127,18 @@ export class TierVerificationService {
                 addressDocumentUrl: documentUrl,
                 addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
                 isAddressVerified: true,
+            },
+        });
+
+        // Create KycVerification record for auto-approved
+        await this.prisma.kycVerification.create({
+            data: {
+                userId: user.id,
+                verificationType: "ADDRESS",
+                status: "APPROVED",
+                documentUrl,
+                reviewedAt: new Date(),
+                reviewNote: "Auto-approved via OCR verification",
             },
         });
 
@@ -185,6 +207,16 @@ export class TierVerificationService {
                 },
             });
 
+            // Create KycVerification record for audit trail
+            await this.prisma.kycVerification.create({
+                data: {
+                    userId: user.id,
+                    verificationType: "INCOME",
+                    status: "PENDING",
+                    documentUrl,
+                },
+            });
+
             return buildResponse({
                 message:
                     "Document uploaded successfully. It will be reviewed by our team.",
@@ -202,6 +234,18 @@ export class TierVerificationService {
                 incomeDocumentUrl: documentUrl,
                 incomeVerificationStatus: DocumentVerificationStatus.VERIFIED,
                 isIncomeVerified: true,
+            },
+        });
+
+        // Create KycVerification record for auto-approved
+        await this.prisma.kycVerification.create({
+            data: {
+                userId: user.id,
+                verificationType: "INCOME",
+                status: "APPROVED",
+                documentUrl,
+                reviewedAt: new Date(),
+                reviewNote: "Auto-approved via OCR verification",
             },
         });
 
