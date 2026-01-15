@@ -172,16 +172,32 @@ export class NombaWebhookController {
         this.logger.log(`Processing incoming payment: ${amount} | Ref: ${reference}`);
 
         // Find the payment by reference
-        const payment = await this.prisma.payment.findFirst({
+        let payment = await this.prisma.payment.findFirst({
             where: { reference },
         });
+
+        // FALLBACK: If payment not found by reference, try to find by order.orderReference
+        // This handles cases where Nomba's orderReference differs from what we stored
+        if (!payment) {
+            this.logger.log(`Payment not found by reference ${reference}, trying order.orderReference fallback...`);
+
+            const order = await this.prisma.order.findFirst({
+                where: { orderReference: reference },
+                include: { payments: true },
+            });
+
+            if (order && order.payments.length > 0) {
+                payment = order.payments[0];
+                this.logger.log(`Found payment via order fallback: Payment ${payment.id} for Order ${order.id}`);
+            }
+        }
 
         if (payment) {
             // Check if this payment is linked to a Buy Order
             if (payment.orderId) {
                 this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
                 // Let errors propagate so webhook returns 5xx and Nomba retries
-                await this.buyOrderService.fulfillBuyOrder(reference);
+                await this.buyOrderService.fulfillBuyOrder(payment.reference);
                 this.logger.log(`Buy order fulfillment completed for payment ${payment.id}`);
                 return;
             }
@@ -196,7 +212,7 @@ export class NombaWebhookController {
             });
             this.logger.log(`Updated payment ${payment.id} to SUCCESS`);
         } else {
-            this.logger.warn(`No payment found for reference: ${reference}`);
+            this.logger.warn(`No payment found for reference: ${reference} (also checked order.orderReference)`);
         }
     }
 
