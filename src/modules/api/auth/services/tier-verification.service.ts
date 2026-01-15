@@ -114,7 +114,7 @@ export class TierVerificationService {
                 message:
                     "Document uploaded successfully. It will be reviewed by our team.",
                 data: {
-                    status: "pending_review",
+                    status: "PENDING",
                     reason: ocrResult.reason,
                 },
             });
@@ -148,7 +148,7 @@ export class TierVerificationService {
         return buildResponse({
             message: "Address verified successfully",
             data: {
-                status: "verified",
+                status: "VERIFIED",
             },
         });
     }
@@ -221,7 +221,7 @@ export class TierVerificationService {
                 message:
                     "Document uploaded successfully. It will be reviewed by our team.",
                 data: {
-                    status: "pending_review",
+                    status: "PENDING",
                     reason: ocrResult.reason,
                 },
             });
@@ -255,7 +255,7 @@ export class TierVerificationService {
         return buildResponse({
             message: "Income verified successfully",
             data: {
-                status: "verified",
+                status: "VERIFIED",
             },
         });
     }
@@ -317,7 +317,7 @@ export class TierVerificationService {
         return buildResponse({
             message: "Address verified successfully",
             data: {
-                status: "verified",
+                status: "VERIFIED",
                 isAddressVerified: true,
             },
         });
@@ -366,7 +366,7 @@ export class TierVerificationService {
         return buildResponse({
             message: "Income verified successfully",
             data: {
-                status: "verified",
+                status: "VERIFIED",
                 isIncomeVerified: true,
             },
         });
@@ -448,7 +448,7 @@ export class TierVerificationService {
         return buildResponse({
             message: `${idType.toUpperCase()} verified successfully`,
             data: {
-                status: "verified",
+                status: "VERIFIED",
                 idType,
                 isBvnVerified: idType === "bvn",
                 isNinVerified: idType === "nin",
