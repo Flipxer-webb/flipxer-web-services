@@ -25,6 +25,8 @@ import { DistributedLockService } from "@/modules/core/redisCache/services/distr
 import { WalletAddressService } from "../wallet-address.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { LedgerService } from "../ledger/ledger.service";
+import { DepositReviewService } from "../ledger/deposit-review.service";
+import { Decimal } from "@prisma/client/runtime/library";
 import {
     DEFAULT_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -51,7 +53,8 @@ export class DepositWebhookHandler {
         private readonly lockService: DistributedLockService,
         private readonly walletAddressService: WalletAddressService,
         private readonly slackWebhookService: SlackWebhookService,
-        private readonly ledgerService: LedgerService
+        private readonly ledgerService: LedgerService,
+        private readonly depositReviewService: DepositReviewService
     ) { }
 
     /**
@@ -489,6 +492,43 @@ export class DepositWebhookHandler {
         const depositAmount = parseFloat(options.amount);
         const currency = options.currency.toUpperCase();
 
+        // Phase 4: Check float threshold before crediting
+        const floatCheck = await this.depositReviewService.checkAndQueueIfNeeded(
+            user.id,
+            currency,
+            new Decimal(depositAmount),
+            options.payment_address || options.recipient || "unknown",
+            options.txid
+        );
+
+        if (!floatCheck.allowed && floatCheck.queued) {
+            // Deposit queued for review - don't credit yet
+            this.logger.warn(
+                `Deposit queued for float review | ${JSON.stringify({
+                    userId: user.id,
+                    currency,
+                    amount: depositAmount,
+                    floatPercentage: floatCheck.floatPercentage,
+                    queueId: floatCheck.queueId,
+                })}`
+            );
+
+            // Update order status to show deposit is pending review
+            await this.prisma.order.updateMany({
+                where: { transactionId: transactionId },
+                data: {
+                    status: OrderStatus.pending,
+                    streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
+                    reason: floatCheck.reason,
+                },
+            });
+
+            // Send user notification about pending review
+            await this.sendDepositQueuedNotification(user, options, transactionId, floatCheck.reason || "Deposit pending review");
+
+            return; // Don't credit until admin approves
+        }
+
         // Credit user's ledger with deposit amount
         // sweepStatus = PENDING means user can't withdraw until sweep confirms
         const creditResult = await this.ledgerService.credit({
@@ -637,6 +677,36 @@ export class DepositWebhookHandler {
                 updatedAt: order.updatedAt,
             },
         });
+    }
+
+    /**
+     * Send notification when deposit is queued for float review
+     */
+    private async sendDepositQueuedNotification(
+        user: any,
+        options: DepositTransaction,
+        transactionId: string,
+        reason: string
+    ) {
+        const message = `Your deposit of ${options.amount} ${options.currency.toUpperCase()} is pending review. ${reason}`;
+
+        await this.prisma.notification.create({
+            data: {
+                title: "Deposit Pending Review",
+                body: message,
+                userId: user.id,
+                target: UserNotificationTarget.SINGLE,
+                beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                type: NotificationType.MESSAGE,
+                status: NotificationStatus.APPROVED,
+                senderId: null,
+                transactionType: OrderCategory.RECEIVE,
+                currency: options.currency.toUpperCase(),
+            },
+        });
+
+        // Emit wallet update to refresh UI
+        this.wsGateway.notifyWalletUpdate(user.id);
     }
 
     /**
