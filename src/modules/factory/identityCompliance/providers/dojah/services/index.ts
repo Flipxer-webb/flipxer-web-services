@@ -180,15 +180,16 @@ export class DojahService {
                 };
             }
 
-            const verified = result.entity?.status === "verified" || 
-                            result.entity?.overall_status === "verified";
+            const entity = result.data?.entity || result.data;
+            const verified = entity?.status === "verified" || 
+                            entity?.overall_status === "verified";
             
-            this.logger.log(`Verification result for ${verificationId}: verified=${verified}, status=${result.entity?.status}`);
+            this.logger.log(`Verification result for ${verificationId}: verified=${verified}, status=${entity?.status}`);
             
             return {
                 verified,
-                status: result.entity?.status || "unknown",
-                data: result.entity,
+                status: entity?.status || "unknown",
+                data: entity,
             };
         } catch (error) {
             this.logger.error(`Failed to fetch verification result for ${verificationId}:`, error);
