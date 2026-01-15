@@ -172,22 +172,33 @@ export const DEFAULT_TRANSACTION_MAX_WAIT_MS = 5000;
 
 /**
  * Daily withdrawal limits in USD per tier
+ * 
+ * IMPORTANT: These MUST match the WITHDRAWAL_LIMITS in tier.service.ts
+ * Tier structure:
+ *   0 = Basic (deposit only)
+ *   1 = Standard (BVN/NIN verified)
+ *   2 = Intermediate (Document verified)
+ *   3 = Pro (Address verified)
+ *   4 = Premium (Income verified)
  */
 export const TIER_DAILY_LIMITS: Record<number, number | "unlimited"> = {
-    0: 0,           // Tier 0: Cannot transact
-    1: 5000,        // Tier 1: $5,000/day
-    2: 10000,       // Tier 2: $10,000/day
-    3: "unlimited", // Tier 3: Unlimited
+    0: 0,              // Tier 0: Cannot transact
+    1: 10000,          // Tier 1: $10,000/day
+    2: 50000,          // Tier 2: $50,000/day
+    3: 100000,         // Tier 3: $100,000/day
+    4: "unlimited",    // Tier 4: Unlimited
 };
 
 /**
  * Monthly withdrawal limits in USD per tier
+ * Note: Monthly limits are 10x daily limits (approximate)
  */
 export const TIER_MONTHLY_LIMITS: Record<number, number | "unlimited"> = {
     0: 0,
-    1: 100000,      // $100,000/month
-    2: 500000,      // $500,000/month
-    3: "unlimited",
+    1: 300000,         // $300,000/month
+    2: 1500000,        // $1,500,000/month
+    3: 3000000,        // $3,000,000/month
+    4: "unlimited",
 };
 
 // ==================== BATCH SIZES ====================

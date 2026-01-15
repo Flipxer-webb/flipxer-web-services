@@ -23,6 +23,8 @@ import { WithdrawalQueueService } from "../../services/ledger/withdrawal-queue.s
 import { FloatConfigService } from "../../services/ledger/float-config.service";
 import { LedgerService } from "../../services/ledger/ledger.service";
 import { SweepService } from "../../services/ledger/sweep.service";
+import { OrphanedHoldService } from "../../services/ledger/orphaned-hold.service";
+import { HoldResolution } from "@prisma/client";
 import { buildResponse } from "@/utils/api-response-util";
 
 /**
@@ -55,8 +57,9 @@ export class AdminLedgerController {
         private readonly withdrawalQueueService: WithdrawalQueueService,
         private readonly floatConfigService: FloatConfigService,
         private readonly ledgerService: LedgerService,
-        private readonly sweepService: SweepService
-    ) {}
+        private readonly sweepService: SweepService,
+        private readonly orphanedHoldService: OrphanedHoldService
+    ) { }
 
     // =========================================================================
     // RECONCILIATION ENDPOINTS
@@ -269,6 +272,94 @@ export class AdminLedgerController {
         const stats = await this.sweepService.getSweepStats();
         return buildResponse({
             message: "Sweep statistics retrieved",
+            data: stats,
+        });
+    }
+
+    // =========================================================================
+    // ORPHANED HOLD ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get pending orphaned holds for review" })
+    @Get("orphaned-holds")
+    async getOrphanedHolds() {
+        this.logger.log("Admin fetching orphaned holds");
+        const reviews = await this.orphanedHoldService.getPendingReviews();
+        const stats = await this.orphanedHoldService.getStats();
+        return buildResponse({
+            message: "Orphaned holds retrieved",
+            data: {
+                reviews,
+                count: reviews.length,
+                stats,
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Get orphaned hold by ID" })
+    @Get("orphaned-holds/:id")
+    async getOrphanedHoldById(@Param("id") id: string) {
+        this.logger.log(`Admin fetching orphaned hold ${id}`);
+        const review = await this.orphanedHoldService.getReviewById(id);
+        if (!review) {
+            return buildResponse({
+                message: "Orphaned hold not found",
+                data: null,
+            });
+        }
+        return buildResponse({
+            message: "Orphaned hold retrieved",
+            data: review,
+        });
+    }
+
+    @ApiOperation({ summary: "Resolve orphaned hold with admin action" })
+    @Post("orphaned-holds/:id/resolve")
+    async resolveOrphanedHold(
+        @User() user: UserEntity,
+        @Param("id") id: string,
+        @Body() body: { resolution: HoldResolution; notes?: string }
+    ) {
+        this.logger.log(`Admin ${user.id} resolving orphaned hold ${id} with ${body.resolution}`);
+
+        const result = await this.orphanedHoldService.resolveOrphanedHold(
+            id,
+            body.resolution,
+            user.id,
+            body.notes
+        );
+
+        if (!result.success) {
+            return buildResponse({
+                message: result.error || "Failed to resolve orphaned hold",
+                data: null,
+            });
+        }
+
+        return buildResponse({
+            message: "Orphaned hold resolved successfully",
+            data: { resolution: body.resolution },
+        });
+    }
+
+    @ApiOperation({ summary: "Manually trigger orphaned hold detection" })
+    @Post("orphaned-holds/detect")
+    async detectOrphanedHolds() {
+        this.logger.log("Admin triggering orphaned hold detection");
+        const result = await this.orphanedHoldService.detectOrphanedHolds();
+        return buildResponse({
+            message: "Orphaned hold detection completed",
+            data: result,
+        });
+    }
+
+    @ApiOperation({ summary: "Get orphaned hold statistics" })
+    @Get("orphaned-holds-stats")
+    async getOrphanedHoldStats() {
+        this.logger.log("Admin fetching orphaned hold stats");
+        const stats = await this.orphanedHoldService.getStats();
+        return buildResponse({
+            message: "Orphaned hold statistics retrieved",
             data: stats,
         });
     }

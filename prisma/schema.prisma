@@ -102,6 +102,7 @@ model User {
   // Virtual Balance / Ledger System relations
   ledgerEntries                      LedgerEntry[]
   withdrawalQueues                   WithdrawalQueue[]
+  orphanedHoldReviews                OrphanedHoldReview[]              @relation("OrphanedHoldResolver")
 
   // Existing indexes
   @@index([id, bvn])
@@ -1147,6 +1148,7 @@ model LedgerEntry {
   // Relations
   user               User?         @relation(fields: [userId], references: [id])
   withdrawalQueue    WithdrawalQueue?
+  orphanedHoldReview OrphanedHoldReview?
 
   // Prevent duplicate entries for same transaction
   @@unique([type, reference])
@@ -1275,4 +1277,37 @@ model AdminQueueSeen {
   lastSeenAt      DateTime @default(now())
 
   @@map("AdminQueueSeens")
+}
+
+// =============================================================================
+// ORPHANED HOLD DETECTION SYSTEM
+// =============================================================================
+
+// Resolution action for orphaned holds
+enum HoldResolution {
+  REFUND   // Release hold, return to available balance
+  SETTLE   // Convert hold to debit (execute the original operation)
+  DISMISS  // Mark as reviewed, no action needed
+}
+
+// Tracks orphaned hold entries for admin review
+model OrphanedHoldReview {
+  id            String          @id @default(uuid())
+  ledgerEntryId String          @unique
+  userId        Int
+  currency      String
+  amount        Decimal         @db.Decimal(20, 8)
+  detectedAt    DateTime        @default(now())
+  resolvedAt    DateTime?
+  resolvedBy    Int?
+  resolution    HoldResolution?
+  notes         String?
+
+  // Relations
+  ledgerEntry   LedgerEntry     @relation(fields: [ledgerEntryId], references: [id])
+  resolver      User?           @relation("OrphanedHoldResolver", fields: [resolvedBy], references: [id])
+
+  @@index([resolvedAt])
+  @@index([detectedAt])
+  @@map("OrphanedHoldReviews")
 }

@@ -18,6 +18,8 @@ import { FloatConfigService } from "./services/ledger/float-config.service";
 import { ReconciliationService } from "./services/ledger/reconciliation.service";
 import { SweepService } from "./services/ledger/sweep.service";
 import { WithdrawalQueueCron } from "./crons/withdrawal-queue.cron";
+import { OrphanedHoldCron } from "./crons/orphaned-hold.cron";
+import { OrphanedHoldService } from "./services/ledger/orphaned-hold.service";
 import { TradingController } from "./controllers/v1";
 import { PriceAlertController } from "./controllers/v1/price-alert.controller";
 import { AdminLedgerController } from "./controllers/v1/admin-ledger.controller";
@@ -86,7 +88,9 @@ export * from "./errors";
         FloatConfigService,
         ReconciliationService,
         SweepService,
+        OrphanedHoldService,
         WithdrawalQueueCron,
+        OrphanedHoldCron,
         TradingEvent,
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
@@ -128,6 +132,7 @@ export * from "./errors";
         FloatConfigService,
         ReconciliationService,
         SweepService,
+        OrphanedHoldService,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,
