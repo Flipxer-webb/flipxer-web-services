@@ -129,11 +129,23 @@ export class WithdrawalWebhookHandler {
             return;
         }
 
+        // For SELL orders where crypto arrived (done), don't mark completed yet
+        // Wait for payout to succeed before marking completed
+        const isSellPayoutPending = (
+            options.status === OrderStatus.done &&
+            transaction.orderCategory === OrderCategory.SELL &&
+            !transaction.transaction_note?.match(/^BUY:\d+$/) // Not a BUY fulfillment
+        );
+
+        // Update order status
+        // For SELL orders awaiting payout, set to "processing" instead of "done/completed"
         const updatedOrder = await this.prisma.order.update({
             where: { id: transaction.id },
             data: {
-                status: options.status,
-                streamlinedStatus: getStreamlinedStatus(options.status),
+                status: isSellPayoutPending ? OrderStatus.processing : options.status,
+                streamlinedStatus: isSellPayoutPending
+                    ? OrderStreamlinedStatus.pending
+                    : getStreamlinedStatus(options.status),
             },
         });
 
@@ -146,7 +158,6 @@ export class WithdrawalWebhookHandler {
             transaction.orderCategory === OrderCategory.SELL
         ) {
             // Check if this is an admin's SELL order linked to a user's BUY order
-            // The transaction_note will be "BUY:<orderId>" if so
             const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
             if (buyOrderMatch) {
                 // This is admin sending crypto to user for a BUY order - complete the BUY order
@@ -154,11 +165,45 @@ export class WithdrawalWebhookHandler {
                 await this.completeBuyOrder(buyOrderId, transaction);
             } else {
                 // This is a regular user SELL order - pay them in fiat
-                await this.initiateFiatPayout(transaction);
+                // If payout succeeds, mark order as completed
+                try {
+                    await this.initiateFiatPayout(transaction);
+
+                    // Payout succeeded - NOW mark order as completed
+                    const completedOrder = await this.prisma.order.update({
+                        where: { id: transaction.id },
+                        data: {
+                            status: OrderStatus.done,
+                            streamlinedStatus: OrderStreamlinedStatus.completed,
+                        },
+                    });
+
+                    // Emit final completion status
+                    this.emitTransactionUpdate(transaction.user.id, completedOrder);
+                    this.logger.log(`Order ${transaction.id} marked COMPLETED after successful payout`);
+                } catch (payoutError) {
+                    // Payout failed - mark order as failed
+                    const failedOrder = await this.prisma.order.update({
+                        where: { id: transaction.id },
+                        data: {
+                            status: OrderStatus.failed,
+                            streamlinedStatus: OrderStreamlinedStatus.failed,
+                            reason: `Payout failed: ${payoutError.message}`,
+                        },
+                    });
+
+                    // Emit failure status so UI shows failed, not stuck on processing
+                    this.emitTransactionUpdate(transaction.user.id, failedOrder);
+                    this.logger.error(`Order ${transaction.id} marked FAILED due to payout error: ${payoutError.message}`);
+
+                    // Send failure notification
+                    await this.handleWithdrawalFailed(transaction);
+                    return; // Don't proceed to handleWithdrawalDone
+                }
             }
         }
 
-        if (options.status == OrderStatus.done) {
+        if (options.status == OrderStatus.done && transaction.orderCategory !== OrderCategory.SELL) {
             await this.handleWithdrawalDone(transaction);
         } else if (options.status == OrderStatus.failed) {
             await this.handleWithdrawalFailed(transaction);
@@ -309,7 +354,7 @@ export class WithdrawalWebhookHandler {
 
 
     /**
-     * Initiate fiat payout to seller - tries Nomba first, falls back to Fincra
+     * Initiate fiat payout to seller - Nomba only
      */
     private async initiateFiatPayout(transaction: any) {
         const payoutReference = generateId({ type: "reference" });
@@ -326,7 +371,7 @@ export class WithdrawalWebhookHandler {
         };
 
         this.logger.log(
-            `Initiating payout (Nomba primary) | ${JSON.stringify({
+            `Initiating payout via Nomba | ${JSON.stringify({
                 orderId: transaction.id,
                 userId: transaction.userId,
                 amount: transaction.totalToReceiveInFiat,
@@ -335,20 +380,19 @@ export class WithdrawalWebhookHandler {
             })}`
         );
 
-        // Try Nomba first
         try {
             await this.nombaService.initializeTransfer(payoutData);
             this.logger.log(`✅ Nomba payout SUCCESS for order ${transaction.id}, ref: ${payoutReference}`);
-            return;
         } catch (nombaError) {
-            this.logger.warn(
-                `⚠️ Nomba payout FAILED, trying Fincra fallback | ${JSON.stringify({
+            this.logger.error(
+                `❌ Nomba payout FAILED | ${JSON.stringify({
                     orderId: transaction.id,
+                    userId: transaction.userId,
                     error: nombaError.message,
                 })}`
             );
 
-            // Send Slack alert for Nomba failure
+            // Send Slack alert for payout failure
             await this.sendPayoutAlert({
                 orderId: transaction.id,
                 userId: transaction.userId,
@@ -357,39 +401,11 @@ export class WithdrawalWebhookHandler {
                 bankName: transaction.destinationBankName,
                 provider: "Nomba",
                 error: nombaError.message,
-                willRetryWithFincra: true,
+                willRetryWithFincra: false,
+                isCritical: true,
             });
 
-            // Fallback to Fincra
-            try {
-                await this.fincraService.initializeTransfer(payoutData);
-                this.logger.log(`✅ Fincra fallback payout SUCCESS for order ${transaction.id}, ref: ${payoutReference}`);
-                return;
-            } catch (fincraError) {
-                this.logger.error(
-                    `❌ CRITICAL: Both Nomba and Fincra payout FAILED | ${JSON.stringify({
-                        orderId: transaction.id,
-                        userId: transaction.userId,
-                        nombaError: nombaError.message,
-                        fincraError: fincraError.message,
-                    })}`
-                );
-
-                // Send critical Slack alert - both providers failed!
-                await this.sendPayoutAlert({
-                    orderId: transaction.id,
-                    userId: transaction.userId,
-                    amount: transaction.totalToReceiveInFiat,
-                    accountNumber: transaction.destinationBankAccountNumber,
-                    bankName: transaction.destinationBankName,
-                    provider: "BOTH",
-                    error: `Nomba: ${nombaError.message} | Fincra: ${fincraError.message}`,
-                    willRetryWithFincra: false,
-                    isCritical: true,
-                });
-
-                throw new Error(`All payout providers failed for order ${transaction.id}`);
-            }
+            throw new Error(`Nomba payout failed for order ${transaction.id}: ${nombaError.message}`);
         }
     }
 
