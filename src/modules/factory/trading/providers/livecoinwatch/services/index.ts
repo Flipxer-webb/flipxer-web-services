@@ -178,6 +178,103 @@ export class LiveCoinWatchService {
     }
 
     /**
+     * Get batch USDT prices for multiple assets in a single API call
+     * Used by cron job to avoid rate limiting (1 call instead of N calls)
+     * @returns Map of asset symbol (lowercase) to USDT price
+     */
+    async getBatchUsdtPrices(assets: string[]): Promise<Record<string, number | null>> {
+        this.logger.debug(`Batch fetching USDT prices for: ${assets.join(", ")}`);
+
+        const result: Record<string, number | null> = {};
+
+        // Handle USDT immediately - it's always 1:1
+        if (assets.some(a => a.toUpperCase() === "USDT")) {
+            result["usdt"] = 1.0;
+        }
+
+        // Filter out USDT for the API call
+        const assetsToFetch = assets.filter(a => a.toUpperCase() !== "USDT");
+
+        if (assetsToFetch.length === 0) {
+            return result;
+        }
+
+        // Check cache first for all assets
+        const cachedResults: Record<string, number | null> = {};
+        const uncachedAssets: string[] = [];
+
+        for (const asset of assetsToFetch) {
+            const cacheKey = `lcw:price:${asset.toLowerCase()}:usdt`;
+            const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
+            if (cachedPrice) {
+                cachedResults[asset.toLowerCase()] = cachedPrice;
+            } else {
+                uncachedAssets.push(asset);
+            }
+        }
+
+        // If all cached, return early
+        if (uncachedAssets.length === 0) {
+            this.logger.debug(`All ${assetsToFetch.length} USDT prices served from cache`);
+            return { ...result, ...cachedResults };
+        }
+
+        try {
+            const codes = uncachedAssets.map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase());
+
+            this.logger.debug(`Making batch API call for ${codes.length} uncached assets: ${codes.join(", ")}`);
+
+            const response = await this.apiClient.post("/coins/list", {
+                currency: "USDT",
+                codes: codes,
+                sort: "rank",
+                order: "ascending",
+                offset: 0,
+                limit: codes.length,
+                meta: false,
+            });
+
+            const coins = response.data as LiveCoinWatchCoin[];
+
+            // Cache and collect results
+            for (const coin of coins) {
+                const assetKey = uncachedAssets.find(
+                    a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
+                );
+
+                if (assetKey && coin.rate) {
+                    const key = assetKey.toLowerCase();
+                    result[key] = coin.rate;
+
+                    // Cache for 90s (aligned with cron interval + buffer)
+                    const cacheKey = `lcw:price:${key}:usdt`;
+                    await this.redisCacheService.set(cacheKey, coin.rate, 90);
+                }
+            }
+
+            // Mark any missing assets as null
+            for (const asset of uncachedAssets) {
+                if (result[asset.toLowerCase()] === undefined) {
+                    result[asset.toLowerCase()] = null;
+                }
+            }
+
+            this.logger.debug(`✅ Batch fetched ${coins.length} USDT prices in 1 API call`);
+
+            return { ...result, ...cachedResults };
+        } catch (error) {
+            this.logger.error(`Batch USDT price fetch failed: ${error.message}`);
+
+            // Fill in nulls for failed fetch
+            for (const asset of uncachedAssets) {
+                result[asset.toLowerCase()] = null;
+            }
+
+            return { ...result, ...cachedResults };
+        }
+    }
+
+    /**
      * Get market data for a single asset (price, volume, market cap, % changes)
      */
     async getMarketData(asset: string, retries = 3, delay = 1000): Promise<LiveCoinWatchCoin> {

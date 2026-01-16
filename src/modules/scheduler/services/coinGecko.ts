@@ -93,6 +93,7 @@ export class PriceCacheSchedulerService implements OnModuleInit {
     /**
      * Update X/USDT prices from LiveCoinWatch for dynamic rate calculation
      * Runs every 60 seconds for accurate trading rates
+     * Uses batch API to reduce from 19 individual calls to 1 batch call
      */
     @Cron("*/60 * * * * *", { timeZone: "Africa/Lagos" })
     async updateUsdtPrices() {
@@ -102,35 +103,49 @@ export class PriceCacheSchedulerService implements OnModuleInit {
         try {
             this.logger.debug("Acquired lock: Running USDT prices update job");
 
-            const usdtPrices = new Map<string, number>();
+            // Use batch API call instead of individual calls (reduces 19 calls to 1)
+            let usdtPrices: Record<string, number | null> = {};
+            let batchSuccess = false;
 
-            for (const coin of this.coins) {
-                if (coin.toLowerCase() === "usdt") {
-                    usdtPrices.set("USDT", 1.0);
-                    continue;
-                }
-                try {
-                    const price = await this.liveCoinWatchService.getPriceInUSDT(coin);
-                    usdtPrices.set(coin.toUpperCase(), price);
-                } catch (err) {
-                    this.logger.warn(`Failed to get USDT price for ${coin}: ${err.message}`);
+            try {
+                usdtPrices = await this.liveCoinWatchService.getBatchUsdtPrices(this.coins);
+                batchSuccess = true;
+                this.logger.debug("✅ [LCW] Batch USDT price fetch successful");
+            } catch (batchError) {
+                this.logger.warn(`⚠️ [LCW] Batch fetch failed, falling back to individual calls: ${batchError.message}`);
+
+                // Fallback: fetch individually (slower but more resilient)
+                for (const coin of this.coins) {
+                    if (coin.toLowerCase() === "usdt") {
+                        usdtPrices["usdt"] = 1.0;
+                        continue;
+                    }
+                    try {
+                        const price = await this.liveCoinWatchService.getPriceInUSDT(coin);
+                        usdtPrices[coin.toLowerCase()] = price;
+                    } catch (err) {
+                        this.logger.warn(`Failed to get USDT price for ${coin}: ${err.message}`);
+                        usdtPrices[coin.toLowerCase()] = null;
+                    }
                 }
             }
 
-            this.logger.debug(`✅ [LiveCoinWatch] Fetched ${usdtPrices.size} USDT prices`);
+            this.logger.debug(`✅ [LiveCoinWatch] Fetched ${Object.keys(usdtPrices).length} USDT prices`);
 
-            // Cache USDT prices
+            // Cache USDT prices (batch method already caches, but ensure consistency)
             let successCount = 0;
             const timestamp = Date.now();
 
-            for (const [symbol, price] of usdtPrices) {
+            for (const [symbol, price] of Object.entries(usdtPrices)) {
                 if (price && price > 0) {
-                    // Store price with source and timestamp for debugging
-                    await this.redisCacheService.set(
-                        `price:${symbol.toLowerCase()}:usdt`,
-                        price,
-                        90 // 90s TTL (slightly longer than 60s cron)
-                    );
+                    // Only cache if batch method didn't already cache (fallback scenario)
+                    if (!batchSuccess) {
+                        await this.redisCacheService.set(
+                            `price:${symbol.toLowerCase()}:usdt`,
+                            price,
+                            90 // 90s TTL (slightly longer than 60s cron)
+                        );
+                    }
                     successCount++;
                 }
             }
@@ -138,12 +153,12 @@ export class PriceCacheSchedulerService implements OnModuleInit {
             // Store metadata for admin/debugging
             await this.redisCacheService.set(
                 "price:usdt:meta",
-                { source: "livecoinwatch", timestamp, count: successCount },
+                { source: "livecoinwatch", timestamp, count: successCount, batchMode: batchSuccess },
                 90
             );
 
             this.logger.debug(
-                `[LiveCoinWatch] Completed USDT price updates: ${successCount}/${this.coins.length} coins`
+                `[LiveCoinWatch] Completed USDT price updates: ${successCount}/${this.coins.length} coins (batch: ${batchSuccess})`
             );
         } catch (error: any) {
             this.logger.error("Error in running USDT prices update cron job:", error);
