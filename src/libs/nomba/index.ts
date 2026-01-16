@@ -183,6 +183,40 @@ export class NombaLib {
             }
             return config;
         });
+
+        // Add request logging interceptor
+        this.axios.interceptors.request.use(
+            (config) => {
+                console.log(`[NOMBA REQUEST] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+                console.log(`[NOMBA REQUEST] Headers:`, JSON.stringify({
+                    accountId: config.headers.accountId,
+                    Authorization: config.headers.Authorization ? 'Bearer ***' : 'NONE',
+                    'Content-Type': config.headers['Content-Type'],
+                }));
+                if (config.data) {
+                    console.log(`[NOMBA REQUEST] Body:`, JSON.stringify(config.data));
+                }
+                return config;
+            },
+            (error) => {
+                console.error(`[NOMBA REQUEST ERROR]`, error.message);
+                return Promise.reject(error);
+            }
+        );
+
+        // Add response logging interceptor
+        this.axios.interceptors.response.use(
+            (response) => {
+                console.log(`[NOMBA RESPONSE] ${response.status} ${response.config.url}`);
+                console.log(`[NOMBA RESPONSE] Data:`, JSON.stringify(response.data));
+                return response;
+            },
+            (error) => {
+                console.error(`[NOMBA RESPONSE ERROR] ${error.response?.status || 'NO STATUS'} ${error.config?.url}`);
+                console.error(`[NOMBA RESPONSE ERROR] Data:`, JSON.stringify(error.response?.data || error.message));
+                return Promise.reject(error);
+            }
+        );
     }
 
     private handleError(error: AxiosError<any>) {
