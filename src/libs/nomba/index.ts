@@ -303,7 +303,7 @@ export class NombaLib {
     ): Promise<NombaAccountLookupResponse> {
         try {
             const { data } = await this.axios.post<NombaAccountLookupResponse>(
-                "/v2/transfers/bank/account/lookup",
+                "/v1/transfers/bank/lookup",
                 payload
             );
             return data;
