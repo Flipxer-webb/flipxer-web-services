@@ -229,7 +229,7 @@ export class NombaLib {
     async obtainAccessToken(): Promise<NombaTokenResponse> {
         try {
             const { data } = await this.axios.post<NombaTokenResponse>(
-                "/v1/auth/token/issue",
+                "/v2/auth/token/issue",
                 {
                     grant_type: "client_credentials",
                     client_id: this.options.clientId,
@@ -258,7 +258,7 @@ export class NombaLib {
     async refreshAccessToken(refreshToken: string): Promise<NombaTokenResponse> {
         try {
             const { data } = await this.axios.post<NombaTokenResponse>(
-                "/v1/auth/token/refresh",
+                "/v2/auth/token/refresh",
                 {
                     grant_type: "refresh_token",
                     refresh_token: refreshToken,
@@ -286,7 +286,7 @@ export class NombaLib {
     async getBanks(): Promise<NombaBankListResponse> {
         try {
             const { data } = await this.axios.get<NombaBankListResponse>(
-                "/v1/transfers/banks"
+                "/v2/transfers/banks"
             );
             return data;
         } catch (error) {
@@ -303,7 +303,7 @@ export class NombaLib {
     ): Promise<NombaAccountLookupResponse> {
         try {
             const { data } = await this.axios.post<NombaAccountLookupResponse>(
-                "/v1/transfers/bank/account/lookup",
+                "/v2/transfers/bank/account/lookup",
                 payload
             );
             return data;
@@ -321,7 +321,7 @@ export class NombaLib {
     ): Promise<NombaVirtualAccountResponse> {
         try {
             const { data } = await this.axios.post<NombaVirtualAccountResponse>(
-                "/v1/accounts/virtual",
+                "/v2/accounts/virtual",
                 {
                     ...payload,
                     currency: payload.currency || "NGN",
@@ -340,7 +340,7 @@ export class NombaLib {
     async getVirtualAccount(accountRef: string): Promise<NombaVirtualAccountResponse> {
         try {
             const { data } = await this.axios.get<NombaVirtualAccountResponse>(
-                `/v1/accounts/virtual/${accountRef}`
+                `/v2/accounts/virtual/${accountRef}`
             );
             return data;
         } catch (error) {
@@ -357,7 +357,7 @@ export class NombaLib {
     ): Promise<NombaBankTransferResponse> {
         try {
             const { data } = await this.axios.post<NombaBankTransferResponse>(
-                "/v1/transfers/bank",
+                "/v2/transfers/bank",
                 payload
             );
             return data;
@@ -373,7 +373,7 @@ export class NombaLib {
     async getTransferStatus(transferId: string): Promise<NombaTransferStatusResponse> {
         try {
             const { data } = await this.axios.get<NombaTransferStatusResponse>(
-                `/v1/transfers/${transferId}`
+                `/v2/transfers/${transferId}`
             );
             return data;
         } catch (error) {
@@ -390,7 +390,7 @@ export class NombaLib {
     ): Promise<NombaTransferStatusResponse> {
         try {
             const { data } = await this.axios.get<NombaTransferStatusResponse>(
-                `/v1/transfers/merchant-ref/${merchantTxRef}`
+                `/v2/transfers/merchant-ref/${merchantTxRef}`
             );
             return data;
         } catch (error) {
@@ -408,7 +408,7 @@ export class NombaLib {
     ): Promise<NombaCheckoutOrderResponse> {
         try {
             const { data } = await this.axios.post<NombaCheckoutOrderResponse>(
-                "/v1/checkout/order",
+                "/v2/checkout/order",
                 {
                     order: {
                         ...payload.order,
@@ -432,7 +432,7 @@ export class NombaLib {
     ): Promise<NombaCheckoutStatusResponse> {
         try {
             const { data } = await this.axios.get<NombaCheckoutStatusResponse>(
-                `/v1/checkout/order/${orderReference}`
+                `/v2/checkout/order/${orderReference}`
             );
             return data;
         } catch (error) {
