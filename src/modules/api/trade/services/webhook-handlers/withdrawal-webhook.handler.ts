@@ -368,6 +368,7 @@ export class WithdrawalWebhookHandler {
             userId: transaction.userId,
             orderId: transaction.id,
             reference: payoutReference,
+            senderName: "Resolve", // Platform name - required by Nomba v2
         };
 
         this.logger.log(
