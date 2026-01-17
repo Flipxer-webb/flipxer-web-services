@@ -263,7 +263,7 @@ export class NombaLib {
     async obtainAccessToken(): Promise<NombaTokenResponse> {
         try {
             const { data } = await this.axios.post<NombaTokenResponse>(
-                "/v2/auth/token/issue",
+                "/v1/auth/token/issue",
                 {
                     grant_type: "client_credentials",
                     client_id: this.options.clientId,
@@ -292,7 +292,7 @@ export class NombaLib {
     async refreshAccessToken(refreshToken: string): Promise<NombaTokenResponse> {
         try {
             const { data } = await this.axios.post<NombaTokenResponse>(
-                "/v2/auth/token/refresh",
+                "/v1/auth/token/refresh",
                 {
                     grant_type: "refresh_token",
                     refresh_token: refreshToken,
