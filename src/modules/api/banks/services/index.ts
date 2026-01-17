@@ -63,7 +63,7 @@ export class BankService {
     ) { }
 
     async getListOfBanks() {
-        const banks = await this.fincraService.getBanks();
+        const banks = await this.nombaService.getBanks();
         return buildResponse({
             message: "banks successfully retrieved",
             data: banks,
@@ -130,8 +130,8 @@ export class BankService {
             });
         }
 
-        // Cache miss - call external API
-        const account = await this.fincraService.resolveBankAccount({
+        // Cache miss - call Nomba API
+        const account = await this.nombaService.resolveBankAccount({
             account_number: options.accountNumber,
             bank_code: options.bankCode,
         });

@@ -2,7 +2,6 @@ import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
-import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
 import {
     TransactionCompletedException,
     TransactionNotFoundException,
@@ -49,8 +48,6 @@ export class WithdrawalWebhookHandler {
         private readonly prisma: PrismaService,
         @Inject(BankInjectionToken.NOMBA)
         private readonly nombaService: NombaBank,
-        @Inject(BankInjectionToken.FINCRA)
-        private readonly fincraService: FincraBank,
         private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
