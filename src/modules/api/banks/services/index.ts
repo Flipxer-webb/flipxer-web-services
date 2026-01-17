@@ -63,7 +63,16 @@ export class BankService {
     ) { }
 
     async getListOfBanks() {
-        const banks = await this.nombaService.getBanks();
+        const nombaResponse = await this.nombaService.getBanks();
+
+        // Transform Nomba format to match Fincra format expected by frontend
+        // Nomba: { data: { results: [{ bankCode, bankName }] } }
+        // Fincra (expected): { data: [{ code, name }] }
+        const banks = (nombaResponse.data?.results || []).map((bank) => ({
+            code: bank.bankCode,
+            name: bank.bankName,
+        }));
+
         return buildResponse({
             message: "banks successfully retrieved",
             data: banks,
