@@ -63,20 +63,33 @@ export class BankService {
     ) { }
 
     async getListOfBanks() {
-        const nombaResponse = await this.nombaService.getBanks();
+        this.logger.log("[getListOfBanks] Fetching bank list from Nomba...");
 
-        // Transform Nomba format to match Fincra format expected by frontend
-        // Nomba: { data: { results: [{ bankCode, bankName }] } }
-        // Fincra (expected): { data: [{ code, name }] }
-        const banks = (nombaResponse.data?.results || []).map((bank) => ({
-            code: bank.bankCode,
-            name: bank.bankName,
-        }));
+        try {
+            const nombaResponse = await this.nombaService.getBanks();
 
-        return buildResponse({
-            message: "banks successfully retrieved",
-            data: banks,
-        });
+            // Transform Nomba format to match Fincra format expected by frontend
+            // Nomba: { data: { results: [{ bankCode, bankName }] } }
+            // Fincra (expected): { data: [{ code, name }] }
+            const banks = (nombaResponse.data?.results || []).map((bank) => ({
+                code: bank.bankCode,
+                name: bank.bankName,
+            }));
+
+            this.logger.log(`[getListOfBanks] Transformed ${banks.length} banks for frontend`);
+
+            if (banks.length === 0) {
+                this.logger.warn("[getListOfBanks] WARNING: Returning empty bank list to frontend!");
+            }
+
+            return buildResponse({
+                message: "banks successfully retrieved",
+                data: banks,
+            });
+        } catch (error) {
+            this.logger.error(`[getListOfBanks] Error fetching banks: ${(error as Error).message}`);
+            throw error;
+        }
     }
 
     /**

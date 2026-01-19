@@ -318,12 +318,32 @@ export class NombaLib {
      * Get list of Nigerian banks
      */
     async getBanks(): Promise<NombaBankListResponse> {
+        console.log("[NOMBA GET BANKS] Starting bank list fetch...");
         try {
             const { data } = await this.axios.get<NombaBankListResponse>(
                 "/v2/transfers/banks"
             );
+
+            // Detailed logging to debug empty bank list issue
+            console.log("[NOMBA GET BANKS] Response received:", JSON.stringify({
+                code: data?.code,
+                description: data?.description,
+                resultsCount: data?.data?.results?.length || 0,
+                cursor: data?.data?.cursor,
+                sampleBanks: data?.data?.results?.slice(0, 3).map(b => ({ code: b.bankCode, name: b.bankName })) || [],
+            }));
+
+            if (!data?.data?.results || data.data.results.length === 0) {
+                console.warn("[NOMBA GET BANKS] WARNING: Empty bank list returned!", JSON.stringify(data));
+            }
+
             return data;
         } catch (error) {
+            console.error("[NOMBA GET BANKS] Error fetching bank list:", {
+                message: (error as Error).message,
+                response: (error as any).response?.data,
+                status: (error as any).response?.status,
+            });
             this.handleError(error as AxiosError);
             throw error;
         }
