@@ -70,12 +70,12 @@ export class BankService {
             this.logger.log("[getListOfBanks] Trying Nomba...");
             const nombaResponse = await this.nombaService.getBanks();
 
-            // Transform Nomba format to match Fincra format expected by frontend
-            // Nomba: { data: { results: [{ bankCode, bankName }] } }
-            // Fincra (expected): { data: [{ code, name }] }
-            const banks = (nombaResponse.data?.results || []).map((bank) => ({
-                code: bank.bankCode,
-                name: bank.bankName,
+            // Transform Nomba format to match frontend expected format
+            // Nomba: { data: [{ name, code }] } - data is direct array
+            // Frontend expects: { data: [{ code, name }] }
+            const banks = (nombaResponse.data || []).map((bank) => ({
+                code: bank.code,
+                name: bank.name,
             }));
 
             if (banks.length > 0) {

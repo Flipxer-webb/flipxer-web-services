@@ -20,19 +20,21 @@ export interface NombaTokenResponse {
     };
 }
 
-// Bank types
+// Bank types - actual Nomba response has name/code, not bankName/bankCode
 export interface NombaBank {
-    bankCode: string;
-    bankName: string;
+    name: string;
+    code: string;
+    nipCode: string | null;
+    logo: string;
 }
 
+// Actual Nomba response: data is array directly, not { results: [] }
 export interface NombaBankListResponse {
     code: string;
     description: string;
-    data: {
-        results: NombaBank[];
-        cursor: string | null;
-    };
+    message?: string;
+    status?: boolean;
+    data: NombaBank[];  // Direct array, not nested results
 }
 
 // Account lookup types
@@ -329,12 +331,11 @@ export class NombaLib {
             console.log("[NOMBA GET BANKS] Response received:", JSON.stringify({
                 code: data?.code,
                 description: data?.description,
-                resultsCount: data?.data?.results?.length || 0,
-                cursor: data?.data?.cursor,
-                sampleBanks: data?.data?.results?.slice(0, 3).map(b => ({ code: b.bankCode, name: b.bankName })) || [],
+                banksCount: data?.data?.length || 0,
+                sampleBanks: data?.data?.slice(0, 3).map(b => ({ code: b.code, name: b.name })) || [],
             }));
 
-            if (!data?.data?.results || data.data.results.length === 0) {
+            if (!data?.data || data.data.length === 0) {
                 console.warn("[NOMBA GET BANKS] WARNING: Empty bank list returned!", JSON.stringify(data));
             }
 
