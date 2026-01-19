@@ -231,10 +231,12 @@ export class NombaBank implements TNomba.INombaBank {
                 message: "Checkout created successfully",
                 data: {
                     link: result.data.checkoutLink,
-                    // Use Nomba's orderReference as our internal reference
-                    // This ensures the redirect URL ref param and webhook orderReference 
-                    // match what we store in Payment.reference for verification
-                    reference: result.data.orderReference,
+                    // CRITICAL: Use OUR generated reference, not Nomba's returned orderReference
+                    // Nomba's webhook sends back OUR original orderReference in data.order.orderReference
+                    // So Payment.reference must match what we originally sent
+                    reference: reference,
+                    // Also store Nomba's reference for status check endpoint
+                    nombaOrderReference: result.data.orderReference,
                     amount: result.data.amount,
                 },
             };
