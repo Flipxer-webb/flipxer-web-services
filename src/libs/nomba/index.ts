@@ -290,15 +290,24 @@ export class NombaLib {
 
     /**
      * Refresh an expired access token
+     * NOTE: Nomba requires the current access token in the Authorization header
      */
     async refreshAccessToken(refreshToken: string): Promise<NombaTokenResponse> {
         try {
+            // Nomba requires current access token even when refreshing
+            const currentToken = this.tokenCache?.accessToken;
+
             const { data } = await this.axios.post<NombaTokenResponse>(
                 "/v1/auth/token/refresh",
                 {
                     grant_type: "refresh_token",
                     refresh_token: refreshToken,
-                }
+                },
+                currentToken ? {
+                    headers: {
+                        Authorization: `Bearer ${currentToken}`,
+                    },
+                } : undefined
             );
 
             if (data.code === "00" && data.data) {
