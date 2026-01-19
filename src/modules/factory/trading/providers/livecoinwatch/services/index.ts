@@ -467,7 +467,8 @@ export class LiveCoinWatchService {
      * Get batch market data (price + 24h change) for multiple assets
      */
     async getBatchMarketData(
-        assets: string[]
+        assets: string[],
+        timeoutMs?: number
     ): Promise<Record<string, { price: number; change24h: number } | null>> {
         this.logger.debug(`Batch fetching market data for: ${assets.join(", ")}`);
 
@@ -496,9 +497,9 @@ export class LiveCoinWatchService {
                 order: "ascending",
                 offset: 0,
                 limit: codes.length,
-                meta: true, // Need meta to get delta? No, delta is usually top level or in delta object. 
-                // Interface says delta is in LiveCoinWatchCoin.
-                // /coins/list returns array of objects with code, rate, volume, cap, delta.
+                meta: true,
+            }, {
+                timeout: timeoutMs // Override timeout if provided
             });
 
             const coins = response.data as LiveCoinWatchCoin[];
