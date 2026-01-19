@@ -18,6 +18,7 @@ import {
     OrderStatus,
     OrderStreamlinedStatus,
     UserNotificationTarget,
+    LedgerType,
 } from "@prisma/client";
 
 import { generateId } from "@/utils";
@@ -26,6 +27,7 @@ import { NotificationMessageService } from "@/modules/core/messages/services/not
 import { WsGateway } from "../../gateway/v1";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { WalletAddressService } from "../wallet-address.service";
+import { LedgerService } from "../ledger/ledger.service";
 import { slackPayoutAlertWebhookUrl } from "@/config";
 import {
     DEFAULT_TRANSACTION_TIMEOUT_MS,
@@ -52,7 +54,8 @@ export class WithdrawalWebhookHandler {
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
         private readonly lockService: DistributedLockService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly walletAddressService: WalletAddressService,
+        private readonly ledgerService: LedgerService
     ) { }
 
     /**
@@ -195,6 +198,10 @@ export class WithdrawalWebhookHandler {
 
                     // Send failure notification
                     await this.handleWithdrawalFailed(transaction);
+
+                    // Refund the user since payout failed
+                    await this.refundSellOrder(transaction);
+
                     return; // Don't proceed to handleWithdrawalDone
                 }
             }
@@ -207,9 +214,16 @@ export class WithdrawalWebhookHandler {
 
             // Check if this failed withdrawal was for a BUY order
             const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
+
             if (buyOrderMatch) {
                 const buyOrderId = parseInt(buyOrderMatch[1], 10);
                 await this.failBuyOrder(buyOrderId, transaction);
+            }
+
+            // Check if this was a regular SELL order that failed at withdrawal stage
+            if (transaction.orderCategory === OrderCategory.SELL && !buyOrderMatch) {
+                this.logger.warn(`Regular SELL order ${transaction.id} withdrawal failed - initiating refund`);
+                await this.refundSellOrder(transaction);
             }
         }
     }
@@ -302,6 +316,64 @@ export class WithdrawalWebhookHandler {
         });
 
         this.logger.log(`BUY order ${buyOrderId} completed and user notified`);
+    }
+
+    /**
+     * Refund a failed SELL order
+     * Credits the total crypto amount back to the user's ledger
+     */
+    private async refundSellOrder(transaction: any) {
+        this.logger.log(`Initiating refund for failed SELL order ${transaction.id}`);
+
+        try {
+            // We refund the full crypto amount that was debited (total = amount + fee)
+            // Ideally transaction.total holds the total debited amount. 
+            // In SellOrderService: total = totalCostInCrypto
+            const refundAmount = transaction.total || transaction.amount;
+
+            const result = await this.ledgerService.credit({
+                userId: transaction.userId,
+                currency: transaction.currency.toUpperCase(),
+                type: LedgerType.ADJUSTMENT, // Using ADJUSTMENT as REFUND is not available
+                amount: refundAmount,
+                reference: `refund:${transaction.orderReference}`,
+                description: `Refund for failed sell order #${transaction.id}`,
+                metadata: {
+                    originalOrderId: transaction.id,
+                    originalOrderReference: transaction.orderReference,
+                    reason: "Sell order failed",
+                },
+            });
+
+            if (result.success) {
+                this.logger.log(`✅ Successfully refunded ${refundAmount} ${transaction.currency} to user ${transaction.userId} for order ${transaction.id}`);
+            } else {
+                this.logger.error(`❌ Failed to refund user ${transaction.userId} for order ${transaction.id}: ${result.error}`);
+                // Critical: This means funds are still lost. We should probably alert admin specifically here.
+                await this.sendPayoutAlert({
+                    orderId: transaction.id,
+                    userId: transaction.userId,
+                    amount: refundAmount,
+                    accountNumber: "N/A",
+                    bankName: "N/A",
+                    provider: "Internal Ledger",
+                    error: `REFUND FAILED: ${result.error}`,
+                    isCritical: true
+                });
+            }
+        } catch (error) {
+            this.logger.error(`❌ Exception during refund for order ${transaction.id}: ${error.message}`, error.stack);
+            await this.sendPayoutAlert({
+                orderId: transaction.id,
+                userId: transaction.userId,
+                amount: transaction.total,
+                accountNumber: "N/A",
+                bankName: "N/A",
+                provider: "Internal Ledger",
+                error: `REFUND EXCEPTION: ${error.message}`,
+                isCritical: true
+            });
+        }
     }
 
     /**
