@@ -42,6 +42,9 @@ export class NombaWebhookController {
      * ACTS AS ADAPTER LAYER
      */
     private normalizePayload(body: any): NormalizedPaymentEvent {
+        // Log raw body structure for debugging
+        this.logger.debug(`Raw webhook body keys: ${Object.keys(body).join(', ')}`);
+
         // Nomba sends event type in 'event_type' (new) or 'event' (old)
         const eventTypeRaw = body.event_type || body.event;
         const data = body.data || {};
@@ -52,12 +55,17 @@ export class NombaWebhookController {
 
         // Extract Standard Fields
         // 1. Reference: Must match what we stored in Payment.reference
-        const reference = order.orderReference
+        // CRITICAL: Nomba sends orderReference at TOP LEVEL for checkout webhooks
+        const reference = body.orderReference    // Nomba checkout sends this at top level
+            || order.orderReference               // Fallback to nested structure
+            || data.orderReference                // Some events may have it in data
             || data.reference
-            || transaction.merchantTxRef; // Fallback only (Nomba's ref)
+            || transaction.merchantTxRef;         // Last resort fallback
+
+        this.logger.debug(`Reference extraction: body.orderReference=${body.orderReference}, order.orderReference=${order.orderReference}, data.reference=${data.reference}, final=${reference}`);
 
         // 2. Amount
-        const amount = Number(data.amount || transaction.transactionAmount || order.amount || 0);
+        const amount = Number(data.amount || transaction.transactionAmount || order.amount || body.amount || 0);
 
         // 3. Map Event Type
         let type: NormalizedPaymentEvent['type'] = 'other';
@@ -94,6 +102,7 @@ export class NombaWebhookController {
             }
         };
     }
+
 
     /**
      * GET endpoint for Nomba webhook URL verification
