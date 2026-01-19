@@ -320,9 +320,9 @@ export class NombaLib {
     async getBanks(): Promise<NombaBankListResponse> {
         console.log("[NOMBA GET BANKS] Starting bank list fetch...");
         try {
-            // Note: Nomba API uses /v1/transfers/bank (singular, v1) not /v2/transfers/banks
+            // Nomba API: GET /v1/transfers/banks (plural, v1)
             const { data } = await this.axios.get<NombaBankListResponse>(
-                "/v1/transfers/bank"
+                "/v1/transfers/banks"
             );
 
             // Detailed logging to debug empty bank list issue
