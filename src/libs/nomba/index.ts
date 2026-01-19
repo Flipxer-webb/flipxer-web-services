@@ -459,12 +459,16 @@ export class NombaLib {
      * Create a checkout order for payment collection
      * Returns a checkout link that can be displayed to the customer
      */
+    /**
+     * Create a checkout order for payment collection
+     * Returns a checkout link that can be displayed to the customer
+     */
     async createCheckoutOrder(
         payload: NombaCheckoutOrderPayload
     ): Promise<NombaCheckoutOrderResponse> {
         try {
             const { data } = await this.axios.post<NombaCheckoutOrderResponse>(
-                "/v2/checkout/order",
+                "/v1/checkout/order",
                 {
                     order: {
                         ...payload.order,
@@ -487,8 +491,15 @@ export class NombaLib {
         orderReference: string
     ): Promise<NombaCheckoutStatusResponse> {
         try {
+            // V1 uses /checkout/transaction with query param for reference
             const { data } = await this.axios.get<NombaCheckoutStatusResponse>(
-                `/v2/checkout/order/${orderReference}`
+                `/v1/checkout/transaction`,
+                {
+                    params: {
+                        idType: "ORDER_REFERENCE",
+                        id: orderReference
+                    }
+                }
             );
             return data;
         } catch (error) {
