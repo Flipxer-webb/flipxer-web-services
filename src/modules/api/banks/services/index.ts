@@ -63,9 +63,11 @@ export class BankService {
     ) { }
 
     async getListOfBanks() {
-        this.logger.log("[getListOfBanks] Fetching bank list from Nomba...");
+        this.logger.log("[getListOfBanks] Fetching bank list...");
 
+        // Try Nomba first
         try {
+            this.logger.log("[getListOfBanks] Trying Nomba...");
             const nombaResponse = await this.nombaService.getBanks();
 
             // Transform Nomba format to match Fincra format expected by frontend
@@ -76,19 +78,43 @@ export class BankService {
                 name: bank.bankName,
             }));
 
-            this.logger.log(`[getListOfBanks] Transformed ${banks.length} banks for frontend`);
+            if (banks.length > 0) {
+                this.logger.log(`[getListOfBanks] Nomba returned ${banks.length} banks`);
+                return buildResponse({
+                    message: "banks successfully retrieved",
+                    data: banks,
+                });
+            }
+
+            this.logger.warn("[getListOfBanks] Nomba returned empty bank list, falling back to Fincra...");
+        } catch (error) {
+            this.logger.warn(`[getListOfBanks] Nomba failed: ${(error as Error).message}, falling back to Fincra...`);
+        }
+
+        // Fallback to Fincra
+        try {
+            this.logger.log("[getListOfBanks] Trying Fincra fallback...");
+            const fincraResponse = await this.fincraService.getBanks();
+
+            // Fincra format: { data: [{ code, name }] }
+            const banks = (fincraResponse.data || []).map((bank) => ({
+                code: bank.code,
+                name: bank.name,
+            }));
+
+            this.logger.log(`[getListOfBanks] Fincra returned ${banks.length} banks`);
 
             if (banks.length === 0) {
-                this.logger.warn("[getListOfBanks] WARNING: Returning empty bank list to frontend!");
+                this.logger.error("[getListOfBanks] Both Nomba and Fincra returned empty bank lists!");
             }
 
             return buildResponse({
                 message: "banks successfully retrieved",
                 data: banks,
             });
-        } catch (error) {
-            this.logger.error(`[getListOfBanks] Error fetching banks: ${(error as Error).message}`);
-            throw error;
+        } catch (fincraError) {
+            this.logger.error(`[getListOfBanks] Fincra also failed: ${(fincraError as Error).message}`);
+            throw fincraError;
         }
     }
 
