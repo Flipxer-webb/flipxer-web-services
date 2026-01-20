@@ -111,7 +111,7 @@ export class TradingService {
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
-        private readonly notificationEvent: NotificationEvent,
+
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
         @Inject(TradingInjectionToken.COINGECKO)
