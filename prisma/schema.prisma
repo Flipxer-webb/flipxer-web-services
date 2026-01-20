@@ -97,7 +97,7 @@ model User {
   preferences                        UserPreferences?
   notificationPreferences            NotificationPreferences?
   priceAlerts                        PriceAlert[]
-  biometricCredentials               UserBiometricCredential[]
+
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
   // Virtual Balance / Ledger System relations
   ledgerEntries                      LedgerEntry[]
@@ -146,25 +146,7 @@ model Session {
   @@map("Sessions")
 }
 
-// WebAuthn/Passkey biometric credential storage
-model UserBiometricCredential {
-  id                 String   @id // WebAuthn credential ID (base64url encoded)
-  userId             Int
-  publicKey          String   @db.Text // Base64-encoded public key
-  publicKeyAlgorithm Int      // COSE algorithm identifier (e.g., -7 for ES256)
-  counter            Int      @default(0) // Signature counter for replay protection
-  transports         String[] // Array of authenticator transports (e.g., ["internal", "usb"])
-  deviceName         String   // User-friendly name for the device
-  aaguid             String?  // Authenticator Attestation GUID
-  lastUsedAt         DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@index([userId, createdAt(sort: Desc)])
-  @@map("UserBiometricCredentials")
-}
 
 model UserPreferences {
   id                  Int      @id @default(autoincrement())

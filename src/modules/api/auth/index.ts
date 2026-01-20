@@ -3,12 +3,12 @@ import { AuthService } from "./services";
 import { TierService } from "./services/tier.service";
 import { TierVerificationService } from "./services/tier-verification.service";
 import { TwoFactorRateLimitService } from "./services/two-factor-rate-limit.service";
-import { BiometricService } from "./services/biometric.service";
+
 import { JwtModule } from "@nestjs/jwt";
 import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
 import { AuthController } from "./controllers/v1";
 import { AdminAuthController } from "./controllers/v1/admin";
-import { BiometricController } from "./controllers/v1/biometric";
+
 import { AuthGuard, TwoFactorGuard } from "./guard";
 import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 import { TradingModule } from "../trade";
@@ -38,9 +38,9 @@ export * from "./errors";
         CachingModule,
         forwardRef(() => SettingModule),
     ],
-    controllers: [AuthController, AdminAuthController, BiometricController],
-    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, BiometricService, TwoFactorGuard],
-    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, BiometricService, TwoFactorGuard],
+    controllers: [AuthController, AdminAuthController],
+    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard],
+    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard],
 })
 export class AuthModule { }
 
