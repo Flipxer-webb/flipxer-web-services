@@ -77,7 +77,7 @@ import {
     CryptoTransactionFeeNotFoundException,
 } from "../../settings/errors";
 import { BankDetailNotFoundException } from "../../banks/errors";
-import { NotificationEvent } from "../../notification/events/notification.event";
+
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../gateway/v1";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";

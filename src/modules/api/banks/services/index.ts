@@ -42,7 +42,8 @@ import { BankDetailNotFoundException } from "../errors";
 import { TransferFailedHandlerOptions } from "../interfaces";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../../trade/gateway/v1";
-import { NotificationEvent } from "../../notification/events/notification.event";
+
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 
 @Injectable()
 export class BankService {
@@ -58,8 +59,9 @@ export class BankService {
         private readonly quidaxService: QuidaxService,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
-        private readonly notificationEvent: NotificationEvent,
-        private readonly bankCacheService: BankCacheService
+
+        private readonly bankCacheService: BankCacheService,
+        private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
     async getListOfBanks() {
@@ -683,45 +685,26 @@ export class BankService {
                         accountNumber: transaction.destinationBankAccountNumber,
                     });
 
-                    const createdNotification = await this.prisma.notification.create({
-                        data: {
-                            title: "Your payment is sent",
-                            body: message,
-                            userId: transaction.userId,
-                            target: UserNotificationTarget.SINGLE,
-                            beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                            type: NotificationType.MESSAGE,
-                            status: NotificationStatus.APPROVED,
-                            senderId: null,
-                            transactionType: OrderCategory.SELL,
-                            currency: "NGN",
+                    await this.notificationDispatcher.notify({
+                        userId: transaction.userId,
+                        title: "Your payment is sent",
+                        body: message,
+                        currency: "NGN",
+                        transactionType: OrderCategory.SELL,
+                        enableEmail: true,
+                        emailPayload: {
+                            email: user.email,
+                            transactionType: 'sell',
+                            transactionId: transaction.transactionId,
+                            amount: String(transaction.amount),
+                            currency: 'NGN',
+                            status: 'completed',
+                            date: new Date().toISOString(),
+                            fiatAmount: String(transaction.amount),
+                            bankName: transaction.destinationBankAccountName || '',
+                            accountNumber: transaction.destinationBankAccountNumber || '',
                         },
-                    });
-
-                    this.notificationEvent.emit("transaction_notification", {
-                        email: user.email,
-                        notice: message,
-                        transactionType: 'sell',
-                        transactionId: transaction.transactionId,
-                        amount: String(transaction.amount),
-                        currency: 'NGN',
-                        status: 'completed',
-                        date: new Date().toISOString(),
-                        fiatAmount: String(transaction.amount),
-                        bankName: transaction.destinationBankAccountName || '',
-                        accountNumber: transaction.destinationBankAccountNumber || '',
-                    });
-
-                    const notificationList = await this.prisma.notification.findMany({
-                        where: { userId: transaction.userId },
-                        orderBy: { createdAt: "desc" },
-                        take: 20,
-                    });
-
-                    this.wsGateway.notifyUser(transaction.userId, {
-                        type: "new_notification",
-                        notification: createdNotification,
-                        notificationList,
+                        enablePush: true,
                     });
                 }
             }

@@ -3,17 +3,14 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
     LedgerType,
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     PaymentMethod,
     TransactionFeeCategory,
     User,
-    UserNotificationTarget,
 } from "@prisma/client";
 import {
     AssetNotFoundException,
@@ -57,8 +54,9 @@ export class SellOrderService {
         private readonly walletManagementService: WalletManagementService,
         private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
         private readonly ledgerService: LedgerService,
+        private readonly transactionMonitorService: TransactionMonitorService,
         private readonly rateService: RateService,
-        private readonly transactionMonitor: TransactionMonitorService
+        private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
 
@@ -218,7 +216,7 @@ export class SellOrderService {
         const holdReference = `sell-hold:${generateId({ type: "reference" })}`;
 
         // Phase 2: Real-time monitoring for high-value transactions
-        const monitorResult = await this.transactionMonitor.validateBeforeExecution({
+        const monitorResult = await this.transactionMonitorService.validateBeforeExecution({
             userId: user.id,
             currency,
             amount: holdAmount,
@@ -344,31 +342,13 @@ export class SellOrderService {
         // Create and send notification for processing
         const message = `Your sell order of ${order.amount} ${order.currency.toUpperCase()} is processing. Transaction ID: ${order.transactionId}`;
 
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title: "Sell order initiated",
-                body: message,
-                userId: user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: OrderCategory.SELL,
-                currency: order.currency,
-            },
-        });
-
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId: user.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(user.id, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Sell order initiated",
+            body: message,
+            currency: order.currency,
+            transactionType: OrderCategory.SELL,
+            enablePush: true,
         });
         // OMNIBUS: Sell order is "complete" from ledger perspective immediately
         // Trigger fiat payout handler since virtual balance is already debited

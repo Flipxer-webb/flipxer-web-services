@@ -5,6 +5,7 @@ import { NotificationController } from "./controllers/v1/notification.controller
 import { NotificationService } from "./services/notification.service";
 import { NotificationEvent } from "./events/notification.event";
 import { PushNotificationService } from "./services/push.notification.service";
+import { NotificationDispatcher } from "./services/notification-dispatcher.service";
 
 @Global()
 @Module({
@@ -14,7 +15,9 @@ import { PushNotificationService } from "./services/push.notification.service";
         NotificationService,
         NotificationEvent,
         PushNotificationService,
+        NotificationDispatcher,
     ],
-    exports: [NotificationEvent, PushNotificationService],
+    exports: [NotificationEvent, PushNotificationService, NotificationDispatcher],
 })
-export class NotificationModule {}
+export class NotificationModule { }
+

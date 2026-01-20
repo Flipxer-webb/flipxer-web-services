@@ -1,5 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import {
@@ -11,18 +12,15 @@ import {
     WithdrawerTransactionHandlerOptions,
 } from "../../interfaces/trade";
 import {
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
+    LedgerType,
     OrderCategory,
     OrderStatus,
     OrderStreamlinedStatus,
-    UserNotificationTarget,
-    LedgerType,
+    User,
 } from "@prisma/client";
 
 import { generateId } from "@/utils";
-import { NotificationEvent } from "../../../notification/events/notification.event";
+
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../../gateway/v1";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
@@ -50,12 +48,12 @@ export class WithdrawalWebhookHandler {
         private readonly prisma: PrismaService,
         @Inject(BankInjectionToken.NOMBA)
         private readonly nombaService: NombaBank,
-        private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
         private readonly lockService: DistributedLockService,
         private readonly walletAddressService: WalletAddressService,
-        private readonly ledgerService: LedgerService
+        private readonly ledgerService: LedgerService,
+        private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
     /**
@@ -276,43 +274,24 @@ export class WithdrawalWebhookHandler {
             transactionId: buyOrder.transactionId,
         });
 
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title: "Your purchase is complete",
-                body: message,
-                userId: buyOrder.user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: OrderCategory.BUY,
-                currency: buyOrder.currency,
+        await this.notificationDispatcher.notify({
+            userId: buyOrder.user.id,
+            title: "Your purchase is complete",
+            body: message,
+            currency: buyOrder.currency,
+            transactionType: OrderCategory.BUY,
+            enableEmail: true,
+            emailPayload: {
+                email: buyOrder.user.email,
+                transactionType: 'buy',
+                transactionId: buyOrder.transactionId,
+                amount: String(buyOrder.amount),
+                currency: buyOrder.currency.toUpperCase(),
+                status: 'completed',
+                date: new Date().toISOString(),
+                walletAddress: buyOrder.recipient || '',
             },
-        });
-
-        this.notificationEvent.emit("transaction_notification", {
-            email: buyOrder.user.email,
-            notice: message,
-            transactionType: 'buy',
-            transactionId: buyOrder.transactionId,
-            amount: String(buyOrder.amount),
-            currency: buyOrder.currency.toUpperCase(),
-            status: 'completed',
-            date: new Date().toISOString(),
-            walletAddress: buyOrder.recipient || '',
-        });
-
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId: buyOrder.user.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(buyOrder.user.id, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
+            enablePush: true,
         });
 
         this.logger.log(`BUY order ${buyOrderId} completed and user notified`);
@@ -586,44 +565,25 @@ export class WithdrawalWebhookHandler {
             transactionId: transaction.transactionId,
         });
 
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title: "Your send transaction is done",
-                body: message,
-                userId: transaction.user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: transaction.orderCategory,
-                currency: transaction.currency,
+        await this.notificationDispatcher.notify({
+            userId: transaction.user.id,
+            title: "Your send transaction is done",
+            body: message,
+            currency: transaction.currency,
+            transactionType: transaction.orderCategory,
+            enableEmail: true,
+            emailPayload: {
+                email: transaction.user.email,
+                transactionType: 'withdrawal',
+                transactionId: transaction.transactionId,
+                amount: String(transaction.amount),
+                currency: transaction.currency.toUpperCase(),
+                status: 'completed',
+                date: new Date().toISOString(),
+                recipient: transaction.recipient || '',
+                network: transaction.network || '',
             },
-        });
-
-        this.notificationEvent.emit("transaction_notification", {
-            email: transaction.user.email,
-            notice: message,
-            transactionType: 'withdrawal',
-            transactionId: transaction.transactionId,
-            amount: String(transaction.amount),
-            currency: transaction.currency.toUpperCase(),
-            status: 'completed',
-            date: new Date().toISOString(),
-            recipient: transaction.recipient || '',
-            network: transaction.network || '',
-        });
-
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId: transaction.user.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(transaction.user.id, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
+            enablePush: true,
         });
     }
 
@@ -633,44 +593,25 @@ export class WithdrawalWebhookHandler {
     private async sendWithdrawalFailedNotification(transaction: any) {
         const message = `Your send of ${transaction.amount} ${transaction.currency.toUpperCase()} failed. Transaction ID: ${transaction.transactionId}`;
 
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title: "Send transaction failed",
-                body: message,
-                userId: transaction.user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: transaction.orderCategory,
-                currency: transaction.currency,
+        await this.notificationDispatcher.notify({
+            userId: transaction.user.id,
+            title: "Send transaction failed",
+            body: message,
+            currency: transaction.currency,
+            transactionType: transaction.orderCategory,
+            enableEmail: true,
+            emailPayload: {
+                email: transaction.user.email,
+                transactionType: 'withdrawal',
+                transactionId: transaction.transactionId,
+                amount: String(transaction.amount),
+                currency: transaction.currency.toUpperCase(),
+                status: 'failed',
+                date: new Date().toISOString(),
+                recipient: transaction.recipient || '',
+                network: transaction.network || '',
             },
-        });
-
-        this.notificationEvent.emit("transaction_notification", {
-            email: transaction.user.email,
-            notice: message,
-            transactionType: 'withdrawal',
-            transactionId: transaction.transactionId,
-            amount: String(transaction.amount),
-            currency: transaction.currency.toUpperCase(),
-            status: 'failed',
-            date: new Date().toISOString(),
-            recipient: transaction.recipient || '',
-            network: transaction.network || '',
-        });
-
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId: transaction.user.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(transaction.user.id, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
+            enablePush: true,
         });
     }
 

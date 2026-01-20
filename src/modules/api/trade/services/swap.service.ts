@@ -3,14 +3,11 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     User,
-    UserNotificationTarget,
 } from "@prisma/client";
 import {
     GeneralTransactionException,
@@ -58,7 +55,8 @@ export class SwapService {
         private readonly wsGateway: WsGateway,
         private readonly slackWebhookService: SlackWebhookService,
         private readonly walletManagementService: WalletManagementService,
-        private readonly rateService: RateService
+        private readonly rateService: RateService,
+        private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
     /**
@@ -358,13 +356,28 @@ export class SwapService {
             this.wsGateway.notifyWalletUpdate(user.id);
             this.emitTransactionUpdate(user.id, { ...order, status: OrderStatus.completed });
 
-            await this.sendNotification(
-                user.id,
-                "Swap Successful",
-                `Swapped ${quote.from_amount} ${quote.from_currency} for ${quote.to_amount.toFixed(6)} ${quote.to_currency}`,
-                quote.to_currency,
-                OrderCategory.SWAP
-            );
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Swap Successful",
+                body: `Swapped ${quote.from_amount} ${quote.from_currency} for ${quote.to_amount.toFixed(6)} ${quote.to_currency}`,
+                currency: quote.to_currency,
+                transactionType: OrderCategory.SWAP,
+                enableEmail: true,
+                emailPayload: {
+                    email: user.email,
+                    transactionType: 'swap',
+                    transactionId: order.transactionId,
+                    amount: String(quote.from_amount),
+                    currency: quote.from_currency,
+                    status: 'completed',
+                    date: new Date().toISOString(),
+                    toAmount: String(quote.to_amount),
+                    toCurrency: quote.to_currency,
+                    fromAmount: String(quote.from_amount),
+                    fromCurrency: quote.from_currency,
+                },
+                enablePush: true,
+            });
 
             return buildResponse({
                 message: "Swap confirmed successfully",
@@ -414,34 +427,7 @@ export class SwapService {
         });
     }
 
-    private async sendNotification(userId: number, title: string, body: string, currency: string, type: OrderCategory) {
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title,
-                body,
-                userId,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: type,
-                currency: currency,
-            },
-        });
 
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(userId, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
-        });
-    }
 
     /**
      * Admin Action: Retry a pending swap order (e.g. after adding liquidity).
@@ -527,13 +513,28 @@ export class SwapService {
             this.wsGateway.notifyWalletUpdate(user.id);
             this.emitTransactionUpdate(user.id, { ...order, status: OrderStatus.completed });
 
-            await this.sendNotification(
-                user.id,
-                "Swap Successful",
-                `Swapped ${order.amount} ${order.currency} for ${toAmount.toFixed(6)} ${toCurrency}`,
-                toCurrency,
-                OrderCategory.SWAP
-            );
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Swap Successful",
+                body: `Swapped ${order.amount} ${order.currency} for ${toAmount.toFixed(6)} ${toCurrency}`,
+                currency: toCurrency,
+                transactionType: OrderCategory.SWAP,
+                enableEmail: true,
+                emailPayload: {
+                    email: user.email,
+                    transactionType: 'swap',
+                    transactionId: order.transactionId,
+                    amount: String(order.amount),
+                    currency: order.currency,
+                    status: 'completed',
+                    date: new Date().toISOString(),
+                    toAmount: String(toAmount),
+                    toCurrency: toCurrency,
+                    fromAmount: String(order.amount),
+                    fromCurrency: order.currency,
+                },
+                enablePush: true,
+            });
 
             return buildResponse({
                 message: "Swap retried and completed successfully",

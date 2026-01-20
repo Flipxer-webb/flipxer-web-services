@@ -1,5 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
     TransactionCompletedException,
     TransactionNotFoundException,
@@ -9,13 +10,9 @@ import {
     SwapTransactionHandlerOptions,
 } from "../../interfaces/trade";
 import {
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderStatus,
-    UserNotificationTarget,
+    User,
 } from "@prisma/client";
-import { NotificationEvent } from "../../../notification/events/notification.event";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../../gateway/v1";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
@@ -37,11 +34,11 @@ export class SwapWebhookHandler {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly notificationEvent: NotificationEvent,
         private readonly notificationMessage: NotificationMessageService,
         private readonly wsGateway: WsGateway,
         private readonly lockService: DistributedLockService,
-        private readonly walletAddressService: WalletAddressService
+        private readonly walletAddressService: WalletAddressService,
+        private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
     /**
@@ -134,6 +131,9 @@ export class SwapWebhookHandler {
     /**
      * Send swap completion notification to user
      */
+    /**
+     * Send swap completion notification to user
+     */
     private async sendSwapNotification(transaction: any) {
         const message = this.notificationMessage.swapTransactionSuccess({
             fromAmount: transaction.fromAmount,
@@ -143,44 +143,25 @@ export class SwapWebhookHandler {
             transactionId: transaction.transactionId,
         });
 
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title: "Your swap transaction is completed",
-                body: message,
-                userId: transaction.user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: transaction.orderCategory,
-                currency: transaction.toCurrency,
+        await this.notificationDispatcher.notify({
+            userId: transaction.user.id,
+            title: "Your swap transaction is completed",
+            body: message,
+            currency: transaction.toCurrency,
+            transactionType: transaction.orderCategory,
+            enableEmail: true,
+            emailPayload: {
+                email: transaction.user.email,
+                transactionType: 'swap',
+                transactionId: transaction.transactionId,
+                amount: String(transaction.fromAmount),
+                currency: transaction.fromCurrency?.toUpperCase(),
+                status: 'completed',
+                date: new Date().toISOString(),
+                toAmount: String(transaction.toAmount),
+                toCurrency: transaction.toCurrency?.toUpperCase(),
             },
-        });
-
-        this.notificationEvent.emit("transaction_notification", {
-            email: transaction.user.email,
-            notice: message,
-            transactionType: 'swap',
-            transactionId: transaction.transactionId,
-            amount: String(transaction.fromAmount),
-            currency: transaction.fromCurrency?.toUpperCase(),
-            status: 'completed',
-            date: new Date().toISOString(),
-            toAmount: String(transaction.toAmount),
-            toCurrency: transaction.toCurrency?.toUpperCase(),
-        });
-
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId: transaction.user.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(transaction.user.id, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
+            enablePush: true,
         });
     }
 

@@ -5,17 +5,14 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
     LedgerType,
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     QueueReason,
     TransactionFeeCategory,
     User,
-    UserNotificationTarget,
 } from "@prisma/client";
 import { IncompleteAccountSetupException, UnknownFeeStructureException, RateLimitExceededException } from "../errors";
 import {
@@ -67,7 +64,8 @@ export class SendService {
         private readonly sweepService: SweepService,
         private readonly slackWebhookService: SlackWebhookService,
         private readonly rateService: RateService,
-        private readonly transactionMonitor: TransactionMonitorService
+        private readonly transactionMonitor: TransactionMonitorService,
+        private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
     /**
@@ -496,7 +494,26 @@ export class SendService {
             this.wsGateway.notifyWalletUpdate(user.id);
 
             // Send notification
-            await this.sendWithdrawalNotification(user, order);
+            const message = `Your send of ${order.amount} ${order.currency.toUpperCase()} is being processed. Transaction ID: ${order.transactionId}`;
+
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Send transaction initiated",
+                body: message,
+                currency: order.currency,
+                transactionType: OrderCategory.SEND,
+                enableEmail: true,
+                emailPayload: {
+                    email: user.email,
+                    transactionType: 'withdrawal',
+                    transactionId: order.transactionId,
+                    amount: String(order.amount),
+                    currency: order.currency,
+                    status: 'processing',
+                    date: new Date().toISOString(),
+                },
+                enablePush: true,
+            });
 
             return buildResponse({
                 message: "Withdrawal request placed successfully",
@@ -552,39 +569,7 @@ export class SendService {
         }
     }
 
-    /**
-     * Sends withdrawal notification to user
-     */
-    private async sendWithdrawalNotification(user: User, order: any) {
-        const message = `Your send of ${order.amount} ${order.currency.toUpperCase()} is being processed. Transaction ID: ${order.transactionId}`;
 
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title: "Send transaction initiated",
-                body: message,
-                userId: user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: OrderCategory.SEND,
-                currency: order.currency,
-            },
-        });
-
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId: user.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(user.id, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
-        });
-    }
 
     /**
      * Cancels a pending withdrawal request

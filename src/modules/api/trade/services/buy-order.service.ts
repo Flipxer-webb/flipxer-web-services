@@ -6,11 +6,9 @@ import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { COMPANY_NAME, frontendUrl } from "@/config";
 import { RateService } from "./rate.service";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
     LedgerType,
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     PaymentMethod,
@@ -19,7 +17,6 @@ import {
     TransactionStatus,
     TransactionType,
     User,
-    UserNotificationTarget,
 } from "@prisma/client";
 import {
     AssetNotFoundException,
@@ -63,7 +60,8 @@ export class BuyOrderService {
         private readonly walletAddressService: WalletAddressService,
         private readonly slackWebhookService: SlackWebhookService,
         private readonly ledgerService: LedgerService,
-        private readonly rateService: RateService
+        private readonly rateService: RateService,
+        private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
     /**
@@ -320,13 +318,14 @@ export class BuyOrderService {
             } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId
             }`;
 
-        await this.sendNotification(
-            user.id,
-            "Buy order initiated",
-            message,
-            order.currency,
-            OrderCategory.BUY
-        );
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Buy order initiated",
+            body: message,
+            currency: order.currency,
+            transactionType: OrderCategory.BUY,
+            enablePush: true,
+        });
 
         return buildResponse({
             message:
@@ -500,13 +499,24 @@ export class BuyOrderService {
 
             const message = `Your buy order of ${order.amount
                 } ${order.currency.toUpperCase()} has been completed successfully.`;
-            await this.sendNotification(
-                payment.userId,
-                "Buy order successful",
-                message,
-                order.currency,
-                OrderCategory.BUY
-            );
+            await this.notificationDispatcher.notify({
+                userId: payment.userId,
+                title: "Buy order successful",
+                body: message,
+                currency: order.currency,
+                transactionType: OrderCategory.BUY,
+                enableEmail: true,
+                emailPayload: {
+                    email: payment.user?.email || '',
+                    transactionType: 'buy',
+                    transactionId: order.transactionId,
+                    amount: String(order.amount),
+                    currency: order.currency,
+                    status: 'completed',
+                    date: new Date().toISOString(),
+                },
+                enablePush: true,
+            });
         } catch (error) {
             this.logger.error(
                 `Failed to fulfill buy order (Transfer/Update Error) for order ${order.id}: ${error.message}`,
@@ -563,40 +573,7 @@ export class BuyOrderService {
         });
     }
 
-    private async sendNotification(
-        userId: number,
-        title: string,
-        body: string,
-        currency: string,
-        type: OrderCategory
-    ) {
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title,
-                body,
-                userId,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: type,
-                currency: currency,
-            },
-        });
 
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(userId, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
-        });
-    }
 
     /**
      * Executes the Internal Buy Leg of a Swap (Admin -> User)

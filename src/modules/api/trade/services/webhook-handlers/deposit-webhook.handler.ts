@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import {
@@ -9,13 +10,10 @@ import {
 } from "../../interfaces/trade";
 import {
     LedgerType,
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     SweepStatus,
-    UserNotificationTarget,
+    User,
 } from "@prisma/client";
 import { generateId } from "@/utils";
 import { NotificationEvent } from "../../../notification/events/notification.event";
@@ -32,6 +30,7 @@ import {
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
     EXTENDED_TRANSACTION_TIMEOUT_MS,
 } from "../../constants";
+import { TransactionMonitorService } from "../ledger/transaction-monitor.service";
 
 /**
  * Deposit Webhook Handler
@@ -53,7 +52,9 @@ export class DepositWebhookHandler {
         private readonly lockService: DistributedLockService,
         private readonly walletAddressService: WalletAddressService,
         private readonly slackWebhookService: SlackWebhookService,
+        private readonly transactionMonitor: TransactionMonitorService,
         private readonly ledgerService: LedgerService,
+        private readonly notificationDispatcher: NotificationDispatcher,
         private readonly depositReviewService: DepositReviewService
     ) { }
 
@@ -617,45 +618,26 @@ export class DepositWebhookHandler {
             sender: options.payment_address,
         });
 
-        const createdNotification = await this.prisma.notification.create({
-            data: {
-                title: "You've received a new payment",
-                body: message,
-                userId: user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: OrderCategory.RECEIVE,
-                currency: options.currency.toUpperCase(),
-            },
-        });
-
-        this.notificationEvent.emit("transaction_notification", {
-            email: user.email,
-            notice: message,
-            transactionType: 'deposit',
-            transactionId: transactionId,
-            amount: String(options.amount),
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "You've received a new payment",
+            body: message,
             currency: options.currency.toUpperCase(),
-            status: 'completed',
-            date: new Date().toISOString(),
-            txHash: options.txid || '',
-            network: options.network || '',
-            walletAddress: options.payment_address || '',
-        });
-
-        const notificationList = await this.prisma.notification.findMany({
-            where: { userId: user.id },
-            orderBy: { createdAt: "desc" },
-            take: 20,
-        });
-
-        this.wsGateway.notifyUser(user.id, {
-            type: "new_notification",
-            notification: createdNotification,
-            notificationList,
+            transactionType: OrderCategory.RECEIVE,
+            enableEmail: true,
+            emailPayload: {
+                email: user.email,
+                transactionType: 'deposit',
+                transactionId: transactionId,
+                amount: String(options.amount),
+                currency: options.currency.toUpperCase(),
+                status: 'completed',
+                date: new Date().toISOString(),
+                txHash: options.txid || '',
+                network: options.network || '',
+                walletAddress: options.payment_address || '',
+            },
+            enablePush: true,
         });
     }
 
@@ -690,19 +672,13 @@ export class DepositWebhookHandler {
     ) {
         const message = `Your deposit of ${options.amount} ${options.currency.toUpperCase()} is pending review. ${reason}`;
 
-        await this.prisma.notification.create({
-            data: {
-                title: "Deposit Pending Review",
-                body: message,
-                userId: user.id,
-                target: UserNotificationTarget.SINGLE,
-                beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                type: NotificationType.MESSAGE,
-                status: NotificationStatus.APPROVED,
-                senderId: null,
-                transactionType: OrderCategory.RECEIVE,
-                currency: options.currency.toUpperCase(),
-            },
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Deposit Pending Review",
+            body: message,
+            currency: options.currency.toUpperCase(),
+            transactionType: OrderCategory.RECEIVE,
+            enablePush: true,
         });
 
         // Emit wallet update to refresh UI
