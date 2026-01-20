@@ -11,6 +11,12 @@ import { REFRESH_TOKEN_EXPIRATION } from "@/config";
 import { randomUUID } from "crypto";
 import { isLikelyBotTraffic, getBotTrafficReason, isCloudProviderIP, isSuspiciousCombination } from "../utils/bot-detection";
 
+// Server-side inactivity limit (1 hour) - sessions inactive beyond this are considered invalid
+const SERVER_INACTIVITY_LIMIT_MS = 60 * 60 * 1000;
+
+// Minimum time between session extend calls (rate limiting)
+const MIN_TIME_BETWEEN_EXTENDS_MS = 60 * 1000; // 1 minute
+
 @Injectable()
 export class SessionService {
     private readonly logger = new Logger(SessionService.name);
@@ -223,14 +229,18 @@ export class SessionService {
     }
 
     /**
-     * Validate if a session is active and not expired
+     * Validate if a session is active, not expired, and not inactive too long
      */
     async validateSession(sessionId: string): Promise<boolean> {
+        const inactivityThreshold = new Date(Date.now() - SERVER_INACTIVITY_LIMIT_MS);
+
         const session = await this.prisma.session.findFirst({
             where: {
                 id: sessionId,
                 isActive: true,
                 expiresAt: { gt: new Date() },
+                // Server-side inactivity check: session must have been active within the limit
+                lastActiveAt: { gt: inactivityThreshold },
             },
         });
 
@@ -257,6 +267,15 @@ export class SessionService {
                 "Session not found or inactive",
                 HttpStatus.NOT_FOUND
             );
+        }
+
+        // Rate limit: only allow extend once per minute
+        const timeSinceLastActivity = Date.now() - session.lastActiveAt.getTime();
+        if (timeSinceLastActivity < MIN_TIME_BETWEEN_EXTENDS_MS) {
+            return buildResponse({
+                message: "Session already recently extended",
+                data: { expiresAt: session.expiresAt },
+            });
         }
 
         const newExpiresAt = new Date(
