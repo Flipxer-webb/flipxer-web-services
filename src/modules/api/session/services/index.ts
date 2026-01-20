@@ -54,7 +54,7 @@ export class SessionService {
     async createSession(
         userId: number,
         sessionInfo: SessionInfo
-    ): Promise<{ sessionId: string; deviceToken: string }> {
+    ): Promise<{ sessionId: string }> {
         // Check for bot/health check traffic
         const botReason = getBotTrafficReason({
             browser: sessionInfo.browser,
@@ -80,9 +80,6 @@ export class SessionService {
             Date.now() + this.parseDuration(REFRESH_TOKEN_EXPIRATION)
         );
 
-        // Use existing device token if provided, otherwise generate new one
-        const deviceToken = sessionInfo.deviceToken || randomUUID();
-
         const session = await this.prisma.session.create({
             data: {
                 userId,
@@ -92,14 +89,13 @@ export class SessionService {
                 os: sessionInfo.os,
                 ipAddress: sessionInfo.ipAddress,
                 location: sessionInfo.location,
-                deviceToken,
                 isActive: true,
                 isCurrent: true,
                 expiresAt,
             },
         });
 
-        return { sessionId: session.id, deviceToken };
+        return { sessionId: session.id };
     }
 
     /**

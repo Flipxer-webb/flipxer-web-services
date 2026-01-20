@@ -70,7 +70,6 @@ model User {
   incomeVerificationStatus           DocumentVerificationStatus?
   incomeDocumentUrl                  String?
   tradingPassword                    String?
-  skipTwoFactorForTrustedDevices     Boolean                           @default(false)
   // Account lockout for brute force protection
   failedLoginAttempts                Int                               @default(0)
   lastFailedLogin                    DateTime?
@@ -127,12 +126,8 @@ model Session {
   os             String?
   ipAddress      String?
   location       String?
-  deviceToken    String?   // Unique token for device recognition
   isActive       Boolean   @default(true)
   isCurrent      Boolean   @default(false)
-  isTrusted      Boolean   @default(false)
-  trustedAt      DateTime?
-  trustExpiresAt DateTime?
   lastActiveAt   DateTime  @default(now())
   expiresAt      DateTime
   createdAt      DateTime  @default(now())
@@ -141,7 +136,6 @@ model Session {
 
   @@index([userId])
   @@index([isActive])
-  @@index([deviceToken])
   @@index([userId, isActive, lastActiveAt(sort: Desc)])
   @@map("Sessions")
 }

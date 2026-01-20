@@ -120,10 +120,7 @@ export class Verify2FALoginDto {
     @IsOptional()
     os?: string;
 
-    @ApiProperty({ required: false, description: "Device token for trusted device recognition" })
-    @IsString()
-    @IsOptional()
-    deviceToken?: string;
+
 }
 
 enum AccountType {
@@ -288,10 +285,7 @@ export class SignInDto {
     @IsOptional()
     os?: string;
 
-    @ApiProperty({ required: false, description: "Device token for trusted device recognition" })
-    @IsString()
-    @IsOptional()
-    deviceToken?: string;
+
 }
 
 export enum UserSignInAppType {
@@ -299,7 +293,7 @@ export enum UserSignInAppType {
     ADMIN = "ADMIN",
 }
 
-export class UserSigInDto extends SignInDto {}
+export class UserSigInDto extends SignInDto { }
 
 export class SendPhoneVerificationCodeDto {
     @ApiProperty()
@@ -556,8 +550,8 @@ export class Reset2FARateLimitDto {
     @IsNumber()
     userId: number;
 
-    @ApiProperty({ 
-        example: "login", 
+    @ApiProperty({
+        example: "login",
         description: "Context to reset (login, transaction, or omit for all)",
         required: false,
         enum: ["login", "transaction"]

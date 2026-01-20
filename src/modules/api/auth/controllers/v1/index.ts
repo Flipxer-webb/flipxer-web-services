@@ -44,7 +44,7 @@ import {
     DojahVerifyIncomeDto,
     DojahVerifyGovernmentIdDto,
 } from "../../dtos";
-import { TrustDeviceDto } from "../../dtos/trusted-device.dto";
+
 import { AuthService } from "../../services";
 import { TierVerificationService } from "../../services/tier-verification.service";
 import {
@@ -543,28 +543,5 @@ export class AuthController {
         return await this.tierVerificationService.getVerificationStatus(user);
     }
 
-    // ==================== Trusted Device Endpoints ====================
 
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("trusted-device")
-    @ApiOperation({ summary: "Mark current session as trusted device (requires 2FA)" })
-    @ApiBearerAuth("access-token")
-    async trustDevice(
-        @User() user: UserModel,
-        @Req() req: Request,
-        @Body(ValidationPipe) dto: TrustDeviceDto
-    ) {
-        return await this.authService.trustDevice(user, req, dto.code);
-    }
-
-    @UseGuards(AuthGuard)
-    @HttpCode(HttpStatus.OK)
-    @Post("trusted-device/:sessionId/untrust")
-    @ApiOperation({ summary: "Remove trust from a device" })
-    @ApiBearerAuth("access-token")
-    async untrustDevice(@User() user: UserModel, @Req() req: Request) {
-        const sessionId = (req.params as { sessionId: string }).sessionId;
-        return await this.authService.untrustDevice(user, sessionId);
-    }
 }
