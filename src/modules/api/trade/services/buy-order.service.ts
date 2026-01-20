@@ -1,7 +1,5 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { TradingInjectionToken } from "@/modules/factory/trading/types";
-import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { buildResponse } from "@/utils/api-response-util";
@@ -58,8 +56,6 @@ export class BuyOrderService {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService,
         @Inject(BankInjectionToken.NOMBA)
         private readonly nombaService: NombaBank,
         private readonly wsGateway: WsGateway,

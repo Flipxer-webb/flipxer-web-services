@@ -1,7 +1,5 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { TradingInjectionToken } from "@/modules/factory/trading/types";
-import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
@@ -53,8 +51,6 @@ export class SellOrderService {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
@@ -65,60 +61,6 @@ export class SellOrderService {
         private readonly transactionMonitor: TransactionMonitorService
     ) { }
 
-    /**
-     * Gets a fee based on amount and fee data structure
-     */
-    private async getFee(
-        amount: number,
-        data: any
-    ): Promise<{ fee: number; type: string }> {
-        if (data.type === "flat" && typeof data.fee === "number") {
-            return {
-                fee: data.fee,
-                type: "flat",
-            };
-        }
-
-        if (data.type === "percentage" && typeof data.fee === "number") {
-            return {
-                fee: (amount * data.fee) / 100,
-                type: "percentage",
-            };
-        }
-
-        if (data.type === "range" && Array.isArray(data.fee)) {
-            for (const range of data.fee) {
-                if (amount >= range.min && amount < range.max) {
-                    if (range.type === "percentage") {
-                        return {
-                            fee: (amount * range.value) / 100,
-                            type: "percentage",
-                        };
-                    } else {
-                        return {
-                            fee: range.value,
-                            type: "flat",
-                        };
-                    }
-                }
-            }
-
-            throw new IncompleteAccountSetupException(
-                "Amount is out of range.",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        // Fallback for simple fee structures
-        if (typeof data.fee === "number") {
-            return { fee: data.fee, type: "fixed" };
-        }
-
-        throw new IncompleteAccountSetupException(
-            "Unknown fee structure",
-            HttpStatus.INTERNAL_SERVER_ERROR
-        );
-    }
 
     /**
      * Gets the amount converted to Naira for sell orders
@@ -230,27 +172,9 @@ export class SellOrderService {
             );
         }
 
-        // 4. Fetch Quidax withdrawal fee and compute in crypto
-        let quidaxFeeCrypto = 0;
-        let adminFeeCrypto = 0;
-
-        if (!internal) {
-            const { data: quidaxFeeData } = await this.quidaxService.getWithdrawerFees({
-                currency: assetCurrency.toLowerCase(),
-                network: defaultNetwork,
-            });
-
-            const { fee: calculatedFee } = await this.getFee(
-                dto.amount,
-                quidaxFeeData
-            );
-            quidaxFeeCrypto = calculatedFee;
-
-            // Only apply admin fee for external transfers if needed (currently logic uses it always, but for sell/internal it should be 0)
-            if (adminFee) {
-                adminFeeCrypto = adminFee.fee;
-            }
-        }
+        // 4. Fees are no longer charged for sell orders
+        const quidaxFeeCrypto = 0;
+        const adminFeeCrypto = 0;
 
         // 5. Calculations
         const buyRate = rate.buyRate;

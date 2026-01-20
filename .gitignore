@@ -62,3 +62,6 @@ pnpm-lock.yaml
 
 # Render binary
 render.exe
+
+# Agent workflows (local only)
+.agent/

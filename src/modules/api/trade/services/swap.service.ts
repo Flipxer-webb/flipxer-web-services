@@ -1,7 +1,5 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { TradingInjectionToken } from "@/modules/factory/trading/types";
-import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
@@ -52,8 +50,6 @@ export class SwapService {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService,
         private readonly sellOrderService: SellOrderService,
         private readonly buyOrderService: BuyOrderService,
         private readonly redisCacheService: RedisCacheService,
@@ -293,11 +289,8 @@ export class SwapService {
             // --- LEG B: BUY (Admin -> User) ---
 
             // Liquidity Check: Does Admin have enough Crypto B?
-            const adminWallet = await this.quidaxService.getUserWallet({
-                user_id: "me",
-                currency: quote.to_currency.toLowerCase()
-            });
-            const adminBalance = parseFloat(adminWallet.data.balance || "0");
+            const adminWallet = await this.walletManagementService.getWalletBalance(quote.to_currency.toUpperCase());
+            const adminBalance = Number(adminWallet?.balance || 0);
 
             if (adminBalance < quote.to_amount) {
                 this.logger.warn(`Insufficient Admin Liquidity for Swap ${order.id}. Holding Order.`);
@@ -498,11 +491,8 @@ export class SwapService {
         const buyRef = `${reference}_buy`;
 
         // 3. Liquidity Check
-        const adminWallet = await this.quidaxService.getUserWallet({
-            user_id: "me",
-            currency: toCurrency.toLowerCase()
-        });
-        const adminBalance = parseFloat(adminWallet.data.balance || "0");
+        const adminWallet = await this.walletManagementService.getWalletBalance(toCurrency.toUpperCase());
+        const adminBalance = Number(adminWallet?.balance || 0);
 
         if (adminBalance < toAmount) {
             throw new GeneralTransactionException(
@@ -598,7 +588,7 @@ export class SwapService {
      */
     private async calculateAndRecordProfit(order: any) {
         try {
-            // Parse narration to find toCurrency: "Swap BTC -> USDT"
+            // Parse narration to find currencies: "Swap BTC -> USDT"
             const match = order.narration.match(/Swap (\w+) -> (\w+)/);
             if (!match) return;
 
@@ -608,34 +598,22 @@ export class SwapService {
             const fromAmount = order.amount;
             const toAmount = order.amount * (order.rateAtConversion || 0);
 
-            // Fetch Real-Time Market Prices
-            const response = await this.quidaxService.getMarketTickers();
-            const tickers = response.data;
-
-            if (!tickers) return;
-
-            // Construct pairs (assuming NGN base for valuation)
-            const fromPair = `${fromSymbol}ngn`.toLowerCase();
-            const toPair = `${toSymbol}ngn`.toLowerCase();
-
-            const fromTickerData = tickers[fromPair];
-            const toTickerData = tickers[toPair];
-
-            // If either ticker is missing (e.g. if one asset IS NGN, or unsupported pair), 
-            // handle gracefully. For NGN, rate is 1.
+            // Use RateService instead of Quidax
             let fromRate = 0;
             let toRate = 0;
 
             if (fromSymbol.toUpperCase() === 'NGN') {
                 fromRate = 1;
-            } else if (fromTickerData && fromTickerData.ticker) {
-                fromRate = parseFloat(fromTickerData.ticker.buy); // Admin Sell Price (Bid)
+            } else {
+                const fromRateData = await this.rateService.getAssetRate(fromSymbol.toUpperCase());
+                fromRate = fromRateData.buyRate; // Admin Sell Price
             }
 
             if (toSymbol.toUpperCase() === 'NGN') {
                 toRate = 1;
-            } else if (toTickerData && toTickerData.ticker) {
-                toRate = parseFloat(toTickerData.ticker.sell); // Admin Buy Price (Ask)
+            } else {
+                const toRateData = await this.rateService.getAssetRate(toSymbol.toUpperCase());
+                toRate = toRateData.sellRate; // Admin Buy Price
             }
 
             if (fromRate === 0 || toRate === 0) return;
