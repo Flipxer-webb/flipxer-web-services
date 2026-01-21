@@ -34,9 +34,10 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
 import { GeneralTransactionException } from "../errors";
 
-// Withdrawal rate limit: 5 per hour per user
-const WITHDRAWAL_RATE_LIMIT = 5;
-const WITHDRAWAL_RATE_WINDOW_SECONDS = 60 * 60; // 1 hour
+// Withdrawal rate limits: configurable via environment variables
+// Default: 5 withdrawals per hour per user
+const WITHDRAWAL_RATE_LIMIT = parseInt(process.env.WITHDRAWAL_RATE_LIMIT || "5", 10);
+const WITHDRAWAL_RATE_WINDOW_SECONDS = parseInt(process.env.WITHDRAWAL_RATE_WINDOW_SECONDS || "3600", 10); // 1 hour default
 
 /**
  * Send Service

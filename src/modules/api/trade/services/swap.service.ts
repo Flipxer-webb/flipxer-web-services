@@ -387,7 +387,41 @@ export class SwapService {
         } catch (error) {
             this.logger.error(`Swap Failed: ${error.message}`, error.stack);
 
-            // Mark Order as FAILED if it was in processing
+            // ROLLBACK: If Sell Leg succeeded (funds debited), we must refund the user
+            // The sell leg debits user's source currency - we need to credit it back
+            try {
+                this.logger.log(`Attempting swap rollback for order ${order.id} | Crediting back ${quote.from_amount} ${quote.from_currency}`);
+
+                // Credit back the source currency that was debited in executeInternalSell
+                await this.buyOrderService.executeInternalBuy(
+                    user,
+                    quote.from_amount,
+                    quote.from_currency,
+                    `${reference}_rollback`
+                );
+
+                this.logger.log(`Swap rollback successful for order ${order.id}`);
+            } catch (rollbackError) {
+                // Critical: Rollback failed - alert admin immediately
+                this.logger.error(`CRITICAL: Swap rollback failed for order ${order.id}: ${rollbackError.message}`, rollbackError.stack);
+
+                await this.slackWebhookService.sendAlert(
+                    "SWAP_ROLLBACK_FAILED",
+                    {
+                        text: `🚨 CRITICAL: Swap rollback failed!\n` +
+                            `Order: ${order.id}\n` +
+                            `Transaction: ${order.transactionId}\n` +
+                            `User: ${user.id} (${user.email})\n` +
+                            `Amount: ${quote.from_amount} ${quote.from_currency}\n` +
+                            `Original Error: ${error.message}\n` +
+                            `Rollback Error: ${rollbackError.message}\n` +
+                            `⚠️ MANUAL INTERVENTION REQUIRED - User funds may be stuck`
+                    },
+                    { alertKey: `swap-rollback-fail:${reference}` }
+                );
+            }
+
+            // Mark Order as FAILED
             await this.prisma.order.update({
                 where: { id: order.id },
                 data: {
@@ -398,10 +432,6 @@ export class SwapService {
             });
 
             this.emitTransactionUpdate(user.id, { ...order, status: OrderStatus.failed });
-
-            // If Sell succeeded but Buy failed (caught above?), we handle that logic inside checks.
-            // If ExecuteInternalSell failed, we are here. User funds NOT deducted (atomic external call failed).
-            // So failing the order is correct.
 
             throw new GeneralTransactionException(
                 "Swap failed. Please try again or contact support.",

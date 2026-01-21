@@ -253,120 +253,135 @@ export class SellOrderService {
             );
         }
 
-        // Generate reference for the order
-        const reference = generateId({ type: "reference" });
+        // Wrap post-hold logic in try/catch to release hold if any step fails
+        // This prevents funds from being stuck in HOLD status indefinitely
+        try {
+            // Generate reference for the order
+            const reference = generateId({ type: "reference" });
 
-        // OMNIBUS VIRTUAL BALANCE SYSTEM
-        // In omnibus mode, crypto is already in the main wallet - no Quidax transfer needed
-        // We just settle the ledger hold to confirm the debit from user's virtual balance
+            // OMNIBUS VIRTUAL BALANCE SYSTEM
+            // In omnibus mode, crypto is already in the main wallet - no Quidax transfer needed
+            // We just settle the ledger hold to confirm the debit from user's virtual balance
 
-        this.logger.log(
-            `[Omnibus] Settling virtual balance for sell order | User: ${user.id} | Amount: ${totalCryptoToAdmin} ${dto.asset}`
-        );
-
-        // Settle the hold (converts HOLD to confirmed DEBIT)
-        const settleResult = await this.ledgerService.releaseHold(
-            holdReference,
-            true, // settle = true converts hold to debit
-            `Sell order: ${reference}`
-        );
-
-        if (!settleResult.success) {
-            this.logger.error(
-                `Failed to settle hold for sell order: ${settleResult.error}`
+            this.logger.log(
+                `[Omnibus] Settling virtual balance for sell order | User: ${user.id} | Amount: ${totalCryptoToAdmin} ${dto.asset}`
             );
-            throw new GeneralTransactionException(
-                `Failed to process sell order: ${settleResult.error}`,
-                HttpStatus.INTERNAL_SERVER_ERROR
+
+            // Settle the hold (converts HOLD to confirmed DEBIT)
+            const settleResult = await this.ledgerService.releaseHold(
+                holdReference,
+                true, // settle = true converts hold to debit
+                `Sell order: ${reference}`
             );
-        }
 
-        const amtFiat = await this.getAmountInNaira(
-            dto.asset,
-            responseData.cryptoSellAmount
-        );
+            if (!settleResult.success) {
+                this.logger.error(
+                    `Failed to settle hold for sell order: ${settleResult.error}`
+                );
+                throw new GeneralTransactionException(
+                    `Failed to process sell order: ${settleResult.error}`,
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
 
-        const order = await this.prisma.order.create({
-            data: {
-                orderCategory: OrderCategory.SELL,
-                status: OrderStatus.processing,
-                streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
-                orderReference: reference,
-                transactionId: generateId({ type: "transaction" }),
+            const amtFiat = await this.getAmountInNaira(
+                dto.asset,
+                responseData.cryptoSellAmount
+            );
+
+            const order = await this.prisma.order.create({
+                data: {
+                    orderCategory: OrderCategory.SELL,
+                    status: OrderStatus.processing,
+                    streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
+                    orderReference: reference,
+                    transactionId: generateId({ type: "transaction" }),
+                    userId: user.id,
+                    currency: dto.asset.toUpperCase(),
+                    narration: "Flipxer sell order",
+                    transaction_note: "Flipxer sell order",
+                    amount: +responseData.cryptoSellAmount,
+                    fee: +responseData.transactionFeeInCrypto,
+                    total: +responseData.totalCostInCrypto,
+                    totalToReceiveInFiat: sendAmountToSeller,
+                    sourceType: "omnibus", // Flag: no Quidax transfer, virtual balance only
+                    destinationBankName: dto.bankDetail.bankName,
+                    destinationBankAccountNumber: dto.bankDetail.accountNumber,
+                    destinationBankAccountName: dto.bankDetail.accountName,
+                    destinationBankCode: dto.bankDetail.bankCode,
+                    amountInFiat: amtFiat?.amount,
+                    rateAtConversion: amtFiat?.rate,
+                    ledgerEntryId: settleResult.entry?.id, // Link to ledger entry (from settled hold)
+                },
+            });
+
+            //step 2: once step 1 is successfully completed (webhook listener), send fund to user bank account from paystack main account
+
+            // Emit transaction update for new sell order
+            this.wsGateway.notifyTransactionUpdate(user.id, {
+                type: "transaction_update",
+                transaction: {
+                    id: order.id,
+                    transactionId: order.transactionId,
+                    status: order.status,
+                    streamlinedStatus: order.streamlinedStatus,
+                    orderCategory: order.orderCategory,
+                    amount: order.amount,
+                    currency: order.currency,
+                    createdAt: order.createdAt,
+                    updatedAt: order.updatedAt,
+                },
+            });
+
+            // Sync wallet with Quidax to ensure balance is up to date
+            await this.walletAddressService.syncWallet(user.id, dto.asset);
+
+            // Invalidate admin wallet cache since company wallet received funds
+            await this.walletManagementService.invalidateWalletCache();
+
+            // Emit wallet update for sell order (balance changes with sell)
+            this.wsGateway.notifyWalletUpdate(user.id);
+
+            // Create and send notification for processing
+            const message = `Your sell order of ${order.amount} ${order.currency.toUpperCase()} is processing. Transaction ID: ${order.transactionId}`;
+
+            await this.notificationDispatcher.notify({
                 userId: user.id,
-                currency: dto.asset.toUpperCase(),
-                narration: "Flipxer sell order",
-                transaction_note: "Flipxer sell order",
-                amount: +responseData.cryptoSellAmount,
-                fee: +responseData.transactionFeeInCrypto,
-                total: +responseData.totalCostInCrypto,
-                totalToReceiveInFiat: sendAmountToSeller,
-                sourceType: "omnibus", // Flag: no Quidax transfer, virtual balance only
-                destinationBankName: dto.bankDetail.bankName,
-                destinationBankAccountNumber: dto.bankDetail.accountNumber,
-                destinationBankAccountName: dto.bankDetail.accountName,
-                destinationBankCode: dto.bankDetail.bankCode,
-                amountInFiat: amtFiat?.amount,
-                rateAtConversion: amtFiat?.rate,
-                ledgerEntryId: settleResult.entry?.id, // Link to ledger entry (from settled hold)
-            },
-        });
-
-        //step 2: once step 1 is successfully completed (webhook listener), send fund to user bank account from paystack main account
-
-        // Emit transaction update for new sell order
-        this.wsGateway.notifyTransactionUpdate(user.id, {
-            type: "transaction_update",
-            transaction: {
-                id: order.id,
-                transactionId: order.transactionId,
-                status: order.status,
-                streamlinedStatus: order.streamlinedStatus,
-                orderCategory: order.orderCategory,
-                amount: order.amount,
+                title: "Sell order initiated",
+                body: message,
                 currency: order.currency,
-                createdAt: order.createdAt,
-                updatedAt: order.updatedAt,
-            },
-        });
+                transactionType: OrderCategory.SELL,
+                enablePush: true,
+            });
+            // OMNIBUS: Sell order is "complete" from ledger perspective immediately
+            // Trigger fiat payout handler since virtual balance is already debited
+            this.logger.log(`[Omnibus] Sell Order ${order.id} ledger debit complete - triggering fiat payout | Reference: ${reference}`);
 
-        // Sync wallet with Quidax to ensure balance is up to date
-        await this.walletAddressService.syncWallet(user.id, dto.asset);
+            // Trigger handler immediately since the "crypto transfer" (ledger debit) is done
+            // We don't await this to avoid blocking the response to the client
+            this.withdrawalWebhookHandler.handle({
+                orderReference: reference,
+                status: OrderStatus.done,
+            }).catch(err => {
+                this.logger.error(`Error handling omnibus sell order completion for Order ${order.id}: ${err.message}`, err.stack);
+            });
 
-        // Invalidate admin wallet cache since company wallet received funds
-        await this.walletManagementService.invalidateWalletCache();
-
-        // Emit wallet update for sell order (balance changes with sell)
-        this.wsGateway.notifyWalletUpdate(user.id);
-
-        // Create and send notification for processing
-        const message = `Your sell order of ${order.amount} ${order.currency.toUpperCase()} is processing. Transaction ID: ${order.transactionId}`;
-
-        await this.notificationDispatcher.notify({
-            userId: user.id,
-            title: "Sell order initiated",
-            body: message,
-            currency: order.currency,
-            transactionType: OrderCategory.SELL,
-            enablePush: true,
-        });
-        // OMNIBUS: Sell order is "complete" from ledger perspective immediately
-        // Trigger fiat payout handler since virtual balance is already debited
-        this.logger.log(`[Omnibus] Sell Order ${order.id} ledger debit complete - triggering fiat payout | Reference: ${reference}`);
-
-        // Trigger handler immediately since the "crypto transfer" (ledger debit) is done
-        // We don't await this to avoid blocking the response to the client
-        this.withdrawalWebhookHandler.handle({
-            orderReference: reference,
-            status: OrderStatus.done,
-        }).catch(err => {
-            this.logger.error(`Error handling omnibus sell order completion for Order ${order.id}: ${err.message}`, err.stack);
-        });
-
-        return buildResponse({
-            message: "Order placed successfully, Payment is processing",
-            data: order,
-        });
+            return buildResponse({
+                message: "Order placed successfully, Payment is processing",
+                data: order,
+            });
+        } catch (error) {
+            // Release the hold if any step after hold fails (before settlement succeeds)
+            // Note: If releaseHold(settle=true) already succeeded, this is a no-op (hold already released)
+            this.logger.error(`Sell order failed after hold, attempting to release funds: ${error.message}`);
+            try {
+                await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${error.message}`);
+                this.logger.log(`Successfully released hold for failed sell order | Reference: ${holdReference}`);
+            } catch (releaseError) {
+                this.logger.error(`Failed to release hold after sell order failure: ${releaseError.message}`);
+            }
+            throw error;
+        }
     }
 
     /**

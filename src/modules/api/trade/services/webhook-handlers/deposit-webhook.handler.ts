@@ -322,77 +322,17 @@ export class DepositWebhookHandler {
             }
         }
 
-        // Strategy 2 & 3: Fall back to heuristics for orders not yet fulfilled
-        // (handles race condition where deposit arrives before fulfillBuyOrder completes)
-        const recentBuyOrders = await this.prisma.order.findMany({
-            where: {
-                userId: userId,
-                orderCategory: OrderCategory.BUY,
-                currency: options.currency.toUpperCase(),
-                fulfilled: false, // Only check non-fulfilled orders
-                status: {
-                    in: [OrderStatus.pending, OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
-                },
-                createdAt: {
-                    gte: twoHoursAgo,
-                },
-            },
-            orderBy: { createdAt: 'desc' },
-        });
-
-        if (recentBuyOrders.length === 0) {
-            return false;
-        }
-
-        // Strategy 2: Check if deposit address matches any BUY order's recipient
-        if (depositAddress) {
-            for (const buyOrder of recentBuyOrders) {
-                const orderRecipient = buyOrder.recipient?.toLowerCase();
-                if (orderRecipient && orderRecipient === depositAddress) {
-                    this.logger.log(
-                        `Found related BUY order (address match) | ${JSON.stringify({
-                            buyOrderId: buyOrder.id,
-                            transactionId: buyOrder.transactionId,
-                            depositAddress: depositAddress,
-                            currency: options.currency,
-                        })}`
-                    );
-                    return true;
-                }
-            }
-        }
-
-        // Strategy 3: Fall back to amount-based matching (within 30% tolerance)
-        for (const buyOrder of recentBuyOrders) {
-            const buyAmount = buyOrder.amount || 0;
-            const amountDiff = Math.abs(buyAmount - depositAmount);
-            const percentDiff = buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
-
-            if (percentDiff <= 30) {
-                this.logger.log(
-                    `Found related BUY order (amount match) | ${JSON.stringify({
-                        buyOrderId: buyOrder.id,
-                        transactionId: buyOrder.transactionId,
-                        buyAmount: buyAmount,
-                        depositAmount: depositAmount,
-                        percentDiff: percentDiff.toFixed(2),
-                        currency: options.currency,
-                    })}`
-                );
-                return true;
-            }
-        }
-
-        // No match found - log for debugging
-        this.logger.debug(
-            `No related BUY order found for deposit | ${JSON.stringify({
-                userId: userId,
-                depositAmount: depositAmount,
-                depositAddress: depositAddress,
-                currency: options.currency,
-                recentBuyOrderCount: recentBuyOrders.length,
-            })}`
-        );
+        // REMOVED: Legacy Strategy 2 & 3 (address and amount-based matching)
+        // 
+        // In the omnibus virtual balance system, BUY orders credit the ledger directly 
+        // via ledgerService.credit() without triggering Quidax transfers. Therefore:
+        // - BUY orders do NOT generate deposit webhooks
+        // - Deposit webhooks only fire for EXTERNAL crypto deposits to user addresses
+        // - These are completely independent flows that should never be matched
+        //
+        // The only valid detection methods are:
+        // 1. Strategy 1: fulfilled=true flag check (handles completed BUY orders)
+        // 2. SWAP detection: toCurrency field matching (handles swap buy legs)
 
         return false;
     }
