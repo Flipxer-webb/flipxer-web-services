@@ -147,6 +147,7 @@ export * from "./errors";
         TradingInjectionToken.LIVECOINWATCH,
         TradingInjectionToken.COINCAP,
         TradingInjectionToken.BINANCE,
+        WithdrawalWebhookHandler,
     ],
 })
 export class TradingModule { }
