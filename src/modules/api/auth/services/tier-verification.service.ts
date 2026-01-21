@@ -3,7 +3,7 @@
  * Handles Tier 2/3 verification flows: address and income verification
  */
 
-import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, Logger, Inject, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { DocumentVerificationStatus, User } from "@prisma/client";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -28,6 +28,8 @@ import {
 } from "../dtos";
 import { TierService } from "./tier.service";
 import * as bcrypt from "bcryptjs";
+import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
+import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 
 @Injectable()
 export class TierVerificationService {
@@ -39,7 +41,9 @@ export class TierVerificationService {
         private readonly prisma: PrismaService,
         private readonly uploadFactory: UploadFactory,
         private readonly tierService: TierService,
-        private readonly emailService: EmailService
+        private readonly emailService: EmailService,
+        @Inject(IdentityComplianceInjectionToken.DOJAH)
+        private readonly dojahService: DojahService,
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -281,20 +285,30 @@ export class TierVerificationService {
             `Processing Dojah address verification for user ${user.id}, verificationId: ${dto.verificationId}`
         );
 
+        // Server-side validation: Verify the verificationId with Dojah API
+        const validationResult = await this.dojahService.getVerificationResult(dto.verificationId);
+        if (!validationResult.verified) {
+            this.logger.warn(
+                `SECURITY: Dojah address verification failed for user ${user.id}, verificationId: ${dto.verificationId}, status: ${validationResult.status}`
+            );
+            throw new ForbiddenException({
+                message: "Address verification could not be confirmed with identity provider",
+                code: "DOJAH_VERIFICATION_FAILED",
+            });
+        }
+
         // Store verification data and mark as verified
-        // Dojah widget verification is considered auto-approved since verification
-        // happens within the Dojah widget itself
         const addressString = dto.address
             ? [
-                  dto.address.street,
-                  dto.address.city,
-                  dto.address.lga,
-                  dto.address.state,
-                  dto.address.country,
-                  dto.address.postalCode,
-              ]
-                  .filter(Boolean)
-                  .join(", ") || dto.address.fullAddress
+                dto.address.street,
+                dto.address.city,
+                dto.address.lga,
+                dto.address.state,
+                dto.address.country,
+                dto.address.postalCode,
+            ]
+                .filter(Boolean)
+                .join(", ") || dto.address.fullAddress
             : null;
 
         await this.prisma.user.update({
@@ -304,6 +318,17 @@ export class TierVerificationService {
                 addressDocumentUrl: addressString || user.addressDocumentUrl,
                 addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
                 isAddressVerified: true,
+            },
+        });
+
+        // Create audit record for Dojah widget verification
+        await this.prisma.kycVerification.create({
+            data: {
+                userId: user.id,
+                verificationType: "ADDRESS",
+                status: "APPROVED",
+                reviewNote: `Auto-approved via Dojah widget (verificationId: ${dto.verificationId})`,
+                reviewedAt: new Date(),
             },
         });
 
@@ -342,9 +367,19 @@ export class TierVerificationService {
             `Processing Dojah income verification for user ${user.id}, verificationId: ${dto.verificationId}`
         );
 
+        // Server-side validation: Verify the verificationId with Dojah API
+        const validationResult = await this.dojahService.getVerificationResult(dto.verificationId);
+        if (!validationResult.verified) {
+            this.logger.warn(
+                `SECURITY: Dojah income verification failed for user ${user.id}, verificationId: ${dto.verificationId}, status: ${validationResult.status}`
+            );
+            throw new ForbiddenException({
+                message: "Income verification could not be confirmed with identity provider",
+                code: "DOJAH_VERIFICATION_FAILED",
+            });
+        }
+
         // Store verification data
-        // For income/document verification via Dojah, we may want manual review
-        // since document content verification happens differently
         const documentUrl = dto.document?.documentUrl || null;
 
         await this.prisma.user.update({
@@ -353,6 +388,17 @@ export class TierVerificationService {
                 incomeDocumentUrl: documentUrl,
                 incomeVerificationStatus: DocumentVerificationStatus.VERIFIED,
                 isIncomeVerified: true,
+            },
+        });
+
+        // Create audit record for Dojah widget verification
+        await this.prisma.kycVerification.create({
+            data: {
+                userId: user.id,
+                verificationType: "INCOME",
+                status: "APPROVED",
+                reviewNote: `Auto-approved via Dojah widget (verificationId: ${dto.verificationId})`,
+                reviewedAt: new Date(),
             },
         });
 
@@ -400,6 +446,18 @@ export class TierVerificationService {
             });
         }
 
+        // Server-side validation: Verify the verificationId with Dojah API
+        const validationResult = await this.dojahService.getVerificationResult(dto.verificationId);
+        if (!validationResult.verified) {
+            this.logger.warn(
+                `SECURITY: Dojah government ID verification failed for user ${user.id}, type: ${idType}, verificationId: ${dto.verificationId}, status: ${validationResult.status}`
+            );
+            throw new ForbiddenException({
+                message: "Government ID verification could not be confirmed with identity provider",
+                code: "DOJAH_VERIFICATION_FAILED",
+            });
+        }
+
         // Prepare user data update based on government data
         const updateData: Record<string, unknown> = {};
 
@@ -436,6 +494,18 @@ export class TierVerificationService {
         await this.prisma.user.update({
             where: { id: user.id },
             data: updateData,
+        });
+
+        // Create audit record for Dojah widget verification
+        const verificationType = idType === "bvn" ? "BVN" : idType === "nin" ? "NIN" : "DOCUMENT";
+        await this.prisma.kycVerification.create({
+            data: {
+                userId: user.id,
+                verificationType: verificationType as any,
+                status: "APPROVED",
+                reviewNote: `Auto-approved via Dojah widget (verificationId: ${dto.verificationId}, idType: ${idType})`,
+                reviewedAt: new Date(),
+            },
         });
 
         // Update tier

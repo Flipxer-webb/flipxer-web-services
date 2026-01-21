@@ -257,15 +257,15 @@ export class KycService {
                 const verificationMap: Record<string, Prisma.UserUpdateInput> = {
                     BVN: { isBvnVerified: true },
                     NIN: { isNinVerified: true },
-                    DOCUMENT: { 
+                    DOCUMENT: {
                         isDocumentVerified: true,
                         documentVerificationStatus: "VERIFIED",
                     },
-                    ADDRESS: { 
+                    ADDRESS: {
                         isAddressVerified: true,
                         addressVerificationStatus: "VERIFIED",
                     },
-                    INCOME: { 
+                    INCOME: {
                         isIncomeVerified: true,
                         incomeVerificationStatus: "VERIFIED",
                     },
@@ -284,11 +284,11 @@ export class KycService {
                     DOCUMENT: {
                         documentVerificationStatus: "DECLINED",
                     },
-                    ADDRESS: { 
+                    ADDRESS: {
                         addressVerificationStatus: "DECLINED",
                         addressDocumentUrl: null,
                     },
-                    INCOME: { 
+                    INCOME: {
                         incomeVerificationStatus: "DECLINED",
                         incomeDocumentUrl: null,
                     },
@@ -329,7 +329,7 @@ export class KycService {
                 REJECT: "REJECTED",
                 ESCALATE: "ESCALATED",
             };
-            
+
             await this.prisma.kycVerification.create({
                 data: {
                     userId,
@@ -403,6 +403,14 @@ export class KycService {
         }
 
         const previousTier = user.tier;
+
+        // Security: Log warning if admin is setting tier higher than calculated
+        const calculatedTier = this.tierService.calculateTier(user);
+        if (dto.tier > calculatedTier) {
+            this.logger.warn(
+                `SECURITY: Admin ${adminId} setting tier ${dto.tier} above calculated tier ${calculatedTier} for user ${userId}. Reason: ${dto.reason || 'none provided'}`
+            );
+        }
 
         const updatedUser = await this.prisma.user.update({
             where: { id: userId },

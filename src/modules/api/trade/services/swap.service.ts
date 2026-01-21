@@ -477,9 +477,9 @@ export class SwapService {
             throw new GeneralTransactionException("Not a Swap Order", HttpStatus.BAD_REQUEST);
         }
 
-        if (order.status !== OrderStatus.pending) {
+        if (order.status !== OrderStatus.pending && order.status !== OrderStatus.failed) {
             throw new GeneralTransactionException(
-                `Order is not in PENDING state (Current: ${order.status}). Only pending swaps can be retried.`,
+                `Order is not in PENDING or FAILED state (Current: ${order.status}). Cannot retry.`,
                 HttpStatus.BAD_REQUEST
             );
         }

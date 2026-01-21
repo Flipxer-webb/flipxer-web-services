@@ -423,7 +423,8 @@ export class AuthController {
 
     // ==================== Tier 2/3 Verification Endpoints ====================
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-address")
     @ApiOperation({ summary: "Upload proof of address for Tier 2 verification" })
@@ -449,7 +450,8 @@ export class AuthController {
         return await this.tierVerificationService.verifyAddress(user, file);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-income")
     @ApiOperation({ summary: "Upload proof of income for Tier 3 verification" })
@@ -477,7 +479,8 @@ export class AuthController {
 
     // ==================== Dojah Widget Verification Endpoints ====================
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-address/dojah")
     @ApiOperation({ summary: "Verify address using Dojah widget verification data" })
@@ -489,7 +492,8 @@ export class AuthController {
         return await this.tierVerificationService.verifyAddressWithDojah(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-income/dojah")
     @ApiOperation({ summary: "Verify income using Dojah widget verification data" })
@@ -501,7 +505,8 @@ export class AuthController {
         return await this.tierVerificationService.verifyIncomeWithDojah(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-government-id/dojah")
     @ApiOperation({ summary: "Verify BVN/NIN using Dojah widget verification data" })

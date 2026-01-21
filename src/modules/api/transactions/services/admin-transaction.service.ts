@@ -1,8 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, BadRequestException, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta, defaultPagination } from "@/utils";
-import { Order, OrderStreamlinedStatus, Prisma } from "@prisma/client";
+import { Order, OrderStreamlinedStatus, Prisma, LedgerType, SweepStatus, User, OrderStatus, OrderCategory, TransactionStatus } from "@prisma/client";
+import { LedgerService, LedgerOperationResult } from "@/modules/api/trade/services/ledger/ledger.service";
+import { SettingService } from "@/modules/api/settings/services";
 import {
     startOfMonth,
     endOfMonth,
@@ -24,12 +26,22 @@ import {
     BulkTransactionActionDto,
 } from "../dtos";
 import { shapeTransaction, TransactionIncludeOptions } from "../types";
+import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
+import { SwapService } from "@/modules/api/trade/services/swap.service";
+import { WithdrawalWebhookHandler } from "@/modules/api/trade/services/webhook-handlers/withdrawal-webhook.handler";
 
 @Injectable()
 export class AdminTransactionService {
     private readonly logger = new Logger(AdminTransactionService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly ledgerService: LedgerService,
+        private readonly settingService: SettingService,
+        private readonly buyOrderService: BuyOrderService,
+        private readonly swapService: SwapService,
+        private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
+    ) { }
 
     // ==================== PENDING/FAILED TRANSACTIONS ====================
 
@@ -185,8 +197,8 @@ export class AdminTransactionService {
                     completed: completedCount,
                     pending: pendingCount,
                     failed: failedCount,
-                    successRate: totalCount > 0 
-                        ? ((completedCount / totalCount) * 100).toFixed(2) 
+                    successRate: totalCount > 0
+                        ? ((completedCount / totalCount) * 100).toFixed(2)
                         : 0,
                 },
                 volume: {
@@ -252,11 +264,22 @@ export class AdminTransactionService {
         });
     }
 
+    /**
+     * Manually approve a pending transaction.
+     * Requires 2FA verification from admin.
+     * For BUY orders, credits the user's ledger.
+     */
     async manualApproveTransaction(
         transactionId: string,
         dto: ManualApproveTransactionDto,
-        adminId?: number
+        admin: User
     ): Promise<ApiResponse> {
+        // Verify admin 2FA first
+        const is2FAValid = await this.settingService.verify2FACode(admin.id, dto.twoFactorCode);
+        if (!is2FAValid) {
+            throw new UnauthorizedException('Invalid 2FA code');
+        }
+
         const transaction = await this.prisma.order.findUnique({
             where: { transactionId },
         });
@@ -266,10 +289,39 @@ export class AdminTransactionService {
         }
 
         if (!dto.confirmed) {
-            return buildResponse({ 
-                message: "Manual approval requires confirmation", 
-                data: null 
+            return buildResponse({
+                message: "Manual approval requires confirmation",
+                data: null
             });
+        }
+
+        // Prevent double-approval
+        if (transaction.fulfilled || transaction.streamlinedStatus === OrderStreamlinedStatus.completed) {
+            return buildResponse({ message: "Transaction already completed", data: null });
+        }
+
+        // For BUY orders, credit the user's ledger
+        let creditResult: LedgerOperationResult | null = null;
+        if (transaction.orderCategory === 'BUY') {
+            creditResult = await this.ledgerService.credit({
+                userId: transaction.userId,
+                currency: transaction.currency.toUpperCase(),
+                amount: transaction.amount,
+                type: LedgerType.BUY,
+                reference: `manual-approve:${transactionId}`,
+                description: `Admin manual approval`,
+                metadata: {
+                    adminId: admin.id,
+                    approveType: 'manual',
+                    verificationNote: dto.verificationNote,
+                },
+                sweepStatus: SweepStatus.NOT_APPLICABLE,
+            });
+
+            if (!creditResult.success) {
+                this.logger.error(`Manual approve ledger credit failed for ${transactionId}: ${creditResult.error}`);
+                throw new InternalServerErrorException(`Failed to credit ledger: ${creditResult.error}`);
+            }
         }
 
         const updatedTransaction = await this.prisma.order.update({
@@ -277,8 +329,9 @@ export class AdminTransactionService {
             data: {
                 streamlinedStatus: OrderStreamlinedStatus.completed,
                 status: "confirmed",
-                ...(dto.overrideAmount && { 
-                    amountInFiat: parseFloat(dto.overrideAmount) 
+                fulfilled: true,
+                ...(dto.overrideAmount && {
+                    amountInFiat: parseFloat(dto.overrideAmount)
                 }),
             },
             include: { user: { select: { firstName: true, lastName: true } } },
@@ -287,7 +340,7 @@ export class AdminTransactionService {
         // Create audit log
         await this.prisma.auditLog.create({
             data: {
-                adminId,
+                adminId: admin.id,
                 action: "MANUAL_APPROVE_TRANSACTION",
                 resource: "transaction",
                 resourceId: transactionId,
@@ -295,11 +348,21 @@ export class AdminTransactionService {
                     verificationNote: dto.verificationNote,
                     overrideAmount: dto.overrideAmount,
                     originalAmount: transaction.amountInFiat,
+                    ledgerEntryId: creditResult?.entryId,
+                    orderCategory: transaction.orderCategory,
                 },
             },
         });
 
-        // TODO: Trigger notification to user
+        this.logger.log(
+            `Manual approve completed | ${JSON.stringify({
+                transactionId,
+                userId: transaction.userId,
+                adminId: admin.id,
+                orderCategory: transaction.orderCategory,
+                ledgerCredited: !!creditResult,
+            })}`
+        );
 
         return buildResponse({
             message: "Transaction manually approved",
@@ -307,6 +370,12 @@ export class AdminTransactionService {
         });
     }
 
+    /**
+     * Refund a failed transaction by crediting funds back to user's ledger.
+     * Only failed transactions can be refunded. Refunds are always FULL amount.
+     * 
+     * IMPORTANT: Completed orders with successful bank payouts require manual reversal.
+     */
     async refundTransaction(
         transactionId: string,
         dto: RefundTransactionDto,
@@ -320,8 +389,71 @@ export class AdminTransactionService {
             return buildResponse({ message: "Transaction not found", data: null });
         }
 
-        // For now, we mark the transaction as refunded and log it
-        // In production, this would trigger actual refund logic
+        // Only allow refund for failed orders
+        // Completed orders with bank payouts require manual bank reversal
+        if (transaction.streamlinedStatus !== OrderStreamlinedStatus.failed) {
+            throw new BadRequestException(
+                'Only failed transactions can be refunded. Completed transactions with bank payouts require manual reversal.'
+            );
+        }
+
+        // Check for existing refund to prevent double-refund
+        const existingRefund = await this.prisma.ledgerEntry.findFirst({
+            where: {
+                reference: { startsWith: `refund:${transaction.orderReference}` },
+            },
+        });
+        if (existingRefund) {
+            throw new BadRequestException('Transaction has already been refunded');
+        }
+
+        // Full refund - for SELL/SEND use total (includes fees), otherwise use amount
+        const refundAmount = (transaction.orderCategory === 'SELL' || transaction.orderCategory === 'SEND')
+            ? (transaction.total || transaction.amount)
+            : transaction.amount;
+
+        if (!refundAmount || refundAmount <= 0) {
+            throw new BadRequestException('Cannot refund: transaction amount is zero or invalid');
+        }
+
+        // Credit user's ledger using distributed lock for atomicity
+        const creditResult = await this.ledgerService.runWithLock(
+            transaction.userId,
+            transaction.currency.toUpperCase(),
+            async () => {
+                // Double-check for existing refund inside the lock
+                const recheck = await this.prisma.ledgerEntry.findFirst({
+                    where: { reference: { startsWith: `refund:${transaction.orderReference}` } },
+                });
+                if (recheck) {
+                    throw new BadRequestException('Transaction has already been refunded');
+                }
+
+                return this.ledgerService.credit({
+                    userId: transaction.userId,
+                    currency: transaction.currency.toUpperCase(),
+                    amount: refundAmount,
+                    type: LedgerType.ADJUSTMENT, // Using ADJUSTMENT for refunds
+                    reference: `refund:${transaction.orderReference}:admin`,
+                    description: `Admin refund: ${dto.reason}`,
+                    metadata: {
+                        originalOrderId: transaction.id,
+                        originalTransactionId: transactionId,
+                        adminId,
+                        reason: dto.reason,
+                        refundType: 'full',
+                    },
+                    sweepStatus: SweepStatus.NOT_APPLICABLE,
+                });
+            }
+        );
+
+        if (!creditResult.success) {
+            this.logger.error(`Refund credit failed for ${transactionId}: ${creditResult.error}`);
+            throw new InternalServerErrorException(`Refund failed: ${creditResult.error}`);
+        }
+
+        // Update order status to reversed
         const updatedTransaction = await this.prisma.order.update({
             where: { transactionId },
             data: {
@@ -340,22 +472,32 @@ export class AdminTransactionService {
                 resourceId: transactionId,
                 details: {
                     reason: dto.reason,
-                    type: dto.type || "full",
-                    refundAmount: dto.amount || transaction.amountInFiat,
-                    originalAmount: transaction.amountInFiat,
+                    refundAmount: refundAmount,
+                    currency: transaction.currency,
+                    ledgerEntryId: creditResult.entryId,
+                    originalAmount: transaction.amount,
                 },
             },
         });
 
-        // TODO: Actually process refund through payment provider
+        this.logger.log(
+            `Refund processed | ${JSON.stringify({
+                transactionId,
+                userId: transaction.userId,
+                amount: refundAmount,
+                currency: transaction.currency,
+                adminId,
+            })}`
+        );
 
         return buildResponse({
-            message: "Refund initiated successfully",
+            message: "Refund processed successfully",
             data: {
                 transaction: shapeTransaction(updatedTransaction),
                 refund: {
-                    amount: dto.amount || transaction.amountInFiat,
-                    type: dto.type || "full",
+                    amount: refundAmount,
+                    currency: transaction.currency,
+                    ledgerEntryId: creditResult.entryId,
                     reason: dto.reason,
                 },
             },
@@ -374,14 +516,21 @@ export class AdminTransactionService {
             return buildResponse({ message: "Transaction not found", data: null });
         }
 
-        if (transaction.streamlinedStatus !== OrderStreamlinedStatus.failed) {
-            return buildResponse({ 
-                message: "Only failed transactions can be retried", 
-                data: null 
+        if (
+            transaction.streamlinedStatus !== OrderStreamlinedStatus.failed &&
+            transaction.streamlinedStatus !== OrderStreamlinedStatus.pending
+        ) {
+            return buildResponse({
+                message: "Only failed or pending transactions can be retried",
+                data: null
             });
         }
 
-        // Reset to pending for retry
+        if (transaction.status === OrderStatus.done || transaction.status === OrderStatus.completed) {
+            return buildResponse({ message: "Cannot retry completed transaction", data: null });
+        }
+
+        // Reset to pending for retry - this updates the UI status
         const updatedTransaction = await this.prisma.order.update({
             where: { transactionId },
             data: {
@@ -391,7 +540,7 @@ export class AdminTransactionService {
             include: { user: { select: { firstName: true, lastName: true } } },
         });
 
-        // Create audit log
+        // Create audit log - before execution to capture intent
         await this.prisma.auditLog.create({
             data: {
                 adminId,
@@ -400,16 +549,72 @@ export class AdminTransactionService {
                 resourceId: transactionId,
                 details: {
                     previousStatus: transaction.streamlinedStatus,
+                    previousReason: transaction.reason
                 },
             },
         });
 
-        // TODO: Actually trigger retry logic through appropriate service
+        try {
+            switch (transaction.orderCategory) {
+                case OrderCategory.BUY:
+                    if (!transaction.orderReference) {
+                        throw new Error("Missing order reference required for payment lookup");
+                    }
 
-        return buildResponse({
-            message: "Transaction queued for retry",
-            data: shapeTransaction(updatedTransaction),
-        });
+                    // Reset Payment status to PENDING so fulfillBuyOrder can pick it up
+                    // (fulfillBuyOrder uses atomic update on PENDING status)
+                    await this.prisma.payment.updateMany({
+                        where: { reference: transaction.orderReference },
+                        data: {
+                            status: TransactionStatus.PENDING,
+                            paymentStatus: TransactionStatus.PENDING
+                        }
+                    });
+
+                    await this.buyOrderService.fulfillBuyOrder(transaction.orderReference);
+                    break;
+
+                case OrderCategory.SELL:
+                    await this.withdrawalWebhookHandler.retryFiatPayout(transaction.id);
+                    break;
+
+                case OrderCategory.SWAP:
+                    await this.swapService.retryPendingSwap(transaction.id);
+                    break;
+
+                case OrderCategory.SEND:
+                    throw new BadRequestException("Retry not supported for SEND transactions. Use manual reversal/refund if needed.");
+
+                default:
+                    throw new BadRequestException(`Retry not implemented for category ${transaction.orderCategory}`);
+            }
+
+            // Re-fetch to get final status after service execution (since they might have updated it to completed)
+            const finalTransaction = await this.prisma.order.findUnique({
+                where: { transactionId },
+                include: { user: { select: { firstName: true, lastName: true } } },
+            });
+
+            return buildResponse({
+                message: "Transaction retry initiated/completed successfully",
+                data: shapeTransaction(finalTransaction),
+            });
+
+        } catch (error) {
+            this.logger.error(`Retry failed for ${transactionId}: ${error.message}`);
+
+            // Revert status to failed if retry logic blew up, so it doesn't get stuck in Pending
+            await this.prisma.order.update({
+                where: { transactionId },
+                data: {
+                    streamlinedStatus: OrderStreamlinedStatus.failed,
+                    status: "failed",
+                    reason: `Retry Error: ${error.message}`
+                }
+            });
+
+            throw new InternalServerErrorException(`Retry failed: ${error.message}`);
+        }
     }
 
     async bulkUpdateStatus(

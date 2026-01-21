@@ -139,6 +139,13 @@ export class ManualApproveTransactionDto {
     @IsOptional()
     @IsNumberString()
     overrideAmount?: string;
+
+    @ApiProperty({
+        description: "2FA code for admin verification",
+        required: true,
+    })
+    @IsString()
+    twoFactorCode: string;
 }
 
 export class RefundTransactionDto {

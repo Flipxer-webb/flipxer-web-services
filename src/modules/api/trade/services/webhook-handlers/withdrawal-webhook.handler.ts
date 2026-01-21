@@ -57,6 +57,64 @@ export class WithdrawalWebhookHandler {
     ) { }
 
     /**
+     * Retry a failed fiat payout for a SELL order.
+     * Called by AdminTransactionService.
+     */
+    async retryFiatPayout(transactionId: number) {
+        this.logger.log(`Retrying fiat payout for transaction ${transactionId}`);
+
+        const transaction = await this.prisma.order.findUnique({
+            where: { id: transactionId },
+            include: {
+                user: { select: { id: true, email: true, userType: true } },
+            },
+        });
+
+        if (!transaction) {
+            throw new TransactionNotFoundException("Transaction not found", HttpStatus.NOT_FOUND);
+        }
+
+        // Strict concurrency/status check
+        if (transaction.status === OrderStatus.done || transaction.streamlinedStatus === OrderStreamlinedStatus.completed) {
+            throw new TransactionCompletedException("Transaction already completed", HttpStatus.CONFLICT);
+        }
+
+        if (transaction.orderCategory !== OrderCategory.SELL) {
+            throw new Error("Only SELL orders can be retried via this method");
+        }
+
+        // Re-initiate payout
+        try {
+            await this.initiateFiatPayout(transaction);
+
+            // Update to completed on success
+            const completedOrder = await this.prisma.order.update({
+                where: { id: transaction.id },
+                data: {
+                    status: OrderStatus.done,
+                    streamlinedStatus: OrderStreamlinedStatus.completed,
+                },
+            });
+            this.emitTransactionUpdate(transaction.user.id, completedOrder);
+            this.logger.log(`Retry payout SUCCESS for order ${transaction.id}`);
+            return { success: true };
+
+        } catch (error) {
+            // Update to failed on error
+            const failedOrder = await this.prisma.order.update({
+                where: { id: transaction.id },
+                data: {
+                    status: OrderStatus.failed,
+                    streamlinedStatus: OrderStreamlinedStatus.failed,
+                    reason: `Retry payout failed: ${error.message}`,
+                },
+            });
+            this.emitTransactionUpdate(transaction.user.id, failedOrder);
+            throw error;
+        }
+    }
+
+    /**
      * Handle withdrawal transaction webhook from Quidax
      * Uses distributed lock to prevent duplicate processing
      */

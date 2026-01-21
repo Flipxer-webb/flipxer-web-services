@@ -34,8 +34,8 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
-import { 
-    GetUserTransactionListDto, 
+import {
+    GetUserTransactionListDto,
     UpdateTransactionStatusDto,
     ManualApproveTransactionDto,
     RefundTransactionDto,
@@ -57,7 +57,7 @@ export class AdminTransactionController {
         private transactionService: TransactionService,
         private adminTransactionService: AdminTransactionService,
         private tradingService: TradingService,
-    ) {}
+    ) { }
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "admin gets all transactions" })
@@ -135,10 +135,9 @@ export class AdminTransactionController {
     async manualApproveTransaction(
         @Param("transactionId") transactionId: string,
         @Body() dto: ManualApproveTransactionDto,
-        @Req() req: any,
+        @User() admin: UserModel,
     ) {
-        const adminId = req.user?.id;
-        return this.adminTransactionService.manualApproveTransaction(transactionId, dto, adminId);
+        return this.adminTransactionService.manualApproveTransaction(transactionId, dto, admin);
     }
 
     @HttpCode(HttpStatus.OK)
