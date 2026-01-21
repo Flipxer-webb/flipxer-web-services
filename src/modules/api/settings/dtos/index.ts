@@ -207,6 +207,16 @@ export class VerifySecurityMethodDto {
     @IsNotEmpty()
     @IsString()
     code: string;
+
+    @ApiProperty({
+        description: "SHA256 hash of transaction context (amount|currency|recipient). Required for transaction verification.",
+        example: "a1b2c3d4e5f6...",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    @Matches(/^[a-f0-9]{64}$/i, { message: "contextHash must be a valid SHA256 hash (64 hex characters)" })
+    contextHash?: string;
 }
 
 export class SendTransactionOtpDto {

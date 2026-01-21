@@ -363,4 +363,91 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
             isConnected: this.isConnected,
         };
     }
+
+    // ==================== Atomic Counter Operations ====================
+
+    /**
+     * Atomically increment a float value and return the new total.
+     * If key doesn't exist, initializes to 0 before incrementing.
+     * 
+     * Used for rate limiting (transaction limits) where atomicity is critical.
+     * 
+     * @param key - Redis key to increment
+     * @param increment - Amount to add (can be negative for decrement)
+     * @param ttlSeconds - Optional TTL to set if key is newly created
+     * @returns The new value after increment, or null if Redis unavailable (signals DB fallback needed)
+     */
+    async incrbyfloat(key: string, increment: number, ttlSeconds?: number): Promise<number | null> {
+        // If Redis is disabled or unavailable, return null to signal caller should use DB fallback
+        if (this.REDIS_DISABLED || !this.client) {
+            this.logger.debug(`Redis unavailable for INCRBYFLOAT on ${key} - signaling DB fallback`);
+            return null;
+        }
+
+        if (this.isCircuitBreakerOpen()) {
+            this.logger.debug(`Circuit breaker open for INCRBYFLOAT on ${key} - signaling DB fallback`);
+            return null;
+        }
+
+        try {
+            if (!this.isConnected) {
+                this.logger.debug(`Redis not connected for INCRBYFLOAT on ${key} - signaling DB fallback`);
+                return null;
+            }
+
+            // INCRBYFLOAT is atomic - perfect for rate limiting
+            const result = await this.client.incrbyfloat(key, increment);
+            const newValue = parseFloat(result);
+
+            // Set TTL if this is a new key (value equals increment means it was just created)
+            if (ttlSeconds && Math.abs(newValue - increment) < 0.001) {
+                await this.client.expire(key, ttlSeconds);
+                this.logger.debug(`Set TTL ${ttlSeconds}s for new limit key: ${key}`);
+            }
+
+            this.recordSuccess();
+            return newValue;
+        } catch (error) {
+            this.recordFailure();
+            this.logger.error(`Redis INCRBYFLOAT error for ${key}: ${error.message}`);
+            return null; // Signal caller to use DB fallback
+        }
+    }
+
+    /**
+     * Atomically decrement a float value (rollback an increment).
+     * Convenience wrapper around incrbyfloat with negative value.
+     * 
+     * @param key - Redis key to decrement
+     * @param decrement - Amount to subtract (positive number)
+     * @returns The new value after decrement, or null if Redis unavailable
+     */
+    async decrbyfloat(key: string, decrement: number): Promise<number | null> {
+        return this.incrbyfloat(key, -Math.abs(decrement));
+    }
+
+    /**
+     * Get the current value of a counter without modifying it.
+     * Returns 0 if key doesn't exist, null if Redis unavailable.
+     * 
+     * @param key - Redis key to read
+     * @returns Current value, 0 if not exists, or null if Redis unavailable
+     */
+    async getCounter(key: string): Promise<number | null> {
+        if (this.REDIS_DISABLED || !this.client || this.isCircuitBreakerOpen()) {
+            return null;
+        }
+
+        try {
+            if (!this.isConnected) return null;
+
+            const value = await this.client.get(key);
+            this.recordSuccess();
+            return value ? parseFloat(value) : 0;
+        } catch (error) {
+            this.recordFailure();
+            this.logger.error(`Redis GET counter error for ${key}: ${error.message}`);
+            return null;
+        }
+    }
 }

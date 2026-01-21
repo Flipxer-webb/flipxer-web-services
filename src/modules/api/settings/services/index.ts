@@ -969,10 +969,14 @@ export class SettingService {
      * Verify a security method (unified endpoint)
      * Supports: sms, email, authenticator, tradingPassword, backupCode
      * Returns a verification token that can be used for transaction authorization
+     * 
+     * @param user - The authenticated user
+     * @param dto - Contains method, code, and optional contextHash for transaction binding
+     * @returns Verification result with JWT token containing contextHash
      */
     async verifySecurityMethod(
         user: User,
-        dto: { method: string; code: string }
+        dto: { method: string; code: string; contextHash?: string }
     ): Promise<{ verified: boolean; method: string; verificationToken: string }> {
         const userData = await this.prisma.user.findUnique({
             where: { id: user.id },
@@ -1036,15 +1040,19 @@ export class SettingService {
         }
 
         // Generate verification token (valid for 5 minutes)
+        // Include contextHash to bind token to specific transaction details
         const verificationToken = await this.jwtService.signAsync(
             {
                 userId: user.id,
                 type: "transaction_verification",
                 method: dto.method,
                 verifiedAt: Date.now(),
+                contextHash: dto.contextHash ?? null, // Embedded for guard validation
             },
             { expiresIn: "5m" }
         );
+
+        this.logger.log(`Security method ${dto.method} verified for user ${user.id}${dto.contextHash ? ' with context binding' : ''}`);
 
         return { verified: isVerified, method: dto.method, verificationToken };
     }

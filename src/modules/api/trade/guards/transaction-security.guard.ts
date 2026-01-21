@@ -7,12 +7,14 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "@/modules/core/prisma/services";
+import * as crypto from "crypto";
 
 interface TransactionVerificationPayload {
     userId: number;
     type: "transaction_verification";
     method: string;
     verifiedAt: number;
+    contextHash?: string | null; // SHA256 hash binding token to transaction
 }
 
 /**
@@ -22,15 +24,20 @@ interface TransactionVerificationPayload {
  * Additional security methods (SMS, Email, Trading Password, Biometric) 
  * provide extra protection on top of 2FA.
  * 
+ * CRITICAL SECURITY: Tokens are bound to specific transactions via contextHash.
+ * A token issued for one transaction cannot be used for a different transaction.
+ * 
  * Logic:
  * - 2FA (Authenticator) is ALWAYS required - if not enabled, transaction blocked
  * - Additional methods (sms, email, tradingPassword, biometric) are optional
  * - If additional methods are enabled, they must ALSO be verified
+ * - Token contextHash MUST match current transaction context (strict enforcement)
  * 
  * Flow:
  * 1. Check if 2FA is enabled → if not, block with "ENABLE_2FA_REQUIRED"
  * 2. Check for additional security methods enabled
  * 3. Require verification tokens for 2FA + all additional enabled methods
+ * 4. Validate that token contextHash matches current transaction (prevents replay)
  */
 @Injectable()
 export class TransactionSecurityGuard implements CanActivate {
@@ -40,6 +47,15 @@ export class TransactionSecurityGuard implements CanActivate {
         private readonly jwtService: JwtService,
         private readonly prisma: PrismaService
     ) { }
+
+    /**
+     * Compute SHA256 hash of transaction context for verification binding.
+     * Format: "amount|CURRENCY|recipient" normalized to uppercase currency.
+     */
+    private computeContextHash(amount: any, currency: any, recipient: any): string {
+        const normalized = `${amount ?? ''}|${(currency ?? '').toString().toUpperCase()}|${recipient ?? ''}`;
+        return crypto.createHash('sha256').update(normalized).digest('hex');
+    }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest();
@@ -100,6 +116,11 @@ export class TransactionSecurityGuard implements CanActivate {
             });
         }
 
+        // Compute expected context hash from current request
+        const { amount, currency, recipient, address, walletAddress } = request.body;
+        const recipientValue = recipient || address || walletAddress || '';
+        const expectedContextHash = this.computeContextHash(amount, currency, recipientValue);
+
         // Parse tokens (comma-separated for multi-method verification)
         const tokens = verificationToken.split(',').map((t: string) => t.trim()).filter((t: string) => t);
         const verifiedMethods = new Set<string>();
@@ -130,10 +151,35 @@ export class TransactionSecurityGuard implements CanActivate {
                     continue;
                 }
 
+                // CRITICAL: Validate context hash binding (strict enforcement)
+                if (!payload.contextHash) {
+                    this.logger.error(`SECURITY: Token for user ${user.id} missing contextHash - REJECTING (no legacy tokens allowed)`);
+                    throw new ForbiddenException({
+                        message: "Verification token must be bound to transaction context",
+                        code: "CONTEXT_HASH_REQUIRED",
+                    });
+                }
+
+                if (payload.contextHash !== expectedContextHash) {
+                    this.logger.error(
+                        `SECURITY: Context hash mismatch for user ${user.id}! ` +
+                        `Token hash: ${payload.contextHash.substring(0, 16)}... ` +
+                        `Expected: ${expectedContextHash.substring(0, 16)}...`
+                    );
+                    throw new ForbiddenException({
+                        message: "Verification token was not issued for this transaction",
+                        code: "CONTEXT_MISMATCH",
+                    });
+                }
+
                 // Token is valid - record the verified method
                 verifiedMethods.add(payload.method);
 
             } catch (error) {
+                // Re-throw ForbiddenException (our security rejections)
+                if (error instanceof ForbiddenException) {
+                    throw error;
+                }
                 this.logger.error(`Token verification failed: ${error.message}`);
             }
         }
@@ -153,9 +199,7 @@ export class TransactionSecurityGuard implements CanActivate {
             });
         }
 
-        this.logger.log(`User ${user.id} passed security check (verified: ${Array.from(verifiedMethods).join(', ')})`);
+        this.logger.log(`User ${user.id} passed security check with context binding (verified: ${Array.from(verifiedMethods).join(', ')})`);
         return true;
     }
 }
-
-

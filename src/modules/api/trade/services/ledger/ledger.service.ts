@@ -260,6 +260,50 @@ export class LedgerService {
     }
 
     /**
+     * Execute arbitrary code within the distributed lock scope for a user/currency pair.
+     * 
+     * This allows external services (like TransactionMonitorService) to run their 
+     * validation checks atomically with ledger operations, preventing race conditions
+     * where conditions change between validation and execution.
+     * 
+     * Use cases:
+     * - Running TransactionMonitorService.validateBeforeExecution() before hold()
+     * - Executing multi-step validation that needs consistent state
+     * 
+     * @param userId - User ID to lock
+     * @param currency - Currency to lock
+     * @param callback - Function to execute while holding the lock
+     * @returns Result from the callback
+     */
+    async runWithLock<T>(
+        userId: number,
+        currency: string,
+        callback: () => Promise<T>
+    ): Promise<T> {
+        const lockKey = `ledger:${userId}:${currency.toUpperCase()}`;
+
+        try {
+            return await this.lockService.withLock(
+                lockKey,
+                async () => {
+                    // Execute callback with exclusive access to this user/currency pair
+                    return await callback();
+                },
+                { ttlMs: 15000, maxWaitMs: 20000, strict: true }
+            );
+        } catch (error) {
+            this.logger.error(
+                `runWithLock failed | ${JSON.stringify({
+                    userId,
+                    currency,
+                    error: error.message,
+                })}`
+            );
+            throw error;
+        }
+    }
+
+    /**
      * Debits an amount from a user's ledger (decreases balance)
      *
      * Use cases:
