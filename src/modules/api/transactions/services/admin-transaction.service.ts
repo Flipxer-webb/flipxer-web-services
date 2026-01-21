@@ -433,7 +433,7 @@ export class AdminTransactionService {
                     userId: transaction.userId,
                     currency: transaction.currency.toUpperCase(),
                     amount: refundAmount,
-                    type: LedgerType.ADJUSTMENT, // Using ADJUSTMENT for refunds
+                    type: LedgerType.REFUND, // Using ADJUSTMENT for refunds
                     reference: `refund:${transaction.orderReference}:admin`,
                     description: `Admin refund: ${dto.reason}`,
                     metadata: {

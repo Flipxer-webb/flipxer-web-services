@@ -1053,6 +1053,7 @@ enum LedgerType {
   FEE
   SWEEP
   ADJUSTMENT
+  REFUND
   MIGRATION       // Initial balance migration from AssetWallet
   MIGRATION_HOLD  // Migrated locked/held balance
 }
