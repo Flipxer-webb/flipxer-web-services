@@ -4,11 +4,12 @@ import { AdminTransactionService } from "./services/admin-transaction.service";
 import { TransactionController } from "./controllers/v1";
 import { AdminTransactionController } from "./controllers/v1/admin";
 import { TradingModule } from "../trade";
+import { SettingModule } from "../settings";
 
 @Module({
-    imports: [forwardRef(() => TradingModule)],
+    imports: [forwardRef(() => TradingModule), SettingModule],
     providers: [TransactionService, AdminTransactionService],
     controllers: [TransactionController, AdminTransactionController],
     exports: [TransactionService, AdminTransactionService],
 })
-export class TransactionModule {}
+export class TransactionModule { }
