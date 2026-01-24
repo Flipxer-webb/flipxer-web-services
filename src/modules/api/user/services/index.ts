@@ -797,4 +797,38 @@ export class UserService {
                 : "Push notifications disabled",
         };
     }
+
+    async getUserByEmailStub(email: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+            },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
+        }
+
+        // Mask the name for privacy
+        const maskedFirstName = user.firstName
+            ? `${user.firstName.charAt(0)}***`
+            : "***";
+        const maskedLastName = user.lastName
+            ? `${user.lastName.charAt(0)}***`
+            : "***";
+
+        return {
+            success: true,
+            data: {
+                id: user.id,
+                email: user.email,
+                firstName: maskedFirstName,
+                lastName: maskedLastName,
+            },
+        };
+    }
 }

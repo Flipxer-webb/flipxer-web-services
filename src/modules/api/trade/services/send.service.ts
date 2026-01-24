@@ -254,6 +254,11 @@ export class SendService {
      * 6. If insufficient: add to queue (shows as pending to user)
      */
     async withdrawerRequest(user: User, dto: WithdrawerRequestDto) {
+        // Handle Internal Transfer
+        if (dto.isInternal === true) {
+            return this.processInternalTransfer(user, dto);
+        }
+
         const currency = dto.currency.toUpperCase();
         const totalAmount = dto.amount; // Amount + fees will be calculated
 
@@ -601,6 +606,157 @@ export class SendService {
         return buildResponse({
             message: "Withdrawer cancel request placed successfully",
             data: requestRes.data,
+        });
+    }
+
+    /**
+     * Processing for internal P2P transfers
+     */
+    private async processInternalTransfer(user: User, dto: WithdrawerRequestDto) {
+        const currency = dto.currency.toUpperCase();
+        const totalAmount = dto.amount;
+
+        if (!dto.recipientEmail) {
+            throw new IncompleteAccountSetupException(
+                "Recipient email is required for internal transfers",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // 1. Resolve Recipient
+        // Using prisma directly to avoid circular dependency if UserService is not available or to be efficient
+        const recipient = await this.prisma.user.findUnique({
+            where: { email: dto.recipientEmail },
+            select: { id: true, email: true, firstName: true, lastName: true },
+        });
+
+        if (!recipient) {
+            throw new IncompleteAccountSetupException(
+                "Recipient user not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        if (recipient.id === user.id) {
+            throw new IncompleteAccountSetupException(
+                "Cannot send funds to yourself",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // 2. Check Rate Limits (Sharing limit with external withdrawals for now)
+        const rateLimitCheck = await this.checkWithdrawalRateLimits(user.id, currency);
+        if (!rateLimitCheck.allowed) {
+            throw new RateLimitExceededException(rateLimitCheck.reason);
+        }
+
+        // 3. Check Balance
+        const balance = await this.ledgerService.getBalance(user.id, currency);
+        if (balance.available.lessThan(totalAmount)) {
+            throw new IncompleteAccountSetupException(
+                `Insufficient balance. Available: ${balance.available.toString()} ${currency}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const reference = generateId({ type: "reference" });
+        const transactionId = generateId({ type: "transaction" });
+
+        // 4. Validation (Monitor)
+        const monitorResult = await this.transactionMonitor.validateBeforeExecution({
+            userId: user.id,
+            currency,
+            amount: totalAmount,
+            operationType: "SEND", // Monitor as SEND
+            reference: `send:${reference}`,
+        });
+
+        if (!monitorResult.success) {
+            this.logger.warn(
+                `Transaction monitor blocked internal send | User: ${user.id} | Amount: ${totalAmount} | Reason: ${monitorResult.reason}`
+            );
+            throw new GeneralTransactionException(
+                monitorResult.reason || "Transaction blocked by monitoring system",
+                HttpStatus.FORBIDDEN
+            );
+        }
+
+        // 5. Execute Atomic Transfer
+        const transferResult = await this.ledgerService.internalTransfer(
+            user.id,
+            recipient.id,
+            currency,
+            totalAmount,
+            reference,
+            dto.narration || dto.transaction_note
+        );
+
+        if (!transferResult.success) {
+            throw new GeneralTransactionException(
+                transferResult.error || "Transfer failed",
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        }
+
+        // 6. Create Order Record (Sender side)
+        const amtFiat = await this.getAmountInNaira(currency, totalAmount);
+
+        await this.prisma.order.create({
+            data: {
+                orderCategory: OrderCategory.SEND,
+                status: OrderStatus.completed, // Done immediately
+                streamlinedStatus: "completed",
+                orderReference: reference,
+                transactionId: transactionId,
+                userId: user.id,
+                currency: currency,
+                narration: dto.narration,
+                transaction_note: dto.transaction_note,
+                recipient: recipient.email, // Store email as recipient
+                amount: totalAmount,
+                amountInFiat: amtFiat?.amount,
+                rateAtConversion: amtFiat?.rate,
+                ledgerEntryId: transferResult.entryId,
+                fulfilled: true,
+            },
+        });
+
+        // 7. Notifications
+        // Notify Sender
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Transfer Sent",
+            body: `You sent ${totalAmount} ${currency} to ${recipient.email}`,
+            currency: currency,
+            transactionType: OrderCategory.SEND,
+            enableEmail: true,
+            enablePush: true,
+        });
+
+        // Notify Recipient
+        await this.notificationDispatcher.notify({
+            userId: recipient.id,
+            title: "Funds Received",
+            body: `You received ${totalAmount} ${currency} from ${user.email}`,
+            currency: currency,
+            transactionType: OrderCategory.RECEIVE, // Assuming RECEIVE exists or fallback
+            enableEmail: true,
+            enablePush: true,
+        });
+
+        // Emit Wallet Updates
+        this.wsGateway.notifyWalletUpdate(user.id);
+        this.wsGateway.notifyWalletUpdate(recipient.id);
+
+        return buildResponse({
+            message: "Transfer successful",
+            data: {
+                transactionId,
+                status: "completed",
+                recipient: recipient.email,
+                amount: totalAmount,
+                currency,
+            },
         });
     }
 }

@@ -171,5 +171,12 @@ export class UserController {
     ) {
         return await this.userService.updateNotificationToken(user, token);
     }
+
+    @ApiOperation({ summary: "Lookup user by email" })
+    @ApiBearerAuth("access-token")
+    @Get("lookup")
+    async lookupUser(@Query("email") email: string) {
+        return await this.userService.getUserByEmailStub(email);
+    }
 }
 

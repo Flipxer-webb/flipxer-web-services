@@ -766,6 +766,200 @@ export class LedgerService {
     }
 
     /**
+     * Executes an atomic internal transfer between two users
+     *
+     * @param fromUserId Sender User ID
+     * @param toUserId Recipient User ID
+     * @param currency Currency symbol
+     * @param amount Amount to transfer
+     * @param reference Unique reference for the transfer
+     * @param description Optional description
+     */
+    async internalTransfer(
+        fromUserId: number,
+        toUserId: number,
+        currency: string,
+        amount: Decimal | number | string,
+        reference: string,
+        description?: string
+    ): Promise<LedgerOperationResult> {
+        const transferAmount = this.toDecimal(amount);
+
+        if (transferAmount.lessThanOrEqualTo(0)) {
+            return { success: false, error: "Transfer amount must be positive" };
+        }
+
+        if (fromUserId === toUserId) {
+            return { success: false, error: "Cannot transfer to self" };
+        }
+
+        const upperCurrency = currency.toUpperCase();
+
+        // Sort locks to prevent deadlocks
+        const firstLockUser = fromUserId < toUserId ? fromUserId : toUserId;
+        const secondLockUser = fromUserId < toUserId ? toUserId : fromUserId;
+
+        const lockKey1 = `ledger:${firstLockUser}:${upperCurrency}`;
+        const lockKey2 = `ledger:${secondLockUser}:${upperCurrency}`;
+
+        try {
+            // Acquire locks sequentially (nested)
+            return await this.lockService.withLock(
+                lockKey1,
+                async () => {
+                    return await this.lockService.withLock(
+                        lockKey2,
+                        async () => {
+                            return await this.executeInternalTransfer(
+                                fromUserId,
+                                toUserId,
+                                upperCurrency,
+                                transferAmount,
+                                reference,
+                                description
+                            );
+                        },
+                        { ttlMs: 10000, maxWaitMs: 15000, strict: true }
+                    );
+                },
+                { ttlMs: 10000, maxWaitMs: 15000, strict: true }
+            );
+        } catch (error) {
+            this.logger.error(
+                `Internal transfer failed | ${JSON.stringify({
+                    fromUserId,
+                    toUserId,
+                    currency,
+                    amount: transferAmount.toString(),
+                    reference,
+                    error: error.message,
+                })}`
+            );
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Internal transfer execution
+     */
+    private async executeInternalTransfer(
+        fromUserId: number,
+        toUserId: number,
+        currency: string,
+        amount: Decimal,
+        reference: string,
+        description?: string
+    ): Promise<LedgerOperationResult> {
+        return await this.prisma.$transaction(
+            async (tx) => {
+                // 1. Idempotency Check
+                const existing = await tx.ledgerEntry.findUnique({
+                    where: {
+                        type_reference: {
+                            type: LedgerType.SEND,
+                            reference: `send:${reference}`,
+                        },
+                    },
+                });
+
+                if (existing) {
+                    this.logger.warn(
+                        `Duplicate internal transfer detected | Ref: ${reference}`
+                    );
+                    return {
+                        success: true,
+                        entryId: existing.id,
+                        balanceAfter: existing.balanceAfter,
+                    };
+                }
+
+                // 2. Sender Balance Check & Debit
+                const senderBalance = await this.getBalanceInTransaction(
+                    tx,
+                    fromUserId,
+                    currency
+                );
+
+                if (
+                    fromUserId !== LedgerService.PLATFORM_USER_ID &&
+                    senderBalance.available.lessThan(amount)
+                ) {
+                    throw new Error(
+                        `Insufficient balance. Available: ${senderBalance.available.toString()}, Requested: ${amount.toString()}`
+                    );
+                }
+
+                const senderNewBalance = senderBalance.total.minus(amount);
+
+                // Debit Sender
+                const debitEntry = await tx.ledgerEntry.create({
+                    data: {
+                        userId: fromUserId,
+                        currency,
+                        type: LedgerType.SEND,
+                        debit: amount,
+                        credit: new Decimal(0),
+                        balanceAfter: senderNewBalance,
+                        status: EntryStatus.SETTLED,
+                        sweepStatus: SweepStatus.NOT_APPLICABLE,
+                        holdAmount: new Decimal(0),
+                        reference: `send:${reference}`,
+                        counterpartyUserId: toUserId,
+                        description: description || `Transfer to user ${toUserId}`,
+                    },
+                });
+
+                // 3. Recipient Credit
+                // Get recipient balance (locked by findFirst in getBalanceInTransaction)
+                const recipientBalance = await this.getBalanceInTransaction(
+                    tx,
+                    toUserId,
+                    currency
+                );
+                const recipientNewBalance = recipientBalance.total.plus(amount);
+
+                // Credit Recipient
+                await tx.ledgerEntry.create({
+                    data: {
+                        userId: toUserId,
+                        currency,
+                        type: LedgerType.RECEIVE,
+                        credit: amount,
+                        debit: new Decimal(0),
+                        balanceAfter: recipientNewBalance,
+                        status: EntryStatus.SETTLED,
+                        sweepStatus: SweepStatus.NOT_APPLICABLE, // Internal transfer doesn't need external sweep
+                        holdAmount: new Decimal(0),
+                        reference: `recv:${reference}`,
+                        counterpartyUserId: fromUserId,
+                        description: description || `Transfer from user ${fromUserId}`,
+                    },
+                });
+
+                this.logger.log(
+                    `Internal transfer successful | ${JSON.stringify({
+                        fromUserId,
+                        toUserId,
+                        currency,
+                        amount: amount.toString(),
+                        ref: reference,
+                    })}`
+                );
+
+                return {
+                    success: true,
+                    entryId: debitEntry.id,
+                    balanceAfter: senderNewBalance,
+                };
+            },
+            {
+                isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+                timeout: 10000,
+            }
+        );
+    }
+
+    /**
      * Gets the current balance for a user/currency pair
      *
      * @param userId User ID

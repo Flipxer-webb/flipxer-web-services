@@ -10,6 +10,7 @@ import {
     Matches,
     Min,
     ValidateNested,
+    IsBoolean,
 } from "class-validator";
 import { SupportedAssets } from "../interfaces/trade";
 import { NetworkTypes } from "@prisma/client";
@@ -351,6 +352,16 @@ export class WithdrawerRequestDto {
     @IsPositive()
     amount: number;
 
+    @ApiProperty({ required: false })
+    @IsOptional()
+    @IsString()
+    recipientEmail?: string;
+
+    @ApiProperty({ required: false })
+    @IsOptional()
+    @IsBoolean()
+    isInternal?: boolean;
+
     @ApiProperty({ description: "notes for the recipient", required: false })
     @IsOptional()
     @IsString()
@@ -362,7 +373,7 @@ export class WithdrawerRequestDto {
     narration?: string;
 
     @ApiProperty({ description: "crypto address" })
-    @IsNotEmpty()
+    @IsOptional()
     @IsString()
     recipientWalletAddress: string; // wallet address
 
