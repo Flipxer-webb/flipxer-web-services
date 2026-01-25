@@ -659,8 +659,28 @@ export class SendService {
             );
         }
 
-        const reference = generateId({ type: "reference" });
+        let reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });
+
+        // Idempotency Check
+        if (dto.idempotencyKey) {
+            reference = `INT-${dto.idempotencyKey}`;
+            const existingOrder = await this.prisma.order.findFirst({
+                where: { orderReference: reference },
+                select: { transactionId: true, recipient: true },
+            });
+
+            if (existingOrder) {
+                return buildResponse({
+                    message: "Transfer successful",
+                    data: {
+                        transactionId: existingOrder.transactionId,
+                        status: "completed",
+                        recipient: existingOrder.recipient,
+                    },
+                });
+            }
+        }
 
         // 4. Validation (Monitor)
         const monitorResult = await this.transactionMonitor.validateBeforeExecution({

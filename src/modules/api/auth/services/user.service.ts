@@ -8,7 +8,7 @@ import * as bcrypt from "bcryptjs";
 
 @Injectable()
 export class UserService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) { }
 
     async validateUser(email: string, password: string) {
         // Find the user by email, including their role

@@ -798,7 +798,7 @@ export class UserService {
         };
     }
 
-    async getUserByEmailStub(email: string) {
+    async getUserByEmail(email: string) {
         const user = await this.prisma.user.findUnique({
             where: { email },
             select: {

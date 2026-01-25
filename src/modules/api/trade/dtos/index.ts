@@ -400,6 +400,11 @@ export class WithdrawerRequestDto {
     @IsOptional()
     @IsString()
     verificationToken?: string;
+
+    @ApiProperty({ description: "Unique key for idempotency", required: false })
+    @IsOptional()
+    @IsString()
+    idempotencyKey?: string;
 }
 
 export class CancelWithdrawerRequestDto {

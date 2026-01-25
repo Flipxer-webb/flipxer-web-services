@@ -24,6 +24,7 @@ import {
     CountryBlockGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
+import { RateLimiterGuard, RateLimit } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import {
     GetUserAssetsDto,
     UpdateProfilePasswordDto,
@@ -38,7 +39,7 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "user",
 })
-@UseGuards(CountryBlockGuard, AuthGuard, EnabledAccountGuard)
+@UseGuards(CountryBlockGuard, AuthGuard, EnabledAccountGuard, RateLimiterGuard)
 export class UserController {
     constructor(private readonly userService: UserService) { }
 
@@ -175,8 +176,9 @@ export class UserController {
     @ApiOperation({ summary: "Lookup user by email" })
     @ApiBearerAuth("access-token")
     @Get("lookup")
+    @RateLimit({ limit: 5, windowSeconds: 60, errorMessage: "Too many lookup attempts. Please try again later." })
     async lookupUser(@Query("email") email: string) {
-        return await this.userService.getUserByEmailStub(email);
+        return await this.userService.getUserByEmail(email);
     }
 }
 
