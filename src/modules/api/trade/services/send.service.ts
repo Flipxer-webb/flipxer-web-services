@@ -260,7 +260,19 @@ export class SendService {
         }
 
         const currency = dto.currency.toUpperCase();
-        const totalAmount = dto.amount; // Amount + fees will be calculated
+
+        // 1. Calculate Fees (External Only)
+        // We must fetch the authoritative fee from the provider/admin settings
+        // to ensure the user has enough balance for Amount + Fee.
+        const feeDataRes = await this.getCryptoWithdrawerFee({
+            amount: dto.amount,
+            currency: currency as any,
+            network: dto.network as any,
+        });
+
+        const networkFee = new Decimal(feeDataRes.data.totalFee || 0);
+        const amount = new Decimal(dto.amount);
+        const totalAmount = amount.plus(networkFee); // Total = Amount + Fee
 
         // Check rate limits first
         const rateLimitCheck = await this.checkWithdrawalRateLimits(user.id, currency);
@@ -281,10 +293,12 @@ export class SendService {
         }
 
         // Get user's available balance from ledger
+        // We don't check totalAmount here because we do strict check inside the lock below.
+        // But a quick check fails fast.
         const balance = await this.ledgerService.getBalance(user.id, currency);
         if (balance.available.lessThan(totalAmount)) {
             throw new IncompleteAccountSetupException(
-                `Insufficient balance. Available: ${balance.available.toString()} ${currency}`,
+                `Insufficient balance. Available: ${balance.available.toString()} ${currency} (Required: ${totalAmount.toString()} ${currency})`,
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -302,7 +316,7 @@ export class SendService {
                 const monitorResult = await this.transactionMonitor.validateBeforeExecution({
                     userId: user.id,
                     currency,
-                    amount: totalAmount,
+                    amount: totalAmount.toNumber(), // Monitor total risk
                     operationType: "WITHDRAWAL",
                     reference: `withdrawal:${reference}`,
                 });
@@ -317,14 +331,14 @@ export class SendService {
                     );
                 }
 
-                // Step 2: HOLD the amount on user's ledger (same lock scope)
+                // Step 2: HOLD the TOTAL amount on user's ledger (same lock scope)
                 const holdResult = await this.ledgerService.hold({
                     userId: user.id,
                     currency: currency,
-                    amount: totalAmount,
+                    amount: totalAmount, // Holding Amount + Fee
                     reference: `withdrawal:${reference}`,
                     type: LedgerType.WITHDRAWAL,
-                    description: `Withdrawal to ${dto.recipientWalletAddress}`,
+                    description: `Withdrawal to ${dto.recipientWalletAddress} (Fee: ${networkFee})`,
                 });
 
                 return holdResult;
@@ -344,12 +358,14 @@ export class SendService {
             );
         }
 
-        // Check main wallet liquidity
+        // Check main wallet liquidity (Check against clean amount sent or total? Usually total if we pay fee from same wallet)
         const mainWalletBalance = await this.getMainWalletBalance(currency);
+        // We only send 'dto.amount' to the user, but we might pay 'networkFee' from the wallet too.
+        // Safest to check we have totalAmount.
         const hasLiquidity = mainWalletBalance.greaterThanOrEqualTo(totalAmount);
 
-        // Get fiat equivalent for record
-        const amtFiat = await this.getAmountInNaira(currency, totalAmount);
+        // Get fiat equivalent for record (using base amount for value tracking usually, but let's track total value out)
+        const amtFiat = await this.getAmountInNaira(currency, dto.amount);
 
         // Create order record (will be updated with provider ID once executed)
         const createdOrder = await this.prisma.order.create({
@@ -365,7 +381,9 @@ export class SendService {
                 transaction_note: dto.transaction_note,
                 recipient: dto.recipientWalletAddress,
                 destinationTag: dto.destinationTag,
-                amount: totalAmount,
+                amount: dto.amount, // The amount receiving
+                fee: networkFee.toNumber(), // The fee paid
+                total: totalAmount.toNumber(), // The total deducted
                 amountInFiat: amtFiat?.amount,
                 rateAtConversion: amtFiat?.rate,
                 ledgerEntryId: holdResult.entryId,
