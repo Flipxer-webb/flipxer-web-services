@@ -772,6 +772,28 @@ export class SendService {
             enablePush: true,
         });
 
+        // 8. Create Order Record (Recipient side) - Fix for missing history
+        // Recipient needs a "RECEIVE" record to see it in their history
+        await this.prisma.order.create({
+            data: {
+                orderCategory: OrderCategory.RECEIVE,
+                status: OrderStatus.completed,
+                streamlinedStatus: "completed",
+                orderReference: `RCV-${reference}`, // Unique reference for recipient
+                transactionId: `${transactionId}-2`, // Ensure uniqueness
+                userId: recipient.id,
+                currency: currency,
+                narration: dto.narration,
+                transaction_note: dto.transaction_note,
+                sender: user.email, // Store sender email
+                amount: totalAmount,
+                amountInFiat: amtFiat?.amount,
+                rateAtConversion: amtFiat?.rate,
+                ledgerEntryId: transferResult.entryId,
+                fulfilled: true,
+            },
+        });
+
         // Notify Recipient
         await this.notificationDispatcher.notify({
             userId: recipient.id,
