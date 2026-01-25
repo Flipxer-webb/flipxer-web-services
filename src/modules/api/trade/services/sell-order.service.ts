@@ -9,7 +9,6 @@ import {
     OrderCategory,
     OrderStatus,
     PaymentMethod,
-    TransactionFeeCategory,
     User,
 } from "@prisma/client";
 import {
@@ -21,7 +20,6 @@ import {
 } from "../errors";
 import {
     CryptoRateNotFoundException,
-    CryptoTransactionFeeNotFoundException,
 } from "../../settings/errors";
 import { BankDetailNotFoundException } from "../../banks/errors";
 import { SellQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
@@ -109,8 +107,8 @@ export class SellOrderService {
 
         const currency = dto.asset.toUpperCase();
 
-        // 2. Fetch bank detail, asset wallet, rate, and admin fee concurrently
-        const [bankDetail, assetWallet, rate, adminFee] = await Promise.all([
+        // 2. Fetch bank detail, asset wallet, rate concurrently
+        const [bankDetail, assetWallet, rate] = await Promise.all([
             this.prisma.bankDetail.findFirst({
                 where: { userId: user.id },
                 select: {
@@ -126,14 +124,6 @@ export class SellOrderService {
                 },
             }),
             this.rateService.getAssetRate(currency),
-            this.prisma.transactionFee.findUnique({
-                where: {
-                    category_currency: {
-                        category: TransactionFeeCategory.BUY,
-                        currency,
-                    },
-                },
-            }),
         ]);
 
         // 3. Validate fetched records
@@ -164,11 +154,7 @@ export class SellOrderService {
             );
         }
 
-        if (!adminFee) {
-            throw new CryptoTransactionFeeNotFoundException(
-                `No transaction fee record found for asset ${dto.asset}`
-            );
-        }
+        // Fee check removed per business plan (admin fees gone)
 
         // 4. Fees are no longer charged for sell orders
         const quidaxFeeCrypto = 0;

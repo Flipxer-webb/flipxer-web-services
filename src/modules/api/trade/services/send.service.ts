@@ -11,7 +11,6 @@ import {
     OrderCategory,
     OrderStatus,
     QueueReason,
-    TransactionFeeCategory,
     User,
 } from "@prisma/client";
 import { IncompleteAccountSetupException, UnknownFeeStructureException, RateLimitExceededException } from "../errors";
@@ -203,33 +202,20 @@ export class SendService {
     async getCryptoWithdrawerFee(dto: GetCryptoWithdrawerFeeDto) {
         const currency = dto.currency.toUpperCase();
 
-        // Fetch both provider fee and admin transaction fee
-        const [providerFeeInfo, adminFee] = await Promise.all([
-            this.quidaxService.getWithdrawerFees({
-                currency: dto.currency,
-                ...(dto.network && { network: dto.network }),
-            }),
-            this.prisma.transactionFee.findUnique({
-                where: {
-                    category_currency: {
-                        category: TransactionFeeCategory.SELL,
-                        currency,
-                    },
-                },
-            }),
-        ]);
-
-        this.logger.debug(`Admin fee for ${currency}: ${JSON.stringify(adminFee)}`);
+        // Fetch only provider fee (admin fee is removed)
+        const providerFeeInfo = await this.quidaxService.getWithdrawerFees({
+            currency: dto.currency,
+            ...(dto.network && { network: dto.network }),
+        });
 
         // Calculate provider fee
         const providerFee = await this.getFee(dto.amount, providerFeeInfo.data);
 
-        // Calculate admin fee (default to 0 if not configured)
-        // POLICY UPDATE: External withdrawals are now free of admin fees. Only network fee applies.
-        const adminFeeAmount = 0; // adminFee ? adminFee.fee : 0;
+        // Admin fee is removed per business plan
+        const adminFeeAmount = 0;
 
-        // Calculate total fee (provider fee + admin fee)
-        const totalFee = providerFee.fee + adminFeeAmount;
+        // Calculate total fee (provider fee only)
+        const totalFee = providerFee.fee;
 
         return buildResponse({
             message: "withdrawer fee info retrieved",
