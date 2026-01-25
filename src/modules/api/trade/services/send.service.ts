@@ -225,7 +225,8 @@ export class SendService {
         const providerFee = await this.getFee(dto.amount, providerFeeInfo.data);
 
         // Calculate admin fee (default to 0 if not configured)
-        const adminFeeAmount = adminFee ? adminFee.fee : 0;
+        // POLICY UPDATE: External withdrawals are now free of admin fees. Only network fee applies.
+        const adminFeeAmount = 0; // adminFee ? adminFee.fee : 0;
 
         // Calculate total fee (provider fee + admin fee)
         const totalFee = providerFee.fee + adminFeeAmount;
