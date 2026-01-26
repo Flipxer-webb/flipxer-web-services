@@ -794,4 +794,27 @@ export class UserService {
                 : "Push notifications disabled",
         };
     }
+
+    async getUserByEmail(email: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                photo: true,
+                status: true,
+            },
+        });
+
+        if (!user) {
+            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
+        }
+
+        return {
+            message: "User found",
+            data: user,
+        };
+    }
 }
