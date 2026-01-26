@@ -511,7 +511,7 @@ async function main() {
     if (individualRole) {
         const testUserPassword = "TestUser@2024!";
         const hashedTestPassword = await bcrypt.hash(testUserPassword, SALT_ROUNDS);
-        
+
         const testUser = await prisma.user.upsert({
             where: { email: "testuser@flipxer.com" },
             update: {
@@ -584,8 +584,59 @@ async function main() {
                 isVerified: true,
             },
         });
-        
+
         logger.info("Test user created - Email: testuser@flipxer.com, Password: TestUser@2024!");
+    }
+
+
+    // Seed SYSTEM USERS (Platform & Fee Accounts)
+    logger.info("Seeding System Users (Platform & Fee Accounts)...");
+    const adminRoleForSystem = await prisma.role.findFirst({ where: { slug: "super-admin" } });
+
+    if (adminRoleForSystem) {
+        // Platform User (ID 0)
+        await prisma.user.upsert({
+            where: { id: 0 },
+            update: {},
+            create: {
+                id: 0,
+                email: "platform@system.internal",
+                phone: "+00000000000",
+                identifier: "SYSTEM_PLATFORM",
+                firstName: "System",
+                lastName: "Platform",
+                userType: UserType.ADMIN,
+                roleId: adminRoleForSystem.id,
+                status: "ACTIVE",
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                password: "NO_LOGIN_ALLOWED_PLATFORM",
+            }
+        });
+        logger.info("Platform User (ID 0) ensured.");
+
+        // Network Fee User (ID -1)
+        await prisma.user.upsert({
+            where: { id: -1 },
+            update: {},
+            create: {
+                id: -1,
+                email: "fees@system.internal",
+                phone: "+00000000001",
+                identifier: "SYSTEM_FEES",
+                firstName: "System",
+                lastName: "Fees",
+                userType: UserType.ADMIN,
+                roleId: adminRoleForSystem.id,
+                status: "ACTIVE",
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                password: "NO_LOGIN_ALLOWED_FEES",
+            }
+        });
+        logger.info("Network Fee User (ID -1) ensured.");
+    } else {
+        logger.error("Super-admin role not found, skipping System User seeding.");
     }
 
     logger.info("Database seeding completed");

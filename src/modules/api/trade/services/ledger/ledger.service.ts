@@ -1883,7 +1883,7 @@ export class LedgerService {
         holdEntry: any
     ): Promise<PairedLedgerResult> {
         const { settle, description, tradeGroupId, createPlatformEntry = true } = options;
-        const feeAmount = this.toDecimal(options.networkFee);
+        const feeAmount = this.toDecimal(options.networkFee ?? 0);
 
         return await this.prisma.$transaction(async (tx) => {
             const currentHold = await tx.ledgerEntry.findUnique({ where: { id: holdEntry.id } });
