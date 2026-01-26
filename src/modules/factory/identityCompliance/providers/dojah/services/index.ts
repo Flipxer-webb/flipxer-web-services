@@ -181,8 +181,8 @@ export class DojahService {
             }
 
             const entity = result.data?.entity || result.data;
-            const verified = entity?.status === "verified" || 
-                            entity?.overall_status === "verified";
+
+            const verified = entity.status === true && entity.verification_status === "Completed";
             
             this.logger.log(`Verification result for ${verificationId}: verified=${verified}, status=${entity?.status}`);
             
