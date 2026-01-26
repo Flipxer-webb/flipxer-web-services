@@ -1,0 +1,39 @@
+﻿node.exe : npm warn 
+Unknown project config 
+"auto-install-peers". 
+This will stop working in 
+the next major version of 
+npm.
+At line:1 char:1
++ & "C:\Program 
+Files\nodejs/node.exe" "C:
+\Users\magpi\AppData\Roami
+ng\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo        
+      : NotSpecified: (n  
+  pm warn Unknow...vers   
+ ion of npm.:String) [    
+], RemoteException
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+npm warn Unknown project 
+config "strict-peer-depend
+encies". This will stop 
+working in the next major 
+version of npm.
+--- Checking Pending Swaps ---
+No pending swaps found.
+
+--- Checking Held/Locked Funds (Ledger) ---
+No held/pending ledger entries found.
+
+--- Checking Deposit Review Queue ---
+No pending deposits.
+
+--- Checking Withdrawal Queue ---
+No queued withdrawals.

@@ -579,6 +579,32 @@ export class TradingService {
             }
         }
 
+        // For SWAP orders, we need to refund the user's debited funds
+        // Swaps execute the "Sell" leg immediately upon creation (debiting user)
+        // So we must credit them back if they cancel before completion
+        if (order.orderCategory === OrderCategory.SWAP) {
+            try {
+                this.logger.log(`Refunding user for cancelled swap ${order.id} | Amount: ${order.amount} ${order.currency}`);
+
+                // Refund mechanism: Internal Buy (Admin pays User)
+                // This reverses the Internal Sell (User pays Admin) that happened during creation
+                await this.buyOrderService.executeInternalBuy(
+                    user,
+                    order.amount,    // Refund original source amount
+                    order.currency,  // Refund original source currency
+                    `${order.orderReference}_refund`
+                );
+
+                this.logger.log(`Swap refund successful for order ${order.id}`);
+            } catch (refundError) {
+                this.logger.error(`Failed to refund swap cancellation for order ${order.id}: ${refundError.message}`);
+                throw new GeneralTransactionException(
+                    "Failed to refund swap funds. Please contact support.",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
+        }
+
         // Update order status to cancelled
         const updatedOrder = await this.prisma.order.update({
             where: { id: orderId },

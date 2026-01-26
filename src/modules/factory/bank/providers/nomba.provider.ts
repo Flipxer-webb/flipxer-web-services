@@ -21,7 +21,7 @@ import * as e from "../errors/nomba.error";
 import { TransactionShortDescription } from "@/modules/api/transactions/types";
 
 export class NombaBank implements TNomba.INombaBank {
-    constructor(private nomba: NombaLib, private prisma: PrismaService) { }
+    constructor(private nomba: NombaLib, private prisma: PrismaService) {}
 
     /**
      * Get list of Nigerian banks
@@ -231,12 +231,9 @@ export class NombaBank implements TNomba.INombaBank {
                 message: "Checkout created successfully",
                 data: {
                     link: result.data.checkoutLink,
-                    // CRITICAL: Use OUR generated reference, not Nomba's returned orderReference
-                    // Nomba's webhook sends back OUR original orderReference in data.order.orderReference
-                    // So Payment.reference must match what we originally sent
+                    // CRITICAL: Return OUR reference, not Nomba's returned reference
+                    // This ensures the webhook orderReference matches what we store
                     reference: reference,
-                    // Also store Nomba's reference for status check endpoint
-                    nombaOrderReference: result.data.orderReference,
                     amount: result.data.amount,
                 },
             };
@@ -268,25 +265,11 @@ export class NombaBank implements TNomba.INombaBank {
                 data: resp.data,
             };
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
             logger.error(error, "****VERIFY TRANSACTION****** NOMBA");
-
-            // If Nomba says "already completed", treat it as success
-            // This happens when the webhook already processed the payment
-            if (errorMessage.toLowerCase().includes("already completed")) {
-                logger.info({ reference }, "Transaction already completed - returning success");
-                return {
-                    status: true,
-                    data: {
-                        status: "COMPLETED",
-                        orderReference: reference,
-                        message: "Transaction already completed",
-                    },
-                };
-            }
-
             throw new e.NombaVerifyTransactionException(
-                errorMessage || "Failed to verify transaction",
+                error instanceof Error
+                    ? error.message
+                    : "Failed to verify transaction",
                 HttpStatus.BAD_REQUEST
             );
         }

@@ -5,7 +5,7 @@ import * as e from "../errors";
 
 export class DojahService {
     private readonly logger = new Logger(DojahService.name);
-    constructor(private readonly dojah: DJ.DojahLib) {}
+    constructor(private readonly dojah: DJ.DojahLib) { }
 
     async verifyBvn(options: DJ.VerifyBvnOptions) {
         try {
@@ -79,7 +79,7 @@ export class DojahService {
             this.logger.log(
                 `Document analysis completed: valid=${parsed.isValid}, type=${parsed.documentType}, country=${parsed.country}, reason=${parsed.reason}`
             );
-            
+
             // Log raw response status for debugging invalid documents
             if (!parsed.isValid) {
                 this.logger.warn(`Document INVALID - Full status:`, {
@@ -141,8 +141,8 @@ export class DojahService {
 
         this.logger.log(
             `Document name verification: expected="${expectedFirstName} ${expectedLastName}", ` +
-                `extracted="${parsed.firstName || ""} ${parsed.lastName || ""}", ` +
-                `matches=${nameMatches}`
+            `extracted="${parsed.firstName || ""} ${parsed.lastName || ""}", ` +
+            `matches=${nameMatches}`
         );
 
         return {
@@ -160,24 +160,15 @@ export class DojahService {
     }
 
     /**
-     * Validate a widget verification result by fetching it from Dojah API
-     * This provides server-to-server validation of client-side verification claims
+     * Get verification result by reference/verification ID
+     * Helper wrapper for DojahLib.getVerificationResult
      */
-    async getVerificationResult(verificationId: string): Promise<{
-        verified: boolean;
-        status: string;
-        data: any;
-    }> {
+    async getVerificationResult(verificationId: string): Promise<{ verified: boolean; status: string; data?: any }> {
         try {
-            const result = await this.dojah.getVerificationResult(verificationId);
-            
-            if (!result) {
-                this.logger.warn(`Verification result not found for ID: ${verificationId}`);
-                return {
-                    verified: false,
-                    status: "not_found",
-                    data: null,
-                };
+            const resp = await this.dojah.getVerificationResult(verificationId);
+
+            if (!resp || !resp.data) {
+                return { verified: false, status: 'not_found' };
             }
 
             const entity = result.data?.entity || result.data;
@@ -187,18 +178,13 @@ export class DojahService {
             this.logger.log(`Verification result for ${verificationId}: verified=${verified}, status=${entity?.status}`);
             
             return {
-                verified,
-                status: entity?.status || "unknown",
-                data: entity,
+                verified: verified,
+                status: resp.data.status || 'unknown',
+                data: resp.data
             };
         } catch (error) {
-            this.logger.error(`Failed to fetch verification result for ${verificationId}:`, error);
-            // Return as unverified if we can't fetch the result
-            return {
-                verified: false,
-                status: "fetch_error",
-                data: null,
-            };
+            this.logger.error(`Failed to get verification result: ${error.message}`);
+            return { verified: false, status: 'error' };
         }
     }
 
@@ -212,7 +198,7 @@ export class DojahService {
         if (error instanceof DJ.DojahError) {
             throw new e.DojahException(
                 error.message ??
-                    `Failed to initiate ${verificationType} verification. Please try again`,
+                `Failed to initiate ${verificationType} verification. Please try again`,
                 error.status ?? HttpStatus.BAD_REQUEST
             );
         }

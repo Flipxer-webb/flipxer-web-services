@@ -291,23 +291,13 @@ export class SwapService {
             const adminBalance = Number(adminWallet?.balance || 0);
 
             if (adminBalance < quote.to_amount) {
-                this.logger.warn(`Insufficient Admin Liquidity for Swap ${order.id}. Holding Order.`);
+                this.logger.warn(`Insufficient Admin Liquidity for Swap ${order.id}. Failing execution to trigger rollback.`);
 
-                // Mark ON_HOLD (Pending Admin)
-                await this.prisma.order.update({
-                    where: { id: order.id },
-                    data: {
-                        status: OrderStatus.pending, // Stuck state
-                        streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
-                        transaction_note: `ON_HOLD: Insufficient Liquidity for ${quote.to_currency}. Waiting for Admin.`
-                    }
-                });
-
-                // Alert Admin via Slack
+                // Alert Admin via Slack (Keep alert for visibility)
                 await this.slackWebhookService.sendWebhookFailureAlert(
                     'quidax',
                     reference,
-                    `Insufficient Liquidity for Swap Buy Leg. Order ${order.id} Pending.`,
+                    `Insufficient Liquidity for Swap Buy Leg. Order ${order.id} Failed & Rolled Back.`,
                     {
                         orderId: order.id,
                         required: quote.to_amount,
@@ -316,10 +306,10 @@ export class SwapService {
                     }
                 );
 
-                return buildResponse({
-                    message: "Swap processing. Pending completion.",
-                    data: this.mapToSwapResponse(order, quote, user),
-                });
+                throw new GeneralTransactionException(
+                    `Insufficient system liquidity for ${quote.to_currency}. Please try again later.`,
+                    HttpStatus.SERVICE_UNAVAILABLE
+                );
             }
 
             // Execute Buy

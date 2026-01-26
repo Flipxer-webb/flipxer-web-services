@@ -421,7 +421,8 @@ export class BuyOrderService {
             );
 
             // Credit the user's ledger (virtual balance)
-            const creditResult = await this.ledgerService.credit({
+            // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
+            const creditResult = await this.ledgerService.pairedCredit({
                 userId: payment.userId,
                 currency: order.currency.toUpperCase(),
                 amount: order.amount,
@@ -433,6 +434,7 @@ export class BuyOrderService {
                     omnibus: true, // Flag indicating this is omnibus (no Quidax transfer)
                 },
                 sweepStatus: SweepStatus.NOT_APPLICABLE, // Buy orders don't need sweep - funds stay in omnibus
+                createPlatformEntry: true
             });
 
             if (!creditResult.success) {
@@ -471,7 +473,7 @@ export class BuyOrderService {
                             ),
                             paymentStatus: TransactionStatus.SUCCESS,
                             fulfilled: true, // Mark as fulfilled
-                            ledgerEntryId: creditResult.entry?.id, // Link to ledger entry
+                            ledgerEntryId: creditResult.userEntry?.id, // Link to ledger entry
                         },
                     });
 
@@ -595,7 +597,8 @@ export class BuyOrderService {
 
         // OMNIBUS: Credit the target currency to user's ledger (virtual balance)
         // No Quidax transfer needed - crypto stays in main omnibus wallet
-        const creditResult = await this.ledgerService.credit({
+        // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
+        const creditResult = await this.ledgerService.pairedCredit({
             userId: user.id,
             currency: currency.toUpperCase(),
             amount,
@@ -606,6 +609,7 @@ export class BuyOrderService {
                 omnibus: true, // Flag indicating this is omnibus (no Quidax transfer)
             },
             sweepStatus: SweepStatus.NOT_APPLICABLE, // Swap buy doesn't need sweep - funds stay in omnibus
+            createPlatformEntry: true
         });
 
         if (!creditResult.success) {
@@ -619,7 +623,7 @@ export class BuyOrderService {
         return {
             status: "success",
             data: {
-                id: creditResult.entry?.id,
+                id: creditResult.userEntry?.id,
                 amount,
                 currency: currency.toUpperCase(),
             },

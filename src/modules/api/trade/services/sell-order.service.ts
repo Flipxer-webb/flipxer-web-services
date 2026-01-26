@@ -254,11 +254,13 @@ export class SellOrderService {
             );
 
             // Settle the hold (converts HOLD to confirmed DEBIT)
-            const settleResult = await this.ledgerService.releaseHold(
+            // DOUBLE ENTRY: releaseHoldWithPlatformEntry ensures platform liability (credit) is created (reduced)
+            const settleResult = await this.ledgerService.releaseHoldWithPlatformEntry({
                 holdReference,
-                true, // settle = true converts hold to debit
-                `Sell order: ${reference}`
-            );
+                settle: true, // settle = true converts hold to debit
+                description: `Sell order: ${reference}`,
+                createPlatformEntry: true
+            });
 
             if (!settleResult.success) {
                 this.logger.error(
@@ -297,7 +299,7 @@ export class SellOrderService {
                     destinationBankCode: dto.bankDetail.bankCode,
                     amountInFiat: amtFiat?.amount,
                     rateAtConversion: amtFiat?.rate,
-                    ledgerEntryId: settleResult.entry?.id, // Link to ledger entry (from settled hold)
+                    ledgerEntryId: settleResult.userEntry?.id, // Link to ledger entry (from settled hold)
                 },
             });
 
@@ -415,11 +417,13 @@ export class SellOrderService {
         );
 
         // Settle the hold (converts HOLD to confirmed DEBIT)
-        const settleResult = await this.ledgerService.releaseHold(
+        // DOUBLE ENTRY: releaseHoldWithPlatformEntry ensures platform liability (credit) is created (reduced)
+        const settleResult = await this.ledgerService.releaseHoldWithPlatformEntry({
             holdReference,
-            true, // settle = true converts hold to debit
-            `Swap sell leg: ${reference}`
-        );
+            settle: true, // settle = true converts hold to debit
+            description: `Swap sell leg: ${reference}`,
+            createPlatformEntry: true
+        });
 
         if (!settleResult.success) {
             this.logger.error(
@@ -432,7 +436,7 @@ export class SellOrderService {
         return {
             status: "success",
             data: {
-                id: settleResult.entry?.id,
+                id: settleResult.userEntry?.id,
                 amount,
                 currency: currency.toUpperCase(),
             },

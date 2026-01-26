@@ -55,6 +55,53 @@ export interface BalanceInfo {
 }
 
 /**
+ * Result of a paired ledger operation (user + platform)
+ */
+export interface PairedLedgerResult {
+    success: boolean;
+    userEntry?: {
+        id: string;
+        balanceAfter: Decimal;
+        reference: string;
+    };
+    platformEntry?: {
+        id: string;
+        balanceAfter: Decimal;
+        reference: string;
+    };
+    error?: string;
+    userBalanceAfter?: Decimal;
+    platformBalanceAfter?: Decimal;
+}
+
+/**
+ * Options for paired credit operation
+ */
+export interface PairedCreditOptions extends CreateLedgerEntryOptions {
+    createPlatformEntry?: boolean; // Default true (creates platform debit)
+}
+
+/**
+ * Options for paired debit operation
+ */
+export interface PairedDebitOptions extends CreateLedgerEntryOptions {
+    createPlatformEntry?: boolean; // Default true (creates platform credit)
+    networkFee?: Decimal | number | string; // Optional network fee to deduct
+}
+
+/**
+ * Options for releasing hold with platform entry
+ */
+export interface ReleaseHoldWithPlatformOptions {
+    holdReference: string;
+    settle: boolean;
+    description?: string;
+    tradeGroupId?: string;
+    createPlatformEntry?: boolean; // Default true if settle=true
+    networkFee?: Decimal | number | string; // Optional network fee to capture upon release
+}
+
+/**
  * LedgerService
  *
  * Core service for managing the double-entry ledger system.
@@ -78,6 +125,9 @@ export class LedgerService {
 
     // Platform account ID for omnibus wallet tracking
     static readonly PLATFORM_USER_ID = 0;
+
+    // Network fee account ID (accumulates fees charged to users)
+    static readonly NETWORK_FEE_USER_ID = -1;
 
     // Decimal precision for crypto
     private readonly DECIMAL_PLACES = 8;
@@ -1410,6 +1460,543 @@ export class LedgerService {
                 },
             },
         });
+    }
+
+    // ==========================================
+    // DOUBLE ENTRY (PAIRED) METHODS
+    // ==========================================
+
+    /**
+     * Helper to acquire multiple locks sequentially
+     */
+    private async withLocks<T>(keys: string[], callback: () => Promise<T>): Promise<T> {
+        if (keys.length === 0) {
+            return callback();
+        }
+
+        const [currentKey, ...restKeys] = keys;
+
+        return this.lockService.withLock(
+            currentKey,
+            () => this.withLocks(restKeys, callback),
+            { ttlMs: 20000, maxWaitMs: 30000, strict: true }
+        );
+    }
+
+    /**
+     * Credits a user and debits the platform (creates liability)
+     * 
+     * @param options Credit options
+     */
+    async pairedCredit(options: PairedCreditOptions): Promise<PairedLedgerResult> {
+        const {
+            userId,
+            currency,
+            type,
+            amount,
+            reference,
+            tradeGroupId,
+            description,
+            metadata,
+            sweepStatus,
+            createPlatformEntry = true
+        } = options;
+
+        // Platform User ID check to prevent infinite loops if crediting platform
+        if (userId === LedgerService.PLATFORM_USER_ID) {
+            return { success: false, error: "Cannot use pairedCredit for platform user" };
+        }
+
+        const creditAmount = this.toDecimal(amount);
+        if (creditAmount.lessThanOrEqualTo(0)) {
+            return { success: false, error: "Amount must be positive" };
+        }
+
+        // Lock ordering: Platform (0) then User (>0)
+        // Since 0 < Any User ID, we lock Platform first
+        const userLockKey = `ledger:${userId}:${currency.toUpperCase()}`;
+        const platformLockKey = `ledger:${LedgerService.PLATFORM_USER_ID}:${currency.toUpperCase()}`;
+
+        const locks = createPlatformEntry
+            ? [platformLockKey, userLockKey] // 0 comes before UserID
+            : [userLockKey];
+
+        try {
+            return await this.withLocks(
+                locks,
+                async () => this.executePairedCredit(options, creditAmount)
+            );
+        } catch (error) {
+            this.logger.error(`Paired credit failed: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    private async executePairedCredit(
+        options: PairedCreditOptions,
+        amount: Decimal
+    ): Promise<PairedLedgerResult> {
+        const {
+            userId,
+            currency,
+            type,
+            reference,
+            tradeGroupId,
+            description,
+            metadata,
+            sweepStatus,
+            createPlatformEntry = true
+        } = options;
+
+        return await this.prisma.$transaction(async (tx) => {
+            // 1. Check idempotency for User Entry
+            const existingUserEntry = await tx.ledgerEntry.findUnique({
+                where: { type_reference: { type, reference } },
+            });
+
+            if (existingUserEntry) {
+                // If user entry exists, platform should also exist if requested
+                return {
+                    success: true,
+                    userEntry: {
+                        id: existingUserEntry.id,
+                        balanceAfter: existingUserEntry.balanceAfter,
+                        reference: existingUserEntry.reference
+                    },
+                    userBalanceAfter: existingUserEntry.balanceAfter
+                };
+            }
+
+            // 2. Process User Credit
+            // Get user current balance
+            const userLastEntry = await tx.ledgerEntry.findFirst({
+                where: { userId, currency, status: { not: EntryStatus.FAILED } },
+                orderBy: { createdAt: "desc" },
+                select: { balanceAfter: true },
+            });
+            const userCurrentBalance = userLastEntry?.balanceAfter ?? new Decimal(0);
+            const userNewBalance = userCurrentBalance.plus(amount);
+
+            const userEntry = await tx.ledgerEntry.create({
+                data: {
+                    userId,
+                    currency,
+                    type,
+                    debit: new Decimal(0),
+                    credit: amount,
+                    balanceAfter: userNewBalance,
+                    status: EntryStatus.SETTLED,
+                    sweepStatus: sweepStatus ?? (type === LedgerType.DEPOSIT ? SweepStatus.PENDING : SweepStatus.NOT_APPLICABLE),
+                    holdAmount: new Decimal(0),
+                    reference,
+                    tradeGroupId,
+                    description,
+                    metadata: metadata ?? Prisma.JsonNull,
+                },
+            });
+
+            // 3. Process Platform Debit (if requested)
+            let platformEntryResult = null;
+            let platformNewBalance = null;
+
+            if (createPlatformEntry) {
+                const platformRef = `platform:${reference}`;
+
+                // Get platform balance
+                const platformLastEntry = await tx.ledgerEntry.findFirst({
+                    where: { userId: LedgerService.PLATFORM_USER_ID, currency },
+                    orderBy: { createdAt: "desc" },
+                    select: { balanceAfter: true },
+                });
+                const platformCurrentBalance = platformLastEntry?.balanceAfter ?? new Decimal(0);
+
+                // User Credit = Platform Debit (Liability increases)
+                platformNewBalance = platformCurrentBalance.minus(amount);
+
+                const platformEntry = await tx.ledgerEntry.create({
+                    data: {
+                        userId: LedgerService.PLATFORM_USER_ID,
+                        currency,
+                        type,
+                        debit: amount,
+                        credit: new Decimal(0),
+                        balanceAfter: platformNewBalance,
+                        status: EntryStatus.SETTLED,
+                        sweepStatus: SweepStatus.NOT_APPLICABLE,
+                        holdAmount: new Decimal(0),
+                        reference: platformRef,
+                        tradeGroupId, // Link by same tradeGroupId
+                        counterpartyUserId: userId,
+                        description: `Platform debit (User credit): ${description || type}`,
+                    },
+                });
+
+                platformEntryResult = {
+                    id: platformEntry.id,
+                    balanceAfter: platformNewBalance,
+                    reference: platformRef
+                };
+            }
+
+            this.logger.log(`Paired credit success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? `Debited` : 'Skipped'}`);
+
+            return {
+                success: true,
+                userEntry: {
+                    id: userEntry.id,
+                    balanceAfter: userNewBalance,
+                    reference
+                },
+                platformEntry: platformEntryResult,
+                userBalanceAfter: userNewBalance,
+                platformBalanceAfter: platformNewBalance
+            };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 });
+    }
+
+    /**
+     * Debits a user and credits the platform (reduces liability)
+     * Optional network fee handling
+     */
+    async pairedDebit(options: PairedDebitOptions): Promise<PairedLedgerResult> {
+        const {
+            userId,
+            currency,
+            type,
+            amount,
+            reference,
+            tradeGroupId,
+            description,
+            metadata,
+            createPlatformEntry = true,
+            networkFee = 0
+        } = options;
+
+        if (userId === LedgerService.PLATFORM_USER_ID) {
+            return { success: false, error: "Cannot use pairedDebit for platform user" };
+        }
+
+        const debitAmount = this.toDecimal(amount);
+        const feeAmount = this.toDecimal(networkFee);
+
+        if (debitAmount.lessThanOrEqualTo(0)) {
+            return { success: false, error: "Amount must be positive" };
+        }
+
+        const lockKeys = [
+            `ledger:${LedgerService.NETWORK_FEE_USER_ID}:${currency.toUpperCase()}`, // -1 (First)
+            `ledger:${LedgerService.PLATFORM_USER_ID}:${currency.toUpperCase()}`,     // 0 (Second)
+            `ledger:${userId}:${currency.toUpperCase()}`                              // User (Third)
+        ];
+
+        try {
+            return await this.withLocks(
+                lockKeys,
+                async () => this.executePairedDebit(options, debitAmount, feeAmount)
+            );
+        } catch (error) {
+            this.logger.error(`Paired debit failed: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    private async executePairedDebit(
+        options: PairedDebitOptions,
+        debitAmount: Decimal,
+        feeAmount: Decimal
+    ): Promise<PairedLedgerResult> {
+        return await this.prisma.$transaction(async (tx) => {
+            const { userId, currency, type, reference, tradeGroupId, description } = options;
+            const totalRequired = debitAmount.plus(feeAmount);
+
+            // 1. Check User Balance
+            const userBalanceInfo = await this.getBalanceInTransaction(tx, userId, currency);
+            if (userBalanceInfo.available.lessThan(totalRequired)) {
+                return {
+                    success: false,
+                    error: `Insufficient balance. Available: ${userBalanceInfo.available}, Required: ${totalRequired}`
+                };
+            }
+
+            // 2. Check Idempotency (User Entry)
+            const existing = await tx.ledgerEntry.findUnique({
+                where: { type_reference: { type, reference } },
+            });
+            if (existing) {
+                return {
+                    success: true,
+                    userEntry: { id: existing.id, balanceAfter: existing.balanceAfter, reference },
+                    userBalanceAfter: existing.balanceAfter
+                };
+            }
+
+            // 3. Create User Debit
+            const userNewBalance = userBalanceInfo.total.minus(debitAmount);
+            const userEntry = await tx.ledgerEntry.create({
+                data: {
+                    userId,
+                    currency,
+                    type,
+                    debit: debitAmount,
+                    credit: new Decimal(0),
+                    balanceAfter: userNewBalance,
+                    status: EntryStatus.SETTLED,
+                    sweepStatus: SweepStatus.NOT_APPLICABLE,
+                    holdAmount: new Decimal(0),
+                    reference,
+                    tradeGroupId,
+                    description,
+                },
+            });
+
+            // 4. Create Platform Credit (if requested)
+            let platformEntryResult = null;
+            let platformNewBalance = null;
+
+            if (options.createPlatformEntry) {
+                const platformRef = `platform:${reference}`;
+                const platformLast = await tx.ledgerEntry.findFirst({
+                    where: { userId: LedgerService.PLATFORM_USER_ID, currency },
+                    orderBy: { createdAt: "desc" },
+                    select: { balanceAfter: true }
+                });
+                const platformCurrent = platformLast?.balanceAfter ?? new Decimal(0);
+                platformNewBalance = platformCurrent.plus(debitAmount); // User Debit = Platform Credit
+
+                const platformEntry = await tx.ledgerEntry.create({
+                    data: {
+                        userId: LedgerService.PLATFORM_USER_ID,
+                        currency,
+                        type,
+                        debit: new Decimal(0),
+                        credit: debitAmount,
+                        balanceAfter: platformNewBalance,
+                        status: EntryStatus.SETTLED,
+                        sweepStatus: SweepStatus.NOT_APPLICABLE,
+                        holdAmount: new Decimal(0),
+                        reference: platformRef,
+                        tradeGroupId,
+                        counterpartyUserId: userId,
+                        description: `Platform credit (User debit): ${description || type}`,
+                    },
+                });
+
+                platformEntryResult = { id: platformEntry.id, balanceAfter: platformNewBalance, reference: platformRef };
+            }
+
+            // 5. Handle Network Fee (if any)
+            if (feeAmount.greaterThan(0)) {
+                // 5a. Debit User for Fee
+                const feeRef = `userfee:${reference}`;
+                const userFeeBalance = await this.getBalanceInTransaction(tx, userId, currency);
+                // We must subtract from the already updated state (userNewBalance was just the main debit)
+                const userBalanceAfterFee = userNewBalance.minus(feeAmount);
+
+                await tx.ledgerEntry.create({
+                    data: {
+                        userId,
+                        currency,
+                        type: LedgerType.FEE,
+                        debit: feeAmount,
+                        credit: new Decimal(0),
+                        balanceAfter: userBalanceAfterFee,
+                        status: EntryStatus.SETTLED,
+                        sweepStatus: SweepStatus.NOT_APPLICABLE,
+                        holdAmount: new Decimal(0),
+                        reference: feeRef,
+                        tradeGroupId,
+                        description: `Network fee for ${description || type}`,
+                    }
+                });
+
+                // 5b. Credit Fee Account (userId = -1)
+                const feeAccountRef = `fee:${reference}`;
+                const feeAccountLast = await tx.ledgerEntry.findFirst({
+                    where: { userId: LedgerService.NETWORK_FEE_USER_ID, currency },
+                    orderBy: { createdAt: "desc" },
+                    select: { balanceAfter: true }
+                });
+                const feeAccountCurrent = feeAccountLast?.balanceAfter ?? new Decimal(0);
+                const feeAccountNew = feeAccountCurrent.plus(feeAmount);
+
+                await tx.ledgerEntry.create({
+                    data: {
+                        userId: LedgerService.NETWORK_FEE_USER_ID,
+                        currency,
+                        type: LedgerType.FEE,
+                        debit: new Decimal(0),
+                        credit: feeAmount,
+                        balanceAfter: feeAccountNew,
+                        status: EntryStatus.SETTLED,
+                        sweepStatus: SweepStatus.NOT_APPLICABLE,
+                        holdAmount: new Decimal(0),
+                        reference: feeAccountRef,
+                        tradeGroupId,
+                        counterpartyUserId: userId,
+                        description: `Fee collected from User ${userId}`,
+                    }
+                });
+            }
+
+            return {
+                success: true,
+                userEntry: { id: userEntry.id, balanceAfter: userNewBalance, reference },
+                platformEntry: platformEntryResult
+            };
+
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 });
+    }
+
+    /**
+     * Releases a hold and creates platform entries if settling
+     */
+    async releaseHoldWithPlatformEntry(options: ReleaseHoldWithPlatformOptions): Promise<PairedLedgerResult> {
+        const { holdReference, settle, description, tradeGroupId, createPlatformEntry = true, networkFee = 0 } = options;
+
+        const holdEntry = await this.prisma.ledgerEntry.findFirst({
+            where: { reference: holdReference, status: EntryStatus.HOLD },
+        });
+
+        if (!holdEntry) {
+            return { success: false, error: "Hold entry not found" };
+        }
+
+        const lockKeys = [
+            `ledger:${LedgerService.NETWORK_FEE_USER_ID}:${holdEntry.currency}`, // -1
+            `ledger:${LedgerService.PLATFORM_USER_ID}:${holdEntry.currency}`,     // 0
+            `ledger:${holdEntry.userId}:${holdEntry.currency}`                    // User
+        ];
+
+        try {
+            return await this.withLocks(
+                lockKeys,
+                async () => this.executeReleaseHoldWithPlatform(options, holdEntry)
+            );
+        } catch (error) {
+            this.logger.error(`Release hold paired failed: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    private async executeReleaseHoldWithPlatform(
+        options: ReleaseHoldWithPlatformOptions,
+        holdEntry: any
+    ): Promise<PairedLedgerResult> {
+        const { settle, description, tradeGroupId, createPlatformEntry = true } = options;
+        const feeAmount = this.toDecimal(options.networkFee ?? 0);
+
+        return await this.prisma.$transaction(async (tx) => {
+            const currentHold = await tx.ledgerEntry.findUnique({ where: { id: holdEntry.id } });
+            if (!currentHold || currentHold.status !== EntryStatus.HOLD) {
+                return { success: false, error: "Hold entry not valid or already released" };
+            }
+
+            if (settle) {
+                // 1. Convert Hold to Debit for User
+                const userNewBalance = currentHold.balanceAfter.minus(currentHold.holdAmount);
+                const updatedUserEntry = await tx.ledgerEntry.update({
+                    where: { id: currentHold.id },
+                    data: {
+                        debit: currentHold.holdAmount,
+                        holdAmount: new Decimal(0),
+                        balanceAfter: userNewBalance,
+                        status: EntryStatus.SETTLED,
+                        description: description ?? currentHold.description,
+                        updatedAt: new Date(),
+                        tradeGroupId: tradeGroupId ?? currentHold.tradeGroupId
+                    }
+                });
+
+                // 2. Create Platform Credit (if requested)
+                let platformEntryResult = null;
+                if (createPlatformEntry) {
+                    // Platform Credit = HoldAmount - FeeAmount (to balance the debits: User Debit vs Platform+Fee Credit)
+                    const effectivePlatformCredit = currentHold.holdAmount.minus(feeAmount);
+
+                    const platformRef = `platform:${currentHold.reference}`;
+                    const platformLast = await tx.ledgerEntry.findFirst({
+                        where: { userId: LedgerService.PLATFORM_USER_ID, currency: currentHold.currency },
+                        orderBy: { createdAt: "desc" },
+                        select: { balanceAfter: true }
+                    });
+                    const platformCurrent = platformLast?.balanceAfter ?? new Decimal(0);
+                    const platformNewBalance = platformCurrent.plus(effectivePlatformCredit);
+
+                    const platformEntry = await tx.ledgerEntry.create({
+                        data: {
+                            userId: LedgerService.PLATFORM_USER_ID,
+                            currency: currentHold.currency,
+                            type: currentHold.type,
+                            debit: new Decimal(0),
+                            credit: effectivePlatformCredit,
+                            balanceAfter: platformNewBalance,
+                            status: EntryStatus.SETTLED,
+                            sweepStatus: SweepStatus.NOT_APPLICABLE,
+                            holdAmount: new Decimal(0),
+                            reference: platformRef,
+                            tradeGroupId: tradeGroupId ?? currentHold.tradeGroupId,
+                            counterpartyUserId: currentHold.userId,
+                            description: `Platform credit (User settled): ${description || currentHold.type}`,
+                        }
+                    });
+                    platformEntryResult = { id: platformEntry.id, balanceAfter: platformNewBalance, reference: platformRef };
+
+                    if (feeAmount.greaterThan(0)) {
+                        const feeRef = `fee:${currentHold.reference}`;
+                        const feeLast = await tx.ledgerEntry.findFirst({
+                            where: { userId: LedgerService.NETWORK_FEE_USER_ID, currency: currentHold.currency },
+                            orderBy: { createdAt: "desc" },
+                            select: { balanceAfter: true }
+                        });
+                        const feeCurrent = feeLast?.balanceAfter ?? new Decimal(0);
+                        const feeNew = feeCurrent.plus(feeAmount);
+
+                        await tx.ledgerEntry.create({
+                            data: {
+                                userId: LedgerService.NETWORK_FEE_USER_ID,
+                                currency: currentHold.currency,
+                                type: LedgerType.FEE,
+                                debit: new Decimal(0),
+                                credit: feeAmount,
+                                balanceAfter: feeNew,
+                                status: EntryStatus.SETTLED,
+                                sweepStatus: SweepStatus.NOT_APPLICABLE,
+                                holdAmount: new Decimal(0),
+                                reference: feeRef,
+                                tradeGroupId: tradeGroupId ?? currentHold.tradeGroupId,
+                                counterpartyUserId: currentHold.userId,
+                                description: `Network fee for ${description || currentHold.type}`,
+                            }
+                        });
+                    }
+                }
+
+                return {
+                    success: true,
+                    userEntry: { id: updatedUserEntry.id, balanceAfter: userNewBalance, reference: updatedUserEntry.reference },
+                    platformEntry: platformEntryResult
+                };
+
+            } else {
+                // REFUND (Release without Settle)
+                await tx.ledgerEntry.update({
+                    where: { id: currentHold.id },
+                    data: {
+                        holdAmount: new Decimal(0),
+                        status: EntryStatus.CANCELLED,
+                        description: description ?? currentHold.description,
+                        updatedAt: new Date()
+                    }
+                });
+
+                return {
+                    success: true,
+                    userEntry: { id: currentHold.id, balanceAfter: currentHold.balanceAfter, reference: currentHold.reference },
+                    userBalanceAfter: currentHold.balanceAfter
+                };
+            }
+
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 });
     }
 }
 

@@ -490,40 +490,37 @@ export class UserService {
             },
         };
 
+        // OPTIMIZATION: Run all queries in parallel instead of sequential
         const dbStartTime = Date.now();
-
-        // Query 1: Fetch user assets + count in a transaction FIRST to get the list of assets
-        const assetsResult = await this.prisma.$transaction([
-            this.prisma.assetWallet.findMany({
-                ...dbQuery,
-                ...(query.paginated === "true" && {
-                    skip: (resolvedPageNumber - 1) * resolvedPageSize,
-                    take: resolvedPageSize,
+        const [assetsResult, dynamicRates, liveMarketData, ledgerBalances] = await Promise.all([
+            // Query 1: Fetch user assets + count in a transaction
+            this.prisma.$transaction([
+                this.prisma.assetWallet.findMany({
+                    ...dbQuery,
+                    ...(query.paginated === "true" && {
+                        skip: (resolvedPageNumber - 1) * resolvedPageSize,
+                        take: resolvedPageSize,
+                    }),
                 }),
-            }),
-            this.prisma.assetWallet.count({ where: dbQuery.where }),
-        ]);
-
-        const [assets, count] = assetsResult;
-        const uniqueAssets = [...new Set(assets.map(a => a.assetCurrency))];
-
-        this.logger.log(`[PERF] getUserWallets DB assets fetch for user ${userId}: ${Date.now() - dbStartTime}ms`);
-
-        // OPTIMIZATION: Run remaining queries in parallel including LiveCoinWatch with reduced timeout
-        // This prevents LCW from blocking the entire request for 10s if it hangs
-        const parallelStartTime = Date.now();
-        const [dynamicRates, liveMarketData, ledgerBalances, lcwData] = await Promise.all([
+                this.prisma.assetWallet.count({ where: dbQuery.where }),
+            ]),
             // Query 2: Fetch dynamic rates from RateService (uses LiveCoinWatch)
             this.rateService.getAllRates(),
             // Query 3: Fetch live Quidax rates (from cache or API)
             this.quidaxCacheService.getMarketTickers(),
             // Query 4: Fetch ledger balances (virtual balance system)
             this.ledgerService.getAllBalances(userId),
-            // Query 5: Fetch LiveCoinWatch market data with 5s timeout override
-            this.liveCoinWatchService.getBatchMarketData(uniqueAssets, 5000)
         ]);
 
-        this.logger.log(`[PERF] getUserWallets parallel queries (Rates+Ledger+LCW) for user ${userId}: ${Date.now() - parallelStartTime}ms`);
+        this.logger.log(`[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`);
+
+        const [assets, count] = assetsResult;
+
+        // Fetch LiveCoinWatch market data for percentage change fallback
+        const uniqueAssets = [...new Set(assets.map(a => a.assetCurrency))];
+        const lcwStartTime = Date.now();
+        const lcwData = await this.liveCoinWatchService.getBatchMarketData(uniqueAssets);
+        this.logger.log(`[PERF] LiveCoinWatch batch fetch for ${uniqueAssets.length} assets: ${Date.now() - lcwStartTime}ms`);
 
         // Create a map of dynamic rates by currency
         const dynamicRatesMap = new Map(
@@ -803,9 +800,11 @@ export class UserService {
             where: { email },
             select: {
                 id: true,
-                email: true,
                 firstName: true,
                 lastName: true,
+                email: true,
+                photo: true,
+                status: true,
             },
         });
 
@@ -813,22 +812,9 @@ export class UserService {
             throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
         }
 
-        // Mask the name for privacy
-        const maskedFirstName = user.firstName
-            ? `${user.firstName.charAt(0)}***`
-            : "***";
-        const maskedLastName = user.lastName
-            ? `${user.lastName.charAt(0)}***`
-            : "***";
-
         return {
-            success: true,
-            data: {
-                id: user.id,
-                email: user.email,
-                firstName: maskedFirstName,
-                lastName: maskedLastName,
-            },
+            message: "User found",
+            data: user,
         };
     }
 }

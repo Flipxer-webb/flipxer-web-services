@@ -43,4 +43,10 @@ export class UserService {
         const { password: _, ...result } = user;
         return result;
     }
+
+    async getUserByEmail(email: string) {
+        return this.prisma.user.findUnique({
+            where: { email },
+        });
+    }
 }
