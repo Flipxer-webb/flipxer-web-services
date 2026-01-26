@@ -286,31 +286,11 @@ export class SwapService {
 
             // --- LEG B: BUY (Admin -> User) ---
 
-            // Liquidity Check: Does Admin have enough Crypto B?
-            const adminWallet = await this.walletManagementService.getWalletBalance(quote.to_currency.toUpperCase());
-            const adminBalance = Number(adminWallet?.balance || 0);
-
-            if (adminBalance < quote.to_amount) {
-                this.logger.warn(`Insufficient Admin Liquidity for Swap ${order.id}. Failing execution to trigger rollback.`);
-
-                // Alert Admin via Slack (Keep alert for visibility)
-                await this.slackWebhookService.sendWebhookFailureAlert(
-                    'quidax',
-                    reference,
-                    `Insufficient Liquidity for Swap Buy Leg. Order ${order.id} Failed & Rolled Back.`,
-                    {
-                        orderId: order.id,
-                        required: quote.to_amount,
-                        currency: quote.to_currency,
-                        available: adminBalance
-                    }
-                );
-
-                throw new GeneralTransactionException(
-                    `Insufficient system liquidity for ${quote.to_currency}. Please try again later.`,
-                    HttpStatus.SERVICE_UNAVAILABLE
-                );
-            }
+            // Liquidity Check REMOVED for Fractional Reserve Model
+            // We do not check Admin Wallet Balance here. 
+            // The BuyOrderService.executeInternalBuy uses the Omnibus Ledger system 
+            // which credits the user's virtual balance regardless of Quidax balance.
+            // Risk: Platform may be short on assets (Solvency Risk), but UX is instant.
 
             // Execute Buy
             const buyRef = `${reference}_buy`;
@@ -496,16 +476,8 @@ export class SwapService {
         const reference = order.orderReference;
         const buyRef = `${reference}_buy`;
 
-        // 3. Liquidity Check
-        const adminWallet = await this.walletManagementService.getWalletBalance(toCurrency.toUpperCase());
-        const adminBalance = Number(adminWallet?.balance || 0);
-
-        if (adminBalance < toAmount) {
-            throw new GeneralTransactionException(
-                `Still insufficient liquidity. Required: ${toAmount} ${toCurrency}, Available: ${adminBalance}`,
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        // Liquidity Check REMOVED for Fractional Reserve Model
+        // We allow retries even if Quidax balance is low, as it's a virtual credit.
 
         // 4. Execute Buy (Admin -> User)
         const user = await this.prisma.user.findUnique({ where: { id: order.userId } });
