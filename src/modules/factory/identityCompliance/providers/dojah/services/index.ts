@@ -159,49 +159,6 @@ export class DojahService {
         };
     }
 
-    /**
-     * Validate a widget verification result by fetching it from Dojah API
-     * This provides server-to-server validation of client-side verification claims
-     */
-    async getVerificationResult(verificationId: string): Promise<{
-        verified: boolean;
-        status: string;
-        data: any;
-    }> {
-        try {
-            const result = await this.dojah.getVerificationResult(verificationId);
-            
-            if (!result) {
-                this.logger.warn(`Verification result not found for ID: ${verificationId}`);
-                return {
-                    verified: false,
-                    status: "not_found",
-                    data: null,
-                };
-            }
-
-            const entity = result.data?.entity || result.data;
-            const verified = entity?.status === "verified" || 
-                            entity?.overall_status === "verified";
-            
-            this.logger.log(`Verification result for ${verificationId}: verified=${verified}, status=${entity?.status}`);
-            
-            return {
-                verified,
-                status: entity?.status || "unknown",
-                data: entity,
-            };
-        } catch (error) {
-            this.logger.error(`Failed to fetch verification result for ${verificationId}:`, error);
-            // Return as unverified if we can't fetch the result
-            return {
-                verified: false,
-                status: "fetch_error",
-                data: null,
-            };
-        }
-    }
-
     private handleVerificationError(error: any, verificationType: string): never {
         this.logger.error(error);
 

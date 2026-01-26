@@ -11,16 +11,15 @@ import { TierService } from "../auth/services/tier.service";
 import { PrismaModule } from "@/modules/core/prisma";
 import { LedgerService } from "../trade/services/ledger/ledger.service";
 import { RateService } from "../trade/services/rate.service";
-import { RateLimitModule } from "@/modules/core/rate-limit/rate-limit.module";
 export * from "./interfaces";
 export * from "./errors";
 export * from "./decorators";
 
 @Global()
 @Module({
-    imports: [forwardRef(() => AuthModule), CachingModule, PrismaModule, RateLimitModule],
+    imports: [forwardRef(() => AuthModule), CachingModule, PrismaModule],
     controllers: [UserController, AdminUserController, PreferencesController],
     providers: [UserService, AdminUserService, TierService, PreferencesService, LedgerService, RateService],
     exports: [UserService, TierService, PreferencesService],
 })
-export class UserModule { }
+export class UserModule {}

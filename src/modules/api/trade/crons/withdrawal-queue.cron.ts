@@ -200,11 +200,13 @@ export class WithdrawalQueueCron {
             }
 
             // Settle the hold (convert to confirmed debit)
-            const settleResult = await this.ledgerService.releaseHold(
-                holdEntry.reference,
-                true, // settle = true
-                `Queued withdrawal processed: ${withdrawalRes.data.id}`
-            );
+            // DOUBLE ENTRY: releaseHoldWithPlatformEntry ensures platform liability (credit) is created (reduced)
+            const settleResult = await this.ledgerService.releaseHoldWithPlatformEntry({
+                holdReference: holdEntry.reference,
+                settle: true, // settle = true
+                description: `Queued withdrawal processed: ${withdrawalRes.data.id}`,
+                createPlatformEntry: true
+            });
 
             if (!settleResult.success) {
                 this.logger.error(`Failed to settle hold: ${settleResult.error}`);

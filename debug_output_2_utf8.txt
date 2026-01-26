@@ -1,0 +1,119 @@
+﻿--- Checking Recent Swaps (Last 5) ---
+Swap ID: 361 (Tx: D709HF45933EG9E) - Status: cancelled - Streamlined: cancelled
+  User: magpiep18@gmail.com
+  Created: 2026-01-25T13:46:59.112Z
+  Amount: 10 USDT -> 9.851075400387936 USDC
+  Quidax Order ID: N/A
+  Quidax Reference: 92fgd69dch26367dee1deb61h69e9f
+  Error/Note: ON_HOLD: Insufficient Liquidity for usdc. Waiting for Admin.
+  -----------------------------------
+Swap ID: 326 (Tx: A9DHD57A5F02ACC) - Status: completed - Streamlined: completed
+  User: magpiep18@gmail.com
+  Created: 2026-01-20T20:30:54.763Z
+  Amount: 6 USDC -> 5.90118444065451 USDT
+  Quidax Order ID: N/A
+  Quidax Reference: dh2f14hacf7365083h4ea5cc8bc107
+  Error/Note: Swap Completed. Received 5.90118444065451 usdt
+  -----------------------------------
+Swap ID: 325 (Tx: B5HA9EBFEEC15DB) - Status: completed - Streamlined: completed
+  User: magpiep18@gmail.com
+  Created: 2026-01-20T19:02:54.403Z
+  Amount: 1 USDT -> 0.9886555819700549 USDC
+  Quidax Order ID: N/A
+  Quidax Reference: 7a678be5cc08edf2959cb6a27e910e
+  Error/Note: Swap Completed. Received 0.9886555819700549 usdc
+  -----------------------------------
+Swap ID: 310 (Tx: 02DG58A94ABD321) - Status: completed - Streamlined: completed
+  User: magpiep18@gmail.com
+  Created: 2026-01-16T13:42:41.008Z
+  Amount: 2 USDT -> 1.972334900337859 USDC
+  Quidax Order ID: N/A
+  Quidax Reference: 9fde87e5c29g2894510b47f9ehg3ga
+  Error/Note: Swap Completed. Received 1.972334900337859 usdc
+  -----------------------------------
+Swap ID: 227 (Tx: 2A134E63888G75F) - Status: completed - Streamlined: completed
+  User: magpiep18@gmail.com
+  Created: 2026-01-10T06:51:09.983Z
+  Amount: 4 USDT -> 4.14 USDC
+  Quidax Order ID: N/A
+  Quidax Reference: a9f47b70d708321cc6fbe4d5f293g1
+  Error/Note: Swap Completed. Received 4.14 usdc
+  -----------------------------------
+
+--- Checking Recent Ledger Entries (Last 10) ---
+Entry ID: 581cd0fb-78b4-4979-b18d-9df9a0037f0e - Type: SWAP_OUT - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDT -10
+  Hold Amount: 0
+  Reference: swap-sell-hold:92fgd69dch26367dee1deb61h69e9f
+  Desc: Swap sell leg: 92fgd69dch26367dee1deb61h69e9f
+  ...................................
+Entry ID: 6bb33e20-8243-4f9b-82ff-4fe8e4ac2d40 - Type: SEND - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDT -10
+  Hold Amount: 0
+  Reference: send:INT-32b902d8-7d56-4c33-af1c-7086c2269f96
+  Desc: Transfer to user 6
+  ...................................
+Entry ID: 84777f3a-baca-4002-95b1-3ab99c6b9307 - Type: RECEIVE - Status: SETTLED
+  User: testuser@flipxer.com
+  Amount: USDT +10
+  Hold Amount: 0
+  Reference: recv:INT-32b902d8-7d56-4c33-af1c-7086c2269f96
+  Desc: Transfer from user 7
+  ...................................
+Entry ID: 765a7f23-e47c-4ec5-be89-8ede1b50bd40 - Type: SWAP_IN - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDT +5.90118444
+  Hold Amount: 0
+  Reference: swap-buy:dh2f14hacf7365083h4ea5cc8bc107_buy
+  Desc: null
+  ...................................
+Entry ID: 06086939-b8c3-4ffc-8a2a-c4930ae98e6e - Type: SWAP_OUT - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDC -6
+  Hold Amount: 0
+  Reference: swap-sell-hold:dh2f14hacf7365083h4ea5cc8bc107
+  Desc: Swap sell leg: dh2f14hacf7365083h4ea5cc8bc107
+  ...................................
+Entry ID: 77f756d4-2138-4280-82bb-c7b4383140e3 - Type: SWAP_IN - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDC +0.98865558
+  Hold Amount: 0
+  Reference: swap-buy:7a678be5cc08edf2959cb6a27e910e_buy
+  Desc: null
+  ...................................
+Entry ID: 99660760-eb74-41ed-bb57-e7c8dd137985 - Type: SWAP_OUT - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDT -1
+  Hold Amount: 0
+  Reference: swap-sell-hold:7a678be5cc08edf2959cb6a27e910e
+  Desc: Swap sell leg: 7a678be5cc08edf2959cb6a27e910e
+  ...................................
+Entry ID: 742df356-aa49-422e-b286-c0478d3b4847 - Type: BUY - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDT +1
+  Hold Amount: 0
+  Reference: buy:G95973A61A675C7
+  Desc: null
+  ...................................
+Entry ID: b70871b4-4e17-48de-adb5-62aa4eab4574 - Type: SELL - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDT -2
+  Hold Amount: 0
+  Reference: sell-hold:2f8e8c6g336c0fe2097fg701ae443e
+  Desc: Sell order: e35b8cg3bbbcbh12e4385594h0fg8e
+  ...................................
+Entry ID: 9aa04a4b-ca77-413e-bd83-f3604437859b - Type: BUY - Status: SETTLED
+  User: magpiep18@gmail.com
+  Amount: USDT +1
+  Hold Amount: 0
+  Reference: buy:C1G421GE7H7E80B
+  Desc: null
+  ...................................
+
+--- Checking Deposit Review Queue ---
+No pending deposits.
+
+--- Checking Withdrawal Queue ---
+No queued withdrawals.

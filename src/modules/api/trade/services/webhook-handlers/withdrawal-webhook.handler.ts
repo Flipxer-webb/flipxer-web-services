@@ -368,7 +368,10 @@ export class WithdrawalWebhookHandler {
             // In SellOrderService: total = totalCostInCrypto
             const refundAmount = transaction.total || transaction.amount;
 
-            const result = await this.ledgerService.credit({
+            // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
+            // This reverses the previous Paired Debit (User Debit, Platform Credit)
+            // So we have User Credit, Platform Debit.
+            const result = await this.ledgerService.pairedCredit({
                 userId: transaction.userId,
                 currency: transaction.currency.toUpperCase(),
                 type: LedgerType.ADJUSTMENT, // Using ADJUSTMENT as REFUND is not available
@@ -380,6 +383,7 @@ export class WithdrawalWebhookHandler {
                     originalOrderReference: transaction.orderReference,
                     reason: "Sell order failed",
                 },
+                createPlatformEntry: true
             });
 
             if (result.success) {

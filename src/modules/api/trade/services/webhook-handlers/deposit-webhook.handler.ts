@@ -472,7 +472,8 @@ export class DepositWebhookHandler {
 
         // Credit user's ledger with deposit amount
         // sweepStatus = PENDING means user can't withdraw until sweep confirms
-        const creditResult = await this.ledgerService.credit({
+        // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
+        const creditResult = await this.ledgerService.pairedCredit({
             userId: user.id,
             currency: currency,
             amount: depositAmount,
@@ -488,6 +489,7 @@ export class DepositWebhookHandler {
                 transactionId: transactionId,
             },
             sweepStatus: SweepStatus.PENDING, // Block withdrawal until sweep confirms
+            createPlatformEntry: true // Explicitly create platform debit
         });
 
         if (!creditResult.success) {
@@ -519,17 +521,18 @@ export class DepositWebhookHandler {
                 userId: user.id,
                 currency: currency,
                 amount: depositAmount,
-                ledgerEntryId: creditResult.entry?.id,
-                balanceAfter: creditResult.entry?.balanceAfter.toString(),
+                ledgerEntryId: creditResult.userEntry?.id,
+                balanceAfter: creditResult.userEntry?.balanceAfter.toString(),
+                platformEntryId: creditResult.platformEntry?.id,
                 sweepStatus: SweepStatus.PENDING,
             })}`
         );
 
         // Link ledger entry to the order
-        if (creditResult.entry) {
+        if (creditResult.userEntry) {
             await this.prisma.order.updateMany({
                 where: { transactionId: transactionId },
-                data: { ledgerEntryId: creditResult.entry.id },
+                data: { ledgerEntryId: creditResult.userEntry.id },
             });
         }
 
