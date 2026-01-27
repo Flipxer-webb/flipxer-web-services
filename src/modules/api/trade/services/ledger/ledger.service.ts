@@ -292,6 +292,16 @@ export class LedgerService {
                     })}`
                 );
 
+                // --- Audit Log ---
+                this.logAudit(
+                    entry.id,
+                    AuditAction.CREATED,
+                    'system',
+                    description,
+                    metadata
+                ).catch(e => this.logger.error(`Failed to audit credit ${entry.id}: ${e.message}`));
+                // -----------------
+
                 return {
                     success: true,
                     entryId: entry.id,
@@ -506,6 +516,15 @@ export class LedgerService {
                     })}`
                 );
 
+                // --- Audit Log ---
+                this.logAudit(
+                    entry.id,
+                    AuditAction.CREATED,
+                    'system',
+                    description
+                ).catch(e => this.logger.error(`Failed to audit debit ${entry.id}: ${e.message}`));
+                // -----------------
+
                 return {
                     success: true,
                     entryId: entry.id,
@@ -656,6 +675,15 @@ export class LedgerService {
                     })}`
                 );
 
+                // --- Audit Log ---
+                this.logAudit(
+                    entry.id,
+                    AuditAction.HOLD_PLACED,
+                    'system',
+                    description
+                ).catch(e => this.logger.error(`Failed to audit hold ${entry.id}: ${e.message}`));
+                // -----------------
+
                 return {
                     success: true,
                     entryId: entry.id,
@@ -747,13 +775,14 @@ export class LedgerService {
                     };
                 }
 
+                let result: LedgerOperationResult;
                 if (settle) {
                     // Convert hold to debit - balance decreases
                     const newBalance = holdEntry.balanceAfter.minus(
                         holdEntry.holdAmount
                     );
 
-                    await tx.ledgerEntry.update({
+                    const updatedEntry = await tx.ledgerEntry.update({
                         where: { id: holdEntryId },
                         data: {
                             debit: holdEntry.holdAmount,
@@ -775,14 +804,23 @@ export class LedgerService {
                         })}`
                     );
 
-                    return {
+                    // --- Audit Log ---
+                    this.logAudit(
+                        updatedEntry.id,
+                        AuditAction.SETTLED,
+                        'system',
+                        description
+                    ).catch(e => this.logger.error(`Failed to audit hold settlement ${updatedEntry.id}: ${e.message}`));
+                    // -----------------
+
+                    result = {
                         success: true,
-                        entryId: holdEntryId,
+                        entryId: updatedEntry.id,
                         balanceAfter: newBalance,
                     };
                 } else {
                     // Release hold without debit - funds become available again
-                    await tx.ledgerEntry.update({
+                    const updatedEntry = await tx.ledgerEntry.update({
                         where: { id: holdEntryId },
                         data: {
                             holdAmount: new Decimal(0),
@@ -801,12 +839,22 @@ export class LedgerService {
                         })}`
                     );
 
-                    return {
+                    // --- Audit Log ---
+                    this.logAudit(
+                        updatedEntry.id,
+                        AuditAction.HOLD_RELEASED,
+                        'system',
+                        description
+                    ).catch(e => this.logger.error(`Failed to audit hold release ${updatedEntry.id}: ${e.message}`));
+                    // -----------------
+
+                    result = {
                         success: true,
-                        entryId: holdEntryId,
+                        entryId: updatedEntry.id,
                         balanceAfter: holdEntry.balanceAfter,
                     };
                 }
+                return result;
             },
             {
                 isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -969,7 +1017,7 @@ export class LedgerService {
                 const recipientNewBalance = recipientBalance.total.plus(amount);
 
                 // Credit Recipient
-                await tx.ledgerEntry.create({
+                const creditEntry = await tx.ledgerEntry.create({
                     data: {
                         userId: toUserId,
                         currency,
@@ -996,9 +1044,16 @@ export class LedgerService {
                     })}`
                 );
 
+                // --- Audit Logs (Both sides) ---
+                Promise.all([
+                    this.logAudit(debitEntry.id, AuditAction.CREATED, 'system', `Transfer sent to ${toUserId}`, { counterparty: toUserId }),
+                    this.logAudit(creditEntry.id, AuditAction.CREATED, 'system', `Transfer received from ${fromUserId}`, { counterparty: fromUserId })
+                ]).catch(e => this.logger.error(`Failed to audit internal transfer: ${e.message}`));
+                // -------------------------------
+
                 return {
                     success: true,
-                    entryId: debitEntry.id,
+                    entryId: debitEntry.id, // Return sender's entry ID main
                     balanceAfter: senderNewBalance,
                 };
             },
@@ -1337,7 +1392,7 @@ export class LedgerService {
 
                 // Create credit entry for destination
                 const newDestBalance = destCurrentBalance.plus(amount);
-                await tx.ledgerEntry.create({
+                const creditEntry = await tx.ledgerEntry.create({
                     data: {
                         userId: toUserId,
                         currency,
@@ -1363,6 +1418,13 @@ export class LedgerService {
                         debitEntryId: debitEntry.id,
                     })}`
                 );
+
+                // --- Audit Logs ---
+                Promise.all([
+                    this.logAudit(debitEntry.id, AuditAction.CREATED, 'system', `Transfer from ${fromUserId} to ${toUserId}`, { counterparty: toUserId }),
+                    this.logAudit(creditEntry.id, AuditAction.CREATED, 'system', `Transfer from ${fromUserId} to ${toUserId}`, { counterparty: fromUserId })
+                ]).catch(e => this.logger.error(`Failed to audit transfer: ${e.message}`));
+                // ------------------
 
                 return {
                     success: true,
@@ -1461,6 +1523,74 @@ export class LedgerService {
                 },
             },
         });
+    }
+
+    /**
+     * Backfills audit logs for ledger entries that don't have them.
+     * @param limit Max entries to process in one run
+     */
+    async backfillAuditLogs(limit: number = 1000): Promise<number> {
+        this.logger.log(`Starting audit log backfill (limit: ${limit})...`);
+        const entries = await this.prisma.ledgerEntry.findMany({
+            where: {
+                auditLogs: {
+                    none: {}
+                }
+            },
+            take: limit,
+            orderBy: { createdAt: 'desc' }
+        });
+
+        if (entries.length === 0) {
+            this.logger.log("Audit log backfill: No matching entries found.");
+            return 0;
+        }
+
+        this.logger.log(`Audit log backfill: Found ${entries.length} entries. Processing...`);
+        let count = 0;
+
+        for (const entry of entries) {
+            let action: AuditAction = AuditAction.CREATED;
+            // Map status/type to Action
+            // If entry is HOLD -> HOLD_PLACED
+            // If entry is SETTLED and was originally a HOLD -> We can't easily know history without looking at updates, 
+            // but for backfill we assume the current state represents the last action.
+            // Ideally we'd log the creation. 
+            // All entries are CREATED at least.
+            // If it's a HOLD entry, it was HOLD_PLACED.
+            // If it's SETTLED, it was CREATED (or SETTLED if it came from a hold, but simpler to just say CREATED for backfill of existence)
+
+            // Simple mapping:
+            if (entry.status === EntryStatus.HOLD) {
+                action = AuditAction.HOLD_PLACED;
+            } else if (entry.status === EntryStatus.CANCELLED) {
+                // If it's cancelled, it was probably a hold that got released or a failed tx.
+                action = AuditAction.CANCELLED;
+            } else if (entry.status === EntryStatus.FAILED) {
+                action = AuditAction.FAILED;
+            } else {
+                // Default to CREATED for SETTLED/PENDING
+                action = AuditAction.CREATED;
+            }
+
+            try {
+                await this.prisma.ledgerAuditLog.create({
+                    data: {
+                        ledgerEntryId: entry.id,
+                        action,
+                        actor: 'system:backfill',
+                        reason: 'Backfilled audit log',
+                        createdAt: entry.createdAt // Backdate to actual entry time
+                    }
+                });
+                count++;
+            } catch (error) {
+                this.logger.error(`Failed to backfill audit for entry ${entry.id}: ${error.message}`);
+            }
+        }
+
+        this.logger.log(`Audit log backfill: Completed ${count} entries.`);
+        return count;
     }
 
     // ==========================================
@@ -1641,6 +1771,16 @@ export class LedgerService {
 
             this.logger.log(`Paired credit success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? `Debited` : 'Skipped'}`);
 
+            // --- Audit Logs ---
+            const audits = [
+                this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryResult?.id })
+            ];
+            if (platformEntryResult) {
+                audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }));
+            }
+            Promise.all(audits).catch(e => this.logger.error(`Failed to audit paired credit: ${e.message}`));
+            // ------------------
+
             return {
                 success: true,
                 userEntry: {
@@ -1753,6 +1893,7 @@ export class LedgerService {
             // 4. Create Platform Credit (if requested)
             let platformEntryResult = null;
             let platformNewBalance = null;
+            let platformEntryId: string | undefined;
 
             if (options.createPlatformEntry) {
                 const platformRef = `platform:${reference}`;
@@ -1783,17 +1924,17 @@ export class LedgerService {
                 });
 
                 platformEntryResult = { id: platformEntry.id, balanceAfter: platformNewBalance, reference: platformRef };
+                platformEntryId = platformEntry.id;
             }
 
             // 5. Handle Network Fee (if any)
             if (feeAmount.greaterThan(0)) {
                 // 5a. Debit User for Fee
                 const feeRef = `userfee:${reference}`;
-                const userFeeBalance = await this.getBalanceInTransaction(tx, userId, currency);
                 // We must subtract from the already updated state (userNewBalance was just the main debit)
                 const userBalanceAfterFee = userNewBalance.minus(feeAmount);
 
-                await tx.ledgerEntry.create({
+                const userFeeEntry = await tx.ledgerEntry.create({
                     data: {
                         userId,
                         currency,
@@ -1820,7 +1961,7 @@ export class LedgerService {
                 const feeAccountCurrent = feeAccountLast?.balanceAfter ?? new Decimal(0);
                 const feeAccountNew = feeAccountCurrent.plus(feeAmount);
 
-                await tx.ledgerEntry.create({
+                const feeAccountEntry = await tx.ledgerEntry.create({
                     data: {
                         userId: LedgerService.NETWORK_FEE_USER_ID,
                         currency,
@@ -1835,9 +1976,26 @@ export class LedgerService {
                         tradeGroupId,
                         counterpartyUserId: userId,
                         description: `Fee collected from User ${userId}`,
-                    }
+                    },
                 });
+
+                // --- Audit Logs for Fees ---
+                Promise.all([
+                    this.logAudit(userFeeEntry.id, AuditAction.CREATED, 'system', `User fee debit for ${type}`, { relatedTo: userEntry.id, feeTo: feeAccountEntry.id }),
+                    this.logAudit(feeAccountEntry.id, AuditAction.CREATED, 'system', `Fee collected from User ${userId} for ${type}`, { relatedTo: userEntry.id, feeFrom: userFeeEntry.id })
+                ]).catch(e => this.logger.error(`Failed to audit fee entries: ${e.message}`));
+                // ---------------------------
             }
+
+            // --- Audit Logs for main entries ---
+            const audits = [
+                this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryId })
+            ];
+            if (platformEntryResult) {
+                audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }));
+            }
+            Promise.all(audits).catch(e => this.logger.error(`Failed to audit paired debit: ${e.message}`));
+            // ------------------
 
             return {
                 success: true,
@@ -1892,9 +2050,14 @@ export class LedgerService {
                 return { success: false, error: "Hold entry not valid or already released" };
             }
 
+            // Variable to hold the updated user entry (either form)
+            let userEntryResult: any = null;
+            let platformEntryResult: any = null;
+            let userNewBalance: Decimal = currentHold.balanceAfter; // Default if not settling
+
             if (settle) {
                 // 1. Convert Hold to Debit for User
-                const userNewBalance = currentHold.balanceAfter.minus(currentHold.holdAmount);
+                userNewBalance = currentHold.balanceAfter.minus(currentHold.holdAmount);
                 const updatedUserEntry = await tx.ledgerEntry.update({
                     where: { id: currentHold.id },
                     data: {
@@ -1909,9 +2072,8 @@ export class LedgerService {
                 });
 
                 // 2. Create Platform Credit (if requested)
-                let platformEntryResult = null;
                 if (createPlatformEntry) {
-                    // Platform Credit = HoldAmount - FeeAmount (to balance the debits: User Debit vs Platform+Fee Credit)
+                    // Platform Credit = HoldAmount - FeeAmount
                     const effectivePlatformCredit = currentHold.holdAmount.minus(feeAmount);
 
                     const platformRef = `platform:${currentHold.reference}`;
@@ -1972,15 +2134,21 @@ export class LedgerService {
                     }
                 }
 
-                return {
-                    success: true,
-                    userEntry: { id: updatedUserEntry.id, balanceAfter: userNewBalance, reference: updatedUserEntry.reference },
-                    platformEntry: platformEntryResult
-                };
+                // --- Audit Logs (Settle) ---
+                const audits = [
+                    this.logAudit(updatedUserEntry.id, AuditAction.SETTLED, 'system', description)
+                ];
+                if (platformEntryResult) {
+                    audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { relatedTo: updatedUserEntry.id }));
+                }
+                Promise.all(audits).catch(e => this.logger.error(`Failed to audit hold settlement ${updatedUserEntry.id}: ${e.message}`));
+                // ---------------------------
+
+                userEntryResult = { id: updatedUserEntry.id, balanceAfter: userNewBalance, reference: updatedUserEntry.reference };
 
             } else {
                 // REFUND (Release without Settle)
-                await tx.ledgerEntry.update({
+                const updatedEntry = await tx.ledgerEntry.update({
                     where: { id: currentHold.id },
                     data: {
                         holdAmount: new Decimal(0),
@@ -1990,14 +2158,29 @@ export class LedgerService {
                     }
                 });
 
-                return {
-                    success: true,
-                    userEntry: { id: currentHold.id, balanceAfter: currentHold.balanceAfter, reference: currentHold.reference },
-                    userBalanceAfter: currentHold.balanceAfter
+                // --- Audit Logs (Refund) ---
+                this.logAudit(
+                    updatedEntry.id,
+                    AuditAction.HOLD_RELEASED,
+                    'system',
+                    description
+                ).catch(e => this.logger.error(`Failed to audit hold release ${updatedEntry.id}: ${e.message}`));
+                // ---------------------------
+
+                userEntryResult = {
+                    id: updatedEntry.id,
+                    balanceAfter: currentHold.balanceAfter,
+                    reference: updatedEntry.reference
                 };
             }
+
+            return {
+                success: true,
+                userEntry: userEntryResult,
+                platformEntry: platformEntryResult,
+                userBalanceAfter: settle ? userNewBalance : currentHold.balanceAfter
+            };
 
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10000 });
     }
 }
-

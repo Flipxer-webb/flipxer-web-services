@@ -413,6 +413,19 @@ export class AdminLedgerController {
         });
     }
 
+    @ApiOperation({ summary: "Trigger backfill of audit logs for existing entries" })
+    @Post("audit/backfill")
+    async backfillAuditLogs(@Body() body: { limit?: number }) {
+        this.logger.log(`Admin triggering audit log backfill (limit: ${body.limit || 1000})`);
+        const count = await this.ledgerService.backfillAuditLogs(body.limit);
+        return buildResponse({
+            message: "Audit log backfill completed",
+            data: {
+                processedCount: count,
+            },
+        });
+    }
+
     // =========================================================================
     // DEPOSIT REVIEW ENDPOINTS
     // =========================================================================
