@@ -8,6 +8,7 @@ import {
     UseGuards,
     Logger,
     ParseIntPipe,
+    DefaultValuePipe,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from "@nestjs/swagger";
 import {
@@ -284,9 +285,12 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Get pending orphaned holds for review" })
     @Get("orphaned-holds")
-    async getOrphanedHolds() {
-        this.logger.log("Admin fetching orphaned holds");
-        const reviews = await this.orphanedHoldService.getPendingReviews();
+    async getOrphanedHolds(
+        @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
+        @Query("pageSize", new DefaultValuePipe(10), ParseIntPipe) pageSize: number,
+    ) {
+        this.logger.log(`Admin fetching orphaned holds (page ${pageNumber})`);
+        const reviews = await this.orphanedHoldService.getPendingReviews(pageNumber, pageSize);
         const stats = await this.orphanedHoldService.getStats();
         return buildResponse({
             message: "Orphaned holds retrieved",
@@ -390,13 +394,14 @@ export class AdminLedgerController {
     @ApiQuery({ name: "action", required: false, description: "Filter by action type" })
     @Get("audit-logs")
     async getRecentAuditLogs(
-        @Query("limit") limit?: string,
+        @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
+        @Query("pageSize", new DefaultValuePipe(100), ParseIntPipe) pageSize: number,
         @Query("action") action?: string
     ) {
-        this.logger.log("Admin fetching recent audit logs");
-        const parsedLimit = limit ? parseInt(limit, 10) : 100;
+        this.logger.log(`Admin fetching recent audit logs (page ${pageNumber})`);
         const logs = await this.ledgerService.getRecentAuditLogs(
-            parsedLimit,
+            pageNumber,
+            pageSize,
             action as any // Will be validated by Prisma
         );
         return buildResponse({
@@ -412,16 +417,26 @@ export class AdminLedgerController {
     // DEPOSIT REVIEW ENDPOINTS
     // =========================================================================
 
-    @ApiOperation({ summary: "Get pending deposit reviews" })
+    @ApiOperation({ summary: "Get deposit reviews" })
     @Get("deposit-reviews")
-    async getPendingDepositReviews() {
-        this.logger.log("Admin fetching pending deposit reviews");
-        const reviews = await this.depositReviewService.getPendingReviews();
+    async getDepositReviews(
+        @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
+        @Query("pageSize", new DefaultValuePipe(10), ParseIntPipe) pageSize: number,
+        @Query("status") status?: string,
+        @Query("currency") currency?: string
+    ) {
+        this.logger.log(`Admin fetching deposit reviews (page ${pageNumber})`);
+        const { reviews, count } = await this.depositReviewService.getReviews(
+            pageNumber,
+            pageSize,
+            status as any,
+            currency
+        );
         return buildResponse({
-            message: "Pending deposit reviews retrieved",
+            message: "Deposit reviews retrieved",
             data: {
                 reviews,
-                count: reviews.length,
+                count,
             },
         });
     }

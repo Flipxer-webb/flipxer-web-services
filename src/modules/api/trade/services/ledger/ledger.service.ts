@@ -1440,22 +1440,23 @@ export class LedgerService {
      * @param action Optional filter by action type
      * @returns Array of audit log entries with ledger entry details
      */
-    async getRecentAuditLogs(limit: number = 100, action?: AuditAction) {
+    async getRecentAuditLogs(pageNumber: number = 1, pageSize: number = 100, action?: AuditAction) {
         return this.prisma.ledgerAuditLog.findMany({
             where: action ? { action } : undefined,
             orderBy: { createdAt: "desc" },
-            take: limit,
+            skip: (pageNumber - 1) * pageSize,
+            take: pageSize,
             include: {
                 ledgerEntry: {
-                    select: {
-                        id: true,
-                        userId: true,
-                        currency: true,
-                        type: true,
-                        debit: true,
-                        credit: true,
-                        status: true,
-                        reference: true,
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                email: true,
+                                firstName: true,
+                                lastName: true,
+                            },
+                        },
                     },
                 },
             },

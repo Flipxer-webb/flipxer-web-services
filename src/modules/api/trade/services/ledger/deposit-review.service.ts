@@ -158,21 +158,55 @@ export class DepositReviewService {
     /**
      * Get pending deposit reviews
      */
-    async getPendingReviews() {
-        return this.prisma.depositReviewQueue.findMany({
-            where: { status: DepositReviewStatus.PENDING },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        email: true,
-                        firstName: true,
-                        lastName: true,
+    async getReviews(
+        pageNumber: number = 1,
+        pageSize: number = 10,
+        status?: DepositReviewStatus,
+        currency?: string
+    ) {
+        const where: any = {};
+        if (status) where.status = status;
+        // Default to PENDING if no status provided?
+        // Actually, if we rename to getReviews, we might want to default to ALL or PENDING depending on usage.
+        // Existing usage was "getPendingReviews", implying status=PENDING.
+        // But admin portal might want to see history.
+        // Let's rely on the controller to pass status=PENDING if that's the default behavior desired,
+        // or handle it here.
+        // For backward compatibility or safety, if no status is passed, maybe return all?
+        // Let's check if the current implementation defaulted to PENDING. Yes it did.
+        if (!status) where.status = DepositReviewStatus.PENDING;
+
+        if (currency) where.currency = currency;
+
+        const [reviews, count] = await Promise.all([
+            this.prisma.depositReviewQueue.findMany({
+                where,
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                        },
+                    },
+                    reviewer: {
+                        select: {
+                            id: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                        },
                     },
                 },
-            },
-            orderBy: { queuedAt: "asc" },
-        });
+                orderBy: { queuedAt: "asc" },
+                skip: (pageNumber - 1) * pageSize,
+                take: pageSize,
+            }),
+            this.prisma.depositReviewQueue.count({ where }),
+        ]);
+
+        return { reviews, count };
     }
 
     /**

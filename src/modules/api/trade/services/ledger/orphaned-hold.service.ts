@@ -181,11 +181,22 @@ export class OrphanedHoldService {
      *
      * @returns List of pending reviews with related data
      */
-    async getPendingReviews(): Promise<OrphanedHoldReview[]> {
+    async getPendingReviews(pageNumber: number = 1, pageSize: number = 10): Promise<any> {
         return this.prisma.orphanedHoldReview.findMany({
             where: { resolvedAt: null },
             include: {
-                ledgerEntry: true,
+                ledgerEntry: {
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                email: true,
+                                firstName: true,
+                                lastName: true,
+                            },
+                        },
+                    },
+                },
                 resolver: {
                     select: {
                         id: true,
@@ -196,6 +207,8 @@ export class OrphanedHoldService {
                 },
             },
             orderBy: { detectedAt: "asc" },
+            skip: (pageNumber - 1) * pageSize,
+            take: pageSize,
         });
     }
 

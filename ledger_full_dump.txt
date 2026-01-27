@@ -1,0 +1,214 @@
+Investigating for user: magpiep18@gmail.com (ID: 7)
+Currency: USDT
+
+--- Full Ledger History (Chronological) ---
+[0] 2026-01-13T08:57:53.998Z | MIGRATION (SETTLED)
+    Transaction: +0.931 / -0
+    System Bal:  0.931
+    Calc Bal:    0.931 [OK]
+    Ref:         migration_ledger_initial_migration_v1_d4ba4f0b-df43-4f48-ae84-d39402e277fc
+    Desc:        Initial balance migration from AssetWallet
+------------------------------------------------
+[1] 2026-01-13T18:13:46.729Z | BUY (SETTLED)
+    Transaction: +10 / -0
+    System Bal:  10.931
+    Calc Bal:    10.931000000000001 [OK]
+    Ref:         buy:D7365FBB12C6A1D
+    Desc:        null
+------------------------------------------------
+[2] 2026-01-13T18:13:51.351Z | DEPOSIT (SETTLED)
+    Transaction: +10 / -0
+    System Bal:  20.931
+    Calc Bal:    20.931 [OK]
+    Ref:         deposit:4b51a9ac-9c98-45bc-a0ef-8d69d10b1a0a
+    Desc:        null
+------------------------------------------------
+[3] 2026-01-13T18:16:37.371Z | BUY (SETTLED)
+    Transaction: +2 / -0
+    System Bal:  22.931
+    Calc Bal:    22.931 [OK]
+    Ref:         buy:E03C2297DHD8GEA
+    Desc:        null
+------------------------------------------------
+[4] 2026-01-13T18:16:41.799Z | DEPOSIT (SETTLED)
+    Transaction: +2 / -0
+    System Bal:  24.931
+    Calc Bal:    24.931 [OK]
+    Ref:         deposit:0a0e9cb3-46d4-470a-9ffe-01b7015264d7
+    Desc:        null
+------------------------------------------------
+[5] 2026-01-13T18:50:26.673Z | BUY (SETTLED)
+    Transaction: +2 / -0
+    System Bal:  26.931
+    Calc Bal:    26.931 [OK]
+    Ref:         buy:G8BA3F4C7449257
+    Desc:        null
+------------------------------------------------
+[6] 2026-01-13T22:55:43.830Z | BUY (SETTLED)
+    Transaction: +10 / -0
+    System Bal:  36.931
+    Calc Bal:    36.931 [OK]
+    Ref:         buy:5F2ADHAF84G9H74
+    Desc:        null
+------------------------------------------------
+[7] 2026-01-15T17:35:19.353Z | BUY (SETTLED)
+    Transaction: +2 / -0
+    System Bal:  38.931
+    Calc Bal:    38.931 [OK]
+    Ref:         buy:H396992BAC3AG1H
+    Desc:        null
+------------------------------------------------
+[8] 2026-01-16T00:15:55.360Z | SELL (SETTLED)
+    Transaction: +0 / -2
+    System Bal:  36.931
+    Calc Bal:    36.931 [OK]
+    Ref:         sell-hold:7c25f3a034b07e094c783f6fc3ec66
+    Desc:        Sell order: 9a1ec5aa7819h37763fgab89a5ha6g
+------------------------------------------------
+[9] 2026-01-16T13:42:41.021Z | SWAP_OUT (SETTLED)
+    Transaction: +0 / -2
+    System Bal:  34.931
+    Calc Bal:    34.931 [OK]
+    Ref:         swap-sell-hold:9fde87e5c29g2894510b47f9ehg3ga
+    Desc:        Swap sell leg: 9fde87e5c29g2894510b47f9ehg3ga
+------------------------------------------------
+[10] 2026-01-16T23:16:34.447Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  33.931
+    Calc Bal:    33.931 [OK]
+    Ref:         sell-hold:7eae12d2db06a2c81c8d64ce853fga
+    Desc:        Sell order: 6h54f9ghh15cbhfh00b4a82hfhbg5d
+------------------------------------------------
+[11] 2026-01-16T23:19:56.147Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  32.931
+    Calc Bal:    32.931 [OK]
+    Ref:         sell-hold:dh34637ffba84gc70ha426b369b0db
+    Desc:        Sell order: 4e2d2d80af8161da68eaf340fb23gb
+------------------------------------------------
+[12] 2026-01-16T23:39:35.509Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  31.931
+    Calc Bal:    31.930999999999997 [OK]
+    Ref:         sell-hold:84af33fa9b8bc967264b173603d431
+    Desc:        Sell order: 5eg7294e936dha3h8f6bd61b1ed980
+------------------------------------------------
+[13] 2026-01-16T23:50:55.185Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  30.931
+    Calc Bal:    30.930999999999997 [OK]
+    Ref:         sell-hold:95f52hh1913a2dba7d025bcd24eg5a
+    Desc:        Sell order: c6b70d3cc7e6517430365588b7g5b2
+------------------------------------------------
+[14] 2026-01-17T00:06:19.893Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  29.931
+    Calc Bal:    29.930999999999997 [OK]
+    Ref:         sell-hold:cba4gb7863gh98d3226gd159082fdf
+    Desc:        Sell order: h2176eg8c9081a9g3877585196aec0
+------------------------------------------------
+[15] 2026-01-17T00:17:56.130Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  28.931
+    Calc Bal:    28.930999999999997 [OK]
+    Ref:         sell-hold:6g989g1cf9f644dee51b4a8f4gfehb
+    Desc:        Sell order: b62bgdc2049e84fg64aba7gaha0419
+------------------------------------------------
+[16] 2026-01-17T09:23:24.901Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  27.931
+    Calc Bal:    27.930999999999997 [OK]
+    Ref:         sell-hold:b75c42gd45c82cage554fdc22hg463
+    Desc:        Sell order: ah85d035d17g7bcfh4eef6e9dfahdc
+------------------------------------------------
+[17] 2026-01-19T14:39:06.369Z | SELL (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  26.931
+    Calc Bal:    26.930999999999997 [OK]
+    Ref:         sell-hold:b1693e78f0cgaa61c3a97gc4c02e06
+    Desc:        Sell order: 3f2437e5gbba44bhb96dada22a0b62
+------------------------------------------------
+[18] 2026-01-19T16:54:53.404Z | BUY (SETTLED)
+    Transaction: +1 / -0
+    System Bal:  27.931
+    Calc Bal:    27.930999999999997 [OK]
+    Ref:         buy:5G13CB1860FFHAF
+    Desc:        null
+------------------------------------------------
+[19] 2026-01-19T17:01:21.834Z | BUY (SETTLED)
+    Transaction: +1 / -0
+    System Bal:  28.931
+    Calc Bal:    28.930999999999997 [OK]
+    Ref:         buy:C1G421GE7H7E80B
+    Desc:        null
+------------------------------------------------
+[20] 2026-01-19T17:02:51.423Z | SELL (SETTLED)
+    Transaction: +0 / -2
+    System Bal:  26.931
+    Calc Bal:    26.930999999999997 [OK]
+    Ref:         sell-hold:2f8e8c6g336c0fe2097fg701ae443e
+    Desc:        Sell order: e35b8cg3bbbcbh12e4385594h0fg8e
+------------------------------------------------
+[21] 2026-01-19T17:29:03.249Z | BUY (SETTLED)
+    Transaction: +1 / -0
+    System Bal:  27.931
+    Calc Bal:    27.930999999999997 [OK]
+    Ref:         buy:G95973A61A675C7
+    Desc:        null
+------------------------------------------------
+[22] 2026-01-20T19:02:54.411Z | SWAP_OUT (SETTLED)
+    Transaction: +0 / -1
+    System Bal:  26.931
+    Calc Bal:    26.930999999999997 [OK]
+    Ref:         swap-sell-hold:7a678be5cc08edf2959cb6a27e910e
+    Desc:        Swap sell leg: 7a678be5cc08edf2959cb6a27e910e
+------------------------------------------------
+[23] 2026-01-20T20:30:58.336Z | SWAP_IN (SETTLED)
+    Transaction: +5.90118444 / -0
+    System Bal:  32.83218444
+    Calc Bal:    32.83218444 [OK]
+    Ref:         swap-buy:dh2f14hacf7365083h4ea5cc8bc107_buy
+    Desc:        null
+------------------------------------------------
+[24] 2026-01-25T10:36:39.413Z | SEND (SETTLED)
+    Transaction: +0 / -10
+    System Bal:  22.83218444
+    Calc Bal:    22.83218444 [OK]
+    Ref:         send:INT-32b902d8-7d56-4c33-af1c-7086c2269f96
+    Desc:        Transfer to user 6
+------------------------------------------------
+[25] 2026-01-25T13:46:59.123Z | SWAP_OUT (SETTLED)
+    Transaction: +0 / -10
+    System Bal:  12.83218444
+    Calc Bal:    12.832184439999999 [OK]
+    Ref:         swap-sell-hold:92fgd69dch26367dee1deb61h69e9f
+    Desc:        Swap sell leg: 92fgd69dch26367dee1deb61h69e9f
+------------------------------------------------
+[26] 2026-01-25T14:11:10.994Z | REFUND (SETTLED)
+    Transaction: +10 / -0
+    System Bal:  22.83218444
+    Calc Bal:    22.83218444 [OK]
+    Ref:         92fgd69dch26367dee1deb61h69e9f_refund
+    Desc:        Refund for failed swap #361
+------------------------------------------------
+[27] 2026-01-26T13:30:08.225Z | SWAP_OUT (HOLD)
+    Transaction: +0 / -0
+    System Bal:  22.83218444
+    Calc Bal:    22.83218444 [OK]
+    Ref:         swap-sell-hold:14he3745add69462g8b1ddc2h574gg
+    Desc:        Hold for swap sell leg: 10 USDT
+------------------------------------------------
+[28] 2026-01-26T13:30:47.658Z | SWAP_OUT (HOLD)
+    Transaction: +0 / -0
+    System Bal:  22.83218444
+    Calc Bal:    22.83218444 [OK]
+    Ref:         swap-sell-hold:c1g337ch963g1f3b639190f659dd0a
+    Desc:        Hold for swap sell leg: 10 USDT
+------------------------------------------------
+[29] 2026-01-26T13:38:07.859Z | SWAP_OUT (HOLD)
+    Transaction: +0 / -0
+    System Bal:  22.83218444
+    Calc Bal:    22.83218444 [OK]
+    Ref:         swap-sell-hold:54b14e02683d737eb0fhe5bh8g31g8
+    Desc:        Hold for swap sell leg: 2 USDT
+------------------------------------------------
