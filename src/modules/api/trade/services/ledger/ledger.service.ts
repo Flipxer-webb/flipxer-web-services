@@ -1796,6 +1796,172 @@ export class LedgerService {
     }
 
     /**
+     * Credits a user and debits the platform within an EXISTING transaction.
+     * 
+     * IMPORTANT: This method does NOT create its own transaction - the caller MUST:
+     * 1. Acquire distributed locks BEFORE starting the transaction
+     * 2. Pass the transaction client from their own prisma.$transaction()
+     * 
+     * Use this when you need atomicity across multiple operations (e.g., BuyOrderService
+     * needs to credit ledger AND update order status in one atomic operation).
+     * 
+     * @param tx - The Prisma transaction client from the caller's transaction
+     * @param options - Credit options (same as pairedCredit)
+     * @returns PairedLedgerResult
+     */
+    async pairedCreditInTransaction(
+        tx: Prisma.TransactionClient,
+        options: PairedCreditOptions
+    ): Promise<PairedLedgerResult> {
+        const creditAmount = this.toDecimal(options.amount);
+
+        if (creditAmount.lessThanOrEqualTo(0)) {
+            return { success: false, error: "Amount must be positive" };
+        }
+
+        if (options.userId === LedgerService.PLATFORM_USER_ID) {
+            return { success: false, error: "Cannot use pairedCredit for platform user" };
+        }
+
+        try {
+            return await this.executePairedCreditWithClient(tx, options, creditAmount);
+        } catch (error) {
+            this.logger.error(`Paired credit in transaction failed: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Execute paired credit logic using a provided transaction client.
+     * This is the core logic shared between pairedCredit and pairedCreditInTransaction.
+     */
+    private async executePairedCreditWithClient(
+        tx: Prisma.TransactionClient,
+        options: PairedCreditOptions,
+        amount: Decimal
+    ): Promise<PairedLedgerResult> {
+        const {
+            userId,
+            currency,
+            type,
+            reference,
+            tradeGroupId,
+            description,
+            metadata,
+            sweepStatus,
+            createPlatformEntry = true
+        } = options;
+
+        // 1. Check idempotency for User Entry
+        const existingUserEntry = await tx.ledgerEntry.findUnique({
+            where: { type_reference: { type, reference } },
+        });
+
+        if (existingUserEntry) {
+            return {
+                success: true,
+                userEntry: {
+                    id: existingUserEntry.id,
+                    balanceAfter: existingUserEntry.balanceAfter,
+                    reference: existingUserEntry.reference
+                },
+                userBalanceAfter: existingUserEntry.balanceAfter
+            };
+        }
+
+        // 2. Process User Credit
+        const userLastEntry = await tx.ledgerEntry.findFirst({
+            where: { userId, currency, status: { not: EntryStatus.FAILED } },
+            orderBy: { createdAt: "desc" },
+            select: { balanceAfter: true },
+        });
+        const userCurrentBalance = userLastEntry?.balanceAfter ?? new Decimal(0);
+        const userNewBalance = userCurrentBalance.plus(amount);
+
+        const userEntry = await tx.ledgerEntry.create({
+            data: {
+                userId,
+                currency,
+                type,
+                debit: new Decimal(0),
+                credit: amount,
+                balanceAfter: userNewBalance,
+                status: EntryStatus.SETTLED,
+                sweepStatus: sweepStatus ?? (type === LedgerType.DEPOSIT ? SweepStatus.PENDING : SweepStatus.NOT_APPLICABLE),
+                holdAmount: new Decimal(0),
+                reference,
+                tradeGroupId,
+                description,
+                metadata: metadata ?? Prisma.JsonNull,
+            },
+        });
+
+        // 3. Process Platform Debit (if requested)
+        let platformEntryResult = null;
+        let platformNewBalance = null;
+
+        if (createPlatformEntry) {
+            const platformRef = `platform:${reference}`;
+
+            const platformLastEntry = await tx.ledgerEntry.findFirst({
+                where: { userId: LedgerService.PLATFORM_USER_ID, currency },
+                orderBy: { createdAt: "desc" },
+                select: { balanceAfter: true },
+            });
+            const platformCurrentBalance = platformLastEntry?.balanceAfter ?? new Decimal(0);
+
+            platformNewBalance = platformCurrentBalance.minus(amount);
+
+            const platformEntry = await tx.ledgerEntry.create({
+                data: {
+                    userId: LedgerService.PLATFORM_USER_ID,
+                    currency,
+                    type,
+                    debit: amount,
+                    credit: new Decimal(0),
+                    balanceAfter: platformNewBalance,
+                    status: EntryStatus.SETTLED,
+                    sweepStatus: SweepStatus.NOT_APPLICABLE,
+                    holdAmount: new Decimal(0),
+                    reference: platformRef,
+                    tradeGroupId,
+                    counterpartyUserId: userId,
+                    description: `Platform debit (User credit): ${description || type}`,
+                },
+            });
+
+            platformEntryResult = {
+                id: platformEntry.id,
+                balanceAfter: platformNewBalance,
+                reference: platformRef
+            };
+        }
+
+        this.logger.log(`Paired credit (in-tx) success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? `Debited` : 'Skipped'}`);
+
+        // Audit logs (fire-and-forget, outside the critical path)
+        const audits = [
+            this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryResult?.id })
+        ];
+        if (platformEntryResult) {
+            audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }));
+        }
+        Promise.all(audits).catch(e => this.logger.error(`Failed to audit paired credit: ${e.message}`));
+
+        return {
+            success: true,
+            userEntry: {
+                id: userEntry.id,
+                balanceAfter: userNewBalance,
+                reference
+            },
+            platformEntry: platformEntryResult,
+            userBalanceAfter: userNewBalance,
+            platformBalanceAfter: platformNewBalance
+        };
+    }
+
+    /**
      * Debits a user and credits the platform (reduces liability)
      * Optional network fee handling
      */

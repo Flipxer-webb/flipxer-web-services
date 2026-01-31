@@ -30,6 +30,7 @@ import { WsGateway } from "../gateway/v1";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { getStreamlinedStatus } from "../interfaces/trade";
+import { FailedRollbackQueueService } from "./failed-rollback-queue.service";
 
 /**
  * Swap Service
@@ -56,7 +57,8 @@ export class SwapService {
         private readonly slackWebhookService: SlackWebhookService,
         private readonly walletManagementService: WalletManagementService,
         private readonly rateService: RateService,
-        private readonly notificationDispatcher: NotificationDispatcher
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly failedRollbackQueueService: FailedRollbackQueueService
     ) { }
 
     /**
@@ -372,23 +374,45 @@ export class SwapService {
 
                 this.logger.log(`Swap rollback successful for order ${order.id}`);
             } catch (rollbackError) {
-                // Critical: Rollback failed - alert admin immediately
+                // Critical: Rollback failed - queue for persistent retry
                 this.logger.error(`CRITICAL: Swap rollback failed for order ${order.id}: ${rollbackError.message}`, rollbackError.stack);
 
-                await this.slackWebhookService.sendAlert(
-                    "SWAP_ROLLBACK_FAILED",
-                    {
-                        text: `🚨 CRITICAL: Swap rollback failed!\n` +
-                            `Order: ${order.id}\n` +
-                            `Transaction: ${order.transactionId}\n` +
-                            `User: ${user.id} (${user.email})\n` +
-                            `Amount: ${quote.from_amount} ${quote.from_currency}\n` +
-                            `Original Error: ${error.message}\n` +
-                            `Rollback Error: ${rollbackError.message}\n` +
-                            `⚠️ MANUAL INTERVENTION REQUIRED - User funds may be stuck`
-                    },
-                    { alertKey: `swap-rollback-fail:${reference}` }
-                );
+                // CRITICAL FIX: Instead of just alerting, queue for persistent retry
+                // This ensures the user WILL eventually get their refund
+                try {
+                    await this.failedRollbackQueueService.addToQueue({
+                        orderId: order.id,
+                        userId: user.id,
+                        currency: quote.from_currency,
+                        amount: quote.from_amount,
+                        originalError: `Original: ${error.message} | Rollback: ${rollbackError.message}`,
+                        metadata: {
+                            transactionId: order.transactionId,
+                            reference,
+                            userEmail: user.email,
+                        },
+                    });
+                    this.logger.log(`Queued failed rollback for order ${order.id}`);
+                } catch (queueError) {
+                    // If even queueing fails, we must alert admins urgently
+                    this.logger.error(`CRITICAL: Failed to queue rollback: ${queueError.message}`);
+
+                    await this.slackWebhookService.sendAlert(
+                        "SWAP_ROLLBACK_QUEUE_FAILED",
+                        {
+                            text: `🔥 CRITICAL: Swap rollback AND queue failed!\n` +
+                                `Order: ${order.id}\n` +
+                                `Transaction: ${order.transactionId}\n` +
+                                `User: ${user.id} (${user.email})\n` +
+                                `Amount: ${quote.from_amount} ${quote.from_currency}\n` +
+                                `Original Error: ${error.message}\n` +
+                                `Rollback Error: ${rollbackError.message}\n` +
+                                `Queue Error: ${queueError.message}\n` +
+                                `⚠️ IMMEDIATE MANUAL INTERVENTION REQUIRED`
+                        },
+                        { alertKey: `swap-rollback-fail:${reference}` }
+                    );
+                }
             }
 
             // Mark Order as FAILED

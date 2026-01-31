@@ -33,7 +33,7 @@ import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
-import { LedgerService } from "./ledger/ledger.service";
+import { LedgerService, PairedLedgerResult } from "./ledger/ledger.service";
 import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
@@ -420,41 +420,36 @@ export class BuyOrderService {
                 `[Omnibus] Crediting virtual balance for Order ${order.id} | User: ${user.id} | Amount: ${order.amount} ${order.currency}`
             );
 
-            // Credit the user's ledger (virtual balance)
-            // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
-            const creditResult = await this.ledgerService.pairedCredit({
-                userId: payment.userId,
-                currency: order.currency.toUpperCase(),
-                amount: order.amount,
-                type: LedgerType.BUY,
-                reference: `buy:${order.transactionId}`,
-                metadata: {
-                    orderId: order.id,
-                    paymentReference: reference,
-                    omnibus: true, // Flag indicating this is omnibus (no Quidax transfer)
-                },
-                sweepStatus: SweepStatus.NOT_APPLICABLE, // Buy orders don't need sweep - funds stay in omnibus
-                createPlatformEntry: true
-            });
+            // Credit the user's ledger (virtual balance) AND update order atomically
+            // CRITICAL FIX: Previously credit happened OUTSIDE the transaction, creating a window
+            // where user could get free crypto if the status update failed after credit succeeded.
+            // Now both operations happen in a SINGLE atomic transaction.
 
-            if (!creditResult.success) {
-                this.logger.error(
-                    `Failed to credit ledger for buy order ${order.id}: ${creditResult.error}`
-                );
-                // Revert payment to PENDING so next webhook retry can try again
-                await this.prisma.payment.update({
-                    where: { reference },
-                    data: {
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                    },
-                });
-                throw new Error(`Ledger credit failed: ${creditResult.error}`);
-            }
+            let creditResult: PairedLedgerResult;
 
             await this.prisma.$transaction(
                 async (tx) => {
-                    // Mark payment as SUCCESS
+                    // Step 1: Credit user's ledger INSIDE the transaction
+                    creditResult = await this.ledgerService.pairedCreditInTransaction(tx, {
+                        userId: payment.userId,
+                        currency: order.currency.toUpperCase(),
+                        amount: order.amount,
+                        type: LedgerType.BUY,
+                        reference: `buy:${order.transactionId}`,
+                        metadata: {
+                            orderId: order.id,
+                            paymentReference: reference,
+                            omnibus: true,
+                        },
+                        sweepStatus: SweepStatus.NOT_APPLICABLE,
+                        createPlatformEntry: true
+                    });
+
+                    if (!creditResult.success) {
+                        throw new Error(`Ledger credit failed: ${creditResult.error}`);
+                    }
+
+                    // Step 2: Mark payment as SUCCESS (same transaction)
                     await tx.payment.update({
                         where: { reference },
                         data: {
@@ -463,26 +458,25 @@ export class BuyOrderService {
                         },
                     });
 
-                    // Update Order with ledger entry link
+                    // Step 3: Update Order with ledger entry link (same transaction)
                     await tx.order.update({
                         where: { id: order.id },
                         data: {
                             status: OrderStatus.completed,
-                            streamlinedStatus: getStreamlinedStatus(
-                                OrderStatus.completed
-                            ),
+                            streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
                             paymentStatus: TransactionStatus.SUCCESS,
-                            fulfilled: true, // Mark as fulfilled
-                            ledgerEntryId: creditResult.userEntry?.id, // Link to ledger entry
+                            fulfilled: true,
+                            ledgerEntryId: creditResult.userEntry?.id,
                         },
                     });
 
-                    // Note: No Quidax transfer needed - omnibus virtual balance system
-                    // Crypto stays in main wallet, user has virtual balance in ledger
+                    // All three operations (credit, payment update, order update) are now atomic
+                    // If ANY step fails, the ENTIRE transaction rolls back
                 },
                 {
                     maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
                     timeout: EXTENDED_TRANSACTION_TIMEOUT_MS,
+                    isolationLevel: 'Serializable', // Ensures consistency
                 }
             );
 

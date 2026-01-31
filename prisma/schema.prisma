@@ -105,7 +105,7 @@ model User {
   depositReviewQueues                DepositReviewQueue[]
   depositReviewsReviewed             DepositReviewQueue[]              @relation("DepositReviewer")
   kycVerifications                   KycVerification[]
-
+  failedRollbacks                    FailedRollback[]
   // Existing indexes
   @@index([id, bvn])
   // Additional performance indexes
@@ -536,7 +536,7 @@ model Order {
   ledgerEntryId                String?                // Link to main ledger entry for this order
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
-
+  failedRollbacks              FailedRollback[]
   // Single column indexes
   @@index([userId])
   @@index([status])
@@ -1357,4 +1357,44 @@ model LedgerAuditLog {
   @@index([ledgerEntryId])
   @@index([createdAt])
   @@map("LedgerAuditLogs")
+}
+
+// =============================================================================
+// FAILED ROLLBACK QUEUE (Swap Service Resilience)
+// =============================================================================
+
+// Status of a queued rollback
+enum RollbackStatus {
+  PENDING     // Awaiting retry
+  PROCESSING  // Currently being processed
+  COMPLETED   // Successfully rolled back
+  FAILED      // Permanent failure (manual intervention needed)
+}
+
+// Persistent queue for failed rollback operations from SwapService
+// If a swap fails after debiting user, the refund MUST succeed eventually
+model FailedRollback {
+  id            String          @id @default(uuid())
+  orderId       Int             // Link to original swap order
+  userId        Int             // User who needs refund
+  currency      String          // Currency to refund
+  amount        Decimal         @db.Decimal(20, 8) // Amount to refund
+  status        RollbackStatus  @default(PENDING)
+  retryCount    Int             @default(0)
+  lastError     String?         // Last error message
+  createdAt     DateTime        @default(now())
+  lastAttemptAt DateTime?       // Last retry attempt time
+  completedAt   DateTime?       // When successfully completed
+  
+  // Context for debugging
+  originalError String          // Error that caused original rollback to fail
+  metadata      Json?           // Additional context (order details, etc)
+  
+  // Relations
+  order         Order           @relation(fields: [orderId], references: [id])
+  user          User            @relation(fields: [userId], references: [id])
+
+  @@index([status, createdAt]) // For cron job to find pending rollbacks
+  @@index([userId])
+  @@map("FailedRollbacks")
 }

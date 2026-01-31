@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
@@ -31,6 +31,7 @@ import { WalletManagementService } from "../../operations/services/wallet-manage
 import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.handler";
 import { LedgerService } from "./ledger/ledger.service";
 import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 
 /**
  * Sell Order Service
@@ -54,7 +55,8 @@ export class SellOrderService {
         private readonly ledgerService: LedgerService,
         private readonly transactionMonitorService: TransactionMonitorService,
         private readonly rateService: RateService,
-        private readonly notificationDispatcher: NotificationDispatcher
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly slackWebhookService: SlackWebhookService
     ) { }
 
 
@@ -345,19 +347,83 @@ export class SellOrderService {
             // Trigger fiat payout handler since virtual balance is already debited
             this.logger.log(`[Omnibus] Sell Order ${order.id} ledger debit complete - triggering fiat payout | Reference: ${reference}`);
 
-            // Trigger handler immediately since the "crypto transfer" (ledger debit) is done
-            // We don't await this to avoid blocking the response to the client
-            this.withdrawalWebhookHandler.handle({
-                orderReference: reference,
-                status: OrderStatus.done,
-            }).catch(err => {
-                this.logger.error(`Error handling omnibus sell order completion for Order ${order.id}: ${err.message}`, err.stack);
-            });
+            // CRITICAL FIX: Await payout to ensure we know if it succeeded before returning success
+            // Previously: Fire-and-forget could return "success" even if payout failed
+            try {
+                await this.withdrawalWebhookHandler.handle({
+                    orderReference: reference,
+                    status: OrderStatus.done,
+                });
 
-            return buildResponse({
-                message: "Order placed successfully, Payment is processing",
-                data: order,
-            });
+                this.logger.log(`[Omnibus] Sell Order ${order.id} payout initiated successfully`);
+
+                return buildResponse({
+                    message: "Order placed successfully, Payment is processing",
+                    data: order,
+                });
+            } catch (payoutError) {
+                // Payout initiation failed - release hold and fail the order
+                this.logger.error(
+                    `Payout initiation failed for Order ${order.id}: ${payoutError.message}`,
+                    payoutError.stack
+                );
+
+                // Release the hold since payout could not be initiated
+                try {
+                    await this.ledgerService.releaseHold(
+                        holdReference,
+                        false,
+                        `Payout initiation failed: ${payoutError.message}`
+                    );
+                    this.logger.log(`Released hold after payout failure | Reference: ${holdReference}`);
+                } catch (releaseError) {
+                    this.logger.error(
+                        `CRITICAL: Failed to release hold after payout failure: ${releaseError.message}`,
+                        releaseError.stack
+                    );
+                    // Alert admin - funds may be stuck
+                    await this.slackWebhookService?.sendAlert?.('SELL_ORDER_HOLD_STUCK', {
+                        text: `🚨 CRITICAL: Sell order payout failed AND hold release failed!\n` +
+                            `Order: ${order.id}\n` +
+                            `User: ${user.id}\n` +
+                            `Hold Reference: ${holdReference}\n` +
+                            `Payout Error: ${payoutError.message}\n` +
+                            `Release Error: ${releaseError.message}\n` +
+                            `⚠️ MANUAL INTERVENTION REQUIRED`,
+                    });
+                }
+
+                // Update order to failed status
+                await this.prisma.order.update({
+                    where: { id: order.id },
+                    data: {
+                        status: OrderStatus.failed,
+                        streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
+                        transaction_note: `Payout initiation failed: ${payoutError.message}`,
+                    },
+                });
+
+                // Notify user of failure
+                this.wsGateway.notifyTransactionUpdate(user.id, {
+                    type: 'transaction_update',
+                    transaction: {
+                        id: order.id,
+                        transactionId: order.transactionId,
+                        status: OrderStatus.failed,
+                        streamlinedStatus: 'failed',
+                        orderCategory: order.orderCategory,
+                        amount: Number(order.amount),
+                        currency: order.currency,
+                        createdAt: order.createdAt,
+                        updatedAt: new Date(),
+                    },
+                });
+
+                throw new HttpException(
+                    'Sell order failed - payout could not be initiated. Your funds have been released.',
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
         } catch (error) {
             // Release the hold if any step after hold fails (before settlement succeeds)
             // Note: If releaseHold(settle=true) already succeeded, this is a no-op (hold already released)
