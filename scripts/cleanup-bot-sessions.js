@@ -27,17 +27,30 @@ async function cleanupBotSessions() {
         const tableName = sessionTable.table_name;
         console.log('Using table:', tableName);
 
+        // Validate table name against allowlist to prevent SQL injection
+        const allowedTables = ['Session', 'session', 'Sessions', 'sessions'];
+        if (!allowedTables.includes(tableName)) {
+            console.error(`Invalid table name: ${tableName}`);
+            return;
+        }
+        // Sanitize table name (remove any non-alphanumeric chars except underscore)
+        const safeTableName = tableName.replace(/[^a-zA-Z0-9_]/g, '');
+
         // Get column names
-        const columnsResult = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`);
+        const columnsResult = await client.query(
+            'SELECT column_name FROM information_schema.columns WHERE table_name = $1',
+            [safeTableName]
+        );
         console.log('Columns:', columnsResult.rows.map(r => r.column_name).join(', '));
 
         // Count active sessions
-        const countResult = await client.query(`SELECT COUNT(*) as count FROM "${tableName}" WHERE "isActive" = true`);
+        const countResult = await client.query(`SELECT COUNT(*) as count FROM "${safeTableName}" WHERE "isActive" = true`);
+
         console.log('Total active sessions:', countResult.rows[0].count);
 
         // Deactivate bot sessions (AWS IPs)
         const deactivateQuery = `
-            UPDATE "${tableName}" 
+            UPDATE "${safeTableName}" 
             SET "isActive" = false 
             WHERE "isActive" = true 
             AND (
@@ -56,7 +69,7 @@ async function cleanupBotSessions() {
         console.log('Bot sessions deactivated:', deactivateResult.rowCount);
 
         // Check remaining active sessions
-        const remainingResult = await client.query(`SELECT COUNT(*) as count FROM "${tableName}" WHERE "isActive" = true`);
+        const remainingResult = await client.query(`SELECT COUNT(*) as count FROM "${safeTableName}" WHERE "isActive" = true`);
         console.log('Remaining active sessions:', remainingResult.rows[0].count);
 
     } catch (error) {

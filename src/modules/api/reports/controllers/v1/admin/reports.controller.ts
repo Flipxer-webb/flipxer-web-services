@@ -20,7 +20,7 @@ import { buildResponse } from "@/utils/api-response-util";
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
 export class AdminReportsController {
-    constructor(private readonly reportsService: ReportsService) {}
+    constructor(private readonly reportsService: ReportsService) { }
 
     /**
      * Get available report types
@@ -72,6 +72,7 @@ export class AdminReportsController {
 
         const result = await this.reportsService.generateReport(config);
 
+        res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Content-Type", result.contentType);
         res.setHeader(
             "Content-Disposition",
@@ -98,6 +99,7 @@ export class AdminReportsController {
 
         const result = await this.reportsService.generateReport(config);
 
+        res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Content-Type", result.contentType);
         res.setHeader(
             "Content-Disposition",
@@ -130,6 +132,7 @@ export class AdminReportsController {
 
         const result = await this.reportsService.generateReport(config);
 
+        res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Content-Type", result.contentType);
         res.setHeader(
             "Content-Disposition",
@@ -162,6 +165,7 @@ export class AdminReportsController {
 
         const result = await this.reportsService.generateReport(config);
 
+        res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Content-Type", result.contentType);
         res.setHeader(
             "Content-Disposition",
@@ -194,6 +198,7 @@ export class AdminReportsController {
 
         const result = await this.reportsService.generateReport(config);
 
+        res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Content-Type", result.contentType);
         res.setHeader(
             "Content-Disposition",
@@ -226,6 +231,7 @@ export class AdminReportsController {
 
         const result = await this.reportsService.generateReport(config);
 
+        res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Content-Type", result.contentType);
         res.setHeader(
             "Content-Disposition",

@@ -9,6 +9,7 @@ import {
     ParseIntPipe,
     UseGuards,
     Req,
+    UnauthorizedException,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
@@ -35,7 +36,7 @@ import {
 @ApiTags("admin/kyc")
 @Controller({ path: "admin/kyc" })
 export class KycController {
-    constructor(private readonly kycService: KycService) {}
+    constructor(private readonly kycService: KycService) { }
 
     @ApiOperation({ summary: "Get KYC verification queue" })
     @ApiBearerAuth("access-token")
@@ -66,7 +67,8 @@ export class KycController {
     @Permissions([PermissionName.KYC_APPROVE])
     @Post("decision")
     async processKycDecision(@Body() dto: KycDecisionDto, @Req() req: any) {
-        const adminId = req.user?.id;
+        const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
+        if (!adminId) throw new UnauthorizedException('Invalid admin session');
         return await this.kycService.processKycDecision(dto, adminId);
     }
 
@@ -75,7 +77,8 @@ export class KycController {
     @Permissions([PermissionName.KYC_APPROVE])
     @Post("bulk-decision")
     async processBulkKycDecision(@Body() dto: BulkKycDecisionDto, @Req() req: any) {
-        const adminId = req.user?.id;
+        const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
+        if (!adminId) throw new UnauthorizedException('Invalid admin session');
         return await this.kycService.processBulkKycDecision(dto, adminId);
     }
 
@@ -88,7 +91,8 @@ export class KycController {
         @Body() dto: UpdateUserTierDto,
         @Req() req: any
     ) {
-        const adminId = req.user?.id;
+        const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
+        if (!adminId) throw new UnauthorizedException('Invalid admin session');
         return await this.kycService.updateUserTier(userId, dto, adminId);
     }
 
@@ -101,7 +105,8 @@ export class KycController {
         @Body() dto: UpdateUserVerificationDto,
         @Req() req: any
     ) {
-        const adminId = req.user?.id;
+        const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
+        if (!adminId) throw new UnauthorizedException('Invalid admin session');
         return await this.kycService.updateUserVerification(userId, dto, adminId);
     }
 
@@ -110,7 +115,8 @@ export class KycController {
     @Permissions([PermissionName.KYC_APPROVE])
     @Post("approve-document")
     async approveDocument(@Body() dto: ApproveDocumentDto, @Req() req: any) {
-        const adminId = req.user?.id;
+        const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
+        if (!adminId) throw new UnauthorizedException('Invalid admin session');
         return await this.kycService.approveDocument(dto, adminId);
     }
 
@@ -119,7 +125,8 @@ export class KycController {
     @Permissions([PermissionName.KYC_APPROVE])
     @Post("reject-document")
     async rejectDocument(@Body() dto: RejectDocumentDto, @Req() req: any) {
-        const adminId = req.user?.id;
+        const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
+        if (!adminId) throw new UnauthorizedException('Invalid admin session');
         return await this.kycService.rejectDocument(dto, adminId);
     }
 }
