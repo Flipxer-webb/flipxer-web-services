@@ -1398,3 +1398,25 @@ model FailedRollback {
   @@index([userId])
   @@map("FailedRollbacks")
 }
+
+// =============================================================================
+// SOLVENCY MONITORING (Platform Health Tracking)
+// =============================================================================
+
+// Solvency log for tracking platform reserve ratios over time
+// Used by TASK-004 Solvency Monitoring Dashboard
+model SolvencyLog {
+  id                    String    @id @default(uuid())
+  currency              String    // Currency being tracked
+  userLiabilities       Decimal   @db.Decimal(20, 8) // Sum of all user virtual balances
+  platformReserves      Decimal   @db.Decimal(20, 8) // Actual blockchain balance
+  reserveRatio          Decimal   @db.Decimal(10, 4) // (reserves / liabilities) * 100
+  pendingWithdrawals    Decimal   @db.Decimal(20, 8) // Holdings not yet settled
+  effectiveReserveRatio Decimal   @db.Decimal(10, 4) // (reserves / (liabilities + pending)) * 100
+  status                String    // HEALTHY, WARNING, CRITICAL
+  createdAt             DateTime  @default(now())
+
+  @@index([currency, createdAt])
+  @@index([status])
+  @@map("SolvencyLogs")
+}

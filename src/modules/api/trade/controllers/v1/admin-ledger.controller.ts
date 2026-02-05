@@ -26,6 +26,7 @@ import { LedgerService } from "../../services/ledger/ledger.service";
 import { SweepService } from "../../services/ledger/sweep.service";
 import { OrphanedHoldService } from "../../services/ledger/orphaned-hold.service";
 import { DepositReviewService } from "../../services/ledger/deposit-review.service";
+import { SolvencyService } from "../../services/ledger/solvency.service";
 import { HoldResolution } from "@prisma/client";
 import { buildResponse } from "@/utils/api-response-util";
 
@@ -42,6 +43,7 @@ import { buildResponse } from "@/utils/api-response-util";
  * - Reconciliation: View status, run reconciliation, acknowledge discrepancies
  * - Withdrawal Queue: View queue, pause/resume processing
  * - Float Status: View current float levels and alerts
+ * - Solvency: Monitor platform reserves vs liabilities
  * - User Balance: Query user ledger balances
  */
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
@@ -61,7 +63,8 @@ export class AdminLedgerController {
         private readonly ledgerService: LedgerService,
         private readonly sweepService: SweepService,
         private readonly orphanedHoldService: OrphanedHoldService,
-        private readonly depositReviewService: DepositReviewService
+        private readonly depositReviewService: DepositReviewService,
+        private readonly solvencyService: SolvencyService
     ) { }
 
     // =========================================================================
@@ -423,6 +426,52 @@ export class AdminLedgerController {
             data: {
                 processedCount: count,
             },
+        });
+    }
+
+    // =========================================================================
+    // SOLVENCY MONITORING ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get current platform solvency report" })
+    @Get("solvency")
+    async getSolvencyReport() {
+        this.logger.log("Admin fetching solvency report");
+        const report = await this.solvencyService.generateReport();
+        return buildResponse({
+            message: "Solvency report generated",
+            data: report,
+        });
+    }
+
+    @ApiOperation({ summary: "Get solvency history for a currency" })
+    @ApiQuery({ name: "currency", required: true, description: "Currency to get history for" })
+    @ApiQuery({ name: "days", required: false, description: "Number of days of history (default: 7)" })
+    @Get("solvency/history")
+    async getSolvencyHistory(
+        @Query("currency") currency: string,
+        @Query("days", new DefaultValuePipe(7), ParseIntPipe) days: number
+    ) {
+        this.logger.log(`Admin fetching solvency history for ${currency} (${days} days)`);
+        const history = await this.solvencyService.getHistory(currency, days);
+        return buildResponse({
+            message: "Solvency history retrieved",
+            data: {
+                currency: currency.toUpperCase(),
+                days,
+                snapshots: history,
+                count: history.length,
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Trigger manual solvency check with alerts" })
+    @Post("solvency/check")
+    async runSolvencyCheck() {
+        this.logger.log("Admin triggering manual solvency check");
+        await this.solvencyService.checkAndAlert();
+        return buildResponse({
+            message: "Solvency check completed",
         });
     }
 

@@ -18,6 +18,7 @@ import { WithdrawalQueueService } from "./services/ledger/withdrawal-queue.servi
 import { FloatConfigService } from "./services/ledger/float-config.service";
 import { ReconciliationService } from "./services/ledger/reconciliation.service";
 import { SweepService } from "./services/ledger/sweep.service";
+import { SolvencyService } from "./services/ledger/solvency.service";
 import { WithdrawalQueueCron } from "./crons/withdrawal-queue.cron";
 import { OrphanedHoldCron } from "./crons/orphaned-hold.cron";
 import { OrphanedHoldService } from "./services/ledger/orphaned-hold.service";
@@ -94,6 +95,7 @@ export * from "./errors";
         OrphanedHoldService,
         TransactionMonitorService,
         DepositReviewService,
+        SolvencyService,
         FailedRollbackQueueService,
         WithdrawalQueueCron,
         OrphanedHoldCron,
@@ -141,6 +143,7 @@ export * from "./errors";
         OrphanedHoldService,
         TransactionMonitorService,
         DepositReviewService,
+        SolvencyService,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,
