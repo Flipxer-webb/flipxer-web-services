@@ -1,0 +1,313 @@
+﻿node.exe : npm warn 
+Unknown project config 
+"auto-install-peers". 
+This will stop working in 
+the next major version of 
+npm.
+At line:1 char:1
++ & "C:\Program 
+Files\nodejs/node.exe" "C:
+\Users\magpi\AppData\Roami
+ng\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo        
+      : NotSpecified: (n  
+  pm warn Unknow...vers   
+ ion of npm.:String) [    
+], RemoteException
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+npm warn Unknown project 
+config "strict-peer-depend
+encies". This will stop 
+working in the next major 
+version of npm.
+
+Testing C:\Users\magpi\Desktop\Flipxer\resolve-web-services ...
+
+Open Issues
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 30ce495e-a8ed-47f6-9beb-0a02b807b8cb
+   Path: prisma/scripts/create-tier-users.ts, line 33
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: b81d55af-b3c4-4074-920d-9e9fefdbf4a8
+   Path: prisma/scripts/create-tier-users.ts, line 48
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 0e4718fd-7af7-4450-a123-974f667c78b9
+   Path: prisma/scripts/create-tier-users.ts, line 64
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 6a513a55-d96b-4457-84b9-75751d7677f3
+   Path: prisma/scripts/seed-system-users.ts, line 41
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 10f9049b-f6e8-4b63-8c98-095e83340527
+   Path: prisma/scripts/seed-system-users.ts, line 66
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 0ec4549f-4058-464f-a90e-73156e4b3a45
+   Path: prisma/seed/index.ts, line 613
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 3bb3a3ad-1130-4d9a-adf2-b26fa3de97e5
+   Path: prisma/seed/index.ts, line 634
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: ddaf8d07-9041-43c0-86ca-dc4b447ba316
+   Path: scripts/create-tier1-test-user.ts, line 23
+   Info: Do not hardcode passwords in code. Found hardcoded password used in password.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 9c3863e9-7831-4a43-b192-5af03662f4da
+   Path: prisma/seed/constants.ts, line 9
+   Info: Do not hardcode passwords in code. Found hardcoded password used in SEED_PASSWORD_CHARSET.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 8d4fc2f7-76bc-4767-8d3b-4b592ce0c763
+   Path: prisma/seed/index.ts, line 512
+   Info: Do not hardcode passwords in code. Found hardcoded password used in testUserPassword.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 9a80308e-e5db-422f-adb5-c518465ef09a
+   Path: reset-super-admin-direct.js, line 4
+   Info: Do not hardcode passwords in code. Found hardcoded password used in NEW_PASSWORD.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 089fdd75-90ff-4619-ab01-0828be90f2df
+   Path: reset-super-admin-pwd.js, line 5
+   Info: Do not hardcode passwords in code. Found hardcoded password used in NEW_PASSWORD.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: bfe9d5aa-c143-4787-bafc-0d65d5f034e6
+   Path: scripts/reset-admin-password.ts, line 16
+   Info: Do not hardcode passwords in code. Found hardcoded password used in NEW_PASSWORD.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 1f65bdc2-057d-441d-b2f5-b70094da7c53
+   Path: reset-test-user-pwd.js, line 8
+   Info: Do not hardcode passwords in code. Found hardcoded password used in newPassword.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 2f6ee5f9-45db-4f81-99c9-479ba622881c
+   Path: scripts/reset-user.js, line 7
+   Info: Do not hardcode passwords in code. Found hardcoded password used in pg.Client.
+
+ Ô£ù [MEDIUM] Prototype Pollution
+   Finding ID: 56c61432-ade4-49d1-af3d-bc73c929c109
+   Path: src/modules/api/kyc/controllers/index.ts, line 70
+   Info: Unsanitized input from an HTTP parameter flows into a member access and is used to access a property of this object by name. This may allow a malicious user to pollute the Object.prototype and cause a crash, remote code execution or logic bypasses.
+
+ Ô£ù [MEDIUM] Prototype Pollution
+   Finding ID: 115b090d-56bc-4dba-886f-04d20532732e
+   Path: src/modules/api/kyc/controllers/index.ts, line 79
+   Info: Unsanitized input from an HTTP parameter flows into a member access and is used to access a property of this object by name. This may allow a malicious user to pollute the Object.prototype and cause a crash, remote code execution or logic bypasses.
+
+ Ô£ù [MEDIUM] SQL Injection
+   Finding ID: 139401ba-c0bc-4255-b1dd-0baae940ce4f
+   Path: scripts/cleanup-bot-sessions.js, line 31
+   Info: Unsanitized input from data from a remote resource flows into query, where it is used in an SQL query. This may result in an SQL Injection vulnerability.
+
+ Ô£ù [MEDIUM] SQL Injection
+   Finding ID: 363e3f12-0dfb-44e6-9b3f-8652a7df97a1
+   Path: scripts/cleanup-bot-sessions.js, line 35
+   Info: Unsanitized input from data from a remote resource flows into query, where it is used in an SQL query. This may result in an SQL Injection vulnerability.
+
+ Ô£ù [MEDIUM] SQL Injection
+   Finding ID: 7e53e1be-f4c4-4bf5-8e25-52a9f8e6495f
+   Path: scripts/cleanup-bot-sessions.js, line 55
+   Info: Unsanitized input from data from a remote resource flows into query, where it is used in an SQL query. This may result in an SQL Injection vulnerability.
+
+ Ô£ù [MEDIUM] SQL Injection
+   Finding ID: 97b15e5a-1a91-48f0-9a16-4074aef3f5ac
+   Path: scripts/cleanup-bot-sessions.js, line 59
+   Info: Unsanitized input from data from a remote resource flows into query, where it is used in an SQL query. This may result in an SQL Injection vulnerability.
+
+ Ô£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: b018e7b6-53d6-47cc-a3fe-9bea420e8b1d
+   Path: prisma/scripts/create-test-admin.ts, line 15
+   Info: Do not hardcode passwords in code. Found hardcoded password used in TEST_ADMIN_PASSWORD.
+
+ Ô£ù [HIGH] Server-Side Request Forgery (SSRF)
+   Finding ID: a0598926-fd1f-4096-a0be-256a8dc9a27c
+   Path: src/modules/api/operations/controllers/v1/admin/liquidity-alert.controller.ts, line 80
+   Info: Unsanitized input from an HTTP parameter flows into axios.default.post, where it is used as an URL to perform a request. This may result in a Server-Side Request Forgery vulnerability.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: e64f91fa-3048-4144-9d66-ad00c858a507
+   Path: check-deposit-timestamps.js, line 6
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 7a4ee4c8-87a2-44d0-a7f4-841dc05ab95f
+   Path: check-deposit-timestamps.js, line 6
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: f3c64415-5119-444a-ac97-501a02f5b415
+   Path: check-user-transactions.js, line 5
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: f2603592-9e38-43e6-ae29-f32db2b7d962
+   Path: check-user-transactions.js, line 5
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 44fd0eda-a517-47c6-a924-f5903a0cb440
+   Path: debug-deposits.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: ba3f3026-ac48-4d6b-90d7-8046d74eda3e
+   Path: debug-deposits.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 198dd5c2-f6d5-4048-ac60-dab29abe1796
+   Path: scripts/quidax-withdraw.js, line 3
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 5f86ea3b-7caf-4910-aeb9-d389a57ce200
+   Path: test-all-wallets.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: b41c90a4-3f0c-4b21-b07d-559fd42697f4
+   Path: test-all-wallets.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: d005d0b4-94bf-4ca7-8b6b-e7d72b6bb9dd
+   Path: test-debug-wallet.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 3bf727d6-17d2-4d0c-9008-d98fd075b6d5
+   Path: test-debug-wallet.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 8ffd0604-82ea-4d1f-8dbf-e47be34994d6
+   Path: test-sync-deposits.js, line 7
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 3d55669a-9b13-42ea-ba9f-96a0dd995245
+   Path: test-sync-deposits.js, line 7
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 9eaf793e-6315-4293-8aa3-de48f7cccda8
+   Path: update-deposit-status.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: d674660b-e7d1-4378-b9b6-3d4a5c636d69
+   Path: update-deposit-status.js, line 4
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in here.
+
+ Ô£ù [HIGH] Cross-site Scripting (XSS)
+   Finding ID: 6cea6b27-8f5e-4abb-a815-f7f6bfca1e8c
+   Path: src/modules/api/reports/controllers/v1/admin/reports.controller.ts, line 80
+   Info: Unsanitized input from an HTTP parameter flows into send, where it is used to render an HTML page returned to the user. This may result in a Cross-Site Scripting attack (XSS).
+
+ Ô£ù [HIGH] Cross-site Scripting (XSS)
+   Finding ID: f6d27760-73d2-4cc0-814b-00869520ada1
+   Path: src/modules/api/reports/controllers/v1/admin/reports.controller.ts, line 106
+   Info: Unsanitized input from an HTTP parameter flows into send, where it is used to render an HTML page returned to the user. This may result in a Cross-Site Scripting attack (XSS).
+
+ Ô£ù [HIGH] Cross-site Scripting (XSS)
+   Finding ID: 3454ace3-9d2b-4362-ba29-0d27a96e3204
+   Path: src/modules/api/reports/controllers/v1/admin/reports.controller.ts, line 138
+   Info: Unsanitized input from an HTTP parameter flows into send, where it is used to render an HTML page returned to the user. This may result in a Cross-Site Scripting attack (XSS).
+
+ Ô£ù [HIGH] Cross-site Scripting (XSS)
+   Finding ID: c71f243d-f73c-4cc4-9301-0dfeb064f283
+   Path: src/modules/api/reports/controllers/v1/admin/reports.controller.ts, line 170
+   Info: Unsanitized input from an HTTP parameter flows into send, where it is used to render an HTML page returned to the user. This may result in a Cross-Site Scripting attack (XSS).
+
+ Ô£ù [HIGH] Cross-site Scripting (XSS)
+   Finding ID: 2a454840-e49a-4b01-9106-fae6016f3962
+   Path: src/modules/api/reports/controllers/v1/admin/reports.controller.ts, line 202
+   Info: Unsanitized input from an HTTP parameter flows into send, where it is used to render an HTML page returned to the user. This may result in a Cross-Site Scripting attack (XSS).
+
+ Ô£ù [HIGH] Cross-site Scripting (XSS)
+   Finding ID: 54c5e4c0-1a02-452e-9bb3-b4e34ee3f7ab
+   Path: src/modules/api/reports/controllers/v1/admin/reports.controller.ts, line 234
+   Info: Unsanitized input from an HTTP parameter flows into send, where it is used to render an HTML page returned to the user. This may result in a Cross-Site Scripting attack (XSS).
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: aacc07fd-152c-4144-8a95-c6099bfa3348
+   Path: prisma/scripts/create-test-admin.ts, line 31
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in bcryptjs.hash.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: cd662531-bce0-480d-b5cd-e9e5ad94453d
+   Path: prisma/seed/index.ts, line 513
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in bcryptjs.hash.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 9437417d-3d4a-49b7-8003-ed62ed882c41
+   Path: reset-super-admin-direct.js, line 43
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in bcryptjs.hash.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: e3bc36a5-2cc2-4f78-bc7f-1776f2646d9e
+   Path: reset-super-admin-pwd.js, line 14
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in bcryptjs.hash.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 4a49b9fb-6c67-4976-a2a0-a0ad3235c689
+   Path: reset-test-user-pwd.js, line 9
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in bcryptjs.hash.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 5622ba80-1a1e-4ec9-841a-1e33b081b9fe
+   Path: scripts/create-tier1-test-user.ts, line 24
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in bcrypt.hash.
+
+ Ô£ù [HIGH] Hardcoded Non-Cryptographic Secret
+   Finding ID: 8a211fba-a3b1-4f48-9b78-9058729f5a4b
+   Path: scripts/reset-admin-password.ts, line 48
+   Info: Avoid hardcoding values that are meant to be secret. Found a hardcoded string used in bcryptjs.default.hash.
+
+
+        
+­ƒÆí Tip
+
+   You are currently viewing results with --severity-threshold applied.
+   To view all issues, remove the --severity-threshold flag            
+                                                                       
+
+Ôò¡ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔò«
+Ôöé Test Summary                                                                Ôöé
+Ôöé                                                                             Ôöé
+Ôöé   Organization:      hello-fbf26j38BfeQMksW3PnnjG                           Ôöé
+Ôöé   Test type:         Static code analysis                                   Ôöé
+Ôöé   Project path:      C:\Users\magpi\Desktop\Flipxer\resolve-web-services    Ôöé
+Ôöé                                                                             Ôöé
+Ôöé   Total issues:   51                                                        Ôöé
+Ôöé   Ignored issues: 0 [ 0 HIGH  0 MEDIUM  0 LOW ]                             Ôöé
+Ôöé   Open issues:    51 [ 29 HIGH  22 MEDIUM  0 LOW ]                          Ôöé
+Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔò»
+    
+­ƒÆí Tip
+
+   To view ignored issues, use the --include-ignores option.
+                                                            
+

@@ -12,6 +12,7 @@ import {
     LedgerType,
     OrderCategory,
     OrderStatus,
+    Prisma,
     SweepStatus,
     User,
 } from "@prisma/client";
@@ -470,27 +471,52 @@ export class DepositWebhookHandler {
             return; // Don't credit until admin approves
         }
 
-        // Credit user's ledger with deposit amount
-        // sweepStatus = PENDING means user can't withdraw until sweep confirms
-        // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
-        const creditResult = await this.ledgerService.pairedCredit({
-            userId: user.id,
-            currency: currency,
-            amount: depositAmount,
-            type: LedgerType.DEPOSIT,
-            reference: `deposit:${options.referenceId}`,
-            metadata: {
-                txid: options.txid,
-                paymentAddress: options.payment_address,
-                recipient: options.recipient,
-                network: options.network,
-                fee: options.fee,
-                providerOrderId: options.referenceId,
-                transactionId: transactionId,
+        // TASK-005: Atomic credit and order link
+        // Credit user's ledger and link to order in a single atomic transaction
+        // This prevents orphaned ledger entries if the order update fails
+        const creditResult = await this.prisma.$transaction(
+            async (tx) => {
+                // Credit user's ledger with deposit amount using transaction client
+                // sweepStatus = PENDING means user can't withdraw until sweep confirms
+                // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
+                const result = await this.ledgerService.pairedCreditInTransaction(tx, {
+                    userId: user.id,
+                    currency: currency,
+                    amount: depositAmount,
+                    type: LedgerType.DEPOSIT,
+                    reference: `deposit:${options.referenceId}`,
+                    metadata: {
+                        txid: options.txid,
+                        paymentAddress: options.payment_address,
+                        recipient: options.recipient,
+                        network: options.network,
+                        fee: options.fee,
+                        providerOrderId: options.referenceId,
+                        transactionId: transactionId,
+                    },
+                    sweepStatus: SweepStatus.PENDING, // Block withdrawal until sweep confirms
+                    createPlatformEntry: true // Explicitly create platform debit
+                });
+
+                if (!result.success) {
+                    throw new Error(result.error || 'Ledger credit failed');
+                }
+
+                // Link ledger entry to the order atomically
+                if (result.userEntry) {
+                    await tx.order.updateMany({
+                        where: { transactionId: transactionId },
+                        data: { ledgerEntryId: result.userEntry.id },
+                    });
+                }
+
+                return result;
             },
-            sweepStatus: SweepStatus.PENDING, // Block withdrawal until sweep confirms
-            createPlatformEntry: true // Explicitly create platform debit
-        });
+            {
+                isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+                timeout: EXTENDED_TRANSACTION_TIMEOUT_MS,
+            }
+        );
 
         if (!creditResult.success) {
             this.logger.error(
@@ -517,7 +543,7 @@ export class DepositWebhookHandler {
         }
 
         this.logger.log(
-            `Deposit credited to ledger | ${JSON.stringify({
+            `Deposit credited to ledger (atomic) | ${JSON.stringify({
                 userId: user.id,
                 currency: currency,
                 amount: depositAmount,
@@ -527,14 +553,6 @@ export class DepositWebhookHandler {
                 sweepStatus: SweepStatus.PENDING,
             })}`
         );
-
-        // Link ledger entry to the order
-        if (creditResult.userEntry) {
-            await this.prisma.order.updateMany({
-                where: { transactionId: transactionId },
-                data: { ledgerEntryId: creditResult.userEntry.id },
-            });
-        }
 
         // NOTE: AssetWallet balance updates removed - Ledger is now the source of truth
 

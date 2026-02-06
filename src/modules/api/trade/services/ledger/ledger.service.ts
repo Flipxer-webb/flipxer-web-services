@@ -364,6 +364,52 @@ export class LedgerService {
     }
 
     /**
+     * TASK-006: Execute arbitrary code within distributed lock scope for MULTIPLE users.
+     * 
+     * Use for internal transfers where both sender and recipient balances must be
+     * locked atomically to prevent race conditions during validation.
+     * 
+     * Locks are acquired in sorted order (by userId) to prevent deadlocks.
+     * 
+     * @param userIds - Array of user IDs to lock
+     * @param currency - Currency to lock
+     * @param callback - Function to execute while holding all locks
+     * @returns Result from the callback
+     */
+    async runWithMultiUserLocks<T>(
+        userIds: number[],
+        currency: string,
+        callback: () => Promise<T>
+    ): Promise<T> {
+        const upperCurrency = currency.toUpperCase();
+
+        // Sort user IDs to prevent deadlocks
+        const sortedUserIds = [...userIds].sort((a, b) => a - b);
+        const lockKeys = sortedUserIds.map(uid => `ledger:${uid}:${upperCurrency}`);
+
+        this.logger.debug(
+            `Acquiring multi-user locks | ${JSON.stringify({
+                userIds: sortedUserIds,
+                currency: upperCurrency,
+                lockKeys,
+            })}`
+        );
+
+        try {
+            return await this.withLocks(lockKeys, callback);
+        } catch (error) {
+            this.logger.error(
+                `runWithMultiUserLocks failed | ${JSON.stringify({
+                    userIds,
+                    currency,
+                    error: error.message,
+                })}`
+            );
+            throw error;
+        }
+    }
+
+    /**
      * Debits an amount from a user's ledger (decreases balance)
      *
      * Use cases:
@@ -872,6 +918,7 @@ export class LedgerService {
      * @param amount Amount to transfer
      * @param reference Unique reference for the transfer
      * @param description Optional description
+     * @param skipLocking If true, skip distributed lock acquisition (caller must hold locks)
      */
     async internalTransfer(
         fromUserId: number,
@@ -879,7 +926,8 @@ export class LedgerService {
         currency: string,
         amount: Decimal | number | string,
         reference: string,
-        description?: string
+        description?: string,
+        skipLocking: boolean = false
     ): Promise<LedgerOperationResult> {
         const transferAmount = this.toDecimal(amount);
 
@@ -892,6 +940,29 @@ export class LedgerService {
         }
 
         const upperCurrency = currency.toUpperCase();
+
+        // TASK-006: Skip locking when caller already holds locks
+        // This allows processInternalTransfer to run validation inside lock scope
+        // without hitting the non-re-entrant lock issue
+        if (skipLocking) {
+            this.logger.debug(
+                `Internal transfer with skipLocking=true | ${JSON.stringify({
+                    fromUserId,
+                    toUserId,
+                    currency: upperCurrency,
+                    amount: transferAmount.toString(),
+                    reference,
+                })}`
+            );
+            return await this.executeInternalTransfer(
+                fromUserId,
+                toUserId,
+                upperCurrency,
+                transferAmount,
+                reference,
+                description
+            );
+        }
 
         // Sort locks to prevent deadlocks
         const firstLockUser = fromUserId < toUserId ? fromUserId : toUserId;

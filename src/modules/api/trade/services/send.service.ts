@@ -687,33 +687,42 @@ export class SendService {
             }
         }
 
-        // 4. Validation (Monitor)
-        const monitorResult = await this.transactionMonitor.validateBeforeExecution({
-            userId: user.id,
+        // TASK-006: Wrap validation + transfer inside distributed lock scope
+        // This prevents race conditions where balance changes between validation and transfer
+        const transferResult = await this.ledgerService.runWithMultiUserLocks(
+            [user.id, recipient.id],
             currency,
-            amount: totalAmount,
-            operationType: "SEND", // Monitor as SEND
-            reference: `send:${reference}`,
-        });
+            async () => {
+                // 4. Validation (Monitor) - now inside lock scope
+                const monitorResult = await this.transactionMonitor.validateBeforeExecution({
+                    userId: user.id,
+                    currency,
+                    amount: totalAmount,
+                    operationType: "SEND", // Monitor as SEND
+                    reference: `send:${reference}`,
+                });
 
-        if (!monitorResult.success) {
-            this.logger.warn(
-                `Transaction monitor blocked internal send | User: ${user.id} | Amount: ${totalAmount} | Reason: ${monitorResult.reason}`
-            );
-            throw new GeneralTransactionException(
-                monitorResult.reason || "Transaction blocked by monitoring system",
-                HttpStatus.FORBIDDEN
-            );
-        }
+                if (!monitorResult.success) {
+                    this.logger.warn(
+                        `Transaction monitor blocked internal send | User: ${user.id} | Amount: ${totalAmount} | Reason: ${monitorResult.reason}`
+                    );
+                    throw new GeneralTransactionException(
+                        monitorResult.reason || "Transaction blocked by monitoring system",
+                        HttpStatus.FORBIDDEN
+                    );
+                }
 
-        // 5. Execute Atomic Transfer
-        const transferResult = await this.ledgerService.internalTransfer(
-            user.id,
-            recipient.id,
-            currency,
-            totalAmount,
-            reference,
-            dto.narration || dto.transaction_note
+                // 5. Execute Atomic Transfer with skipLocking since we already hold the locks
+                return await this.ledgerService.internalTransfer(
+                    user.id,
+                    recipient.id,
+                    currency,
+                    totalAmount,
+                    reference,
+                    dto.narration || dto.transaction_note,
+                    true // skipLocking - caller already holds locks
+                );
+            }
         );
 
         if (!transferResult.success) {
