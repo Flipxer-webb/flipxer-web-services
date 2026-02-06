@@ -210,6 +210,11 @@ export class SellCryptoOrderDto {
     @IsOptional()
     @IsString()
     verificationToken?: string;
+
+    @ApiProperty({ description: "Unique key to prevent duplicate orders", required: true })
+    @IsNotEmpty()
+    @IsString()
+    idempotencyKey: string;
 }
 
 export class VerifyWalletAddressDto {

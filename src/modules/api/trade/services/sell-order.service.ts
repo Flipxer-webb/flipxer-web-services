@@ -195,13 +195,30 @@ export class SellOrderService {
     async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {
         const responseData = await this.calculateSellQuote(user, dto, true);
 
+        // IDEMPOTENCY CHECK (TASK-008)
+        // Check if an order with this idempotency key already exists to prevent double debits
+        const existingOrder = await this.prisma.order.findFirst({
+            where: { orderReference: dto.idempotencyKey }
+        });
+
+        if (existingOrder) {
+            this.logger.warn(`Duplicate sell request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`);
+            return buildResponse({
+                message: "Order placed successfully (Duplicate request processed)",
+                data: existingOrder,
+            });
+        }
+
         const sendAmountToSeller = +responseData.totalToReceiveInFiat;
         const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
 
         // Virtual Balance: HOLD the crypto amount on user's ledger before proceeding
         const currency = dto.asset.toUpperCase();
         const holdAmount = totalCryptoToAdmin;
-        const holdReference = `sell-hold:${generateId({ type: "reference" })}`;
+
+        // Use idempotencyKey for deterministic hold reference
+        // This physically prevents a second hold for the same request at the DB level
+        const holdReference = `sell-hold:${dto.idempotencyKey}`;
 
         // Phase 2: Real-time monitoring for high-value transactions
         const monitorResult = await this.transactionMonitorService.validateBeforeExecution({
@@ -232,6 +249,9 @@ export class SellOrderService {
         });
 
         if (!holdResult.success) {
+            // If hold fails because it already exists (race condition not caught by findFirst), 
+            // we should technically check if it's the SAME hold and proceed, or just fail.
+            // For safety, we fail and let the client retry (which will hit the findFirst check next time if it succeeded).
             this.logger.error(
                 `Failed to hold funds for sell order: ${holdResult.error}`
             );
@@ -244,8 +264,8 @@ export class SellOrderService {
         // Wrap post-hold logic in try/catch to release hold if any step fails
         // This prevents funds from being stuck in HOLD status indefinitely
         try {
-            // Generate reference for the order
-            const reference = generateId({ type: "reference" });
+            // Use idempotencyKey as the official Order Reference
+            const reference = dto.idempotencyKey;
 
             // OMNIBUS VIRTUAL BALANCE SYSTEM
             // In omnibus mode, crypto is already in the main wallet - no Quidax transfer needed
