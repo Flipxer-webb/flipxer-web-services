@@ -1,0 +1,31 @@
+﻿node.exe : npm warn Unknown project 
+config "auto-install-peers". This will 
+stop working in the next major version 
+of npm.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Users\magpi\AppData\Roaming\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecifi 
+   ed: (npm warn Unknow...version of np  
+  m.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeComm 
+   andError
+ 
+npm warn Unknown project config 
+"strict-peer-dependencies". This will 
+stop working in the next major version 
+of npm.
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": PostgreSQL database "resolve_db_4a8l_b6ra_o5el_m1sw_p0r2_x75k_ayye", schema "public" at "dpg-d5v3gcnpm1nc73c9q6fg-a.oregon-postgres.render.com"
+
+31 migrations found in prisma/migrations
+
+Following migrations have not yet been applied:
+20260131150000_add_failed_rollback_queue
+20260205220000_add_solvency_log
+
+To apply migrations in development run prisma migrate dev.
+To apply migrations in production run prisma migrate deploy.
