@@ -10,6 +10,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 export interface LedgerOperationResult {
     success: boolean;
     entryId?: string;
+    creditEntryId?: string; // For P2P transfers: recipient's entry ID (Issue #3 fix)
     balanceAfter?: Decimal;
     entry?: {
         id: string;
@@ -1124,7 +1125,8 @@ export class LedgerService {
 
                 return {
                     success: true,
-                    entryId: debitEntry.id, // Return sender's entry ID main
+                    entryId: debitEntry.id,           // Sender's DEBIT entry
+                    creditEntryId: creditEntry.id,   // Recipient's CREDIT entry (Issue #3 fix)
                     balanceAfter: senderNewBalance,
                 };
             },

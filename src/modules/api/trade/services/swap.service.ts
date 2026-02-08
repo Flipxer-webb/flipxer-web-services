@@ -244,6 +244,16 @@ export class SwapService {
         const reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });
 
+        // Issue #4 FIX: Database-level idempotency to handle edge case where Redis succeeded but DB failed
+        const existingOrder = await this.prisma.order.findFirst({
+            where: { quotationId: dto.quotationId },
+            select: { id: true, transactionId: true, status: true }
+        });
+        if (existingOrder) {
+            this.logger.warn(`Swap already processed for quotation ${dto.quotationId} | Order: ${existingOrder.id}`);
+            return buildResponse({ message: "Swap already processed", data: existingOrder });
+        }
+
         const order = await this.prisma.order.create({
             data: {
                 orderCategory: OrderCategory.SWAP,
@@ -499,6 +509,30 @@ export class SwapService {
 
         const reference = order.orderReference;
         const buyRef = `${reference}_buy`;
+
+        // CRITICAL FIX: Check if buy leg already succeeded
+        // This prevents double-crediting the user if the retry is called multiple times
+        const existingBuyEntry = await this.prisma.ledgerEntry.findFirst({
+            where: {
+                reference: `buy:${buyRef}`,
+                status: 'SETTLED'
+            },
+            select: { id: true }
+        });
+
+        if (existingBuyEntry) {
+            this.logger.warn(`Buy leg already completed for swap ${orderId} | Entry: ${existingBuyEntry.id}`);
+            // Just finalize the order status if stuck
+            await this.prisma.order.update({
+                where: { id: order.id },
+                data: {
+                    status: OrderStatus.completed,
+                    streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
+                    transaction_note: `Swap already completed (retry detected existing entry)`
+                }
+            });
+            return buildResponse({ message: "Swap was already completed", data: order });
+        }
 
         // Liquidity Check REMOVED for Fractional Reserve Model
         // We allow retries even if Quidax balance is low, as it's a virtual credit.

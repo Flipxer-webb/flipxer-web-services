@@ -13,11 +13,12 @@ const QUIDAX_USER_EXISTS_ERROR_CODE = "E0101";
  * For non-Gmail addresses, adds a timestamp suffix before the @.
  */
 function generateAliasedEmail(email: string): string {
-    const [localPart, domain] = email.split("@");
-    
+    const normalizedEmail = email.toLowerCase().trim();
+    const [localPart, domain] = normalizedEmail.split("@");
+
     // Check if it's a Gmail address (gmail.com or googlemail.com)
     const isGmail = domain.toLowerCase() === "gmail.com" || domain.toLowerCase() === "googlemail.com";
-    
+
     if (isGmail) {
         // Use Gmail + alias: user@gmail.com -> user+flip123@gmail.com
         const timestamp = Date.now().toString().slice(-6);
@@ -34,7 +35,7 @@ function generateAliasedEmail(email: string): string {
  */
 export class QuidaxAccountService {
     private readonly logger = new Logger(QuidaxAccountService.name);
-    constructor(private readonly quidax: QD.QuidaxLib) {}
+    constructor(private readonly quidax: QD.QuidaxLib) { }
 
     /**
      * Find an existing sub-account by email address
@@ -71,7 +72,7 @@ export class QuidaxAccountService {
             // (possibly under a different master account from previous registration)
             if (error instanceof QuidaxException && error.code === QUIDAX_USER_EXISTS_ERROR_CODE) {
                 this.logger.warn(`E0101 error - email ${options.email} already exists globally in Quidax`);
-                
+
                 // First, retry the lookup in case it was a transient failure
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 const retryAccount = await this.findSubAccountByEmail(options.email);
@@ -83,18 +84,18 @@ export class QuidaxAccountService {
                         data: retryAccount as QD.CreateSubAccountResponse,
                     };
                 }
-                
+
                 // Email exists globally but not under our master account
                 // Create with aliased email to bypass the duplicate check
                 const aliasedEmail = generateAliasedEmail(options.email);
                 this.logger.log(`Creating sub-account with aliased email: ${aliasedEmail}`);
-                
+
                 try {
                     const aliasResult = await this.createSubAccount({
                         ...options,
                         email: aliasedEmail,
                     });
-                    
+
                     this.logger.log(`Successfully created sub-account with aliased email: ${aliasResult.data.id}`);
                     return aliasResult;
                 } catch (aliasError) {
@@ -102,7 +103,7 @@ export class QuidaxAccountService {
                     throw aliasError;
                 }
             }
-            
+
             // Re-throw non-E0101 errors
             throw error;
         }

@@ -672,18 +672,21 @@ export class UserService {
         // Generate 6-digit OTP
         const verificationCode = customAlphabet("1234567890", 6)();
 
+        // Normalize email
+        const email = dto.email.toLowerCase().trim();
+
         // Upsert the recovery email verification request
         await this.prisma.recoveryEmailVerificationRequest.upsert({
             where: {
                 userId: user.id,
             },
             update: {
-                email: dto.email,
+                email: email,
                 code: verificationCode,
             },
             create: {
                 userId: user.id,
-                email: dto.email,
+                email: email,
                 code: verificationCode,
             },
         });
@@ -796,8 +799,9 @@ export class UserService {
     }
 
     async getUserByEmail(email: string) {
+        const normalizedEmail = email.toLowerCase().trim();
         const user = await this.prisma.user.findUnique({
-            where: { email },
+            where: { email: normalizedEmail },
             select: {
                 id: true,
                 firstName: true,

@@ -81,7 +81,10 @@
         "db:backup:list": "node scripts/backup-utils.js list",
         "db:backup:restore": "node scripts/backup-utils.js restore",
         "db:backup:help": "node scripts/backup-utils.js help",
-        "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts"
+        "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts",
+        "db:staging:up": "docker compose -f docker-compose.staging.yml up -d",
+        "db:staging:down": "docker compose -f docker-compose.staging.yml down",
+        "db:staging:logs": "docker compose -f docker-compose.staging.yml logs -f"
     },
     "dependencies": {
         "@boxpositron/vre": "^1.0.0",

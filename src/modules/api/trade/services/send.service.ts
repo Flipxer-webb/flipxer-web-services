@@ -554,7 +554,7 @@ export class SendService {
                 holdEntryId: holdEntryId,
                 userId: user.id,
                 currency: order.currency,
-                amount: order.amount,
+                amount: new Decimal(order.total), // Issue #5 fix: Use total (amount + fee), not just amount
                 reason: QueueReason.LOW_LIQUIDITY,
             });
 
@@ -784,7 +784,7 @@ export class SendService {
                 amount: totalAmount,
                 amountInFiat: amtFiat?.amount,
                 rateAtConversion: amtFiat?.rate,
-                ledgerEntryId: transferResult.entryId,
+                ledgerEntryId: transferResult.creditEntryId || transferResult.entryId, // Issue #3 fix: use recipient's credit entry
                 fulfilled: true,
             },
         });

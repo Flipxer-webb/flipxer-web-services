@@ -388,27 +388,41 @@ export class SellOrderService {
                     payoutError.stack
                 );
 
-                // Release the hold since payout could not be initiated
+                // CRITICAL FIX: Hold was already SETTLED at line 280 (releaseHoldWithPlatformEntry with settle: true).
+                // We need to CREDIT back the user's virtual balance because the hold no longer exists.
                 try {
-                    await this.ledgerService.releaseHold(
-                        holdReference,
-                        false,
-                        `Payout initiation failed: ${payoutError.message}`
-                    );
-                    this.logger.log(`Released hold after payout failure | Reference: ${holdReference}`);
-                } catch (releaseError) {
+                    const refundResult = await this.ledgerService.pairedCredit({
+                        userId: user.id,
+                        currency: dto.asset.toUpperCase(),
+                        amount: totalCryptoToAdmin,
+                        type: LedgerType.REFUND,
+                        reference: `${holdReference}:refund`,
+                        description: `Refund: Payout initiation failed`,
+                        createPlatformEntry: true
+                    });
+
+                    if (refundResult.success) {
+                        this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
+
+                        // Sync wallet to reflect refund in cache
+                        this.walletAddressService?.syncWallet?.(user.id, dto.asset.toUpperCase());
+                    } else {
+                        // This is a catastrophic failure - payout failed AND refund failed
+                        throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
+                    }
+                } catch (refundError) {
                     this.logger.error(
-                        `CRITICAL: Failed to release hold after payout failure: ${releaseError.message}`,
-                        releaseError.stack
+                        `CRITICAL: Failed to REFUND user after payout failure: ${refundError.message}`,
+                        refundError.stack
                     );
-                    // Alert admin - funds may be stuck
-                    await this.slackWebhookService?.sendAlert?.('SELL_ORDER_HOLD_STUCK', {
-                        text: `🚨 CRITICAL: Sell order payout failed AND hold release failed!\n` +
+                    // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed)
+                    await this.slackWebhookService?.sendAlert?.('SELL_ORDER_REFUND_FAILED', {
+                        text: `🚨 CRITICAL: Sell order payout failed AND refund failed!\n` +
                             `Order: ${order.id}\n` +
                             `User: ${user.id}\n` +
                             `Hold Reference: ${holdReference}\n` +
                             `Payout Error: ${payoutError.message}\n` +
-                            `Release Error: ${releaseError.message}\n` +
+                            `Refund Error: ${refundError.message}\n` +
                             `⚠️ MANUAL INTERVENTION REQUIRED`,
                     });
                 }
