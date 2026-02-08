@@ -53,6 +53,7 @@ yarn.lock
 # Database backups (contain sensitive data)
 /backups
 *.sql
+!prisma/migrations/**/*.sql
 *.sql.gz
 *.sql.zip
 bun.lockb
