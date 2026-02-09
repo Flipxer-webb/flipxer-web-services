@@ -171,12 +171,14 @@ export class DojahService {
                 return { verified: false, status: 'not_found' };
             }
 
-            // Map Dojah status to verified boolean
-            // Dojah usually returns status: 'processed' or 'success' and specific verification status inside
-            const isValid = resp.data.status === 'valid' || resp.data.status === 'success';
+            const entity = result.data?.entity || result.data;
 
+            const verified = entity.status === true && entity.verification_status === "Completed";
+            
+            this.logger.log(`Verification result for ${verificationId}: verified=${verified}, status=${entity?.status}`);
+            
             return {
-                verified: isValid,
+                verified: verified,
                 status: resp.data.status || 'unknown',
                 data: resp.data
             };

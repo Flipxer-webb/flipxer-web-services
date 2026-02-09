@@ -221,8 +221,11 @@ export class DojahLib {
     async getVerificationResult(verificationId: string): Promise<t.DojahResponse<any> | null> {
         try {
             const requestOptions: AxiosRequestConfig = {
-                url: `/api/v1/verification/${verificationId}`,
+                url: `/api/v1/kyc/verification`,
                 method: "GET",
+                params: {
+                    reference_id: verificationId
+                }
             };
             const resp = await this.axios<any>(requestOptions);
 
