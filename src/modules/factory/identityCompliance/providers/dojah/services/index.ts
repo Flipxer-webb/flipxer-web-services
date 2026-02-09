@@ -171,12 +171,13 @@ export class DojahService {
                 return { verified: false, status: 'not_found' };
             }
 
-            const entity = result.data?.entity || result.data;
+            const entity = resp.data?.entity || resp.data;
 
-            const verified = entity.status === true && entity.verification_status === "Completed";
-            
+            const verified = (entity.status === true || entity.status === "valid" || entity.status === "success") &&
+                (entity.verification_status === "Completed" || !entity.verification_status);
+
             this.logger.log(`Verification result for ${verificationId}: verified=${verified}, status=${entity?.status}`);
-            
+
             return {
                 verified: verified,
                 status: resp.data.status || 'unknown',
