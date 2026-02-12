@@ -31,7 +31,7 @@ import {
 import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
-import { AssetWallet, OrderStatus, Prisma, User } from "@prisma/client";
+import { AssetWallet, OrderStatus, Prisma, User, UserType, DocumentVerificationStatus } from "@prisma/client";
 import { DuplicateUserException, IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
 import { emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
@@ -174,6 +174,8 @@ export class UserService {
                 tier: tierInfo.tier,
                 withdrawalLimit: tierInfo.withdrawalLimit,
                 canTransact: tierInfo.canTransact,
+                // Verification requirements to guide frontend
+                verificationRequirements: this.getVerificationRequirements(profile),
             },
         };
 
@@ -182,6 +184,47 @@ export class UserService {
 
         this.logger.log(`[PERF] TOTAL getProfile for user ${user.id}: ${Date.now() - startTime}ms`);
         return response;
+    }
+
+    /**
+     * Calculate what verification steps the user needs to take next.
+     * Crucial for Business accounts to avoid being asked for BVN/NIN.
+     */
+    private getVerificationRequirements(profile: any) {
+        const requirements = {
+            nextStep: "COMPLETE",
+            details: null as string | null
+        };
+
+        if (profile.userType === UserType.BUSINESS) {
+            if (!profile.businessRecordCompleted) {
+                requirements.nextStep = "BUSINESS_RECORD";
+            } else if (!profile.businessDocumentsUploaded) {
+                requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
+            } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.PENDING) {
+                requirements.nextStep = "WAIT_FOR_VERIFICATION";
+            } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.DECLINED) {
+                requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD"; // Needs re-upload
+                requirements.details = "Previous documents were declined";
+            } else if (!profile.isDocumentVerified) {
+                // Fallback: Documents uploaded but not verified/declined/pending (shouldn't happen often)
+                // or manually reset. 
+                requirements.nextStep = "WAIT_FOR_VERIFICATION";
+            }
+        } else {
+            // Individual Flow
+            // Priority: Email -> Phone -> BVN/NIN -> Document -> Address -> Income
+            if (!profile.isEmailVerified) {
+                requirements.nextStep = "EMAIL_VERIFICATION";
+            } else if (!profile.isBvnVerified && !profile.isNinVerified) {
+                requirements.nextStep = "GOVERNMENT_ID";
+            } else if (!profile.isDocumentVerified) {
+                requirements.nextStep = "IDENTITY_DOCUMENT";
+            }
+            // Address/Income are usually Tier 2/3, not blocking initial "Complete" state for Tier 1
+        }
+
+        return requirements;
     }
 
     /**
