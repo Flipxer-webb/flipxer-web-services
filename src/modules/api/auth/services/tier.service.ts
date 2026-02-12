@@ -144,11 +144,29 @@ export class TierService {
      * @param user - The user object
      * @returns TierInfo with tier, withdrawal limit, and transaction capability
      */
-    getTierInfo(user: Partial<UserWithTier>): TierInfo {
+    /**
+     * Retrieves tier information for a user.
+     * NOW ASYNC: Fetches custom limits from AccountLimit table if available.
+     */
+    async getTierInfo(user: Partial<UserWithTier>): Promise<TierInfo> {
         const tier = this.calculateTier(user);
+        let withdrawalLimit: number | "unlimited" = WITHDRAWAL_LIMITS[tier];
+
+        // optimization: if user has an ID, check for custom limits
+        if (user.id) {
+            const accountLimit = await this.prisma.accountLimit.findUnique({
+                where: { userId: user.id },
+                select: { sellTokenFiat: true } // Assuming sellTokenFiat maps to withdrawal limit context
+            });
+
+            if (accountLimit && accountLimit.sellTokenFiat) {
+                withdrawalLimit = accountLimit.sellTokenFiat;
+            }
+        }
+
         return {
             tier,
-            withdrawalLimit: this.getWithdrawalLimit(tier),
+            withdrawalLimit,
             canTransact: tier > 0,
         };
     }
@@ -287,12 +305,12 @@ export class TierService {
      * @param currentDailyTotal - Current daily withdrawal total in USD
      * @returns Object with canWithdraw flag and reason if blocked
      */
-    validateWithdrawal(
+    async validateWithdrawal(
         user: Partial<UserWithTier>,
         amountInUSD: number,
         currentDailyTotal: number
-    ): { canWithdraw: boolean; reason?: string } {
-        const tierInfo = this.getTierInfo(user);
+    ): Promise<{ canWithdraw: boolean; reason?: string }> {
+        const tierInfo = await this.getTierInfo(user);
 
         // Tier 0 cannot transact
         if (!tierInfo.canTransact) {

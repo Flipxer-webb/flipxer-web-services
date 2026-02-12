@@ -162,7 +162,7 @@ export class UserService {
         this.logger.log(`[PERF] Profile DB queries (parallel) for user ${user.id}: ${Date.now() - dbStartTime}ms`);
 
         // Calculate tier info
-        const tierInfo = this.tierService.getTierInfo(profile);
+        const tierInfo = await this.tierService.getTierInfo(profile);
 
         const response = {
             message: "Profile successfully retrieved",
@@ -189,7 +189,7 @@ export class UserService {
      * Returns the amount used today and the daily limit based on tier
      */
     async getWithdrawalUsage(user: User) {
-        const tierInfo = this.tierService.getTierInfo(user);
+        const tierInfo = await this.tierService.getTierInfo(user);
 
         // Calculate daily total from the last 24 hours
         const now = new Date();

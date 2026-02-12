@@ -14,7 +14,7 @@ import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import { v4 as uuidv4 } from "uuid";
 import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
-import { TierService } from "./tier.service";
+import { TierService, TierInfo } from "./tier.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 
 @Injectable()
@@ -95,7 +95,8 @@ export class TransactionService {
         }
 
         // Get tier info for the user
-        const tierInfo = this.tierService.getTierInfo(user);
+        // Get tier info for the user
+        const tierInfo = await this.tierService.getTierInfo(user);
 
         // Tier 0 users cannot transact at all
         if (!tierInfo.canTransact) {
@@ -194,7 +195,7 @@ export class TransactionService {
         amount: number,
         currency: string,
         amountUSD: number,
-        tierInfo: ReturnType<TierService['getTierInfo']>,
+        tierInfo: TierInfo,
         hasUnlimitedWithdrawal: boolean,
         monthlyLimit: number,
         path: string
