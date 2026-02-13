@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   authentication:
@@ -12,10 +12,10 @@ services:
       - .env
     depends_on:
       - db
-    command: sh -c "pnpm prisma migrate deploy && pnpm start"
+    # command: sh -c "pnpm prisma migrate deploy && pnpm start"
     dns:
-      - 8.8.8.8  # Google DNS server
-      - 8.8.4.4  # Google DNS server
+      - 8.8.8.8 # Google DNS server
+      - 8.8.4.4 # Google DNS server
 
   db:
     image: postgres:13
@@ -32,6 +32,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
 
 volumes:
   db_data:
