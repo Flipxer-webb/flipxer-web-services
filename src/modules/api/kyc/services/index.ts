@@ -50,6 +50,7 @@ export class KycService {
                     { isBvnVerified: false },
                     { isNinVerified: false },
                     { isDocumentVerified: false },
+                    { businessDocumentsUploaded: true, businessDocumentVerificationStatus: { not: "VERIFIED" } },
                 ],
             };
         }
@@ -62,6 +63,7 @@ export class KycService {
                 DOCUMENT: { isDocumentVerified: false, userDocument: { isNot: null } },
                 ADDRESS: { isAddressVerified: false },
                 INCOME: { isIncomeVerified: false },
+                BUSINESS_DOCUMENT: { businessDocumentsUploaded: true, businessDocumentVerificationStatus: { not: "VERIFIED" } },
             };
             verificationFilter = { ...verificationFilter, ...typeMap[verificationType] };
         }
@@ -103,6 +105,8 @@ export class KycService {
                     isIncomeVerified: true,
                     isEmailVerified: true,
                     isPhoneVerified: true,
+                    businessDocumentsUploaded: true,
+                    businessDocumentVerificationStatus: true,
                     userDocument: {
                         select: {
                             id: true,
@@ -269,6 +273,9 @@ export class KycService {
                         isIncomeVerified: true,
                         incomeVerificationStatus: "VERIFIED",
                     },
+                    BUSINESS_DOCUMENT: {
+                        businessDocumentVerificationStatus: "VERIFIED",
+                    },
                 };
                 updateData = verificationMap[verificationType] || {};
             }
@@ -291,6 +298,10 @@ export class KycService {
                     INCOME: {
                         incomeVerificationStatus: "DECLINED",
                         incomeDocumentUrl: null,
+                    },
+                    BUSINESS_DOCUMENT: {
+                        businessDocumentVerificationStatus: "DECLINED",
+                        businessDocumentsUploaded: false,
                     },
                 };
                 updateData = rejectionMap[verificationType] || {};
@@ -638,6 +649,9 @@ export class KycService {
         if (!user.isNinVerified && user.nin) pending.push("nin");
         if (!user.isDocumentVerified && user.userDocument) pending.push("document");
         if (!user.isAddressVerified) pending.push("address");
+        if (user.userType === "BUSINESS" && user.businessDocumentsUploaded && user.businessDocumentVerificationStatus !== "VERIFIED") {
+            pending.push("businessDocument");
+        }
         return pending;
     }
 

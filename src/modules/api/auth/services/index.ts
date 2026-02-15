@@ -1828,7 +1828,7 @@ export class AuthService {
         files: UploadBusinessDocumentsFileInterface,
         dto: BusinessDocumentUploadDto
     ) {
-        if (user.businessDocumentsUploaded) {
+        if (user.businessDocumentsUploaded && user.businessDocumentVerificationStatus !== "DECLINED") {
             throw new VerificationGenericException(
                 `Document has already been uploaded and is ${user.businessDocumentVerificationStatus}`,
                 HttpStatus.BAD_REQUEST

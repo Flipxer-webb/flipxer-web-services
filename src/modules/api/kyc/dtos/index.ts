@@ -25,7 +25,7 @@ export class GetKycQueueDto {
 
     @ApiPropertyOptional({
         description: "Verification type filter",
-        enum: ["BVN", "NIN", "DOCUMENT", "ADDRESS", "BIOMETRIC", "INCOME", "all"],
+        enum: ["BVN", "NIN", "DOCUMENT", "ADDRESS", "BIOMETRIC", "INCOME", "BUSINESS_DOCUMENT", "all"],
     })
     @IsOptional()
     @IsString()
@@ -161,11 +161,11 @@ export class ApproveDocumentDto {
 
     @ApiProperty({
         description: "Document type to approve",
-        enum: ["address", "income"],
+        enum: ["address", "income", "business"],
     })
     @IsString()
-    @IsIn(["address", "income"])
-    documentType: "address" | "income";
+    @IsIn(["address", "income", "business"])
+    documentType: "address" | "income" | "business";
 }
 
 export class RejectDocumentDto {
@@ -176,11 +176,11 @@ export class RejectDocumentDto {
 
     @ApiProperty({
         description: "Document type to reject",
-        enum: ["address", "income"],
+        enum: ["address", "income", "business"],
     })
     @IsString()
-    @IsIn(["address", "income"])
-    documentType: "address" | "income";
+    @IsIn(["address", "income", "business"])
+    documentType: "address" | "income" | "business";
 
     @ApiProperty({ description: "Reason for rejection" })
     @IsString()

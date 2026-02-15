@@ -638,7 +638,7 @@ export class TierVerificationService {
      */
     async sendReviewNotification(
         userId: number,
-        documentType: "address" | "income",
+        documentType: "address" | "income" | "business",
         approved: boolean,
         rejectionReason?: string
     ): Promise<void> {
@@ -661,7 +661,12 @@ export class TierVerificationService {
             return;
         }
 
-        const documentTypeFriendly = documentType === "address" ? "Address" : "Income";
+        const documentTypeFriendlyMap: Record<string, string> = {
+            address: "Address",
+            income: "Income",
+            business: "Business Documents",
+        };
+        const documentTypeFriendly = documentTypeFriendlyMap[documentType] || documentType;
 
         try {
             await this.emailService.sendMailWithTemplate({
@@ -692,13 +697,15 @@ export class TierVerificationService {
      */
     async approveDocument(
         userId: number,
-        documentType: "address" | "income"
+        documentType: "address" | "income" | "business"
     ): Promise<ApiResponse> {
         const updateData: Record<string, unknown> = {};
 
         if (documentType === "address") {
             updateData.addressVerificationStatus = DocumentVerificationStatus.VERIFIED;
             updateData.isAddressVerified = true;
+        } else if (documentType === "business") {
+            updateData.businessDocumentVerificationStatus = DocumentVerificationStatus.VERIFIED;
         } else {
             updateData.incomeVerificationStatus = DocumentVerificationStatus.VERIFIED;
             updateData.isIncomeVerified = true;
@@ -717,8 +724,14 @@ export class TierVerificationService {
 
         this.logger.log(`Admin approved ${documentType} document for user ${userId}`);
 
+        const friendlyMap: Record<string, string> = {
+            address: "Address",
+            income: "Income",
+            business: "Business Documents",
+        };
+
         return buildResponse({
-            message: `${documentType === "address" ? "Address" : "Income"} document approved successfully`,
+            message: `${friendlyMap[documentType] || documentType} approved successfully`,
         });
     }
 
@@ -727,7 +740,7 @@ export class TierVerificationService {
      */
     async rejectDocument(
         userId: number,
-        documentType: "address" | "income",
+        documentType: "address" | "income" | "business",
         reason: string
     ): Promise<ApiResponse> {
         const updateData: Record<string, unknown> = {};
@@ -736,6 +749,9 @@ export class TierVerificationService {
             updateData.addressVerificationStatus = DocumentVerificationStatus.DECLINED;
             updateData.isAddressVerified = false;
             updateData.addressDocumentUrl = null;
+        } else if (documentType === "business") {
+            updateData.businessDocumentVerificationStatus = DocumentVerificationStatus.DECLINED;
+            updateData.businessDocumentsUploaded = false;
         } else {
             updateData.incomeVerificationStatus = DocumentVerificationStatus.DECLINED;
             updateData.isIncomeVerified = false;
@@ -752,8 +768,14 @@ export class TierVerificationService {
 
         this.logger.log(`Admin rejected ${documentType} document for user ${userId}: ${reason}`);
 
+        const friendlyMap: Record<string, string> = {
+            address: "Address",
+            income: "Income",
+            business: "Business Documents",
+        };
+
         return buildResponse({
-            message: `${documentType === "address" ? "Address" : "Income"} document rejected`,
+            message: `${friendlyMap[documentType] || documentType} rejected`,
         });
     }
 }
