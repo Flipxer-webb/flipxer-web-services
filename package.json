@@ -59,6 +59,7 @@
         "seed": "ts-node prisma/seed/index.ts"
     },
     "scripts": {
+        "postinstall": "npx prisma generate",
         "prebuild": "rm -rf dist || true",
         "build": "NODE_ENV=production webpack",
         "format": "prettier --write \"src/**/*.ts\"",
