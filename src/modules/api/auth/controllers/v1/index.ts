@@ -381,9 +381,9 @@ export class AuthController {
         @User() user: UserModel,
         @UploadedFiles()
         files: UploadBusinessDocumentsFileInterface,
-        @Body() body: BusinessDocumentUploadDto
+        @Body(ValidationPipe) body: BusinessDocumentUploadDto
     ) {
-        if (!files.cacImage) {
+        if (!files?.cacImage?.length || !files.cacImage[0]) {
             throw new RequiredFilesMissing();
         }
 

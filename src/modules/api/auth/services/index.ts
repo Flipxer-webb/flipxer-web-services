@@ -47,6 +47,7 @@ import {
     InvalidRefreshToken,
     AuthGenericException,
     UserAccountDisabledException,
+    RequiredFilesMissing,
 } from "../errors";
 import {
     DocumentVerificationStatus,
@@ -1265,7 +1266,11 @@ export class AuthService {
         });
     }
 
-    async uploadAsFile(file: Express.Multer.File[]) {
+    async uploadAsFile(file?: Express.Multer.File[]) {
+        if (!file?.length || !file[0]?.buffer) {
+            throw new RequiredFilesMissing();
+        }
+
         const date = Date.now();
         const body = file[0].buffer;
 
@@ -1833,106 +1838,147 @@ export class AuthService {
         const safeUpload = async (file?: Express.Multer.File[]) =>
             file ? this.uploadAsFile(file) : null;
 
-        const [
-            cacImage,
-            articleImage,
-            boardResolutionImage,
-            proofOfAddressImage,
-            meansOfIdImage,
-        ] = await Promise.all([
-            safeUpload(files.cacImage),
-            safeUpload(files.articleOfAssociationImage),
-            safeUpload(files.boardResolutionAuthorizedAcctOpeningImage),
-            safeUpload(files.proofOfAddressForBeneficialOwner),
-            safeUpload(files.meansOfIdentificationForBeneficialOwner),
-        ]);
+        let cacImage: UploadResponse | UploadApiResponse | null = null;
+        let articleImage: UploadResponse | UploadApiResponse | null = null;
+        let boardResolutionImage: UploadResponse | UploadApiResponse | null = null;
+        let proofOfAddressImage: UploadResponse | UploadApiResponse | null = null;
+        let meansOfIdImage: UploadResponse | UploadApiResponse | null = null;
 
-        await this.prisma.$transaction(
-            async (tx) => {
-                await tx.businessDocument.upsert({
-                    where: { userId: user.id },
-                    update: {},
-                    create: {
-                        userId: user.id,
-                        cacDocumentNumber: dto.cacDocumentNumber,
-                        cacImageUrl: cacImage?.url || null,
-                        cacImageUrlFieldId: cacImage?.fileId || null,
-                        cacImageFileName: cacImage?.url
-                            ? generateFileName(
-                                DocumentMetaMap.cacImage,
-                                user.id,
-                                files.cacImage?.[0]?.originalname
-                            )
-                            : null,
-                        articleOfAssociationNumber:
-                            dto.articleOfAssociationNumber || null,
-                        articleOfAssociationImageUrl: articleImage?.url || null,
-                        articleOfAssociationImageUrlFieldId:
-                            articleImage?.fileId || null,
-                        articleOfAssociationFileName: articleImage?.url
-                            ? generateFileName(
-                                DocumentMetaMap.articleOfAssociationImage,
-                                user.id,
-                                files.articleOfAssociationImage?.[0]
-                                    ?.originalname
-                            )
-                            : null,
-                        boardResolutionAuthorizedAcctOpeningImageUrl:
-                            boardResolutionImage?.url || null,
-                        boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
-                            boardResolutionImage?.fileId || null,
-                        boardResolutionAuthorizedAcctOpeningFileName:
-                            boardResolutionImage?.url
-                                ? generateFileName(
-                                    DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
-                                    user.id,
-                                    files
-                                        .boardResolutionAuthorizedAcctOpeningImage?.[0]
-                                        ?.originalname
-                                )
-                                : null,
-                        meansOfIdentificationForBeneficialOwner:
-                            meansOfIdImage?.url || null,
-                        meansOfIdentificationForBeneficialOwnerImageFieldId:
-                            meansOfIdImage?.fileId || null,
-                        meansOfIdentificationForBeneficialOwnerFileName:
-                            meansOfIdImage?.url
-                                ? generateFileName(
-                                    DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
-                                    user.id,
-                                    files
-                                        .meansOfIdentificationForBeneficialOwner?.[0]
-                                        ?.originalname
-                                )
-                                : null,
-                        proofOfAddressForBeneficialOwner:
-                            proofOfAddressImage?.url || null,
-                        proofOfAddressForBeneficialOwnerImageFieldId:
-                            proofOfAddressImage?.fileId || null,
-                        proofOfAddressForBeneficialOwnerFileName:
-                            proofOfAddressImage?.url
-                                ? generateFileName(
-                                    DocumentMetaMap.proofOfAddressForBeneficialOwner,
-                                    user.id,
-                                    files
-                                        .proofOfAddressForBeneficialOwner?.[0]
-                                        ?.originalname
-                                )
-                                : null,
-                    },
-                });
+        try {
+            [
+                cacImage,
+                articleImage,
+                boardResolutionImage,
+                proofOfAddressImage,
+                meansOfIdImage,
+            ] = await Promise.all([
+                safeUpload(files.cacImage),
+                safeUpload(files.articleOfAssociationImage),
+                safeUpload(files.boardResolutionAuthorizedAcctOpeningImage),
+                safeUpload(files.proofOfAddressForBeneficialOwner),
+                safeUpload(files.meansOfIdentificationForBeneficialOwner),
+            ]);
+        } catch (error) {
+            this.logger.error(
+                `[BusinessDocumentsUpload][UploadPhase] Failed for user ${user.id}`,
+                {
+                    errorName: error?.name,
+                    errorMessage: error?.message,
+                    hasCacImage: !!files?.cacImage?.length,
+                    hasArticleImage: !!files?.articleOfAssociationImage?.length,
+                    hasBoardResolutionImage:
+                        !!files?.boardResolutionAuthorizedAcctOpeningImage?.length,
+                    hasProofOfAddress:
+                        !!files?.proofOfAddressForBeneficialOwner?.length,
+                    hasMeansOfId:
+                        !!files?.meansOfIdentificationForBeneficialOwner?.length,
+                } as any
+            );
+            throw error;
+        }
 
-                await tx.user.update({
-                    where: { id: user.id },
-                    data: {
-                        businessDocumentsUploaded: true,
-                        businessDocumentVerificationStatus:
-                            DocumentVerificationStatus.PENDING,
-                    },
-                });
-            },
-            { timeout: 30000 }
-        );
+        try {
+            await this.prisma.$transaction(
+                async (tx) => {
+                    await tx.businessDocument.upsert({
+                        where: { userId: user.id },
+                        update: {},
+                        create: {
+                            userId: user.id,
+                            cacDocumentNumber: dto.cacDocumentNumber,
+                            cacImageUrl: cacImage?.url || null,
+                            cacImageUrlFieldId: cacImage?.fileId || null,
+                            cacImageFileName: cacImage?.url
+                                ? generateFileName(
+                                    DocumentMetaMap.cacImage,
+                                    user.id,
+                                    files.cacImage?.[0]?.originalname
+                                )
+                                : null,
+                            articleOfAssociationNumber:
+                                dto.articleOfAssociationNumber || null,
+                            articleOfAssociationImageUrl:
+                                articleImage?.url || null,
+                            articleOfAssociationImageUrlFieldId:
+                                articleImage?.fileId || null,
+                            articleOfAssociationFileName: articleImage?.url
+                                ? generateFileName(
+                                    DocumentMetaMap.articleOfAssociationImage,
+                                    user.id,
+                                    files.articleOfAssociationImage?.[0]
+                                        ?.originalname
+                                )
+                                : null,
+                            boardResolutionAuthorizedAcctOpeningImageUrl:
+                                boardResolutionImage?.url || null,
+                            boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
+                                boardResolutionImage?.fileId || null,
+                            boardResolutionAuthorizedAcctOpeningFileName:
+                                boardResolutionImage?.url
+                                    ? generateFileName(
+                                        DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                                        user.id,
+                                        files
+                                            .boardResolutionAuthorizedAcctOpeningImage?.[0]
+                                            ?.originalname
+                                    )
+                                    : null,
+                            meansOfIdentificationForBeneficialOwner:
+                                meansOfIdImage?.url || null,
+                            meansOfIdentificationForBeneficialOwnerImageFieldId:
+                                meansOfIdImage?.fileId || null,
+                            meansOfIdentificationForBeneficialOwnerFileName:
+                                meansOfIdImage?.url
+                                    ? generateFileName(
+                                        DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                                        user.id,
+                                        files
+                                            .meansOfIdentificationForBeneficialOwner?.[0]
+                                            ?.originalname
+                                    )
+                                    : null,
+                            proofOfAddressForBeneficialOwner:
+                                proofOfAddressImage?.url || null,
+                            proofOfAddressForBeneficialOwnerImageFieldId:
+                                proofOfAddressImage?.fileId || null,
+                            proofOfAddressForBeneficialOwnerFileName:
+                                proofOfAddressImage?.url
+                                    ? generateFileName(
+                                        DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                                        user.id,
+                                        files
+                                            .proofOfAddressForBeneficialOwner?.[0]
+                                            ?.originalname
+                                    )
+                                    : null,
+                        },
+                    });
+
+                    await tx.user.update({
+                        where: { id: user.id },
+                        data: {
+                            businessDocumentsUploaded: true,
+                            businessDocumentVerificationStatus:
+                                DocumentVerificationStatus.PENDING,
+                        },
+                    });
+                },
+                { timeout: 30000 }
+            );
+        } catch (error) {
+            this.logger.error(
+                `[BusinessDocumentsUpload][DatabasePhase] Failed for user ${user.id}`,
+                {
+                    errorName: error?.name,
+                    errorMessage: error?.message,
+                    prismaCode: error?.code,
+                    hasCacDocumentNumber: !!dto?.cacDocumentNumber,
+                    hasCacImageUrl: !!cacImage?.url,
+                    hasCacImageFieldId: !!cacImage?.fileId,
+                } as any
+            );
+            throw error;
+        }
 
         return buildResponse({
             message: "Document Verification successfully",
