@@ -48,8 +48,11 @@ export class ImagekitService extends BaseUploadService {
 
             return uploadedResponse;
         } catch (err) {
+            const errDetail =
+                err?.message ||
+                (typeof err === "object" ? JSON.stringify(err) : String(err));
             const error = new Error(
-                `[ImageKit] Upload API failed for "${options.name}": ${err?.message}`
+                `[ImageKit] Upload API failed for "${options.name}": ${errDetail}`
             );
             error.name = "ImageKitUploadError";
             (error as any).cause = err;

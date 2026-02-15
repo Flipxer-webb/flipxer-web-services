@@ -17,6 +17,15 @@ export class UploadFactory {
             }
 
             case "imagekit": {
+                if (
+                    !imagekitConfig.public_key ||
+                    !imagekitConfig.private_key ||
+                    !imagekitConfig.url
+                ) {
+                    throw new Error(
+                        "[UploadFactory] ImageKit credentials missing. Set IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, and IMAGEKIT_URL environment variables."
+                    );
+                }
                 const imagekit = new ImageKit({
                     publicKey: imagekitConfig.public_key,
                     privateKey: imagekitConfig.private_key,
