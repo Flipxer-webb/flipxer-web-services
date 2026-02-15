@@ -18,6 +18,46 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const { httpAdapter } = this.httpAdapterHost;
         const ctx = host.switchToHttp();
 
+        // Handle Multer errors early (thrown before controller/service for multipart parsing)
+        if (exception?.name === "MulterError") {
+            const multerCode = exception?.code as string | undefined;
+            const status =
+                multerCode === "LIMIT_FILE_SIZE"
+                    ? HttpStatus.PAYLOAD_TOO_LARGE
+                    : HttpStatus.BAD_REQUEST;
+
+            const messageMap: Record<string, string> = {
+                LIMIT_FILE_SIZE: "One or more files exceed the allowed size limit",
+                LIMIT_FILE_COUNT: "Too many files uploaded",
+                LIMIT_UNEXPECTED_FILE: "Unexpected file field in upload payload",
+                LIMIT_PART_COUNT: "Too many parts in multipart request",
+                LIMIT_FIELD_KEY: "A multipart field name is too long",
+                LIMIT_FIELD_VALUE: "A multipart field value is too long",
+                LIMIT_FIELD_COUNT: "Too many multipart fields",
+            };
+
+            const responseBody: Record<string, unknown> = {
+                success: false,
+                message: messageMap[multerCode || ""] || exception?.message || "Invalid multipart upload payload",
+                code: ErrorCode.INVALID_INPUT,
+                details: {
+                    multerCode,
+                    field: exception?.field,
+                },
+                stack: isProdEnvironment ? undefined : exception?.stack,
+            };
+
+            if (!isProdEnvironment) {
+                console.error("[AllExceptionsFilter][MulterError]", {
+                    multerCode,
+                    field: exception?.field,
+                    message: exception?.message,
+                });
+            }
+
+            return httpAdapter.reply(ctx.getResponse(), responseBody, status);
+        }
+
         const httpStatus =
             exception instanceof HttpException
                 ? exception.getStatus()
