@@ -106,8 +106,8 @@ export class TierService {
      * Note: Returns 1 but business accounts get unlimited regardless
      */
     private calculateBusinessTier(user: Partial<UserWithTier>): TierLevel {
-        // Business docs uploaded = full access (Tier 1 for business)
-        if (user.businessDocumentsUploaded) {
+        // Business accounts only get Tier 1 (Unlimited) if documents are fully VERIFIED
+        if (user.businessDocumentVerificationStatus === "VERIFIED") {
             return 1;
         }
         return 0;
