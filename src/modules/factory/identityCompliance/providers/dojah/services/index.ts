@@ -209,4 +209,183 @@ export class DojahService {
             HttpStatus.NOT_IMPLEMENTED
         );
     }
+
+    /**
+     * Lookup a company by CAC RC number
+     */
+    async lookupCAC(rcNumber: string): Promise<DJ.DojahResponse<DJ.CACLookupResponseData>> {
+        try {
+            const resp = await this.dojah.lookupCAC({ rcNumber });
+
+            if (!resp) {
+                throw new e.DojahException(
+                    `Unable to lookup CAC registration`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            this.logger.log(
+                `CAC lookup completed for RC ${rcNumber}: company=${resp.data?.entity?.company_name}, status=${resp.data?.entity?.company_status}`
+            );
+
+            return resp;
+        } catch (error) {
+            this.handleVerificationError(error, "CAC");
+        }
+    }
+
+    /**
+     * Verify a Tax Identification Number (TIN)
+     */
+    async verifyTIN(tin: string): Promise<DJ.DojahResponse<DJ.TINVerifyResponseData>> {
+        try {
+            const resp = await this.dojah.verifyTIN({ tin });
+
+            if (!resp) {
+                throw new e.DojahException(
+                    `Unable to verify TIN`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            this.logger.log(
+                `TIN verification completed for ${tin}: taxpayer=${resp.data?.entity?.taxpayer_name}`
+            );
+
+            return resp;
+        } catch (error) {
+            this.handleVerificationError(error, "TIN");
+        }
+    }
+
+    /**
+     * Orchestrate all business document verifications:
+     * 1. CAC lookup by RC number
+     * 2. TIN verification
+     * 3. CAC document OCR (extract text from document image)
+     * 
+     * All checks run in parallel via Promise.allSettled (non-blocking).
+     * Returns structured results for storage.
+     */
+    async verifyBusinessDocuments(options: {
+        cacDocumentNumber: string;
+        taxIdentificationNumber?: string;
+        cacImageBase64?: string;
+        businessName: string;
+    }): Promise<DJ.BusinessVerificationResult> {
+        const normalize = (s?: string) => s?.toLowerCase().trim() || "";
+        const expectedName = normalize(options.businessName);
+
+        const results: DJ.BusinessVerificationResult = {
+            cac: { verified: false },
+            tin: { verified: false },
+            ocr: { verified: false },
+        };
+
+        // Run all checks in parallel
+        const [cacResult, tinResult, ocrResult] = await Promise.allSettled([
+            // 1. CAC Lookup
+            this.lookupCAC(options.cacDocumentNumber),
+            // 2. TIN Verification
+            options.taxIdentificationNumber
+                ? this.verifyTIN(options.taxIdentificationNumber)
+                : Promise.resolve(null),
+            // 3. CAC Document OCR
+            options.cacImageBase64
+                ? this.analyzeDocument({
+                    imageFrontSide: options.cacImageBase64,
+                    inputType: "base64",
+                })
+                : Promise.resolve(null),
+        ]);
+
+        // Process CAC result
+        if (cacResult.status === "fulfilled" && cacResult.value) {
+            const entity = cacResult.value.data?.entity;
+            const companyName = entity?.company_name || "";
+            const nameMatches =
+                normalize(companyName).includes(expectedName) ||
+                expectedName.includes(normalize(companyName));
+
+            results.cac = {
+                verified: true,
+                companyName,
+                companyStatus: entity?.company_status,
+                registrationDate: entity?.registration_date,
+                nameMatches,
+                rawResponse: JSON.stringify(cacResult.value.data),
+            };
+        } else if (cacResult.status === "rejected") {
+            this.logger.warn(
+                `CAC lookup failed for RC ${options.cacDocumentNumber}: ${cacResult.reason?.message}`
+            );
+            results.cac = {
+                verified: false,
+                rawResponse: JSON.stringify({ error: cacResult.reason?.message }),
+            };
+        }
+
+        // Process TIN result
+        if (tinResult.status === "fulfilled" && tinResult.value) {
+            const entity = tinResult.value.data?.entity;
+            const taxpayerName = entity?.taxpayer_name || "";
+            const nameMatches =
+                normalize(taxpayerName).includes(expectedName) ||
+                expectedName.includes(normalize(taxpayerName));
+
+            results.tin = {
+                verified: true,
+                taxpayerName,
+                nameMatches,
+                rawResponse: JSON.stringify(tinResult.value.data),
+            };
+        } else if (tinResult.status === "rejected") {
+            this.logger.warn(
+                `TIN verification failed for ${options.taxIdentificationNumber}: ${tinResult.reason?.message}`
+            );
+            results.tin = {
+                verified: false,
+                rawResponse: JSON.stringify({ error: tinResult.reason?.message }),
+            };
+        }
+
+        // Process OCR result
+        if (ocrResult.status === "fulfilled" && ocrResult.value) {
+            const { parsed } = ocrResult.value as {
+                response: DJ.DojahResponse<DJ.DocumentAnalysisResponseData>;
+                parsed: DJ.ParsedDocumentData;
+            };
+            const extractedNumber = parsed.documentNumber || "";
+            const extractedName = [parsed.firstName, parsed.lastName]
+                .filter(Boolean)
+                .join(" ");
+            const numberMatches =
+                normalize(extractedNumber) ===
+                normalize(options.cacDocumentNumber);
+
+            results.ocr = {
+                verified: parsed.isValid,
+                extractedNumber,
+                extractedName,
+                numberMatches,
+                rawResponse: JSON.stringify(ocrResult.value),
+            };
+        } else if (ocrResult.status === "rejected") {
+            this.logger.warn(
+                `CAC document OCR failed: ${ocrResult.reason?.message}`
+            );
+            results.ocr = {
+                verified: false,
+                rawResponse: JSON.stringify({ error: ocrResult.reason?.message }),
+            };
+        }
+
+        this.logger.log(
+            `Business verification completed: CAC=${results.cac.verified}(nameMatch=${results.cac.nameMatches}), ` +
+            `TIN=${results.tin.verified}(nameMatch=${results.tin.nameMatches}), ` +
+            `OCR=${results.ocr.verified}(numMatch=${results.ocr.numberMatches})`
+        );
+
+        return results;
+    }
 }

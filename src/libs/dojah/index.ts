@@ -246,4 +246,64 @@ export class DojahLib {
             this.handleDojahError(error as AxiosError);
         }
     }
+
+    async lookupCAC(
+        options: t.CACLookupOptions
+    ): Promise<t.DojahResponse<t.CACLookupResponseData>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: "/api/v1/kyc/cac",
+                method: "GET",
+                params: {
+                    rc_number: options.rcNumber,
+                },
+            };
+            const resp = await this.axios<t.CACLookupResponseData>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.DojahError("Failed to lookup CAC");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: true,
+                responseCode: resp.status,
+                data: resp.data,
+            };
+        } catch (error) {
+            this.handleDojahError(error as AxiosError);
+        }
+    }
+
+    async verifyTIN(
+        options: t.TINVerifyOptions
+    ): Promise<t.DojahResponse<t.TINVerifyResponseData>> {
+        try {
+            const requestOptions: AxiosRequestConfig = {
+                url: "/api/v1/kyc/tin",
+                method: "GET",
+                params: {
+                    tin: options.tin,
+                },
+            };
+            const resp = await this.axios<t.TINVerifyResponseData>(
+                requestOptions
+            );
+
+            if (!resp.data) {
+                const error = new e.DojahError("Failed to verify TIN");
+                error.status = 500;
+                throw error;
+            }
+            return {
+                status: true,
+                responseCode: resp.status,
+                data: resp.data,
+            };
+        } catch (error) {
+            this.handleDojahError(error as AxiosError);
+        }
+    }
 }

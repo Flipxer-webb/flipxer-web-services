@@ -1975,9 +1975,102 @@ export class AuthService {
             throw error;
         }
 
+        // Fire-and-forget: Run Dojah business verification in background
+        // This does NOT block the user response — results are stored async
+        this.runDojahBusinessVerification(user.id, dto.cacDocumentNumber, files.cacImage?.[0])
+            .catch((err) => {
+                this.logger.error(
+                    `[BusinessDocumentsUpload][DojahVerification] Background verification failed for user ${user.id}: ${err?.message}`,
+                    err?.stack
+                );
+            });
+
         return buildResponse({
             message: "Document Verification successfully",
         });
+    }
+
+    /**
+     * Background Dojah verification for business documents.
+     * Runs CAC lookup, TIN verification, and CAC document OCR in parallel.
+     * Stores results back into BusinessDocument record.
+     */
+    private async runDojahBusinessVerification(
+        userId: number,
+        cacDocumentNumber: string,
+        cacImageFile?: Express.Multer.File
+    ): Promise<void> {
+        try {
+            // Fetch business record for TIN and business name
+            const businessRecord = await this.prisma.businessRecord.findUnique({
+                where: { userId },
+            });
+
+            const businessName = businessRecord?.businessName || "";
+            const tin = businessRecord?.taxIdentificationNumber;
+
+            // Convert CAC image buffer to base64 for OCR
+            let cacImageBase64: string | undefined;
+            if (cacImageFile?.buffer) {
+                cacImageBase64 = cacImageFile.buffer.toString("base64");
+            }
+
+            this.logger.log(
+                `[DojahBusinessVerification] Starting for user ${userId}: ` +
+                `RC=${cacDocumentNumber}, TIN=${tin ? "provided" : "none"}, ` +
+                `OCR=${cacImageBase64 ? "has image" : "no image"}, businessName=${businessName}`
+            );
+
+            const verificationResult = await this.dojahService.verifyBusinessDocuments({
+                cacDocumentNumber,
+                taxIdentificationNumber: tin,
+                cacImageBase64,
+                businessName,
+            });
+
+            // Store results in BusinessDocument
+            await this.prisma.businessDocument.update({
+                where: { userId },
+                data: {
+                    // CAC lookup results
+                    cacVerified: verificationResult.cac.verified,
+                    cacVerifiedAt: verificationResult.cac.verified ? new Date() : null,
+                    cacCompanyName: verificationResult.cac.companyName || null,
+                    cacCompanyStatus: verificationResult.cac.companyStatus || null,
+                    cacRegistrationDate: verificationResult.cac.registrationDate || null,
+                    cacNameMatches: verificationResult.cac.nameMatches ?? null,
+                    cacRawResponse: verificationResult.cac.rawResponse || null,
+
+                    // TIN verification results
+                    tinVerified: verificationResult.tin.verified,
+                    tinVerifiedAt: verificationResult.tin.verified ? new Date() : null,
+                    tinTaxpayerName: verificationResult.tin.taxpayerName || null,
+                    tinNameMatches: verificationResult.tin.nameMatches ?? null,
+                    tinRawResponse: verificationResult.tin.rawResponse || null,
+
+                    // CAC Document OCR results
+                    cacOcrVerified: verificationResult.ocr.verified,
+                    cacOcrVerifiedAt: verificationResult.ocr.verified ? new Date() : null,
+                    cacOcrExtractedNumber: verificationResult.ocr.extractedNumber || null,
+                    cacOcrExtractedName: verificationResult.ocr.extractedName || null,
+                    cacOcrNumberMatches: verificationResult.ocr.numberMatches ?? null,
+                    cacOcrRawResponse: verificationResult.ocr.rawResponse || null,
+                },
+            });
+
+            this.logger.log(
+                `[DojahBusinessVerification] Completed for user ${userId}: ` +
+                `CAC=${verificationResult.cac.verified}(name=${verificationResult.cac.nameMatches}), ` +
+                `TIN=${verificationResult.tin.verified}(name=${verificationResult.tin.nameMatches}), ` +
+                `OCR=${verificationResult.ocr.verified}(num=${verificationResult.ocr.numberMatches})`
+            );
+        } catch (error) {
+            this.logger.error(
+                `[DojahBusinessVerification] Failed for user ${userId}: ${error?.message}`,
+                error?.stack
+            );
+            // Don't re-throw — this is a background task
+        }
     }
 
     async submitBusinessRecord(user: User, dto: SubmitBusinessRecordDto) {

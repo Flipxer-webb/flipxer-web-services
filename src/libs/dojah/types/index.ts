@@ -126,3 +126,73 @@ export interface ParsedDocumentData {
     hasFrontSide: boolean;
     hasBackSide: boolean;
 }
+
+// CAC Lookup Types
+export interface CACLookupOptions {
+    /** RC number of the company */
+    rcNumber: string;
+}
+
+export interface CACLookupEntity {
+    rc_number: string;
+    company_name: string;
+    company_status: string;
+    registration_date: string;
+    company_type?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    lga?: string;
+    email?: string;
+    branch_address?: string;
+    classification?: string;
+}
+
+export interface CACLookupResponseData {
+    entity: CACLookupEntity;
+}
+
+// TIN Verification Types
+export interface TINVerifyOptions {
+    /** Tax Identification Number */
+    tin: string;
+}
+
+export interface TINVerifyEntity {
+    taxpayer_name: string;
+    cac_reg_number?: string;
+    firs_tin?: string;
+    jtb_tin?: string;
+    tax_office?: string;
+    phone_number?: string;
+    email?: string;
+}
+
+export interface TINVerifyResponseData {
+    entity: TINVerifyEntity;
+}
+
+// Business Document Verification Result
+export interface BusinessVerificationResult {
+    cac: {
+        verified: boolean;
+        companyName?: string;
+        companyStatus?: string;
+        registrationDate?: string;
+        nameMatches?: boolean;
+        rawResponse?: string;
+    };
+    tin: {
+        verified: boolean;
+        taxpayerName?: string;
+        nameMatches?: boolean;
+        rawResponse?: string;
+    };
+    ocr: {
+        verified: boolean;
+        extractedNumber?: string;
+        extractedName?: string;
+        numberMatches?: boolean;
+        rawResponse?: string;
+    };
+}

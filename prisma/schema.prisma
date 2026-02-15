@@ -354,6 +354,31 @@ model BusinessDocument {
   cacImageFileName                                    String?
   meansOfIdentificationForBeneficialOwnerFileName     String?
   proofOfAddressForBeneficialOwnerFileName            String?
+
+  // Dojah CAC Lookup verification
+  cacVerified                                         Boolean  @default(false)
+  cacVerifiedAt                                       DateTime?
+  cacCompanyName                                      String?
+  cacCompanyStatus                                    String?
+  cacRegistrationDate                                 String?
+  cacNameMatches                                      Boolean?
+  cacRawResponse                                      String?  @db.Text
+
+  // Dojah TIN verification
+  tinVerified                                         Boolean  @default(false)
+  tinVerifiedAt                                       DateTime?
+  tinTaxpayerName                                     String?
+  tinNameMatches                                      Boolean?
+  tinRawResponse                                      String?  @db.Text
+
+  // Dojah CAC Document OCR verification
+  cacOcrVerified                                      Boolean  @default(false)
+  cacOcrVerifiedAt                                    DateTime?
+  cacOcrExtractedNumber                               String?
+  cacOcrExtractedName                                 String?
+  cacOcrNumberMatches                                 Boolean?
+  cacOcrRawResponse                                   String?  @db.Text
+
   user                                                User?   @relation(fields: [userId], references: [id])
 
   @@map("BusinessDocuments")
