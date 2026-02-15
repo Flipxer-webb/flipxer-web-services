@@ -27,19 +27,34 @@ export class ImagekitService extends BaseUploadService {
     public async uploadCompressedImage(
         options: CompressImageOptions
     ): Promise<UploadResponse> {
-        const compressedBuffer = await this.compressImage(options);
+        let compressedBuffer: Buffer;
+        try {
+            compressedBuffer = await this.compressImage(options);
+        } catch (err) {
+            const error = new Error(
+                `[ImageKit] Sharp compression failed for "${options.name}": ${err?.message}`
+            );
+            error.name = "ImageCompressionError";
+            (error as any).cause = err;
+            throw error;
+        }
 
-        const base64String = `data:image/${
-            options.format
-        };base64,${compressedBuffer.toString("base64")}`;
+        try {
+            const uploadedResponse = await this.imagekit.upload({
+                file: compressedBuffer,
+                fileName: options.name,
+                folder: options.dir,
+            });
 
-        const uploadedResponse = await this.imagekit.upload({
-            file: compressedBuffer, //base64String,
-            fileName: options.name,
-            folder: options.dir,
-        });
-
-        return uploadedResponse;
+            return uploadedResponse;
+        } catch (err) {
+            const error = new Error(
+                `[ImageKit] Upload API failed for "${options.name}": ${err?.message}`
+            );
+            error.name = "ImageKitUploadError";
+            (error as any).cause = err;
+            throw error;
+        }
     }
 
     public async removeImage(options: DeleteImageKitFileOptions) {

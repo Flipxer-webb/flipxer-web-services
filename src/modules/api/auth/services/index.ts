@@ -1835,8 +1835,21 @@ export class AuthService {
             );
         }
 
-        const safeUpload = async (file?: Express.Multer.File[]) =>
-            file ? this.uploadAsFile(file) : null;
+        const safeUpload = async (
+            file: Express.Multer.File[] | undefined,
+            label: string
+        ) => {
+            if (!file) return null;
+            try {
+                return await this.uploadAsFile(file);
+            } catch (err) {
+                this.logger.error(
+                    `[BusinessDocumentsUpload][UploadPhase] File "${label}" failed for user ${user.id}: ${err?.name} - ${err?.message}`,
+                    err?.stack
+                );
+                throw err;
+            }
+        };
 
         let cacImage: UploadResponse | UploadApiResponse | null = null;
         let articleImage: UploadResponse | UploadApiResponse | null = null;
@@ -1852,27 +1865,16 @@ export class AuthService {
                 proofOfAddressImage,
                 meansOfIdImage,
             ] = await Promise.all([
-                safeUpload(files.cacImage),
-                safeUpload(files.articleOfAssociationImage),
-                safeUpload(files.boardResolutionAuthorizedAcctOpeningImage),
-                safeUpload(files.proofOfAddressForBeneficialOwner),
-                safeUpload(files.meansOfIdentificationForBeneficialOwner),
+                safeUpload(files.cacImage, "cacImage"),
+                safeUpload(files.articleOfAssociationImage, "articleOfAssociationImage"),
+                safeUpload(files.boardResolutionAuthorizedAcctOpeningImage, "boardResolutionImage"),
+                safeUpload(files.proofOfAddressForBeneficialOwner, "proofOfAddress"),
+                safeUpload(files.meansOfIdentificationForBeneficialOwner, "meansOfId"),
             ]);
         } catch (error) {
             this.logger.error(
-                `[BusinessDocumentsUpload][UploadPhase] Failed for user ${user.id}`,
-                {
-                    errorName: error?.name,
-                    errorMessage: error?.message,
-                    hasCacImage: !!files?.cacImage?.length,
-                    hasArticleImage: !!files?.articleOfAssociationImage?.length,
-                    hasBoardResolutionImage:
-                        !!files?.boardResolutionAuthorizedAcctOpeningImage?.length,
-                    hasProofOfAddress:
-                        !!files?.proofOfAddressForBeneficialOwner?.length,
-                    hasMeansOfId:
-                        !!files?.meansOfIdentificationForBeneficialOwner?.length,
-                } as any
+                `[BusinessDocumentsUpload][UploadPhase] Failed for user ${user.id} | ${error?.name}: ${error?.message}`,
+                error?.stack
             );
             throw error;
         }
@@ -1967,15 +1969,8 @@ export class AuthService {
             );
         } catch (error) {
             this.logger.error(
-                `[BusinessDocumentsUpload][DatabasePhase] Failed for user ${user.id}`,
-                {
-                    errorName: error?.name,
-                    errorMessage: error?.message,
-                    prismaCode: error?.code,
-                    hasCacDocumentNumber: !!dto?.cacDocumentNumber,
-                    hasCacImageUrl: !!cacImage?.url,
-                    hasCacImageFieldId: !!cacImage?.fileId,
-                } as any
+                `[BusinessDocumentsUpload][DatabasePhase] Failed for user ${user.id} | ${error?.name}: ${error?.message} | prismaCode=${error?.code}`,
+                error?.stack
             );
             throw error;
         }
