@@ -451,6 +451,20 @@ export class SendService {
                     status: "queued",
                     statusHint: "Your withdrawal is being processed. This may take a few minutes.",
                     queuePosition: queueResult.queueEntry?.position,
+                    // Include order details for frontend rendering
+                    amount: String(createdOrder.amount),
+                    currency: createdOrder.currency,
+                    fee: String(createdOrder.fee),
+                    total: String(createdOrder.total),
+                    recipient: {
+                        details: {
+                            address: createdOrder.recipient || dto.recipientWalletAddress || "",
+                            destination_tag: dto.destinationTag || "",
+                            name: null,
+                        },
+                        type: "coin_address",
+                    },
+                    created_at: createdOrder.createdAt?.toISOString() || new Date().toISOString(),
                 },
             });
         }
@@ -585,6 +599,20 @@ export class SendService {
                     transactionId: order.transactionId,
                     status: "queued",
                     statusHint: "Your withdrawal is being processed. This may take a few minutes.",
+                    // Include order details for frontend rendering
+                    amount: String(order.amount),
+                    currency: order.currency,
+                    fee: String(order.fee),
+                    total: String(order.total),
+                    recipient: {
+                        details: {
+                            address: order.recipient || dto.recipientWalletAddress || "",
+                            destination_tag: dto.destinationTag || "",
+                            name: null,
+                        },
+                        type: "coin_address",
+                    },
+                    created_at: order.createdAt?.toISOString() || new Date().toISOString(),
                 },
             });
         }
@@ -809,9 +837,19 @@ export class SendService {
             data: {
                 transactionId,
                 status: "completed",
-                recipient: recipient.email,
-                amount: totalAmount,
+                amount: String(totalAmount),
                 currency,
+                fee: "0",
+                total: String(totalAmount),
+                recipient: {
+                    details: {
+                        address: recipient.email,
+                        destination_tag: "",
+                        name: null,
+                    },
+                    type: "internal",
+                },
+                created_at: new Date().toISOString(),
             },
         });
     }
