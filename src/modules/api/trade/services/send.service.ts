@@ -8,6 +8,7 @@ import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
     LedgerType,
+    NetworkTypes,
     OrderCategory,
     OrderStatus,
     QueueReason,
@@ -50,6 +51,15 @@ const WITHDRAWAL_RATE_WINDOW_SECONDS = parseInt(process.env.WITHDRAWAL_RATE_WIND
 @Injectable()
 export class SendService {
     private readonly logger = new Logger("SendService");
+    private readonly evmNetworks = new Set<NetworkTypes>([
+        NetworkTypes.erc20,
+        NetworkTypes.bep20,
+        NetworkTypes.polygon,
+        NetworkTypes.optimism,
+        NetworkTypes.arbitrum,
+        NetworkTypes.base,
+        NetworkTypes.celo,
+    ]);
 
     constructor(
         private readonly prisma: PrismaService,
@@ -196,6 +206,74 @@ export class SendService {
         }
     }
 
+    private inferAddressFamily(address: string):
+        | "evm"
+        | "trc20"
+        | "btc"
+        | "ltc"
+        | "doge"
+        | "dash"
+        | "bch"
+        | "ripple"
+        | "stellar"
+        | "cardano"
+        | "solana"
+        | "ton"
+        | "unknown" {
+        const trimmed = address.trim();
+
+        if (/^0x[a-fA-F0-9]{40}$/.test(trimmed)) return "evm";
+        if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "trc20";
+        if (/^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/i.test(trimmed)) return "btc";
+        if (/^L[1-9A-HJ-NP-Za-km-z]{26,33}$/.test(trimmed)) return "ltc";
+        if (/^D[5-9A-HJ-NP-Ua-km-z]{32}$/.test(trimmed)) return "doge";
+        if (/^X[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "dash";
+        if (/^(bitcoincash:)?(q|p)[a-z0-9]{41}$/i.test(trimmed)) return "bch";
+        if (/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(trimmed)) return "ripple";
+        if (/^G[A-Z2-7]{55}$/.test(trimmed)) return "stellar";
+        if (/^addr1[0-9a-z]{20,}$/i.test(trimmed)) return "cardano";
+        if (/^(EQ|UQ)[A-Za-z0-9_-]{46,64}$/.test(trimmed)) return "ton";
+        if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) return "solana";
+
+        return "unknown";
+    }
+
+    private isNetworkCompatibleWithAddress(network: string | undefined, address: string): boolean {
+        if (!network) {
+            return true;
+        }
+
+        const normalizedNetwork = this.tradeHelpers.normalizeNetworkInput(network);
+        if (!normalizedNetwork) {
+            return true;
+        }
+
+        const family = this.inferAddressFamily(address);
+        if (family === "unknown") {
+            return true;
+        }
+
+        if (family === "evm") {
+            return this.evmNetworks.has(normalizedNetwork);
+        }
+
+        const familyNetworkMap: Record<Exclude<typeof family, "evm" | "unknown">, NetworkTypes> = {
+            trc20: NetworkTypes.trc20,
+            btc: NetworkTypes.btc,
+            ltc: NetworkTypes.ltc,
+            doge: NetworkTypes.doge,
+            dash: NetworkTypes.dash,
+            bch: NetworkTypes.bch,
+            ripple: NetworkTypes.ripple,
+            stellar: NetworkTypes.stellar,
+            cardano: NetworkTypes.cardano,
+            solana: NetworkTypes.solana,
+            ton: NetworkTypes.ton,
+        };
+
+        return familyNetworkMap[family] === normalizedNetwork;
+    }
+
     /**
      * Gets the crypto withdrawal fee including network and admin fees
      */
@@ -251,6 +329,45 @@ export class SendService {
         }
 
         const currency = dto.currency.toUpperCase();
+        const recipientWalletAddress = dto.recipientWalletAddress?.trim();
+
+        if (!recipientWalletAddress) {
+            throw new IncompleteAccountSetupException(
+                "Recipient wallet address is required",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (!this.isNetworkCompatibleWithAddress(dto.network, recipientWalletAddress)) {
+            throw new IncompleteAccountSetupException(
+                "Wallet address is not compatible with the selected network",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        try {
+            const verification = await this.walletAddressService.verifyWalletAddress({
+                currency: currency.toLowerCase() as any,
+                address: recipientWalletAddress,
+            });
+
+            if (!verification?.data?.valid) {
+                throw new IncompleteAccountSetupException(
+                    "Invalid wallet address for selected currency",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+        } catch (error) {
+            if (error instanceof IncompleteAccountSetupException) {
+                throw error;
+            }
+
+            this.logger.warn(`Address verification failed | userId: ${user.id} | currency: ${currency} | error: ${error.message}`);
+            throw new IncompleteAccountSetupException(
+                "Unable to verify wallet address. Please check the address and try again.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
 
         // 1. Calculate Fees (External Only)
         // We must fetch the authoritative fee from the provider/admin settings
