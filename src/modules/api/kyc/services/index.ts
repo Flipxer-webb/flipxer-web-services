@@ -17,17 +17,20 @@ import {
 import { TierService } from "@/modules/api/auth/services/tier.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { EmailService } from "@/modules/core/email/services";
+import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { emailTemplateConfig, mailConfig, COMPANY_NAME } from "@/config";
 
 @Injectable()
 export class KycService {
     private readonly logger = new Logger(KycService.name);
+    private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
     constructor(
         private readonly prisma: PrismaService,
         private readonly tierService: TierService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly emailService: EmailService,
+        private readonly redisCacheService: RedisCacheService,
     ) { }
 
     // ==================== KYC QUEUE ====================
@@ -350,6 +353,9 @@ export class KycService {
                 documentVerificationStatus: true,
             },
         });
+
+        // Invalidate backend profile cache so users immediately see new KYC status
+        await this.redisCacheService.del(this.getProfileCacheKey(userId));
 
         // Recalculate tier after approval
         if (action === "APPROVE") {
