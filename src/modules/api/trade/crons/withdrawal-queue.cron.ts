@@ -8,6 +8,7 @@ import { LedgerService } from "../services/ledger/ledger.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { WsGateway } from "../gateway/v1";
 import { Decimal } from "@prisma/client/runtime/library";
+import { OrderCategory } from "@prisma/client";
 
 /**
  * WithdrawalQueueCron
@@ -178,8 +179,29 @@ export class WithdrawalQueueCron {
         // Get the user's withdrawal destination from the original hold metadata
         // The destination address should be stored in the hold entry's metadata
         const metadata = holdEntry.metadata as Record<string, any> || {};
-        const destinationAddress = metadata.destinationAddress;
-        const network = metadata.network;
+        let destinationAddress = metadata.destinationAddress;
+        let network = metadata.network;
+
+        // Backward compatibility for legacy queue entries created before
+        // hold metadata persisted destination/network values.
+        if (!destinationAddress) {
+            const linkedOrder = await this.prisma.order.findFirst({
+                where: {
+                    ledgerEntryId: holdEntry.id,
+                    orderCategory: OrderCategory.SEND,
+                },
+                select: {
+                    recipient: true,
+                    destinationTag: true,
+                },
+                orderBy: { createdAt: "desc" },
+            });
+
+            if (linkedOrder?.recipient) {
+                destinationAddress = linkedOrder.recipient;
+                metadata.destinationTag = metadata.destinationTag ?? linkedOrder.destinationTag;
+            }
+        }
 
         if (!destinationAddress) {
             this.logger.error(`No destination address for queue entry ${queueEntry.id}`);
@@ -195,6 +217,7 @@ export class WithdrawalQueueCron {
                 currency: queueEntry.currency.toLowerCase(),
                 amount: queueEntry.amount.toString(),
                 fund_uid: destinationAddress, // wallet address
+                fund_uid2: metadata.destinationTag,
                 narration: `Queued withdrawal processed: ${queueEntry.id}`,
                 transaction_note: `Queue ID: ${queueEntry.id}`,
                 reference: `queue:${queueEntry.id}`,
