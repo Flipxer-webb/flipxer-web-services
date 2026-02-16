@@ -364,10 +364,15 @@ export class KycService {
                 ESCALATE: "ESCALATED",
             };
 
+            const normalizedKycVerificationType =
+                verificationType === "BUSINESS_DOCUMENT"
+                    ? "DOCUMENT"
+                    : verificationType;
+
             await this.prisma.kycVerification.create({
                 data: {
                     userId,
-                    verificationType: verificationType as any, // KycVerificationType enum
+                    verificationType: normalizedKycVerificationType as any, // KycVerificationType enum
                     status: kycStatusMap[action] || "PENDING",
                     reviewerId: adminId,
                     reviewNote: note,
