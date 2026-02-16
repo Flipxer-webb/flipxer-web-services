@@ -204,7 +204,7 @@ export class SendService {
 
         // Fetch only provider fee (admin fee is removed)
         const providerFeeInfo = await this.quidaxService.getWithdrawerFees({
-            currency: dto.currency,
+            currency: dto.currency.toLowerCase(),
             ...(dto.network && { network: dto.network }),
         });
 
@@ -489,7 +489,7 @@ export class SendService {
             // Execute withdrawal from main wallet (not user's sub-account)
             const requestRes = await this.quidaxService.createWithdrawerRequest({
                 amount: order.amount.toString(),
-                currency: order.currency,
+                currency: order.currency.toLowerCase(),
                 narration: dto.narration || order.narration,
                 transaction_note: dto.transaction_note || order.transaction_note,
                 user_id: "me", // Main wallet
