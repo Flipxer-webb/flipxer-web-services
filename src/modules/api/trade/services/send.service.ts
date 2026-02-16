@@ -298,44 +298,37 @@ export class SendService {
         const reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });
 
-        // Phase 2: Unified lock scope for monitor validation + hold
-        // This ensures balance state cannot change between monitor check and hold execution
-        const holdResult = await this.ledgerService.runWithLock(
-            user.id,
+        // Pre-hold validation: Real-time monitoring for high-value transactions
+        // This runs BEFORE the lock to avoid holding the lock during external calls.
+        // The hold() method acquires its own lock internally for balance operations.
+        const monitorResult = await this.transactionMonitor.validateBeforeExecution({
+            userId: user.id,
             currency,
-            async () => {
-                // Step 1: Real-time monitoring for high-value transactions (now inside lock)
-                const monitorResult = await this.transactionMonitor.validateBeforeExecution({
-                    userId: user.id,
-                    currency,
-                    amount: totalAmount.toNumber(), // Monitor total risk
-                    operationType: "WITHDRAWAL",
-                    reference: `withdrawal:${reference}`,
-                });
+            amount: totalAmount.toNumber(),
+            operationType: "WITHDRAWAL",
+            reference: `withdrawal:${reference}`,
+        });
 
-                if (!monitorResult.success) {
-                    this.logger.warn(
-                        `Transaction monitor blocked withdrawal | User: ${user.id} | Amount: ${totalAmount} ${currency} | Reason: ${monitorResult.reason}`
-                    );
-                    throw new GeneralTransactionException(
-                        monitorResult.reason || "Transaction blocked by monitoring system",
-                        HttpStatus.FORBIDDEN
-                    );
-                }
+        if (!monitorResult.success) {
+            this.logger.warn(
+                `Transaction monitor blocked withdrawal | User: ${user.id} | Amount: ${totalAmount} ${currency} | Reason: ${monitorResult.reason}`
+            );
+            throw new GeneralTransactionException(
+                monitorResult.reason || "Transaction blocked by monitoring system",
+                HttpStatus.FORBIDDEN
+            );
+        }
 
-                // Step 2: HOLD the TOTAL amount on user's ledger (same lock scope)
-                const holdResult = await this.ledgerService.hold({
-                    userId: user.id,
-                    currency: currency,
-                    amount: totalAmount, // Holding Amount + Fee
-                    reference: `withdrawal:${reference}`,
-                    type: LedgerType.WITHDRAWAL,
-                    description: `Withdrawal to ${dto.recipientWalletAddress} (Fee: ${networkFee})`,
-                });
-
-                return holdResult;
-            }
-        );
+        // HOLD the TOTAL amount on user's ledger
+        // hold() acquires its own distributed lock on ledger:{userId}:{currency}
+        const holdResult = await this.ledgerService.hold({
+            userId: user.id,
+            currency: currency,
+            amount: totalAmount,
+            reference: `withdrawal:${reference}`,
+            type: LedgerType.WITHDRAWAL,
+            description: `Withdrawal to ${dto.recipientWalletAddress} (Fee: ${networkFee})`,
+        });
 
         if (!holdResult.success) {
             this.logger.error(`Failed to hold balance for withdrawal | ${JSON.stringify({
