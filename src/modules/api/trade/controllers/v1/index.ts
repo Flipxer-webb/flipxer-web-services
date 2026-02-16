@@ -24,8 +24,6 @@ import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import {
     BuyCryptoOrderDto,
-    CancelWithdrawerRequestDto,
-    CancelOrderDto,
     ConfirmInstantSwapQuoteDto,
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
@@ -267,30 +265,6 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.withdrawerRequest(user, dto);
-    }
-
-    @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Cancel withdrawal request within 6 seconds" })
-    @UseGuards(AuthGuard)
-    @ApiBearerAuth("access-token")
-    @Post("cancel-withdrawer-request")
-    async cancelWithdrawerRequest(
-        @Body() dto: CancelWithdrawerRequestDto,
-        @User() user: UserModel
-    ) {
-        return await this.tradingService.cancelWithdrawerRequest(user, dto);
-    }
-
-    @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Cancel a pending order" })
-    @UseGuards(AuthGuard)
-    @ApiBearerAuth("access-token")
-    @Post("cancel-order")
-    async cancelOrder(
-        @Body() dto: CancelOrderDto,
-        @User() user: UserModel
-    ) {
-        return await this.tradingService.cancelOrder(user, dto.orderId);
     }
 
     @HttpCode(HttpStatus.OK)

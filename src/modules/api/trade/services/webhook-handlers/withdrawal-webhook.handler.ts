@@ -290,6 +290,13 @@ export class WithdrawalWebhookHandler {
                 this.logger.warn(`Regular SELL order ${transaction.id} withdrawal failed - initiating refund`);
                 await this.refundSellOrder(transaction);
             }
+        } else if (options.status == OrderStatus.cancelled) {
+            // External SEND orders use held funds; release hold (refund) when withdrawal is cancelled.
+            if (transaction.orderCategory === OrderCategory.SEND) {
+                await this.settleOrReleaseSendHold(transaction, false);
+            }
+
+            await this.handleWithdrawalFailed(transaction);
         }
     }
 

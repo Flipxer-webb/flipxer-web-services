@@ -205,6 +205,20 @@ export class WithdrawalQueueCron {
 
         if (!destinationAddress) {
             this.logger.error(`No destination address for queue entry ${queueEntry.id}`);
+
+            const releaseResult = await this.ledgerService.releaseHold(
+                holdEntry.reference,
+                false,
+                `Queue release: missing destination for queue entry ${queueEntry.id}`
+            );
+
+            if (!releaseResult.success) {
+                this.logger.error(
+                    `Failed to release hold for queue entry ${queueEntry.id} with missing destination: ${releaseResult.error}`
+                );
+                return false;
+            }
+
             await this.withdrawalQueueService.markReleased(queueEntry.id);
             return false;
         }

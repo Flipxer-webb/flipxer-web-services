@@ -36,6 +36,7 @@ import {
 import {
     CryptoWalletAddress,
     CryptoWalletStatus,
+    EntryStatus,
     NetworkTypes,
     NotificationBeneficiary,
     NotificationStatus,
@@ -88,6 +89,7 @@ import { BuyOrderService } from "./buy-order.service";
 import { SellOrderService } from "./sell-order.service";
 import { SwapService } from "./swap.service";
 import { SendService } from "./send.service";
+import { LedgerService } from "./ledger/ledger.service";
 import { WebhookHandlerService } from "./webhook-handler.service";
 import {
     SUPPORTED_ASSETS,
@@ -128,6 +130,7 @@ export class TradingService {
         private readonly sellOrderService: SellOrderService,
         private readonly swapService: SwapService,
         private readonly sendService: SendService,
+        private readonly ledgerService: LedgerService,
         private readonly webhookHandlerService: WebhookHandlerService
     ) { }
 
@@ -602,6 +605,49 @@ export class TradingService {
                     "Failed to refund swap funds. Please contact support.",
                     HttpStatus.INTERNAL_SERVER_ERROR
                 );
+            }
+        }
+
+        // For SEND orders, release held funds immediately when cancellation succeeds
+        if (order.orderCategory === OrderCategory.SEND) {
+            const holdReference = `withdrawal:${order.orderReference}`;
+
+            const releaseResult = await this.ledgerService.releaseHold(
+                holdReference,
+                false,
+                `User cancelled SEND order ${order.id}`
+            );
+
+            if (!releaseResult.success) {
+                const holdEntry = await this.prisma.ledgerEntry.findFirst({
+                    where: { reference: holdReference },
+                    select: { id: true, status: true },
+                });
+
+                if (holdEntry?.status === EntryStatus.HOLD) {
+                    this.logger.error(
+                        `Failed to release SEND hold on cancellation | orderId: ${order.id} | holdRef: ${holdReference} | error: ${releaseResult.error}`
+                    );
+                    throw new GeneralTransactionException(
+                        "Failed to release held funds for cancelled order. Please contact support.",
+                        HttpStatus.INTERNAL_SERVER_ERROR
+                    );
+                }
+
+                this.logger.warn(
+                    `SEND hold not in HOLD status during cancel (treated as already released) | orderId: ${order.id} | holdRef: ${holdReference} | currentStatus: ${holdEntry?.status ?? "missing"}`
+                );
+            }
+
+            if (order.ledgerEntryId) {
+                await this.prisma.withdrawalQueue.updateMany({
+                    where: {
+                        holdEntryId: order.ledgerEntryId,
+                        releasedAt: null,
+                        processedAt: null,
+                    },
+                    data: { releasedAt: new Date() },
+                });
             }
         }
 
