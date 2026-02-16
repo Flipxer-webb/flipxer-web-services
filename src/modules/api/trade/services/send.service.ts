@@ -241,6 +241,10 @@ export class SendService {
      * 6. If insufficient: add to queue (shows as pending to user)
      */
     async withdrawerRequest(user: User, dto: WithdrawerRequestDto) {
+        this.logger.log(
+            `withdrawerRequest called | userId: ${user.id}, currency: ${dto.currency}, amount: ${dto.amount}, recipient: ${dto.recipientWalletAddress?.slice(0, 10)}...`
+        );
+
         // Handle Internal Transfer
         if (dto.isInternal === true) {
             return this.processInternalTransfer(user, dto);
@@ -268,15 +272,16 @@ export class SendService {
         }
 
         // Check for pending sweeps - user can't withdraw until deposits are confirmed
+        // NOTE: In omnibus mode (no sub-account), this auto-resolves and returns false.
         const hasPendingSweeps = await this.sweepService.hasPendingSweeps(user.id, currency);
         if (hasPendingSweeps) {
-            return buildResponse({
-                message: "Please wait for your recent deposit to be confirmed before withdrawing.",
-                data: {
-                    status: "pending_sweep",
-                    hint: "Your deposit is being processed. This usually takes a few minutes.",
-                },
-            });
+            this.logger.warn(
+                `Withdrawal blocked by pending sweep | userId: ${user.id}, currency: ${currency}`
+            );
+            throw new IncompleteAccountSetupException(
+                "Please wait for your recent deposit to be confirmed before withdrawing. This usually takes a few minutes.",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         // Get user's available balance from ledger

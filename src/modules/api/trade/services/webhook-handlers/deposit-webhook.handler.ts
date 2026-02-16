@@ -342,10 +342,19 @@ export class DepositWebhookHandler {
         // TASK-005: Atomic credit and order link
         // Credit user's ledger and link to order in a single atomic transaction
         // This prevents orphaned ledger entries if the order update fails
+        //
+        // Sweep status logic:
+        //   - Users WITH cryptoSubAccountId: deposits go to per-user sub-accounts
+        //     and need sweeping to the main wallet → PENDING
+        //   - Users WITHOUT cryptoSubAccountId (omnibus mode): deposits go directly
+        //     to shared addresses, nothing to sweep → NOT_APPLICABLE
+        const sweepStatus = user.cryptoSubAccountId
+            ? SweepStatus.PENDING
+            : SweepStatus.NOT_APPLICABLE;
+
         const creditResult = await this.prisma.$transaction(
             async (tx) => {
                 // Credit user's ledger with deposit amount using transaction client
-                // sweepStatus = PENDING means user can't withdraw until sweep confirms
                 // DOUBLE ENTRY: pairedCredit ensures platform liability (debit) is created
                 const result = await this.ledgerService.pairedCreditInTransaction(tx, {
                     userId: user.id,
@@ -362,7 +371,7 @@ export class DepositWebhookHandler {
                         providerOrderId: options.referenceId,
                         transactionId: transactionId,
                     },
-                    sweepStatus: SweepStatus.PENDING, // Block withdrawal until sweep confirms
+                    sweepStatus: sweepStatus,
                     createPlatformEntry: true // Explicitly create platform debit
                 });
 
@@ -418,7 +427,7 @@ export class DepositWebhookHandler {
                 ledgerEntryId: creditResult.userEntry?.id,
                 balanceAfter: creditResult.userEntry?.balanceAfter.toString(),
                 platformEntryId: creditResult.platformEntry?.id,
-                sweepStatus: SweepStatus.PENDING,
+                sweepStatus: sweepStatus,
             })}`
         );
 

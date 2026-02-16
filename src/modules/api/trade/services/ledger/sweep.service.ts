@@ -486,11 +486,90 @@ export class SweepService {
     /**
      * Checks if user has any pending sweeps blocking withdrawal
      *
+     * In omnibus mode (no per-user sub-accounts), deposits go directly
+     * to shared addresses and there is nothing to sweep. For users without
+     * a cryptoSubAccountId, all PENDING sweeps are auto-resolved as
+     * NOT_APPLICABLE so they never block withdrawals.
+     *
+     * For users WITH sub-accounts, only sweeps created within the last
+     * SWEEP_BLOCK_WINDOW_HOURS are considered blocking. Older entries are
+     * auto-marked as FAILED to prevent permanent withdrawal blocks when
+     * the sweep pipeline stalls.
+     *
      * @param userId User ID
      * @param currency Currency to check
-     * @returns True if user has pending sweeps
+     * @returns True if user has recent, actionable pending sweeps
      */
+    private readonly SWEEP_BLOCK_WINDOW_HOURS = 2;
+
     async hasPendingSweeps(userId: number, currency: string): Promise<boolean> {
+        // Check if user has a sub-account that actually needs sweeping
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { cryptoSubAccountId: true },
+        });
+
+        if (!user?.cryptoSubAccountId) {
+            // Omnibus mode: no sub-account means nothing to sweep.
+            // Auto-resolve any lingering PENDING entries in the background.
+            const staleCount = await this.prisma.ledgerEntry.count({
+                where: {
+                    userId,
+                    currency: currency.toUpperCase(),
+                    type: LedgerType.DEPOSIT,
+                    sweepStatus: {
+                        in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS],
+                    },
+                },
+            });
+
+            if (staleCount > 0) {
+                this.logger.log(
+                    `Auto-resolving ${staleCount} stale sweep entries for omnibus user ${userId} (${currency}) — no sub-account to sweep from`
+                );
+                await this.prisma.ledgerEntry.updateMany({
+                    where: {
+                        userId,
+                        currency: currency.toUpperCase(),
+                        type: LedgerType.DEPOSIT,
+                        sweepStatus: {
+                            in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS],
+                        },
+                    },
+                    data: { sweepStatus: SweepStatus.NOT_APPLICABLE },
+                });
+            }
+
+            return false;
+        }
+
+        // User has a sub-account: only block for recent sweeps
+        const cutoff = new Date();
+        cutoff.setHours(cutoff.getHours() - this.SWEEP_BLOCK_WINDOW_HOURS);
+
+        // Auto-mark old stale entries as FAILED so they don't block forever
+        const staleResolved = await this.prisma.ledgerEntry.updateMany({
+            where: {
+                userId,
+                currency: currency.toUpperCase(),
+                type: LedgerType.DEPOSIT,
+                sweepStatus: {
+                    in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS],
+                },
+                createdAt: { lt: cutoff },
+            },
+            data: { sweepStatus: SweepStatus.FAILED },
+        });
+
+        if (staleResolved.count > 0) {
+            this.logger.warn(
+                `Auto-failed ${staleResolved.count} stale sweep entries (>${
+                    this.SWEEP_BLOCK_WINDOW_HOURS
+                }h) for user ${userId} (${currency})`
+            );
+        }
+
+        // Now count only recent blocking sweeps
         const pendingCount = await this.prisma.ledgerEntry.count({
             where: {
                 userId,
@@ -499,8 +578,15 @@ export class SweepService {
                 sweepStatus: {
                     in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS],
                 },
+                createdAt: { gte: cutoff },
             },
         });
+
+        if (pendingCount > 0) {
+            this.logger.log(
+                `User ${userId} has ${pendingCount} recent pending sweeps for ${currency} — blocking withdrawal`
+            );
+        }
 
         return pendingCount > 0;
     }
