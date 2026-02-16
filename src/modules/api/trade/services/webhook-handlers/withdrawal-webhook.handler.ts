@@ -264,8 +264,17 @@ export class WithdrawalWebhookHandler {
         }
 
         if (options.status == OrderStatus.done && transaction.orderCategory !== OrderCategory.SELL) {
+            // External SEND orders use held funds; settle the hold only when withdrawal is done.
+            if (transaction.orderCategory === OrderCategory.SEND) {
+                await this.settleOrReleaseSendHold(transaction, true);
+            }
             await this.handleWithdrawalDone(transaction);
         } else if (options.status == OrderStatus.failed) {
+            // External SEND orders use held funds; release hold (refund) when withdrawal fails.
+            if (transaction.orderCategory === OrderCategory.SEND) {
+                await this.settleOrReleaseSendHold(transaction, false);
+            }
+
             await this.handleWithdrawalFailed(transaction);
 
             // Check if this failed withdrawal was for a BUY order
@@ -281,6 +290,49 @@ export class WithdrawalWebhookHandler {
                 this.logger.warn(`Regular SELL order ${transaction.id} withdrawal failed - initiating refund`);
                 await this.refundSellOrder(transaction);
             }
+        }
+    }
+
+    /**
+     * Settle or release hold for external SEND transactions.
+     * - settle=true  -> convert HOLD to settled debit (successful send)
+     * - settle=false -> release HOLD back to available balance (failed send)
+     */
+    private async settleOrReleaseSendHold(transaction: any, settle: boolean): Promise<void> {
+        const holdReference = `withdrawal:${transaction.orderReference}`;
+
+        try {
+            if (settle) {
+                const settleResult = await this.ledgerService.releaseHoldWithPlatformEntry({
+                    holdReference,
+                    settle: true,
+                    description: `Withdrawal ${transaction.orderReference} confirmed on-chain`,
+                    createPlatformEntry: true,
+                });
+
+                if (!settleResult.success) {
+                    this.logger.error(
+                        `Failed to settle SEND hold for order ${transaction.id}: ${settleResult.error}`
+                    );
+                }
+            } else {
+                const releaseResult = await this.ledgerService.releaseHold(
+                    holdReference,
+                    false,
+                    `Withdrawal ${transaction.orderReference} failed`
+                );
+
+                if (!releaseResult.success) {
+                    this.logger.error(
+                        `Failed to release SEND hold for order ${transaction.id}: ${releaseResult.error}`
+                    );
+                }
+            }
+        } catch (error) {
+            this.logger.error(
+                `Exception while ${settle ? "settling" : "releasing"} SEND hold for order ${transaction.id}: ${error.message}`,
+                error.stack
+            );
         }
     }
 
