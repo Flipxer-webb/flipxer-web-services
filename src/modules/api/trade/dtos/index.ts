@@ -18,6 +18,7 @@ import { Transform, Type } from "class-transformer";
 
 export class GetWalletDto {
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     asset: SupportedAssets;
@@ -30,6 +31,7 @@ export class GetWalletDto {
 
 export class GetWalletAddressesDto {
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     asset: SupportedAssets;
@@ -37,6 +39,7 @@ export class GetWalletAddressesDto {
 
 export class InitiateWalletCreationDto {
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     asset: SupportedAssets;
@@ -224,6 +227,7 @@ export class VerifyWalletAddressDto {
     address: string;
 
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
@@ -231,6 +235,7 @@ export class VerifyWalletAddressDto {
 
 export class GetCryptoWithdrawerFeeDto {
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
@@ -258,11 +263,13 @@ export class GetCryptoWithdrawerFeeDto {
 
 export class PlaceInstantSwapRequestDto {
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     from_currency: SupportedAssets;
 
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     to_currency: SupportedAssets; //the currency you are swapping to.
@@ -295,11 +302,13 @@ export class ConfirmInstantSwapQuoteDto {
 
     // Optional fields for auto-refresh if quote has expired
     @ApiProperty({ enum: SupportedAssets, required: false, description: "Required for auto-refresh if quote expired" })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsOptional()
     @IsEnum(SupportedAssets)
     from_currency?: SupportedAssets;
 
     @ApiProperty({ enum: SupportedAssets, required: false, description: "Required for auto-refresh if quote expired" })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsOptional()
     @IsEnum(SupportedAssets)
     to_currency?: SupportedAssets;
@@ -347,6 +356,7 @@ export class ExecuteAtomicSwapDto {
 
 export class WithdrawerRequestDto {
     @ApiProperty({ enum: SupportedAssets, description: "allowed currencies" })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
@@ -433,6 +443,7 @@ export enum RampSide {
 
 export class SupportedPaymentMethodDto {
     @ApiProperty({ enum: SupportedAssets })
+    @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
