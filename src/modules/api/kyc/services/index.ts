@@ -15,7 +15,6 @@ import {
     RejectDocumentDto,
 } from "../dtos";
 import { TierService } from "@/modules/api/auth/services/tier.service";
-import { TierVerificationService } from "@/modules/api/auth/services/tier-verification.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { EmailService } from "@/modules/core/email/services";
 import { emailTemplateConfig, mailConfig, COMPANY_NAME } from "@/config";
@@ -27,7 +26,6 @@ export class KycService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly tierService: TierService,
-        private readonly tierVerificationService: TierVerificationService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly emailService: EmailService,
     ) { }
@@ -267,6 +265,17 @@ export class KycService {
             return buildResponse({ message: "User not found", data: null });
         }
 
+        if (verificationType && this.isVerificationAlreadyFinal(user, verificationType, action)) {
+            return buildResponse({
+                message: `KYC ${action.toLowerCase()} already processed for ${verificationType}`,
+                data: {
+                    userId,
+                    verificationType,
+                    action,
+                },
+            });
+        }
+
         let updateData: Prisma.UserUpdateInput = {};
 
         if (action === "APPROVE") {
@@ -384,10 +393,19 @@ export class KycService {
         });
 
         // Send notification to user about KYC status
-        const title = action === "APPROVE" ? "KYC Verification Approved" : "KYC Verification Rejected";
-        const body = action === "APPROVE"
-            ? `Your ${verificationType ? verificationType.toLowerCase() + " " : ""}verification has been approved.`
-            : `Your ${verificationType ? verificationType.toLowerCase() + " " : ""}verification was rejected. Reason: ${note || "No reason provided."}`;
+        const notificationType = verificationType ? `${verificationType.toLowerCase()} ` : "";
+        const title =
+            action === "APPROVE"
+                ? "KYC Verification Approved"
+                : action === "REJECT"
+                    ? "KYC Verification Rejected"
+                    : "KYC Verification Escalated";
+        const body =
+            action === "APPROVE"
+                ? `Your ${notificationType}verification has been approved.`
+                : action === "REJECT"
+                    ? `Your ${notificationType}verification was rejected. Reason: ${note || "No reason provided."}`
+                    : `Your ${notificationType}verification has been escalated for additional review.`;
 
         await this.notificationDispatcher.notify({
             userId,
@@ -778,11 +796,63 @@ export class KycService {
 
     async approveDocument(dto: ApproveDocumentDto, adminId: number): Promise<ApiResponse> {
         this.logger.log(`Admin ${adminId} approving ${dto.documentType} document for user ${dto.userId}`);
-        return await this.tierVerificationService.approveDocument(dto.userId, dto.documentType);
+        return await this.processKycDecision(
+            {
+                userId: dto.userId,
+                action: "APPROVE",
+                verificationType: this.mapDocumentTypeToVerificationType(dto.documentType),
+            },
+            adminId
+        );
     }
 
     async rejectDocument(dto: RejectDocumentDto, adminId: number): Promise<ApiResponse> {
         this.logger.log(`Admin ${adminId} rejecting ${dto.documentType} document for user ${dto.userId}: ${dto.reason}`);
-        return await this.tierVerificationService.rejectDocument(dto.userId, dto.documentType, dto.reason);
+        return await this.processKycDecision(
+            {
+                userId: dto.userId,
+                action: "REJECT",
+                verificationType: this.mapDocumentTypeToVerificationType(dto.documentType),
+                note: dto.reason,
+            },
+            adminId
+        );
+    }
+
+    private mapDocumentTypeToVerificationType(documentType: "address" | "income" | "business"): string {
+        const map: Record<string, string> = {
+            address: "ADDRESS",
+            income: "INCOME",
+            business: "BUSINESS_DOCUMENT",
+        };
+        return map[documentType] || "DOCUMENT";
+    }
+
+    private isVerificationAlreadyFinal(user: any, verificationType: string, action: "APPROVE" | "REJECT" | "ESCALATE"): boolean {
+        if (action === "ESCALATE") {
+            return false;
+        }
+
+        const approvedChecks: Record<string, boolean> = {
+            BVN: user.isBvnVerified === true,
+            NIN: user.isNinVerified === true,
+            DOCUMENT: user.documentVerificationStatus === "VERIFIED",
+            ADDRESS: user.addressVerificationStatus === "VERIFIED",
+            INCOME: user.incomeVerificationStatus === "VERIFIED",
+            BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "VERIFIED",
+        };
+
+        const rejectedChecks: Record<string, boolean> = {
+            DOCUMENT: user.documentVerificationStatus === "DECLINED",
+            ADDRESS: user.addressVerificationStatus === "DECLINED",
+            INCOME: user.incomeVerificationStatus === "DECLINED",
+            BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "DECLINED",
+        };
+
+        if (action === "APPROVE") {
+            return approvedChecks[verificationType] === true;
+        }
+
+        return rejectedChecks[verificationType] === true;
     }
 }
