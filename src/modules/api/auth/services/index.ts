@@ -105,6 +105,7 @@ export class AuthService {
     private uploadService: ImagekitService | CloudinaryService;
     private readonly SALT_ROUNDS = 10;
     private readonly SIGNUP_CACHE_TTL = 3600; // 1 hour
+    private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
     /**
      * Map Dojah error types to user-friendly messages
@@ -1238,6 +1239,9 @@ export class AuthService {
             { timeout: 30000 }
         );
 
+        // Invalidate backend profile cache so verification status is immediately reflected
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
         // Return appropriate message based on verification result
         if (shouldAutoApprove) {
             return buildResponse({
@@ -1811,6 +1815,9 @@ export class AuthService {
             { timeout: 30000 }
         );
 
+        // Invalidate backend profile cache so verification status is immediately reflected
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
         // Return appropriate message based on verification result
         if (shouldAutoApprove) {
             return buildResponse({
@@ -1974,6 +1981,9 @@ export class AuthService {
             );
             throw error;
         }
+
+        // Invalidate backend profile cache so pending status is visible immediately
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
 
         // Fire-and-forget: Run Dojah business verification in background
         // This does NOT block the user response — results are stored async
