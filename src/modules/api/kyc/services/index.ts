@@ -145,6 +145,15 @@ export class KycService {
             pendingVerifications: this.getPendingVerifications(user),
         }));
 
+        // DEBUG: Log the first user's business document to verify fields
+        if (enrichedUsers.length > 0) {
+            const firstBiz = enrichedUsers.find(u => u.businessDocument);
+            if (firstBiz) {
+                this.logger.log(`[DEBUG] BusinessDocument keys: ${Object.keys(firstBiz.businessDocument || {}).join(", ")}`);
+                this.logger.log(`[DEBUG] Full BusinessDocument: ${JSON.stringify(firstBiz.businessDocument)}`);
+            }
+        }
+
         return buildResponse({
             message: "KYC queue retrieved successfully",
             data: {
