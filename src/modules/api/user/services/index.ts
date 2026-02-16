@@ -444,44 +444,34 @@ export class UserService {
     }
 
     async getUserAggregatedWalletBalance(user: User) {
-        // Fetch all data in parallel
-        const [ledgerBalances, liveMarketData, cryptoRates] = await Promise.all([
+        // Fetch ledger balances and all rates in parallel
+        // Use RateService instead of QuidaxCacheService for consistency with getUserWallets
+        const [ledgerBalances, allRates] = await Promise.all([
             this.ledgerService.getAllBalances(user.id),
-            this.quidaxCacheService.getMarketTickers(),
-            this.prisma.cryptoRate.findMany(),
+            this.rateService.getAllRates(),
         ]);
 
         const referenceCurrency = "ngn";
 
-        // Create map for fallback rates
-        const cryptoRateMap = new Map(
-            cryptoRates.map(r => [r.currency.toUpperCase(), r.buyRate])
+        // Create map for rates (AssetRate has sellRate/buyRate)
+        const rateMap = new Map(
+            allRates.map(r => [r.currency.toUpperCase(), r])
         );
 
         let totalBalance = 0;
 
         for (const [currency, balanceInfo] of ledgerBalances) {
-            const assetCurrency = currency.toLowerCase();
-            const marketSymbol = `${assetCurrency}${referenceCurrency}`;
-            const ticker = liveMarketData?.[marketSymbol]?.ticker;
-
+            const assetCurrencyUpper = currency.toUpperCase();
             const balance = Number(balanceInfo.available);
+
+            // Get rate from RateService map
+            const rateData = rateMap.get(assetCurrencyUpper);
             let usedRate = 0;
 
-            if (ticker?.sell) {
-                // Use live rate if available (ticker.sell is Ask price)
-                const rate = parseFloat(ticker.sell);
-                if (!isNaN(rate)) {
-                    usedRate = rate;
-                }
-            }
-
-            // Fallback to cryptoRate table if no valid live rate
-            if (!usedRate) {
-                const fallbackRate = cryptoRateMap.get(currency.toUpperCase());
-                if (fallbackRate) {
-                    usedRate = fallbackRate;
-                }
+            if (rateData) {
+                // Use sellRate (Ask price) for valuation, consistent with getUserWallets logic
+                // This represents the price required to BUY the asset back from the user
+                usedRate = rateData.sellRate;
             }
 
             if (usedRate > 0 && !isNaN(balance)) {
