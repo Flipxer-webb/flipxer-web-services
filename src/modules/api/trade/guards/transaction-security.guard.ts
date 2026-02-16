@@ -118,9 +118,9 @@ export class TransactionSecurityGuard implements CanActivate {
 
         // Compute expected context hash from current request
         // TASK-007: Support `asset` as alias for `currency` (Buy/Sell DTOs use `asset`)
-        const { amount, currency, asset, recipient, address, walletAddress, recipientEmail, destinationTag } = request.body;
+        const { amount, currency, asset, recipient, address, walletAddress, recipientWalletAddress, recipientEmail, destinationTag } = request.body;
         const currencyValue = currency || asset || '';  // Fallback chain: currency -> asset -> empty
-        const recipientValue = recipient || address || walletAddress || recipientEmail || destinationTag || '';
+        const recipientValue = recipient || address || walletAddress || recipientWalletAddress || recipientEmail || destinationTag || '';
         const expectedContextHash = this.computeContextHash(amount, currencyValue, recipientValue);
 
         this.logger.debug(`Context hash inputs: amount=${amount}, currency=${currencyValue}, recipient=${recipientValue?.substring(0, 10)}...`);
