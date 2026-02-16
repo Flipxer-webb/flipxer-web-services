@@ -44,6 +44,7 @@ export interface HoldOptions {
     reference: string;
     type: LedgerType;
     description?: string;
+    metadata?: Record<string, any>;
 }
 
 /**
@@ -597,7 +598,7 @@ export class LedgerService {
      * @returns Operation result
      */
     async hold(options: HoldOptions): Promise<LedgerOperationResult> {
-        const { userId, currency, amount, reference, type, description } =
+        const { userId, currency, amount, reference, type, description, metadata } =
             options;
         const holdAmount = this.toDecimal(amount);
 
@@ -617,7 +618,8 @@ export class LedgerService {
                         type,
                         holdAmount,
                         reference,
-                        description
+                        description,
+                        metadata
                     ),
                 { ttlMs: 10000, maxWaitMs: 15000, strict: true }
             );
@@ -644,7 +646,8 @@ export class LedgerService {
         type: LedgerType,
         amount: Decimal,
         reference: string,
-        description?: string
+        description?: string,
+        metadata?: Record<string, any>
     ): Promise<LedgerOperationResult> {
         return await this.prisma.$transaction(
             async (tx) => {
@@ -709,6 +712,7 @@ export class LedgerService {
                         holdAmount: amount,
                         reference,
                         description,
+                        metadata: metadata ?? Prisma.JsonNull,
                     },
                 });
 

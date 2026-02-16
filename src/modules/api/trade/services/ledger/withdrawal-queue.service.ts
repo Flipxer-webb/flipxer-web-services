@@ -184,7 +184,7 @@ export class WithdrawalQueueService {
     async getNextForProcessing(
         currency: string,
         maxAmount: Decimal
-    ): Promise<WithdrawalQueue | null> {
+    ): Promise<(WithdrawalQueue & { holdEntry: any }) | null> {
         // Get all unprocessed queue entries for this currency that we can afford
         // Order by amount ascending (smallest first), then by position (FIFO tiebreaker)
         const candidates = await this.prisma.withdrawalQueue.findMany({
@@ -193,6 +193,9 @@ export class WithdrawalQueueService {
                 processedAt: null,
                 releasedAt: null,
                 amount: { lte: maxAmount },
+            },
+            include: {
+                holdEntry: true,
             },
             orderBy: [{ amount: "asc" }, { position: "asc" }],
             take: 1,

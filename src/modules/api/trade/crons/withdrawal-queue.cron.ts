@@ -140,6 +140,9 @@ export class WithdrawalQueueCron {
                             currency: queueEntry.currency,
                             amount: queueEntry.amount.toString(),
                         });
+                    } else {
+                        // Data issue (e.g., missing hold metadata). Stop this run to avoid tight-loop log spam.
+                        break;
                     }
                 } catch (error) {
                     this.logger.error(
@@ -148,7 +151,8 @@ export class WithdrawalQueueCron {
                             error: error.message,
                         })}`
                     );
-                    // Continue with next entry
+                    // Stop this run to avoid retrying same failing entry in a tight loop.
+                    break;
                 }
             }
 
@@ -167,6 +171,7 @@ export class WithdrawalQueueCron {
 
         if (!holdEntry) {
             this.logger.error(`No hold entry found for queue entry ${queueEntry.id}`);
+            await this.withdrawalQueueService.markReleased(queueEntry.id);
             return false;
         }
 
@@ -178,6 +183,7 @@ export class WithdrawalQueueCron {
 
         if (!destinationAddress) {
             this.logger.error(`No destination address for queue entry ${queueEntry.id}`);
+            await this.withdrawalQueueService.markReleased(queueEntry.id);
             return false;
         }
 

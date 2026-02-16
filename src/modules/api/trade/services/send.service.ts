@@ -328,6 +328,13 @@ export class SendService {
             reference: `withdrawal:${reference}`,
             type: LedgerType.WITHDRAWAL,
             description: `Withdrawal to ${dto.recipientWalletAddress} (Fee: ${networkFee})`,
+            metadata: {
+                destinationAddress: dto.recipientWalletAddress,
+                destinationTag: dto.destinationTag,
+                network: dto.network,
+                narration: dto.narration,
+                transaction_note: dto.transaction_note,
+            },
         });
 
         if (!holdResult.success) {
