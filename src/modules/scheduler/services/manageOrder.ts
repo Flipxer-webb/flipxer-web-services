@@ -159,33 +159,44 @@ export class ManageOrdersSchedulerService {
             // Process transactions in parallel
             const results = await Promise.allSettled(
                 pendingWithdrawerTransactions.map(
-                    async ({ orderReference, user }) => {
+                    async ({ orderReference, providerOrderId, user }) => {
                         try {
-                            if (user.cryptoSubAccountId) {
-                                const response =
-                                    await this.tradingService.getWithdrawerTransactionByReference(
-                                        orderReference,
-                                        user.cryptoSubAccountId
-                                    );
+                            // Skip orders that never reached Quidax (e.g., queued orders)
+                            if (!providerOrderId) {
+                                this.logger.debug(
+                                    `Skipping order ${orderReference} — no providerOrderId (likely queued/not yet submitted to Quidax)`
+                                );
+                                return;
+                            }
 
-                                switch (response.data.status.toLowerCase()) {
-                                    case OrderStatus.done:
-                                        await this.tradingService.withdrawerTransactionHandler(
-                                            {
-                                                orderReference: orderReference,
-                                                status: OrderStatus.done,
-                                            }
-                                        );
-                                        break;
-                                    case OrderStatus.rejected:
-                                        await this.tradingService.withdrawerTransactionHandler(
-                                            {
-                                                orderReference: orderReference,
-                                                status: OrderStatus.rejected,
-                                            }
-                                        );
-                                        break;
-                                }
+                            // Withdrawals are now executed from the main wallet ("me"),
+                            // not from user sub-accounts. Use "me" as the lookup user_id.
+                            // Fall back to sub-account ID for legacy orders.
+                            const lookupUserId = "me";
+
+                            const response =
+                                await this.tradingService.getWithdrawerTransactionByReference(
+                                    orderReference,
+                                    lookupUserId
+                                );
+
+                            switch (response.data.status.toLowerCase()) {
+                                case OrderStatus.done:
+                                    await this.tradingService.withdrawerTransactionHandler(
+                                        {
+                                            orderReference: orderReference,
+                                            status: OrderStatus.done,
+                                        }
+                                    );
+                                    break;
+                                case OrderStatus.rejected:
+                                    await this.tradingService.withdrawerTransactionHandler(
+                                        {
+                                            orderReference: orderReference,
+                                            status: OrderStatus.rejected,
+                                        }
+                                    );
+                                    break;
                             }
                         } catch (error) {
                             this.logger.error(
