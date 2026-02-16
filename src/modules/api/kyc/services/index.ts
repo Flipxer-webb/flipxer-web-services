@@ -16,6 +16,9 @@ import {
 } from "../dtos";
 import { TierService } from "@/modules/api/auth/services/tier.service";
 import { TierVerificationService } from "@/modules/api/auth/services/tier-verification.service";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
+import { EmailService } from "@/modules/core/email/services";
+import { emailTemplateConfig, mailConfig, COMPANY_NAME } from "@/config";
 
 @Injectable()
 export class KycService {
@@ -25,6 +28,8 @@ export class KycService {
         private readonly prisma: PrismaService,
         private readonly tierService: TierService,
         private readonly tierVerificationService: TierVerificationService,
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly emailService: EmailService,
     ) { }
 
     // ==================== KYC QUEUE ====================
@@ -378,12 +383,82 @@ export class KycService {
             },
         });
 
-        // TODO: Send notification to user about KYC status
+        // Send notification to user about KYC status
+        const title = action === "APPROVE" ? "KYC Verification Approved" : "KYC Verification Rejected";
+        const body = action === "APPROVE"
+            ? `Your ${verificationType ? verificationType.toLowerCase() + " " : ""}verification has been approved.`
+            : `Your ${verificationType ? verificationType.toLowerCase() + " " : ""}verification was rejected. Reason: ${note || "No reason provided."}`;
+
+        await this.notificationDispatcher.notify({
+            userId,
+            title,
+            body,
+            // We can add email option here too if we want the dispatcher to handle it, 
+            // but the plan asked for specific template usage which might be better handled explicitly 
+            // or via the dispatcher if it supported templates. 
+            // The dispatcher supports `emailPayload` but it seems tailored for transactions.
+            // So we will use the specific email service call as requested.
+        });
+
+        // Send Email
+        await this.sendKycEmail(user, action, verificationType, note);
 
         return buildResponse({
             message: `KYC ${action.toLowerCase()} processed successfully`,
             data: updatedUser,
         });
+    }
+
+    private async sendKycEmail(
+        user: any,
+        action: "APPROVE" | "REJECT" | "ESCALATE",
+        verificationType?: string,
+        reason?: string
+    ): Promise<void> {
+        if (action === "ESCALATE") return; // No email for escalation?
+
+        if (!user.email) {
+            this.logger.warn(`Cannot send KYC email: user ${user.id} has no email`);
+            return;
+        }
+
+        const approved = action === "APPROVE";
+        const templateKey = approved
+            ? emailTemplateConfig.document_approved
+            : emailTemplateConfig.document_rejected;
+
+        if (!templateKey) {
+            this.logger.warn(`Email template not configured for KYC ${approved ? "approval" : "rejection"}`);
+            return;
+        }
+
+        const friendlyTypeMap: Record<string, string> = {
+            BVN: "BVN",
+            NIN: "NIN",
+            DOCUMENT: "Identity Document",
+            ADDRESS: "Address",
+            INCOME: "Income",
+            BUSINESS_DOCUMENT: "Business Documents",
+        };
+        const documentTypeFriendly = verificationType ? (friendlyTypeMap[verificationType] || verificationType) : "KYC Verification";
+
+        try {
+            await this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: user.email } }],
+                template_key: templateKey,
+                merge_info: {
+                    first_name: user.firstName || "User",
+                    document_type: documentTypeFriendly,
+                    company_name: COMPANY_NAME,
+                    rejection_reason: reason || "",
+                    status: approved ? "Approved" : "Rejected",
+                },
+            });
+            this.logger.log(`KYC email sent to ${user.email} (${action})`);
+        } catch (error) {
+            this.logger.error(`Failed to send KYC email to ${user.email}: ${error.message}`);
+        }
     }
 
     async processBulkKycDecision(dto: BulkKycDecisionDto, adminId?: number): Promise<ApiResponse> {
