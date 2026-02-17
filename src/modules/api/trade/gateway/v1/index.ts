@@ -110,6 +110,15 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }, this.server);
     }
 
+    /**
+     * Notify user that their profile has been updated (e.g. KYC approval/rejection)
+     */
+    notifyProfileUpdate(userId: number) {
+        this.server.to(`user:${userId}`).emit("profileUpdate", {
+            timestamp: new Date().toISOString(),
+        });
+    }
+
     broadcastWalletUpdatesToUser() {
         this.wsService.broadcastWalletUpdates(this.server);
     }

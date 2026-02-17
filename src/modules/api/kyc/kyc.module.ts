@@ -3,10 +3,12 @@ import { KycController } from "./controllers";
 import { KycService } from "./services";
 import { AuthModule } from "@/modules/api/auth";
 import { PrismaModule } from "@/modules/core/prisma";
+import { TradingModule } from "@/modules/api/trade";
 
 @Module({
     imports: [
         forwardRef(() => AuthModule),
+        forwardRef(() => TradingModule),
         PrismaModule,
     ],
     controllers: [KycController],

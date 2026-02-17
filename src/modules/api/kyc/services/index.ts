@@ -18,6 +18,7 @@ import { TierService } from "@/modules/api/auth/services/tier.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { EmailService } from "@/modules/core/email/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { emailTemplateConfig, mailConfig, COMPANY_NAME } from "@/config";
 
 @Injectable()
@@ -31,6 +32,7 @@ export class KycService {
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly emailService: EmailService,
         private readonly redisCacheService: RedisCacheService,
+        private readonly wsGateway: WsGateway,
     ) { }
 
     // ==================== KYC QUEUE ====================
@@ -431,6 +433,9 @@ export class KycService {
 
         // Send Email
         await this.sendKycEmail(user, action, verificationType, note);
+
+        // Push real-time profile update to connected client
+        this.wsGateway.notifyProfileUpdate(userId);
 
         return buildResponse({
             message: `KYC ${action.toLowerCase()} processed successfully`,
