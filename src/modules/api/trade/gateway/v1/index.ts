@@ -68,6 +68,14 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         reason: string;
     }) {
         this.server.to(`user:${userId}`).emit("withdrawalQueued", payload);
+        this.wsService.emitToAdmins("admin:withdrawalQueued", {
+            userId,
+            amount: Number(payload.amount),
+            currency: payload.currency,
+            position: payload.position,
+            reason: payload.reason,
+            queuedAt: new Date().toISOString(),
+        }, this.server);
     }
 
     /**
@@ -79,8 +87,27 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         amount: string;
     }) {
         this.server.to(`user:${userId}`).emit("withdrawalProcessed", payload);
+        this.wsService.emitToAdmins("admin:withdrawalProcessed", {
+            userId,
+            amount: Number(payload.amount),
+            currency: payload.currency,
+            processedAt: new Date().toISOString(),
+        }, this.server);
         // Also trigger wallet update since balance changed
         this.wsService.emitWalletUpdateToUser(userId, this.server);
+    }
+
+    notifyQueueHealthAlert(payload: {
+        category: string;
+        title: string;
+        message: string;
+        severity: "info" | "warning" | "error";
+        timestamp?: string;
+    }) {
+        this.wsService.emitToAdmins("admin:queueHealthAlert", {
+            ...payload,
+            timestamp: payload.timestamp ?? new Date().toISOString(),
+        }, this.server);
     }
 
     broadcastWalletUpdatesToUser() {

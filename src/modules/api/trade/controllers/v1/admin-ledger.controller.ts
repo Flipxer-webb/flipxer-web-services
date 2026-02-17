@@ -170,7 +170,7 @@ export class AdminLedgerController {
     @Get("withdrawal-queue/stats")
     async getWithdrawalQueueStats() {
         this.logger.log("Admin fetching withdrawal queue stats");
-        const stats = await this.withdrawalQueueService.getQueueStats();
+        const stats = await this.withdrawalQueueService.getAdminQueueStats();
         return buildResponse({
             message: "Queue statistics retrieved",
             data: stats,

@@ -310,6 +310,13 @@ export class WithdrawalQueueCron {
                 },
                 "warning"
             );
+
+            this.wsGateway.notifyQueueHealthAlert({
+                category: "withdrawal_queue",
+                title: "Queue Size Warning",
+                message: "Withdrawal queue is large - may need attention",
+                severity: "warning",
+            });
         }
 
         // Alert if entries are close to timing out (approaching 72h)
@@ -327,6 +334,13 @@ export class WithdrawalQueueCron {
                     },
                     "warning"
                 );
+
+                this.wsGateway.notifyQueueHealthAlert({
+                    category: "withdrawal_queue",
+                    title: "Timeout Warning",
+                    message: `Withdrawals approaching 72h timeout: ${hoursInQueue.toFixed(1)}h in queue`,
+                    severity: "warning",
+                });
             }
         }
     }
@@ -342,6 +356,13 @@ export class WithdrawalQueueCron {
             { refundedCount: count },
             "warning"
         );
+
+        this.wsGateway.notifyQueueHealthAlert({
+            category: "withdrawal_queue",
+            title: "Timeout Refunds",
+            message: `${count} withdrawal(s) timed out and refunded after 72h`,
+            severity: "warning",
+        });
     }
 
     /**
@@ -355,5 +376,12 @@ export class WithdrawalQueueCron {
             { error: error.message, stack: error.stack },
             "error"
         );
+
+        this.wsGateway.notifyQueueHealthAlert({
+            category: "withdrawal_queue",
+            title: "Processing Error",
+            message: `Queue processing error: ${error.message}`,
+            severity: "error",
+        });
     }
 }

@@ -38,10 +38,19 @@ export class WsService {
 
         this.userSocketMap.set(user.id.toString(), client.id);
         this.socketUserMap.set(client.id, user.id.toString());
+        client.join(`user:${user.id}`);
+
+        if (user.type === UserType.ADMIN) {
+            client.join("admin");
+        }
 
         return Utils.buildResponse({
             message: "post connection successful",
         });
+    }
+
+    emitToAdmins(event: string, payload: any, server: Server): void {
+        server.to("admin").emit(event, payload);
     }
 
     emitNotificationToUser(

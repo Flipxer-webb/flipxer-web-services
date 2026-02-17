@@ -4,6 +4,7 @@ import {
     EntryStatus,
     LedgerType,
     WithdrawalQueue,
+    OrderCategory,
 } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { LedgerService } from "./ledger.service";
@@ -37,6 +38,41 @@ export interface QueueStats {
     byCurrency: Record<string, number>;
     byReason: Record<QueueReason, number>;
     oldestQueuedAt: Date | null;
+}
+
+export interface AdminWithdrawalQueueItem {
+    id: string;
+    orderId: number | null;
+    userId: number;
+    currency: string;
+    amount: number;
+    position: number;
+    priority: number;
+    reason: string;
+    status: "PENDING" | "PROCESSING" | "PROCESSED" | "TIMED_OUT";
+    queuedAt: Date;
+    processedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+    user?: {
+        id: number;
+        email: string;
+        full_name: string;
+    };
+    order?: {
+        id: number | null;
+        transactionId: string | null;
+        walletAddress: string | null;
+        network: string | null;
+    };
+}
+
+export interface AdminWithdrawalQueueStats {
+    totalPending: number;
+    totalPendingAmount: Record<string, number>;
+    oldestEntry: Date | null;
+    averageWaitTime: number;
+    currencyBreakdown: Record<string, number>;
 }
 
 /**
@@ -391,6 +427,57 @@ export class WithdrawalQueueService {
         };
     }
 
+    async getAdminQueueStats(): Promise<AdminWithdrawalQueueStats> {
+        const activeEntries = await this.prisma.withdrawalQueue.findMany({
+            where: {
+                processedAt: null,
+                releasedAt: null,
+            },
+            select: {
+                currency: true,
+                amount: true,
+                queuedAt: true,
+            },
+        });
+
+        const currencyBreakdown: Record<string, number> = {};
+        const totalPendingAmount: Record<string, number> = {};
+
+        for (const entry of activeEntries) {
+            currencyBreakdown[entry.currency] =
+                (currencyBreakdown[entry.currency] ?? 0) + 1;
+            totalPendingAmount[entry.currency] =
+                (totalPendingAmount[entry.currency] ?? 0) +
+                Number(entry.amount.toString());
+        }
+
+        let oldestEntry: Date | null = null;
+        let totalWaitSeconds = 0;
+        const now = Date.now();
+
+        for (const entry of activeEntries) {
+            if (!oldestEntry || entry.queuedAt < oldestEntry) {
+                oldestEntry = entry.queuedAt;
+            }
+
+            totalWaitSeconds += Math.max(
+                0,
+                (now - entry.queuedAt.getTime()) / 1000
+            );
+        }
+
+        return {
+            totalPending: activeEntries.length,
+            totalPendingAmount,
+            oldestEntry,
+            averageWaitTime:
+                activeEntries.length > 0
+                    ? totalWaitSeconds / activeEntries.length
+                    : 0,
+            currencyBreakdown,
+        };
+    }
+
     /**
      * Gets total queued amount for a currency
      *
@@ -465,7 +552,7 @@ export class WithdrawalQueueService {
      * @param currency Optional currency filter
      * @returns Queue entries ready for processing
      */
-    async getPendingQueue(currency?: string): Promise<WithdrawalQueue[]> {
+    async getPendingQueue(currency?: string): Promise<AdminWithdrawalQueueItem[]> {
         const where: any = {
             processedAt: null,
             releasedAt: null,
@@ -475,7 +562,7 @@ export class WithdrawalQueueService {
             where.currency = currency.toUpperCase();
         }
 
-        return this.prisma.withdrawalQueue.findMany({
+        const queueEntries = await this.prisma.withdrawalQueue.findMany({
             where,
             include: {
                 holdEntry: true,
@@ -489,6 +576,102 @@ export class WithdrawalQueueService {
                 },
             },
             orderBy: [{ amount: "asc" }, { position: "asc" }],
+        });
+
+        const holdEntryIds = Array.from(
+            new Set(queueEntries.map((entry) => entry.holdEntryId))
+        );
+
+        const linkedOrders =
+            holdEntryIds.length > 0
+                ? await this.prisma.order.findMany({
+                      where: {
+                          orderCategory: OrderCategory.SEND,
+                          ledgerEntryId: { in: holdEntryIds },
+                      },
+                      select: {
+                          id: true,
+                          transactionId: true,
+                          recipient: true,
+                          ledgerEntryId: true,
+                          createdAt: true,
+                      },
+                      orderBy: { createdAt: "desc" },
+                  })
+                : [];
+
+        const latestOrderByLedgerEntryId = new Map<string, (typeof linkedOrders)[number]>();
+        for (const order of linkedOrders) {
+            if (order.ledgerEntryId && !latestOrderByLedgerEntryId.has(order.ledgerEntryId)) {
+                latestOrderByLedgerEntryId.set(order.ledgerEntryId, order);
+            }
+        }
+
+        return queueEntries.map((entry) => {
+            const metadata = (entry.holdEntry?.metadata ?? {}) as Record<string, unknown>;
+            const extractFirstString = (...values: unknown[]): string => {
+                for (const value of values) {
+                    if (typeof value === "string" && value.trim()) {
+                        return value.trim();
+                    }
+                }
+                return "";
+            };
+
+            const metadataDestination = extractFirstString(
+                metadata.destinationAddress,
+                metadata.walletAddress,
+                metadata.recipient,
+                metadata.address,
+                metadata.toAddress
+            );
+            const metadataNetwork = extractFirstString(
+                metadata.network,
+                metadata.destinationNetwork,
+                metadata.chain,
+                metadata.blockchain
+            );
+            const linkedOrder = latestOrderByLedgerEntryId.get(entry.holdEntryId);
+
+            const firstName = entry.user?.firstName ?? "";
+            const lastName = entry.user?.lastName ?? "";
+            const fullName = `${firstName} ${lastName}`.trim() || `User #${entry.userId}`;
+
+            const walletAddress =
+                metadataDestination || linkedOrder?.recipient?.trim() || "";
+            const network = metadataNetwork || "";
+
+            return {
+                id: entry.id,
+                orderId: linkedOrder?.id ?? null,
+                userId: entry.userId,
+                currency: entry.currency,
+                amount: Number(entry.amount.toString()),
+                position: entry.position,
+                priority: entry.position,
+                reason: String(entry.reason),
+                status: "PENDING",
+                queuedAt: entry.queuedAt,
+                processedAt: null,
+                createdAt: entry.queuedAt,
+                updatedAt: entry.queuedAt,
+                user: entry.user
+                    ? {
+                          id: entry.user.id,
+                          email: entry.user.email,
+                          full_name: fullName,
+                      }
+                    : undefined,
+                order:
+                    linkedOrder || walletAddress || network
+                        ? {
+                              id: linkedOrder?.id ?? null,
+                              transactionId: linkedOrder?.transactionId ?? null,
+                              walletAddress: walletAddress || null,
+                              network: network || null,
+                          }
+                        : undefined,
+            };
         });
     }
 }
