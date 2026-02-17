@@ -1,0 +1,26 @@
+[
+  {
+    "id": "155dec80-5abd-4424-832f-6607ebeea5a5",
+    "type": "WITHDRAWAL",
+    "currency": "USDT",
+    "holdAmount": "2"
+  },
+  {
+    "id": "a843aba8-ba91-4e90-ad13-29852cfe442a",
+    "type": "WITHDRAWAL",
+    "currency": "USDT",
+    "holdAmount": "3"
+  },
+  {
+    "id": "f425f28f-98b3-4a91-ab87-9d8d79e6a0f8",
+    "type": "WITHDRAWAL",
+    "currency": "USDC",
+    "holdAmount": "2"
+  },
+  {
+    "id": "d587fdc0-51b1-492c-a927-55da93fbae6c",
+    "type": "WITHDRAWAL",
+    "currency": "USDC",
+    "holdAmount": "2"
+  }
+]

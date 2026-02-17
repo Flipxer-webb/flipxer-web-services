@@ -1,0 +1,113 @@
+{
+  "releasedEntries": [
+    {
+      "id": "155dec80-5abd-4424-832f-6607ebeea5a5",
+      "userId": 7,
+      "currency": "USDT",
+      "type": "WITHDRAWAL",
+      "debit": "0",
+      "credit": "0",
+      "balanceAfter": "11.83218444",
+      "status": "FAILED",
+      "sweepStatus": "NOT_APPLICABLE",
+      "holdAmount": "0",
+      "reference": "withdrawal:1c68119b8gf5e5hdag566e634a8e3d",
+      "tradeGroupId": null,
+      "exchangeRate": null,
+      "counterpartyUserId": null,
+      "paymentReference": null,
+      "description": "Withdrawal to TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj (Fee: 1)",
+      "metadata": {
+        "network": "trc20",
+        "destinationAddress": "TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj"
+      },
+      "createdAt": "2026-02-16T15:37:25.360Z",
+      "updatedAt": "2026-02-16T17:53:51.820Z",
+      "user": {
+        "email": "magpiep18@gmail.com"
+      }
+    },
+    {
+      "id": "a843aba8-ba91-4e90-ad13-29852cfe442a",
+      "userId": 7,
+      "currency": "USDT",
+      "type": "WITHDRAWAL",
+      "debit": "0",
+      "credit": "0",
+      "balanceAfter": "11.83218444",
+      "status": "FAILED",
+      "sweepStatus": "NOT_APPLICABLE",
+      "holdAmount": "0",
+      "reference": "withdrawal:4h0adb2b18g6a3162hbg7c70he8f56",
+      "tradeGroupId": null,
+      "exchangeRate": null,
+      "counterpartyUserId": null,
+      "paymentReference": null,
+      "description": "Withdrawal to TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj (Fee: 1)",
+      "metadata": {
+        "network": "trc20",
+        "destinationAddress": "TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj"
+      },
+      "createdAt": "2026-02-16T15:41:04.610Z",
+      "updatedAt": "2026-02-16T17:53:51.820Z",
+      "user": {
+        "email": "magpiep18@gmail.com"
+      }
+    },
+    {
+      "id": "f425f28f-98b3-4a91-ab87-9d8d79e6a0f8",
+      "userId": 7,
+      "currency": "USDC",
+      "type": "WITHDRAWAL",
+      "debit": "0",
+      "credit": "0",
+      "balanceAfter": "10.0443738",
+      "status": "FAILED",
+      "sweepStatus": "NOT_APPLICABLE",
+      "holdAmount": "0",
+      "reference": "withdrawal:he5h8d8h946a7agff838c3f31b71hh",
+      "tradeGroupId": null,
+      "exchangeRate": null,
+      "counterpartyUserId": null,
+      "paymentReference": null,
+      "description": "Withdrawal to TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj (Fee: 1)",
+      "metadata": {
+        "network": "bep20",
+        "destinationAddress": "TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj"
+      },
+      "createdAt": "2026-02-16T17:08:44.942Z",
+      "updatedAt": "2026-02-16T17:53:51.820Z",
+      "user": {
+        "email": "magpiep18@gmail.com"
+      }
+    },
+    {
+      "id": "d587fdc0-51b1-492c-a927-55da93fbae6c",
+      "userId": 7,
+      "currency": "USDC",
+      "type": "WITHDRAWAL",
+      "debit": "0",
+      "credit": "0",
+      "balanceAfter": "10.0443738",
+      "status": "FAILED",
+      "sweepStatus": "NOT_APPLICABLE",
+      "holdAmount": "0",
+      "reference": "withdrawal:3gd2ga4380b0ff8f617ga12ef399e2",
+      "tradeGroupId": null,
+      "exchangeRate": null,
+      "counterpartyUserId": null,
+      "paymentReference": null,
+      "description": "Withdrawal to TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj (Fee: 1)",
+      "metadata": {
+        "network": "bep20",
+        "destinationAddress": "TUVHWuk7DRCmMRgKxiDFew5NEBMvmDnXEj"
+      },
+      "createdAt": "2026-02-16T17:11:06.993Z",
+      "updatedAt": "2026-02-16T17:53:51.820Z",
+      "user": {
+        "email": "magpiep18@gmail.com"
+      }
+    }
+  ],
+  "relatedEntries": []
+}

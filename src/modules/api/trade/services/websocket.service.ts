@@ -40,7 +40,7 @@ export class WsService {
         this.socketUserMap.set(client.id, user.id.toString());
         client.join(`user:${user.id}`);
 
-        if (user.type === UserType.ADMIN) {
+        if (user.userType === UserType.ADMIN) {
             client.join("admin");
         }
 
