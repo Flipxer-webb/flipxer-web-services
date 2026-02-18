@@ -98,6 +98,7 @@ export class UserService {
                     id: true,
                     firstName: true,
                     lastName: true,
+                    businessName: true,
                     email: true,
                     recoveryEmail: true,
                     photo: true,
@@ -119,6 +120,17 @@ export class UserService {
                     businessRecordCompleted: true,
                     businessDocumentsUploaded: true,
                     businessDocumentVerificationStatus: true,
+                    businessRecord: {
+                        select: {
+                            id: true,
+                            userId: true,
+                            businessName: true,
+                            natureOfBusiness: true,
+                            taxIdentificationNumber: true,
+                            expectedTransactionVolume: true,
+                            expectedTransactionFrequency: true,
+                        },
+                    },
                     accountLimit: {
                         select: {
                             buyToken: true,

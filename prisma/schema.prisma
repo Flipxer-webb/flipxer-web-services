@@ -16,6 +16,7 @@ model User {
   identifier                         String                            @unique
   firstName                          String?
   lastName                           String?
+  businessName                       String?
   username                           String?
   middleName                         String?
   email                              String                            @unique

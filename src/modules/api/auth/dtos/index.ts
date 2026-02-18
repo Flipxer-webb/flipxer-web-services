@@ -157,6 +157,14 @@ export class SignUpDto {
     dateOfBirth: string;
 
     @ApiProperty({
+        description: "Optional business name for business accounts",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    businessName?: string;
+
+    @ApiProperty({
         description: "Optional Flagged record ID for the user",
         required: false,
     })

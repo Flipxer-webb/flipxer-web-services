@@ -726,6 +726,7 @@ export class AuthService {
                 ipAddress: cachedSignup.ipAddress,
                 firstName: cachedSignup.firstName,
                 lastName: cachedSignup.lastName,
+                businessName: cachedSignup.businessName?.trim() || null,
                 dateOfBirth: new Date(cachedSignup.dateOfBirth),
                 isEmailVerified: true,
                 securityMethods: {
@@ -2394,6 +2395,7 @@ export class AuthService {
                         businessRecordCompleted: true,
                         firstName: dto.firstName,
                         lastName: dto.lastName,
+                        businessName: dto.businessName,
                     },
                 });
                 return record;
