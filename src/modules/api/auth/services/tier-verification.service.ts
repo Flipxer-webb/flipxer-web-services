@@ -446,7 +446,6 @@ export class TierVerificationService {
                 hasLastName,
                 hasIdNumber,
                 hasVerificationId: !!dto.verificationId,
-                hasReferenceId: !!dto.referenceId,
                 idType,
             }
         );
