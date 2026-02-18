@@ -22,6 +22,7 @@ export interface VerifyBvnResponseData {
         phone_number1: string;
         image: string;
         phone_number2: string;
+        reference_id?: string;
     };
 }
 
@@ -42,6 +43,7 @@ export interface VerifyNinResponseData {
         date_of_birth: string;
         phone_number: string;
         photo: string;
+        reference_id?: string;
     };
 }
 

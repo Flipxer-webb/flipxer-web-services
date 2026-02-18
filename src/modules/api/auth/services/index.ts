@@ -1306,7 +1306,7 @@ export class AuthService {
         // Audit trail for document verification
         await this.kycStateMachine.transition(
             user.id,
-            "IDENTITY_DOCUMENT",
+            "DOCUMENT",
             shouldAutoApprove ? "APPROVED" : "PENDING",
             {
                 providerRef: dojahParsed?.documentNumber || null,
@@ -1666,7 +1666,7 @@ export class AuthService {
             // Audit trail via state machine
             await this.kycStateMachine.transition(
                 user.id,
-                "IDENTITY_DOCUMENT",
+                "DOCUMENT",
                 serverVerified ? "APPROVED" : "PENDING",
                 {
                     providerRef: dto.verificationId || dto.referenceId,
@@ -1947,7 +1947,7 @@ export class AuthService {
         // Audit trail for base64 document verification
         await this.kycStateMachine.transition(
             user.id,
-            "IDENTITY_DOCUMENT",
+            "DOCUMENT",
             shouldAutoApprove ? "APPROVED" : "PENDING",
             {
                 providerRef: dojahParsed?.documentNumber || null,

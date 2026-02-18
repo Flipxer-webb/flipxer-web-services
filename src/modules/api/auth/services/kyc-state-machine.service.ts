@@ -33,6 +33,10 @@ export interface TransitionMetadata {
     reviewerId?: number;
     reviewNote?: string;
     documentUrl?: string;
+    /** Provider reference ID (e.g. Dojah reference_id). */
+    providerRef?: string | null;
+    /** Raw response payload from the verification provider. */
+    providerRawResponse?: Record<string, any> | null;
     /** Pass current version for optimistic-lock check (admin decisions). */
     expectedVersion?: number;
 }
