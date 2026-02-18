@@ -2402,6 +2402,7 @@ export class AuthService {
         );
 
         await this.cryptoAccountQueueProducer.enqueue(user.id);
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
 
         return buildResponse({
             message: "Business record submitted successfully",
