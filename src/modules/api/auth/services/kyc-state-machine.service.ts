@@ -163,6 +163,8 @@ export class KycStateMachineService {
                 reviewerId: meta.reviewerId,
                 reviewNote: meta.reviewNote,
                 documentUrl: meta.documentUrl,
+                providerRef: meta.providerRef,
+                providerRawResponse: meta.providerRawResponse,
                 reviewedAt: this.isDecisionStatus(status) ? new Date() : undefined,
                 escalatedAt: status === KycStatus.ESCALATED ? new Date() : undefined,
                 escalatedById: status === KycStatus.ESCALATED ? meta.reviewerId : undefined,
@@ -193,6 +195,8 @@ export class KycStateMachineService {
                 reviewerId: meta.reviewerId ?? undefined,
                 reviewNote: meta.reviewNote ?? undefined,
                 documentUrl: meta.documentUrl ?? undefined,
+                providerRef: meta.providerRef ?? undefined,
+                providerRawResponse: meta.providerRawResponse ?? undefined,
                 reviewedAt: this.isDecisionStatus(status) ? new Date() : undefined,
                 escalatedAt: status === KycStatus.ESCALATED ? new Date() : undefined,
                 escalatedById: status === KycStatus.ESCALATED ? meta.reviewerId : undefined,
@@ -235,6 +239,8 @@ export class KycStateMachineService {
                 isActive: true,
                 reviewNote: meta.reviewNote,
                 documentUrl: meta.documentUrl,
+                providerRef: meta.providerRef,
+                providerRawResponse: meta.providerRawResponse,
             } as any,
         });
 

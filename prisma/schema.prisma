@@ -749,6 +749,8 @@ model KycVerification {
   reviewerId       Int?
   reviewNote       String?
   documentUrl      String?
+  providerRef      String?
+  providerRawResponse Json?
   submittedAt      DateTime            @default(now())
   reviewedAt       DateTime?
   createdAt        DateTime            @default(now())
