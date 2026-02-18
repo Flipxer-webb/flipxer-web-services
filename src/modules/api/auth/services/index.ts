@@ -471,6 +471,18 @@ export class AuthService {
             throw new ResetCodeExpiredException("Reset code has expired");
         }
 
+        const isSameAsCurrentPassword = await this.comparePassword(
+            dto.password,
+            user.password
+        );
+
+        if (isSameAsCurrentPassword) {
+            throw new AuthGenericException(
+                "Your new password must be different from your current password",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         const hashedPassword = await this.hashPassword(dto.password);
 
         await this.prisma.user.update({
