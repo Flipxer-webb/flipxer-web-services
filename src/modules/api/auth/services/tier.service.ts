@@ -2,8 +2,9 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { User, UserType } from "@prisma/client";
+import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
 
-export type TierLevel = 0 | 1 | 2 | 3 | 4;
+export { TierLevel };
 
 export interface TierInfo {
     tier: TierLevel;
@@ -19,21 +20,8 @@ export type UserWithTier = User & {
     isNinVerified?: boolean;
 };
 
-/**
- * Tier Names:
- * 0 = Basic (deposit only)
- * 1 = Standard (BVN/NIN verified)
- * 2 = Intermediate (Document verified)
- * 3 = Pro (Address verified)
- * 4 = Premium (Income verified)
- */
-const WITHDRAWAL_LIMITS: Record<TierLevel, number | "unlimited"> = {
-    0: 0,        // Basic: deposit only
-    1: 10000,    // Standard: $10,000/day
-    2: 50000,    // Intermediate: $50,000/day
-    3: 100000,   // Pro: $100,000/day
-    4: "unlimited", // Premium: unlimited
-};
+// Re-export for backward compatibility (use TIER_WITHDRAWAL_LIMITS from shared module for new code)
+const WITHDRAWAL_LIMITS = TIER_WITHDRAWAL_LIMITS;
 
 /**
  * Tier requirement checker functions for individual users
@@ -146,23 +134,13 @@ export class TierService {
      */
     /**
      * Retrieves tier information for a user.
-     * NOW ASYNC: Fetches custom limits from AccountLimit table if available.
+     * Uses WITHDRAWAL_LIMITS (USD daily) as the single source of truth.
+     * The AccountLimit.sellTokenFiat column stores per-operation NGN caps
+     * and MUST NOT be used here — it is a different unit and purpose.
      */
     async getTierInfo(user: Partial<UserWithTier>): Promise<TierInfo> {
         const tier = this.calculateTier(user);
-        let withdrawalLimit: number | "unlimited" = WITHDRAWAL_LIMITS[tier];
-
-        // optimization: if user has an ID, check for custom limits
-        if (user.id) {
-            const accountLimit = await this.prisma.accountLimit.findUnique({
-                where: { userId: user.id },
-                select: { sellTokenFiat: true } // Assuming sellTokenFiat maps to withdrawal limit context
-            });
-
-            if (accountLimit && accountLimit.sellTokenFiat) {
-                withdrawalLimit = accountLimit.sellTokenFiat;
-            }
-        }
+        const withdrawalLimit: number | "unlimited" = WITHDRAWAL_LIMITS[tier];
 
         return {
             tier,

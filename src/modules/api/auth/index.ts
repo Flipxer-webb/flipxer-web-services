@@ -3,6 +3,7 @@ import { AuthService } from "./services";
 import { TierService } from "./services/tier.service";
 import { TierVerificationService } from "./services/tier-verification.service";
 import { TwoFactorRateLimitService } from "./services/two-factor-rate-limit.service";
+import { KycStateMachineService } from "./services/kyc-state-machine.service";
 
 import { JwtModule } from "@nestjs/jwt";
 import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
@@ -39,8 +40,8 @@ export * from "./errors";
         forwardRef(() => SettingModule),
     ],
     controllers: [AuthController, AdminAuthController],
-    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard],
-    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard],
+    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService],
+    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService],
 })
 export class AuthModule { }
 

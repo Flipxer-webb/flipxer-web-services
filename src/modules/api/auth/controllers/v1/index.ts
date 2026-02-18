@@ -169,7 +169,8 @@ export class AuthController {
     }
 
     @ApiBearerAuth("access-token")
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("verify-bvn")
     @ApiOperation({ summary: "verify user with individual account bvn" })
@@ -182,7 +183,8 @@ export class AuthController {
     }
 
     @ApiBearerAuth("access-token")
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("verify-nin")
     @ApiOperation({ summary: "verify user with individual account NIN" })
@@ -219,7 +221,8 @@ export class AuthController {
         return await this.authService.verifyPhoneOtp(user, verifyPhoneOtpDto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("verify-document")
     @ApiOperation({
@@ -265,7 +268,8 @@ export class AuthController {
      * Accepts base64-encoded images directly in JSON body
      * No FormData/multipart needed - simpler client integration
      */
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("verify-document-base64")
     @ApiOperation({
@@ -317,7 +321,8 @@ export class AuthController {
      * Submit Dojah Widget verification result
      * Saves verified document data from Dojah Widget to database
      */
-    @UseGuards(AuthGuard)
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
     @HttpCode(HttpStatus.OK)
     @Post("submit-dojah-verification")
     @ApiOperation({

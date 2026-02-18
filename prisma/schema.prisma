@@ -753,11 +753,16 @@ model KycVerification {
   reviewedAt       DateTime?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+  version          Int                 @default(1)
+  isActive         Boolean             @default(true)
+  escalatedAt      DateTime?
+  escalatedById    Int?
   user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
   @@index([verificationType])
+  @@index([userId, verificationType, isActive])
   @@map("KycVerifications")
 }
 
@@ -878,6 +883,8 @@ enum DocumentVerificationStatus {
   PENDING
   VERIFIED
   DECLINED
+  RESUBMITTED
+  PENDING_PROVIDER_CONFIRMATION
 }
 
 enum DocumentType {
@@ -1030,6 +1037,7 @@ enum KycVerificationType {
   DOCUMENT
   ADDRESS
   INCOME
+  BUSINESS_DOCUMENT
 }
 
 enum KycStatus {

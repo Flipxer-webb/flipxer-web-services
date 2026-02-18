@@ -335,7 +335,31 @@ export class KycService {
                 updateData = rejectionMap[verificationType] || {};
             }
         } else if (action === "ESCALATE") {
-            // Mark for senior review - could add a flag
+            // Mark for senior review — no user-facing status change,
+            // but record escalation metadata on the active KycVerification
+            const activeVerification = verificationType
+                ? await this.prisma.kycVerification.findFirst({
+                    where: {
+                        userId,
+                        verificationType: (verificationType === "BUSINESS_DOCUMENT"
+                            ? "BUSINESS_DOCUMENT"
+                            : verificationType) as any,
+                        isActive: true,
+                    } as any,
+                    orderBy: { createdAt: "desc" },
+                })
+                : null;
+
+            if (activeVerification) {
+                await this.prisma.kycVerification.update({
+                    where: { id: activeVerification.id },
+                    data: {
+                        status: "ESCALATED",
+                        escalatedAt: new Date(),
+                        escalatedById: adminId,
+                    } as any,
+                });
+            }
         }
 
         const updatedUser = await this.prisma.user.update({
@@ -372,10 +396,7 @@ export class KycService {
                 ESCALATE: "ESCALATED",
             };
 
-            const normalizedKycVerificationType =
-                verificationType === "BUSINESS_DOCUMENT"
-                    ? "DOCUMENT"
-                    : verificationType;
+            const normalizedKycVerificationType = verificationType;
 
             await this.prisma.kycVerification.create({
                 data: {
@@ -551,8 +572,8 @@ export class KycService {
             },
         });
 
-        // Update account limits based on tier
-        await this.updateAccountLimits(userId, dto.tier);
+        // Limits are derived from shared tier constants in tier logic.
+        // Avoid writing per-user AccountLimit rows from KYC admin actions.
 
         // Audit log
         await this.prisma.auditLog.create({
@@ -767,12 +788,17 @@ export class KycService {
         if (!user.isNinVerified && user.nin) pending.push("nin");
         if (!user.isDocumentVerified && user.userDocument) pending.push("document");
         if (!user.isAddressVerified) pending.push("address");
+        if (!user.isIncomeVerified) pending.push("income");
         if (user.userType === "BUSINESS" && user.businessDocumentsUploaded && user.businessDocumentVerificationStatus !== "VERIFIED") {
             pending.push("businessDocument");
         }
         return pending;
     }
 
+    /**
+     * @deprecated Limits are derived from shared tier constants and enforced
+     * via Redis aggregate checks in transaction flows.
+     */
     private async updateAccountLimits(userId: number, tier: number): Promise<void> {
         const tierLimits: Record<number, Prisma.AccountLimitUpdateInput> = {
             0: { sellTokenFiat: 50000, sendToken: 50000 },

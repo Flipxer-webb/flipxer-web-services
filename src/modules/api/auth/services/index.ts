@@ -98,6 +98,8 @@ import { SessionInfo } from "../../session/interfaces";
 import { TwoFactorRateLimitService } from "./two-factor-rate-limit.service";
 import { SettingService } from "../../settings/services";
 import { TierService } from "./tier.service";
+import { KycStateMachineService } from "./kyc-state-machine.service";
+import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 
@@ -212,7 +214,8 @@ export class AuthService {
         private readonly twoFactorRateLimitService: TwoFactorRateLimitService,
         private readonly settingService: SettingService,
         private readonly tierService: TierService,
-        private readonly redisCacheService: RedisCacheService
+        private readonly redisCacheService: RedisCacheService,
+        private readonly kycStateMachine: KycStateMachineService
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -944,14 +947,30 @@ export class AuthService {
                     bvn: generateId({ type: "numeric" }),
                 },
             });
+            // Audit trail for dev bypass
+            await this.kycStateMachine.transition(user.id, "BVN", "APPROVED", {
+                providerRef: "DEV_BYPASS",
+                providerRawResponse: { bypass: true },
+            });
         } else {
-            if (
-                dto.firstName.toLowerCase() !==
-                result?.data?.entity?.first_name.toLowerCase() ||
-                dto.lastName.toLowerCase() !==
-                result?.data?.entity?.last_name.toLowerCase() ||
-                dto.dateOfBirth !== result?.data?.entity?.date_of_birth
-            ) {
+            const nameResult = matchNames(
+                dto.firstName,
+                dto.lastName,
+                result?.data?.entity?.first_name || "",
+                result?.data?.entity?.last_name || "",
+            );
+            const dobMatches = matchDateOfBirth(
+                dto.dateOfBirth,
+                result?.data?.entity?.date_of_birth || "",
+            );
+
+            if (!nameResult.matches || !dobMatches) {
+                // Record the failed attempt before throwing
+                await this.kycStateMachine.transition(user.id, "BVN", "REJECTED", {
+                    providerRef: result?.data?.entity?.reference_id,
+                    providerRawResponse: result?.data,
+                    reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
+                });
                 throw new VerificationGenericException(
                     "Incorrect first name, last name or date of birth",
                     HttpStatus.BAD_REQUEST
@@ -967,6 +986,11 @@ export class AuthService {
                     bvn: dto.bvn,
                     bvnRegisteredPhone: result.data.entity.phone_number1,
                 },
+            });
+            // Audit trail for successful BVN verification
+            await this.kycStateMachine.transition(user.id, "BVN", "APPROVED", {
+                providerRef: result?.data?.entity?.reference_id,
+                providerRawResponse: result?.data,
             });
         }
         try {
@@ -1024,14 +1048,30 @@ export class AuthService {
                     nin: generateId({ type: "numeric" }),
                 },
             });
+            // Audit trail for dev bypass
+            await this.kycStateMachine.transition(user.id, "NIN", "APPROVED", {
+                providerRef: "DEV_BYPASS",
+                providerRawResponse: { bypass: true },
+            });
         } else {
-            if (
-                dto.firstName.toLowerCase() !==
-                result?.data?.entity?.first_name.toLowerCase() ||
-                dto.lastName.toLowerCase() !==
-                result?.data?.entity?.last_name.toLowerCase() ||
-                dto.dateOfBirth !== result?.data?.entity?.date_of_birth
-            ) {
+            const nameResult = matchNames(
+                dto.firstName,
+                dto.lastName,
+                result?.data?.entity?.first_name || "",
+                result?.data?.entity?.last_name || "",
+            );
+            const dobMatches = matchDateOfBirth(
+                dto.dateOfBirth,
+                result?.data?.entity?.date_of_birth || "",
+            );
+
+            if (!nameResult.matches || !dobMatches) {
+                // Record the failed attempt before throwing
+                await this.kycStateMachine.transition(user.id, "NIN", "REJECTED", {
+                    providerRef: result?.data?.entity?.reference_id,
+                    providerRawResponse: result?.data,
+                    reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
+                });
                 throw new VerificationGenericException(
                     "Incorrect first name, last name or date of birth",
                     HttpStatus.BAD_REQUEST
@@ -1047,6 +1087,11 @@ export class AuthService {
                     nin: dto.nin,
                     ninRegisteredPhone: result.data.entity.phone_number,
                 },
+            });
+            // Audit trail for successful NIN verification
+            await this.kycStateMachine.transition(user.id, "NIN", "APPROVED", {
+                providerRef: result?.data?.entity?.reference_id,
+                providerRawResponse: result?.data,
             });
         }
         try {
@@ -1256,6 +1301,20 @@ export class AuthService {
                 });
             },
             { timeout: 30000 }
+        );
+
+        // Audit trail for document verification
+        await this.kycStateMachine.transition(
+            user.id,
+            "IDENTITY_DOCUMENT",
+            shouldAutoApprove ? "APPROVED" : "PENDING",
+            {
+                providerRef: dojahParsed?.documentNumber || null,
+                providerRawResponse: dojahParsed,
+                reviewNote: shouldAutoApprove
+                    ? "Auto-approved: document valid and name matches"
+                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${nameMatches}`,
+            }
         );
 
         // Invalidate backend profile cache so verification status is immediately reflected
@@ -1508,6 +1567,29 @@ export class AuthService {
                 }
             }
 
+            // SECURITY: Server-side verification of widget result
+            // Do NOT trust the client-submitted verification data alone
+            let serverVerified = false;
+            let serverVerificationData: any = null;
+
+            if (dto.verificationId) {
+                try {
+                    const serverResult = await this.dojahService.getVerificationResult(dto.verificationId);
+                    serverVerified = serverResult.verified;
+                    serverVerificationData = serverResult.data;
+                    logger.log(`Server-side verification for user ${user.id}: verified=${serverVerified}, status=${serverResult.status}`);
+                } catch (error) {
+                    logger.warn(`Server-side verification check failed for user ${user.id}, falling back to manual review: ${error.message}`);
+                    serverVerified = false;
+                }
+            } else {
+                logger.warn(`No verificationId provided for user ${user.id}, cannot perform server-side check`);
+            }
+
+            const finalStatus = serverVerified
+                ? DocumentVerificationStatus.VERIFIED
+                : DocumentVerificationStatus.PENDING;
+
             // Store Dojah widget response in userDocument
             await this.prisma.userDocument.upsert({
                 where: { userId: user.id },
@@ -1515,8 +1597,8 @@ export class AuthService {
                     type: documentType,
                     country: Country.NIGERIA,
                     documentNumber: dto.idData?.document_number || "",
-                    verificationStatus: DocumentVerificationStatus.VERIFIED,
-                    dojahVerified: true,
+                    verificationStatus: finalStatus,
+                    dojahVerified: serverVerified,
                     dojahDocumentType: dto.idData?.document_type || null,
                     dojahCountryCode: dto.idData?.country || null,
                     dojahExtractedFirstName: dto.idData?.first_name || null,
@@ -1524,7 +1606,7 @@ export class AuthService {
                     dojahExtractedDob: dto.idData?.date_of_birth || null,
                     dojahExtractedDocNumber: dto.idData?.document_number || null,
                     dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
-                    dojahNameMatches: true, // Verified via widget
+                    dojahNameMatches: serverVerified, // Only trust if server-confirmed
                     dojahVerifiedAt: new Date(),
                     dojahRawResponse: JSON.stringify({
                         verificationId: dto.verificationId,
@@ -1535,6 +1617,7 @@ export class AuthService {
                         selfie: dto.selfie,
                         faceMatch: dto.faceMatch,
                         verifiedViaWidget: true,
+                        serverVerification: serverVerificationData,
                     }),
                     updatedAt: new Date(),
                 },
@@ -1546,8 +1629,8 @@ export class AuthService {
                     // For Dojah Widget, images are stored by Dojah - use placeholder
                     documentImageUrl: "dojah-widget-verified",
                     documentImageFieldId: `dojah-widget-${dto.verificationId || Date.now()}`,
-                    verificationStatus: DocumentVerificationStatus.VERIFIED,
-                    dojahVerified: true,
+                    verificationStatus: finalStatus,
+                    dojahVerified: serverVerified,
                     dojahDocumentType: dto.idData?.document_type || null,
                     dojahCountryCode: dto.idData?.country || null,
                     dojahExtractedFirstName: dto.idData?.first_name || null,
@@ -1555,7 +1638,7 @@ export class AuthService {
                     dojahExtractedDob: dto.idData?.date_of_birth || null,
                     dojahExtractedDocNumber: dto.idData?.document_number || null,
                     dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
-                    dojahNameMatches: true,
+                    dojahNameMatches: serverVerified,
                     dojahVerifiedAt: new Date(),
                     dojahRawResponse: JSON.stringify({
                         verificationId: dto.verificationId,
@@ -1566,6 +1649,7 @@ export class AuthService {
                         selfie: dto.selfie,
                         faceMatch: dto.faceMatch,
                         verifiedViaWidget: true,
+                        serverVerification: serverVerificationData,
                     }),
                 },
             });
@@ -1574,27 +1658,53 @@ export class AuthService {
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {
-                    isDocumentVerified: true,
-                    documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                    isDocumentVerified: serverVerified,
+                    documentVerificationStatus: finalStatus,
                 },
             });
 
-            // Update user's tier based on new verification status
-            const updatedUser = await this.tierService.updateUserTier(user.id);
-            logger.log(`Dojah widget verification completed successfully for user ${user.id}, new tier: ${updatedUser.tier ?? 0}`);
+            // Audit trail via state machine
+            await this.kycStateMachine.transition(
+                user.id,
+                "IDENTITY_DOCUMENT",
+                serverVerified ? "APPROVED" : "PENDING",
+                {
+                    providerRef: dto.verificationId || dto.referenceId,
+                    providerRawResponse: { widget: true, serverVerified, serverVerificationData },
+                    reviewNote: serverVerified
+                        ? "Server-side confirmed via Dojah widget"
+                        : "Widget submitted but server-side confirmation failed — pending manual review",
+                }
+            );
 
-            return buildResponse({
-                message: "Document verified successfully",
-                data: {
-                    verified: true,
-                    documentType,
-                    firstName: dto.idData?.first_name,
-                    lastName: dto.idData?.last_name,
-                    documentNumber: dto.idData?.document_number,
-                    tier: updatedUser.tier ?? 0,
-                    canTransact: (updatedUser.tier ?? 0) > 0,
-                },
-            });
+            // Update user's tier only if server-verified
+            if (serverVerified) {
+                const updatedUser = await this.tierService.updateUserTier(user.id);
+                logger.log(`Dojah widget verification completed successfully for user ${user.id}, new tier: ${updatedUser.tier ?? 0}`);
+
+                return buildResponse({
+                    message: "Document verified successfully",
+                    data: {
+                        verified: true,
+                        documentType,
+                        firstName: dto.idData?.first_name,
+                        lastName: dto.idData?.last_name,
+                        documentNumber: dto.idData?.document_number,
+                        tier: updatedUser.tier ?? 0,
+                        canTransact: (updatedUser.tier ?? 0) > 0,
+                    },
+                });
+            } else {
+                logger.warn(`Dojah widget verification for user ${user.id} requires manual review (server-side check failed)`);
+                return buildResponse({
+                    message: "Document submitted for review. You will be notified once verification is complete.",
+                    data: {
+                        verified: false,
+                        documentType,
+                        pendingReview: true,
+                    },
+                });
+            }
         } catch (error) {
             logger.error(`Dojah widget verification failed for user ${user.id}`, {
                 error: error.message,
@@ -1832,6 +1942,20 @@ export class AuthService {
                 });
             },
             { timeout: 30000 }
+        );
+
+        // Audit trail for base64 document verification
+        await this.kycStateMachine.transition(
+            user.id,
+            "IDENTITY_DOCUMENT",
+            shouldAutoApprove ? "APPROVED" : "PENDING",
+            {
+                providerRef: dojahParsed?.documentNumber || null,
+                providerRawResponse: dojahParsed,
+                reviewNote: shouldAutoApprove
+                    ? "Auto-approved: document valid via base64 upload"
+                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${nameMatches}`,
+            }
         );
 
         // Invalidate backend profile cache so verification status is immediately reflected

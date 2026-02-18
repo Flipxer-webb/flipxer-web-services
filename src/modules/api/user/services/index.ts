@@ -232,8 +232,11 @@ export class UserService {
                 requirements.nextStep = "GOVERNMENT_ID";
             } else if (!profile.isDocumentVerified) {
                 requirements.nextStep = "IDENTITY_DOCUMENT";
+            } else if (!profile.isAddressVerified) {
+                requirements.nextStep = "ADDRESS_VERIFICATION";
+            } else if (!profile.isIncomeVerified) {
+                requirements.nextStep = "INCOME_VERIFICATION";
             }
-            // Address/Income are usually Tier 2/3, not blocking initial "Complete" state for Tier 1
         }
 
         return requirements;
