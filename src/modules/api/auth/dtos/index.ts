@@ -423,6 +423,48 @@ export class BusinessDocumentUploadDto {
     articleOfAssociationNumber?: string;
 }
 
+export class UploadBusinessDocumentFileDto {
+    @ApiProperty({
+        description:
+            "Field name identifying which document this is: cacImage, articleOfAssociationImage, boardResolutionAuthorizedAcctOpeningImage, proofOfAddressForBeneficialOwner, meansOfIdentificationForBeneficialOwner",
+    })
+    @IsNotEmpty()
+    @IsString()
+    fieldName: string;
+}
+
+export class UploadBusinessDocumentFileFormDto {
+    @ApiProperty({ type: "string", description: "Document field name" })
+    fieldName: string;
+
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "The document file",
+    })
+    file: any;
+}
+
+export class SubmitBusinessDocumentsDto {
+    @ApiProperty({ description: "A valid CAC document number" })
+    @IsNotEmpty()
+    cacDocumentNumber: string;
+
+    @ApiProperty({
+        description: "A valid article of association number",
+        required: false,
+    })
+    @IsOptional()
+    articleOfAssociationNumber?: string;
+
+    @ApiProperty({
+        description:
+            "Map of fieldName → ImageKit URL for each uploaded file",
+    })
+    @IsNotEmpty()
+    uploadedFiles: Record<string, { url: string; fileId: string; originalName?: string }>;
+}
+
 export class BusinessDocumentUploadFormDto {
     @ApiProperty({ type: "string", description: "CAC document number" })
     cacDocumentNumber: string;

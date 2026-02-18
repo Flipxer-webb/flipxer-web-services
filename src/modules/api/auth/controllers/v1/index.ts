@@ -32,6 +32,9 @@ import {
     RefreshTokenDto,
     BusinessDocumentUploadDto,
     BusinessDocumentUploadFormDto,
+    UploadBusinessDocumentFileDto,
+    UploadBusinessDocumentFileFormDto,
+    SubmitBusinessDocumentsDto,
     DocumentVerificationUploadFormDto,
     DocumentVerificationBase64Dto,
     DocumentPreviewDto,
@@ -390,6 +393,67 @@ export class AuthController {
         return await this.authService.updloadBusinessDocuments(
             user,
             files,
+            body
+        );
+    }
+
+    /**
+     * Upload a single business document file (sequential upload flow).
+     * Each file is uploaded individually to avoid Vercel's 4.5MB body limit.
+     */
+    @UseGuards(AuthGuard, RoleGuard)
+    @UserTypes([UserType.BUSINESS])
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "upload a single business document file",
+    })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: UploadBusinessDocumentFileFormDto,
+        description: "Single business document file upload",
+    })
+    @ApiBearerAuth("access-token")
+    @Post("upload-business-document-file")
+    @UseInterceptors(
+        FileInterceptor("file", {
+            storage: memoryStorage(),
+            limits: { fileSize: 20 * 1024 * 1024 },
+        })
+    )
+    async uploadBusinessDocumentFile(
+        @User() user: UserModel,
+        @UploadedFile() file: Express.Multer.File,
+        @Body(ValidationPipe) body: UploadBusinessDocumentFileDto
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.authService.uploadSingleBusinessDocumentFile(
+            user,
+            file,
+            body
+        );
+    }
+
+    /**
+     * Submit all previously-uploaded business document URLs.
+     * Called after all individual files have been uploaded via upload-business-document-file.
+     */
+    @UseGuards(AuthGuard, RoleGuard)
+    @UserTypes([UserType.BUSINESS])
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: "submit business documents (URLs from sequential uploads)",
+    })
+    @ApiBearerAuth("access-token")
+    @Post("submit-business-documents")
+    async submitBusinessDocuments(
+        @User() user: UserModel,
+        @Body(ValidationPipe) body: SubmitBusinessDocumentsDto
+    ) {
+        return await this.authService.submitBusinessDocumentsFromUrls(
+            user,
             body
         );
     }

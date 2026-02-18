@@ -20,6 +20,8 @@ import {
     ResetPasswordDto,
     RefreshTokenDto,
     BusinessDocumentUploadDto,
+    UploadBusinessDocumentFileDto,
+    SubmitBusinessDocumentsDto,
     Verify2FALoginDto,
 } from "../dtos";
 import * as bcrypt from "bcryptjs";
@@ -2001,6 +2003,218 @@ export class AuthService {
     }
 
     /**
+     * Upload a single business document file to ImageKit.
+     * Returns the uploaded URL and fileId so the frontend can collect them
+     * and send them all in a single submit call.
+     */
+    async uploadSingleBusinessDocumentFile(
+        user: User,
+        file: Express.Multer.File,
+        dto: UploadBusinessDocumentFileDto
+    ) {
+        const validFields = [
+            "cacImage",
+            "articleOfAssociationImage",
+            "boardResolutionAuthorizedAcctOpeningImage",
+            "proofOfAddressForBeneficialOwner",
+            "meansOfIdentificationForBeneficialOwner",
+        ];
+
+        if (!validFields.includes(dto.fieldName)) {
+            throw new VerificationGenericException(
+                `Invalid field name: ${dto.fieldName}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        try {
+            const result = await this.uploadAsFile([file]);
+            return buildResponse({
+                message: "File uploaded successfully",
+                data: {
+                    fieldName: dto.fieldName,
+                    url: result.url,
+                    fileId: result.fileId,
+                    originalName: file.originalname,
+                },
+            });
+        } catch (error) {
+            this.logger.error(
+                `[BusinessDocumentFile] Upload failed for user ${user.id}, field ${dto.fieldName}: ${error?.message}`,
+                error?.stack
+            );
+            throw error;
+        }
+    }
+
+    /**
+     * Submit all previously-uploaded business document URLs.
+     * Creates the businessDocument record and triggers Dojah verification.
+     */
+    async submitBusinessDocumentsFromUrls(
+        user: User,
+        dto: SubmitBusinessDocumentsDto
+    ) {
+        if (
+            user.businessDocumentsUploaded &&
+            user.businessDocumentVerificationStatus !== "DECLINED"
+        ) {
+            throw new VerificationGenericException(
+                `Document has already been uploaded and is ${user.businessDocumentVerificationStatus}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const { uploadedFiles } = dto;
+
+        // cacImage is required
+        if (!uploadedFiles.cacImage?.url) {
+            throw new VerificationGenericException(
+                "CAC image is required",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        const getField = (name: string) => uploadedFiles[name] || null;
+
+        try {
+            await this.prisma.$transaction(
+                async (tx) => {
+                    await tx.businessDocument.upsert({
+                        where: { userId: user.id },
+                        update: {},
+                        create: {
+                            userId: user.id,
+                            cacDocumentNumber: dto.cacDocumentNumber,
+                            cacImageUrl: getField("cacImage")?.url || null,
+                            cacImageUrlFieldId:
+                                getField("cacImage")?.fileId || null,
+                            cacImageFileName: getField("cacImage")
+                                ? generateFileName(
+                                      DocumentMetaMap.cacImage,
+                                      user.id,
+                                      getField("cacImage")?.originalName
+                                  )
+                                : null,
+                            articleOfAssociationNumber:
+                                dto.articleOfAssociationNumber || null,
+                            articleOfAssociationImageUrl:
+                                getField("articleOfAssociationImage")?.url ||
+                                null,
+                            articleOfAssociationImageUrlFieldId:
+                                getField("articleOfAssociationImage")?.fileId ||
+                                null,
+                            articleOfAssociationFileName: getField(
+                                "articleOfAssociationImage"
+                            )
+                                ? generateFileName(
+                                      DocumentMetaMap.articleOfAssociationImage,
+                                      user.id,
+                                      getField("articleOfAssociationImage")
+                                          ?.originalName
+                                  )
+                                : null,
+                            boardResolutionAuthorizedAcctOpeningImageUrl:
+                                getField(
+                                    "boardResolutionAuthorizedAcctOpeningImage"
+                                )?.url || null,
+                            boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
+                                getField(
+                                    "boardResolutionAuthorizedAcctOpeningImage"
+                                )?.fileId || null,
+                            boardResolutionAuthorizedAcctOpeningFileName:
+                                getField(
+                                    "boardResolutionAuthorizedAcctOpeningImage"
+                                )
+                                    ? generateFileName(
+                                          DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                                          user.id,
+                                          getField(
+                                              "boardResolutionAuthorizedAcctOpeningImage"
+                                          )?.originalName
+                                      )
+                                    : null,
+                            meansOfIdentificationForBeneficialOwner:
+                                getField(
+                                    "meansOfIdentificationForBeneficialOwner"
+                                )?.url || null,
+                            meansOfIdentificationForBeneficialOwnerImageFieldId:
+                                getField(
+                                    "meansOfIdentificationForBeneficialOwner"
+                                )?.fileId || null,
+                            meansOfIdentificationForBeneficialOwnerFileName:
+                                getField(
+                                    "meansOfIdentificationForBeneficialOwner"
+                                )
+                                    ? generateFileName(
+                                          DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                                          user.id,
+                                          getField(
+                                              "meansOfIdentificationForBeneficialOwner"
+                                          )?.originalName
+                                      )
+                                    : null,
+                            proofOfAddressForBeneficialOwner:
+                                getField("proofOfAddressForBeneficialOwner")
+                                    ?.url || null,
+                            proofOfAddressForBeneficialOwnerImageFieldId:
+                                getField("proofOfAddressForBeneficialOwner")
+                                    ?.fileId || null,
+                            proofOfAddressForBeneficialOwnerFileName: getField(
+                                "proofOfAddressForBeneficialOwner"
+                            )
+                                ? generateFileName(
+                                      DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                                      user.id,
+                                      getField(
+                                          "proofOfAddressForBeneficialOwner"
+                                      )?.originalName
+                                  )
+                                : null,
+                        },
+                    });
+
+                    await tx.user.update({
+                        where: { id: user.id },
+                        data: {
+                            businessDocumentsUploaded: true,
+                            businessDocumentVerificationStatus:
+                                DocumentVerificationStatus.PENDING,
+                        },
+                    });
+                },
+                { timeout: 30000 }
+            );
+        } catch (error) {
+            this.logger.error(
+                `[SubmitBusinessDocuments][DatabasePhase] Failed for user ${user.id} | ${error?.name}: ${error?.message} | prismaCode=${error?.code}`,
+                error?.stack
+            );
+            throw error;
+        }
+
+        // Invalidate backend profile cache
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
+        // For Dojah verification we need the CAC image buffer.
+        // Since we already uploaded to ImageKit, fetch it back as base64.
+        this.runDojahBusinessVerificationFromUrl(
+            user.id,
+            dto.cacDocumentNumber,
+            getField("cacImage")?.url
+        ).catch((err) => {
+            this.logger.error(
+                `[SubmitBusinessDocuments][DojahVerification] Background verification failed for user ${user.id}: ${err?.message}`,
+                err?.stack
+            );
+        });
+
+        return buildResponse({
+            message: "Document Verification successfully",
+        });
+    }
+
+    /**
      * Background Dojah verification for business documents.
      * Runs CAC lookup, TIN verification, and CAC document OCR in parallel.
      * Stores results back into BusinessDocument record.
@@ -2080,6 +2294,59 @@ export class AuthService {
                 error?.stack
             );
             // Don't re-throw — this is a background task
+        }
+    }
+
+    /**
+     * Dojah verification variant that fetches the CAC image from a URL
+     * instead of requiring a Multer file buffer.
+     * Used by the sequential-upload submit flow.
+     */
+    private async runDojahBusinessVerificationFromUrl(
+        userId: number,
+        cacDocumentNumber: string,
+        cacImageUrl?: string
+    ): Promise<void> {
+        if (!cacImageUrl) {
+            this.logger.warn(
+                `[DojahBusinessVerificationFromUrl] No CAC image URL for user ${userId}, skipping`
+            );
+            return;
+        }
+
+        try {
+            // Fetch image from ImageKit URL and convert to base64
+            const axios = require("axios");
+            const response = await axios.get(cacImageUrl, {
+                responseType: "arraybuffer",
+                timeout: 30000,
+            });
+            const buffer = Buffer.from(response.data);
+
+            // Create a synthetic Multer-like file object
+            const syntheticFile: Express.Multer.File = {
+                buffer,
+                fieldname: "cacImage",
+                originalname: "cacImage.webp",
+                encoding: "7bit",
+                mimetype: "image/webp",
+                size: buffer.length,
+                stream: null as any,
+                destination: "",
+                filename: "",
+                path: "",
+            };
+
+            await this.runDojahBusinessVerification(
+                userId,
+                cacDocumentNumber,
+                syntheticFile
+            );
+        } catch (error) {
+            this.logger.error(
+                `[DojahBusinessVerificationFromUrl] Failed for user ${userId}: ${error?.message}`,
+                error?.stack
+            );
         }
     }
 
