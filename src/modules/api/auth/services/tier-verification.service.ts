@@ -428,9 +428,27 @@ export class TierVerificationService {
     ): Promise<ApiResponse> {
         const govData = dto.government;
         const idType = govData?.idType?.toLowerCase() || "unknown";
+        const hasGovPayload = !!govData;
+        const hasDob = !!govData?.dateOfBirth;
+        const hasFirstName = !!govData?.firstName;
+        const hasLastName = !!govData?.lastName;
+        const hasIdNumber = !!govData?.idNumber;
 
         this.logger.log(
             `Processing Dojah government ID verification for user ${user.id}, type: ${idType}, verificationId: ${dto.verificationId}`
+        );
+        this.logger.log(
+            `[DojahGovWidget] Payload presence for user ${user.id}`,
+            {
+                hasGovPayload,
+                hasDob,
+                hasFirstName,
+                hasLastName,
+                hasIdNumber,
+                hasVerificationId: !!dto.verificationId,
+                hasReferenceId: !!dto.referenceId,
+                idType,
+            }
         );
 
         // Check if already verified based on ID type
@@ -448,6 +466,14 @@ export class TierVerificationService {
 
         // Server-side validation: Verify the verificationId with Dojah API
         const validationResult = await this.dojahService.getVerificationResult(dto.verificationId);
+        this.logger.log(
+            `[DojahGovWidget] Provider verification result for user ${user.id}`,
+            {
+                verified: validationResult.verified,
+                status: validationResult.status,
+                idType,
+            }
+        );
         if (!validationResult.verified) {
             this.logger.warn(
                 `SECURITY: Dojah government ID verification failed for user ${user.id}, type: ${idType}, verificationId: ${dto.verificationId}, status: ${validationResult.status}`
