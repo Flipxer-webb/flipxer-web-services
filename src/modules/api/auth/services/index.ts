@@ -477,7 +477,7 @@ export class AuthService {
         );
 
         if (isSameAsCurrentPassword) {
-            throw new AuthGenericException(
+            throw new InvalidResetRequestException(
                 "Your new password must be different from your current password",
                 HttpStatus.BAD_REQUEST
             );
