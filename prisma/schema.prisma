@@ -22,6 +22,7 @@ model User {
   email                              String                            @unique
   phone                              String?                           @unique
   password                           String?
+  passwordChangedAt                  DateTime?
   userType                           UserType
   photo                              String?
   gender                             Gender?

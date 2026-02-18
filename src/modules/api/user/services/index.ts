@@ -702,7 +702,10 @@ export class UserService {
 
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { password: newHashedPassword },
+            data: {
+                password: newHashedPassword,
+                passwordChangedAt: new Date(),
+            },
         });
 
         return {

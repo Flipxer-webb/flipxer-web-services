@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { ForbiddenException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 
@@ -102,10 +102,46 @@ import {
 @Injectable()
 export class TradingService {
     private readonly logger = new Logger("TradeService");
+    private readonly PASSWORD_CHANGE_LOCK_DURATION_HOURS = 6;
+    private readonly PASSWORD_CHANGE_LOCK_DURATION_MS =
+        this.PASSWORD_CHANGE_LOCK_DURATION_HOURS * 60 * 60 * 1000;
 
     private logWalletFlow(step: string, payload: Record<string, unknown> = {}) {
         const safePayload = this.tradeHelpers.safeJsonStringify(payload);
         this.logger.debug(`[WalletFlow] ${step} | ${safePayload}`);
+    }
+
+    private async enforcePasswordChangeCooldown(userId: number): Promise<void> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { passwordChangedAt: true },
+        });
+
+        if (!user?.passwordChangedAt) {
+            return;
+        }
+
+        const lockExpiresAt = new Date(
+            user.passwordChangedAt.getTime() + this.PASSWORD_CHANGE_LOCK_DURATION_MS
+        );
+        const now = new Date();
+
+        if (now < lockExpiresAt) {
+            const remainingSeconds = Math.ceil(
+                (lockExpiresAt.getTime() - now.getTime()) / 1000
+            );
+            const remainingMinutes = Math.ceil(remainingSeconds / 60);
+
+            throw new ForbiddenException({
+                message:
+                    "Trading is temporarily disabled for 6 hours after a password change",
+                code: "PASSWORD_CHANGE_COOLDOWN",
+                remainingSeconds,
+                remainingMinutes,
+                lockDurationHours: this.PASSWORD_CHANGE_LOCK_DURATION_HOURS,
+                lockExpiresAt: lockExpiresAt.toISOString(),
+            });
+        }
     }
 
     constructor(
@@ -257,6 +293,7 @@ export class TradingService {
      * Places a buy order - delegates to BuyOrderService
      */
     async buyCryptoOrder(user: User, dto: InitiateBuyOrderDto) {
+        await this.enforcePasswordChangeCooldown(user.id);
         return this.buyOrderService.buyCryptoOrder(user, dto);
     }
 
@@ -264,6 +301,7 @@ export class TradingService {
      * Places a sell order - delegates to SellOrderService
      */
     async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {
+        await this.enforcePasswordChangeCooldown(user.id);
         return this.sellOrderService.sellCryptoOrder(user, dto);
     }
 
@@ -336,6 +374,8 @@ export class TradingService {
         to_currency: string;
         from_amount: number;
     }) {
+        await this.enforcePasswordChangeCooldown(user.id);
+
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
                 "Please complete your account setup or contact admin for support",
@@ -467,6 +507,7 @@ export class TradingService {
      * Creates a withdrawal request - delegates to SendService
      */
     async withdrawerRequest(user: User, dto: WithdrawerRequestDto) {
+        await this.enforcePasswordChangeCooldown(user.id);
         return this.sendService.withdrawerRequest(user, dto);
     }
 
@@ -693,6 +734,8 @@ export class TradingService {
     }
 
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
+        await this.enforcePasswordChangeCooldown(user.id);
+
         // Delegate entirely to the new internal SwapService
         // This handles:
         // 1. Quidax Limit Checks

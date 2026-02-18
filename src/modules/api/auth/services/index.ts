@@ -487,7 +487,11 @@ export class AuthService {
 
         await this.prisma.user.update({
             where: { id: user.id },
-            data: { password: hashedPassword, updatedAt: new Date() },
+            data: {
+                password: hashedPassword,
+                passwordChangedAt: new Date(),
+                updatedAt: new Date(),
+            },
         });
 
         await this.prisma.passwordResetRequest.delete({
