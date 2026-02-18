@@ -206,7 +206,7 @@ export class UserService {
             } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.DECLINED) {
                 requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD"; // Needs re-upload
                 requirements.details = "Previous documents were declined";
-            } else if (!profile.isDocumentVerified) {
+            } else if (profile.businessDocumentVerificationStatus !== DocumentVerificationStatus.VERIFIED && !profile.isDocumentVerified) {
                 // Fallback: Documents uploaded but not verified/declined/pending (shouldn't happen often)
                 // or manually reset. 
                 requirements.nextStep = "WAIT_FOR_VERIFICATION";
