@@ -111,6 +111,12 @@ export class AuthService {
     private readonly SIGNUP_CACHE_TTL = 3600; // 1 hour
     private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
+    private maskSensitiveId(value?: string, visibleDigits: number = 4): string {
+        if (!value) return "N/A";
+        if (value.length <= visibleDigits) return value;
+        return `${"*".repeat(Math.max(0, value.length - visibleDigits))}${value.slice(-visibleDigits)}`;
+    }
+
     /**
      * Map Dojah error types to user-friendly messages
      */
@@ -904,7 +910,11 @@ export class AuthService {
     }
 
     async bvnVerification(user: User, dto: BvnVerificationDto) {
+        const maskedBvn = this.maskSensitiveId(dto.bvn);
+        this.logger.log(`[KYC][BVN] Verification initiated for user ${user.id} (bvn=${maskedBvn})`);
+
         if (user.isBvnVerified) {
+            this.logger.warn(`[KYC][BVN] Duplicate verification attempt for user ${user.id}`);
             throw new DuplicateBvnVerificationException(
                 "Bvn verification already completed",
                 HttpStatus.BAD_REQUEST
@@ -916,15 +926,18 @@ export class AuthService {
         });
 
         if (bvnInUseByAnother) {
+            this.logger.warn(`[KYC][BVN] BVN already in use (user=${user.id}, bvn=${maskedBvn})`);
             throw new VerificationGenericException(
                 "Bvn already in use",
                 HttpStatus.CONFLICT
             );
         }
 
+        this.logger.debug(`[KYC][BVN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyBvn({
             bvn: dto.bvn,
         });
+        this.logger.log(`[KYC][BVN] Dojah verification response received for user ${user.id}`);
 
         // SECURITY: Block test BVN bypass in production
         if (dto.bvn === "22222222222") {
@@ -965,6 +978,7 @@ export class AuthService {
             );
 
             if (!nameResult.matches || !dobMatches) {
+                this.logger.warn(`[KYC][BVN] User data mismatch for user ${user.id} after Dojah response`);
                 // Record the failed attempt before throwing
                 await this.kycStateMachine.transition(user.id, "BVN", "REJECTED", {
                     providerRef: result?.data?.entity?.reference_id,
@@ -993,8 +1007,11 @@ export class AuthService {
                 providerRawResponse: result?.data,
             });
         }
+        this.logger.log(`[KYC][BVN] Verification persisted for user ${user.id}`);
+
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
+            this.logger.log(`[KYC][BVN] Crypto account enqueue successful for user ${user.id}`);
         } catch (error) {
             this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -1005,7 +1022,11 @@ export class AuthService {
     }
 
     async ninVerification(user: User, dto: NinVerificationDto) {
+        const maskedNin = this.maskSensitiveId(dto.nin);
+        this.logger.log(`[KYC][NIN] Verification initiated for user ${user.id} (nin=${maskedNin})`);
+
         if (user.isNinVerified) {
+            this.logger.warn(`[KYC][NIN] Duplicate verification attempt for user ${user.id}`);
             throw new DuplicateVerificationException(
                 "NIN verification already completed",
                 HttpStatus.BAD_REQUEST
@@ -1017,15 +1038,18 @@ export class AuthService {
         });
 
         if (ninInUseByAnother) {
+            this.logger.warn(`[KYC][NIN] NIN already in use (user=${user.id}, nin=${maskedNin})`);
             throw new VerificationGenericException(
                 "NIN already in use",
                 HttpStatus.CONFLICT
             );
         }
 
+        this.logger.debug(`[KYC][NIN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyNin({
             nin: dto.nin,
         });
+        this.logger.log(`[KYC][NIN] Dojah verification response received for user ${user.id}`);
 
         // SECURITY: Block test NIN bypass in production
         if (dto.nin === "00000000001") {
@@ -1066,6 +1090,7 @@ export class AuthService {
             );
 
             if (!nameResult.matches || !dobMatches) {
+                this.logger.warn(`[KYC][NIN] User data mismatch for user ${user.id} after Dojah response`);
                 // Record the failed attempt before throwing
                 await this.kycStateMachine.transition(user.id, "NIN", "REJECTED", {
                     providerRef: result?.data?.entity?.reference_id,
@@ -1094,8 +1119,11 @@ export class AuthService {
                 providerRawResponse: result?.data,
             });
         }
+        this.logger.log(`[KYC][NIN] Verification persisted for user ${user.id}`);
+
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
+            this.logger.log(`[KYC][NIN] Crypto account enqueue successful for user ${user.id}`);
         } catch (error) {
             this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
         }
