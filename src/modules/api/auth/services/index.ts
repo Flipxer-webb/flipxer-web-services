@@ -775,6 +775,9 @@ export class AuthService {
             where: { email },
         });
 
+        // Sync tier & flush profile cache after email verification
+        await this.tierService.syncTierAndCache(user!.id);
+
         // Generate tokens for auto-login
         const tokens = await this.generateTokens({
             sub: user!.id,
@@ -1009,8 +1012,7 @@ export class AuthService {
         }
         this.logger.log(`[KYC][BVN] Verification persisted for user ${user.id}`);
 
-        await this.tierService.updateUserTier(user.id);
-        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        await this.tierService.syncTierAndCache(user.id);
         this.logger.log(`[KYC][BVN] Tier/profile cache refreshed for user ${user.id}`);
 
         try {
@@ -1125,8 +1127,7 @@ export class AuthService {
         }
         this.logger.log(`[KYC][NIN] Verification persisted for user ${user.id}`);
 
-        await this.tierService.updateUserTier(user.id);
-        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        await this.tierService.syncTierAndCache(user.id);
         this.logger.log(`[KYC][NIN] Tier/profile cache refreshed for user ${user.id}`);
 
         try {
@@ -1353,8 +1354,8 @@ export class AuthService {
             }
         );
 
-        // Invalidate backend profile cache so verification status is immediately reflected
-        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        // Sync tier & flush profile cache after document verification
+        await this.tierService.syncTierAndCache(user.id);
 
         // Return appropriate message based on verification result
         if (shouldAutoApprove) {
@@ -1994,8 +1995,8 @@ export class AuthService {
             }
         );
 
-        // Invalidate backend profile cache so verification status is immediately reflected
-        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        // Sync tier & flush profile cache after base64 document verification
+        await this.tierService.syncTierAndCache(user.id);
 
         // Return appropriate message based on verification result
         if (shouldAutoApprove) {

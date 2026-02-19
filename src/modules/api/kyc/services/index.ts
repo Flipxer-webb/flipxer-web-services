@@ -381,12 +381,8 @@ export class KycService {
         });
 
         // Invalidate backend profile cache so users immediately see new KYC status
-        await this.redisCacheService.del(this.getProfileCacheKey(userId));
-
-        // Recalculate tier after approval
-        if (action === "APPROVE") {
-            await this.tierService.updateUserTier(userId);
-        }
+        // and recalculate tier for both approvals and rejections
+        await this.tierService.syncTierAndCache(userId);
 
         // Create KycVerification record for audit trail
         if (verificationType) {
@@ -661,6 +657,9 @@ export class KycService {
             },
         });
 
+        // Sync tier & flush cache after admin verification flag change
+        await this.tierService.syncTierAndCache(userId);
+
         return buildResponse({
             message: "User verification status updated successfully",
             data: updatedUser,
@@ -672,12 +671,13 @@ export class KycService {
     async getKycStats(query: GetKycStatsDto): Promise<ApiResponse> {
         const { startDate, endDate } = this.getDateRange(query.period || "month");
 
-        // Fetch all non-admin users to calculate tiers dynamically
+        // Fetch all non-admin users — use DB tier (single source of truth)
         const allUsers = await this.prisma.user.findMany({
             where: { userType: { not: UserType.ADMIN } },
             select: {
                 id: true,
                 userType: true,
+                tier: true,
                 isEmailVerified: true,
                 isPhoneVerified: true,
                 isBvnVerified: true,
@@ -694,7 +694,7 @@ export class KycService {
 
         const totalUsers = allUsers.length;
 
-        // Calculate tier distribution dynamically
+        // Use stored DB tier instead of recalculating
         let tier0Count = 0;
         let tier1Count = 0;
         let tier2Count = 0;
@@ -702,8 +702,8 @@ export class KycService {
         let tier4Count = 0;
 
         for (const user of allUsers) {
-            const calculatedTier = this.tierService.calculateTier(user);
-            switch (calculatedTier) {
+            const storedTier = (user as any).tier ?? 0;
+            switch (storedTier) {
                 case 0: tier0Count++; break;
                 case 1: tier1Count++; break;
                 case 2: tier2Count++; break;
@@ -744,7 +744,7 @@ export class KycService {
 
         // Calculate KYC completed in period (users at tier >= 2 updated in period)
         const usersUpdatedInPeriod = allUsers.filter(
-            (u) => u.updatedAt >= startDate && u.updatedAt <= endDate && this.tierService.calculateTier(u) >= 2
+            (u) => u.updatedAt >= startDate && u.updatedAt <= endDate && ((u as any).tier ?? 0) >= 2
         ).length;
 
         return buildResponse({

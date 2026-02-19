@@ -173,8 +173,8 @@ export class UserService {
 
         this.logger.log(`[PERF] Profile DB queries (parallel) for user ${user.id}: ${Date.now() - dbStartTime}ms`);
 
-        // Calculate tier info
-        const tierInfo = await this.tierService.getTierInfo(profile);
+        // Use DB-stored tier as single source of truth
+        const userTier = (profile as any).tier ?? 0;
 
         const response = {
             message: "Profile successfully retrieved",
@@ -182,10 +182,10 @@ export class UserService {
                 ...profile,
                 recoveryEmail: profile.recoveryEmail || null,
                 assetWallet: defaultWallet,
-                // Tier info
-                tier: tierInfo.tier,
-                withdrawalLimit: tierInfo.withdrawalLimit,
-                canTransact: tierInfo.canTransact,
+                // Tier info — sourced from DB column, kept in sync by syncTierAndCache
+                tier: userTier,
+                withdrawalLimit: this.tierService.getWithdrawalLimit(userTier as any),
+                canTransact: userTier > 0,
                 // Verification requirements to guide frontend
                 verificationRequirements: this.getVerificationRequirements(profile),
             },

@@ -195,6 +195,28 @@ export class TierService {
     }
 
     /**
+     * Recalculate & persist tier AND always invalidate profile cache.
+     * Use this after ANY verification-flag write so that:
+     *   1. The DB tier column stays in sync with flags
+     *   2. The cached profile (which includes flags + tier) is never stale
+     *
+     * Unlike `updateUserTier`, which only flushes cache when the tier value
+     * actually changes, this method always flushes — because the verification
+     * flags embedded in the cached profile may have changed even when the
+     * computed tier hasn't.
+     */
+    async syncTierAndCache(userId: number): Promise<UserWithTier> {
+        const result = await this.updateUserTier(userId);
+
+        // Always invalidate cache regardless of whether the tier changed,
+        // because verification flags in the cached profile may be stale.
+        await this.redisCacheService.del(this.PROFILE_CACHE_KEY(userId));
+        this.logger.log(`[Tier Sync] Cache invalidated for user ${userId}`);
+
+        return result;
+    }
+
+    /**
      * Update tiers for all users based on their verification status
      * This is a one-time migration endpoint for existing users
      * @returns Summary of updates performed

@@ -146,8 +146,8 @@ export class TierVerificationService {
             },
         });
 
-        // Update tier
-        await this.tierService.updateUserTier(user.id);
+        // Sync tier & flush cache
+        await this.tierService.syncTierAndCache(user.id);
 
         return buildResponse({
             message: "Address verified successfully",
@@ -253,8 +253,8 @@ export class TierVerificationService {
             },
         });
 
-        // Update tier
-        await this.tierService.updateUserTier(user.id);
+        // Sync tier & flush cache
+        await this.tierService.syncTierAndCache(user.id);
 
         return buildResponse({
             message: "Income verified successfully",
@@ -332,8 +332,8 @@ export class TierVerificationService {
             },
         });
 
-        // Update tier
-        await this.tierService.updateUserTier(user.id);
+        // Sync tier & flush cache
+        await this.tierService.syncTierAndCache(user.id);
 
         this.logger.log(
             `Address verified via Dojah widget for user ${user.id}`
@@ -402,8 +402,8 @@ export class TierVerificationService {
             },
         });
 
-        // Update tier
-        await this.tierService.updateUserTier(user.id);
+        // Sync tier & flush cache
+        await this.tierService.syncTierAndCache(user.id);
 
         this.logger.log(
             `Income verified via Dojah widget for user ${user.id}`
@@ -533,8 +533,8 @@ export class TierVerificationService {
             },
         });
 
-        // Update tier
-        await this.tierService.updateUserTier(user.id);
+        // Sync tier & flush cache
+        await this.tierService.syncTierAndCache(user.id);
 
         this.logger.log(
             `Government ID (${idType}) verified via Dojah widget for user ${user.id}`
@@ -741,8 +741,8 @@ export class TierVerificationService {
             data: updateData,
         });
 
-        // Update tier
-        await this.tierService.updateUserTier(userId);
+        // Sync tier & flush cache
+        await this.tierService.syncTierAndCache(userId);
 
         // Send notification
         await this.sendReviewNotification(userId, documentType, true);
@@ -787,6 +787,9 @@ export class TierVerificationService {
             where: { id: userId },
             data: updateData,
         });
+
+        // Sync tier & flush cache (rejection may lower tier)
+        await this.tierService.syncTierAndCache(userId);
 
         // Send notification
         await this.sendReviewNotification(userId, documentType, false, reason);
