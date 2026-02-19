@@ -332,6 +332,7 @@ export class AuthController {
     }
 
     /**
+     * @deprecated Frontend no longer uses Dojah widgets. Kept for any in-flight requests.
      * Submit Dojah Widget verification result
      * Saves verified document data from Dojah Widget to database
      */
@@ -563,13 +564,15 @@ export class AuthController {
         return await this.tierVerificationService.verifyIncome(user, file);
     }
 
-    // ==================== Dojah Widget Verification Endpoints ====================
+    // ==================== Dojah Widget Verification Endpoints (DEPRECATED) ====================
+    // Frontend no longer uses Dojah widgets. These endpoints are kept for any in-flight requests.
 
+    /** @deprecated Use POST /auth/verify-address (file upload) instead */
     @UseGuards(RateLimiterGuard, AuthGuard)
     @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-address/dojah")
-    @ApiOperation({ summary: "Verify address using Dojah widget verification data" })
+    @ApiOperation({ summary: "[DEPRECATED] Verify address using Dojah widget verification data" })
     @ApiBearerAuth("access-token")
     async verifyAddressWithDojah(
         @User() user: UserModel,
@@ -578,11 +581,12 @@ export class AuthController {
         return await this.tierVerificationService.verifyAddressWithDojah(user, dto);
     }
 
+    /** @deprecated Use POST /auth/verify-income (file upload) instead */
     @UseGuards(RateLimiterGuard, AuthGuard)
     @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-income/dojah")
-    @ApiOperation({ summary: "Verify income using Dojah widget verification data" })
+    @ApiOperation({ summary: "[DEPRECATED] Verify income using Dojah widget verification data" })
     @ApiBearerAuth("access-token")
     async verifyIncomeWithDojah(
         @User() user: UserModel,
@@ -591,11 +595,12 @@ export class AuthController {
         return await this.tierVerificationService.verifyIncomeWithDojah(user, dto);
     }
 
+    /** @deprecated Frontend redirects to manual BVN/NIN form. No longer reachable from UI. */
     @UseGuards(RateLimiterGuard, AuthGuard)
     @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-government-id/dojah")
-    @ApiOperation({ summary: "Verify BVN/NIN using Dojah widget verification data" })
+    @ApiOperation({ summary: "[DEPRECATED] Verify BVN/NIN using Dojah widget verification data" })
     @ApiBearerAuth("access-token")
     async verifyGovernmentIdWithDojah(
         @User() user: UserModel,
