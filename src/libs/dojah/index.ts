@@ -211,6 +211,7 @@ export class DojahLib {
             hasPortrait: entity.status.document_images === "Yes",
             hasFrontSide: !!entity.document_images?.document_front_side,
             hasBackSide: !!entity.document_images?.document_back_side,
+            hasExtractedText: entity.status.text === "Yes",
         };
     }
 

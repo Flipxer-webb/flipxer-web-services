@@ -1513,6 +1513,7 @@ export class AuthService {
                     hasPortrait: parsed.hasPortrait,
                     hasFrontSide: parsed.hasFrontSide,
                     hasBackSide: parsed.hasBackSide,
+                    hasExtractedText: parsed.hasExtractedText,
                 },
             };
         } catch (error) {
@@ -1884,32 +1885,17 @@ export class AuthService {
             `reason=${dojahParsed?.reason || "unknown"}`
         );
 
-        // If Dojah says document is NOT valid, reject with a user-friendly reason
+        // Log reason if document not valid, but do NOT reject —
+        // allow it through as PENDING for manual review
         if (!isDocumentValid && dojahParsed?.reason) {
-            const reason = dojahParsed.reason.toUpperCase();
-            let rejectionReason: string;
-
-            if (reason === "NOT_VALID" || reason === "INVALID") {
-                rejectionReason = "Document could not be verified. Please ensure the image is clear, all text is readable, and the document is a valid government-issued ID.";
-            } else if (reason.includes("BLUR") || reason.includes("UNCLEAR")) {
-                rejectionReason = "Document image is unclear. Please take a clearer photo with good lighting.";
-            } else if (reason.includes("EXPIRED")) {
-                rejectionReason = "Document appears to be expired. Please upload a valid, unexpired document.";
-            } else if (reason.includes("NOT_SUPPORTED") || reason.includes("UNSUPPORTED")) {
-                rejectionReason = "This document type is not supported. Please upload a valid passport, driver's license, or national ID.";
-            } else {
-                // Pass through other specific reasons from Dojah
-                rejectionReason = dojahParsed.reason;
-            }
-
-            throw new VerificationGenericException(
-                rejectionReason,
-                HttpStatus.BAD_REQUEST
+            logger.warn(
+                `Document for user ${user.id} not auto-verified by Dojah (reason: ${dojahParsed.reason}). ` +
+                `Saving as PENDING for manual review.`
             );
         }
 
-        // Auto-approve if document is valid (simplified - no strict name matching required)
-        // Name matching is informational only, logged for review if needed
+        // Auto-approve only if Dojah fully validated the document
+        // Otherwise save as PENDING for manual review (instead of rejecting)
         const shouldAutoApprove = isDocumentValid;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
