@@ -1009,6 +1009,10 @@ export class AuthService {
         }
         this.logger.log(`[KYC][BVN] Verification persisted for user ${user.id}`);
 
+        await this.tierService.updateUserTier(user.id);
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        this.logger.log(`[KYC][BVN] Tier/profile cache refreshed for user ${user.id}`);
+
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
             this.logger.log(`[KYC][BVN] Crypto account enqueue successful for user ${user.id}`);
@@ -1120,6 +1124,10 @@ export class AuthService {
             });
         }
         this.logger.log(`[KYC][NIN] Verification persisted for user ${user.id}`);
+
+        await this.tierService.updateUserTier(user.id);
+        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        this.logger.log(`[KYC][NIN] Tier/profile cache refreshed for user ${user.id}`);
 
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
