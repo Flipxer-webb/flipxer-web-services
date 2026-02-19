@@ -183,10 +183,6 @@ export class TierService {
                 data: { tier: newTier } as any,
             }) as UserWithTier;
 
-            // Invalidate profile cache so frontend gets fresh tier data
-            await this.redisCacheService.del(this.PROFILE_CACHE_KEY(userId));
-            this.logger.log(`[Tier Calc] Invalidated profile cache for user ${userId}`);
-
             return updatedUser;
         }
 
@@ -200,10 +196,8 @@ export class TierService {
      *   1. The DB tier column stays in sync with flags
      *   2. The cached profile (which includes flags + tier) is never stale
      *
-     * Unlike `updateUserTier`, which only flushes cache when the tier value
-     * actually changes, this method always flushes — because the verification
-     * flags embedded in the cached profile may have changed even when the
-     * computed tier hasn't.
+     * This method always flushes cache because verification flags embedded in
+     * the cached profile may have changed even when the computed tier hasn't.
      */
     async syncTierAndCache(userId: number): Promise<UserWithTier> {
         const result = await this.updateUserTier(userId);
@@ -263,6 +257,8 @@ export class TierService {
                         where: { id: user.id },
                         data: { tier: newTier } as any,
                     });
+
+                    await this.redisCacheService.del(this.PROFILE_CACHE_KEY(user.id));
 
                     changes.push({
                         email: user.email,
@@ -408,6 +404,9 @@ export class TierService {
         await this.prisma.userDocument.deleteMany({
             where: { userId: user.id },
         });
+
+        // Ensure profile reads reflect reset values immediately
+        await this.redisCacheService.del(this.PROFILE_CACHE_KEY(user.id));
 
         this.logger.log(`Reset user ${email} to Tier 0 for testing (cleared all verification data)`);
 
