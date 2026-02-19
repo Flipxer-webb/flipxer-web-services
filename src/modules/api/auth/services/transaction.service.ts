@@ -94,9 +94,13 @@ export class TransactionService {
             );
         }
 
-        // Get tier info for the user
-        // Get tier info for the user
-        const tierInfo = await this.tierService.getTierInfo(user);
+        // Use DB-stored tier as single source of truth
+        const userTier = (user as any).tier ?? 0;
+        const tierInfo: TierInfo = {
+            tier: userTier,
+            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier),
+            canTransact: userTier > 0,
+        };
 
         // Tier 0 users cannot transact at all
         if (!tierInfo.canTransact) {

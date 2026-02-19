@@ -571,6 +571,9 @@ export class KycService {
         // Limits are derived from shared tier constants in tier logic.
         // Avoid writing per-user AccountLimit rows from KYC admin actions.
 
+        // Flush profile cache so frontend sees override immediately
+        await this.redisCacheService.del(this.getProfileCacheKey(userId));
+
         // Audit log
         await this.prisma.auditLog.create({
             data: {

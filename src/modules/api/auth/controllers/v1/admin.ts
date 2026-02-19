@@ -18,7 +18,8 @@ import { AuthService } from "../../services";
 import { TierService } from "../../services/tier.service";
 import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
-import { CountryBlockGuard } from "../../guard";
+import { CountryBlockGuard, AuthGuard, EnabledAccountGuard } from "../../guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 
 @UseGuards(CountryBlockGuard)
 @ApiTags("admin")
@@ -45,6 +46,7 @@ export class AdminAuthController {
         );
     }
 
+    @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ 
         summary: "Reset 2FA rate limit for a user",
@@ -57,6 +59,7 @@ export class AdminAuthController {
         return await this.authService.reset2FARateLimit(dto);
     }
 
+    @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ 
         summary: "Update tiers for all users",
@@ -71,6 +74,7 @@ export class AdminAuthController {
         });
     }
 
+    @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ 
         summary: "Reset user verification for testing",

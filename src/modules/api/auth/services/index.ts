@@ -1714,9 +1714,10 @@ export class AuthService {
                 }
             );
 
-            // Update user's tier only if server-verified
+            // Sync tier & flush cache for both branches — flags were written above
+            const updatedUser = await this.tierService.syncTierAndCache(user.id);
+
             if (serverVerified) {
-                const updatedUser = await this.tierService.updateUserTier(user.id);
                 logger.log(`Dojah widget verification completed successfully for user ${user.id}, new tier: ${updatedUser.tier ?? 0}`);
 
                 return buildResponse({

@@ -247,7 +247,13 @@ export class UserService {
      * Returns the amount used today and the daily limit based on tier
      */
     async getWithdrawalUsage(user: User) {
-        const tierInfo = await this.tierService.getTierInfo(user);
+        // Use DB-stored tier as single source of truth
+        const userTier = (user as any).tier ?? 0;
+        const tierInfo = {
+            tier: userTier,
+            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier as any),
+            canTransact: userTier > 0,
+        };
 
         // Calculate daily total from the last 24 hours
         const now = new Date();
