@@ -211,7 +211,8 @@ export class DojahLib {
             hasPortrait: entity.status.document_images === "Yes",
             hasFrontSide: !!entity.document_images?.document_front_side,
             hasBackSide: !!entity.document_images?.document_back_side,
-            hasExtractedText: entity.status.text === "Yes",
+            // OCR text extraction is independent of image segmentation/portrait detection
+            hasExtractedText: !!(getFieldValue("first_name") || getFieldValue("last_name") || getFieldValue("document_number") || getFieldValue("dob")),
         };
     }
 

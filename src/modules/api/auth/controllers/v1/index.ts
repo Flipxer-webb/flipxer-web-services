@@ -299,13 +299,8 @@ export class AuthController {
         if (!dto.imageFrontBase64) {
             throw new RequiredFilesMissing();
         }
-        // For passports, require back image
-        if (
-            dto.documentType === DocumentType.INTERNATIONAL_PASSPORT &&
-            !dto.imageBackBase64
-        ) {
-            throw new RequiredFilesMissing();
-        }
+        // Back image is optional for all document types (including passport)
+        // Dojah can verify passport data page (front) alone
         return await this.authService.documentVerificationBase64(user, dto);
     }
 

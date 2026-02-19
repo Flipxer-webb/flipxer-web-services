@@ -127,7 +127,7 @@ export interface ParsedDocumentData {
     hasPortrait: boolean;
     hasFrontSide: boolean;
     hasBackSide: boolean;
-    /** Whether OCR successfully extracted text from the document (independent of image segmentation) */
+    /** Whether OCR successfully extracted key text fields (independent of image segmentation) */
     hasExtractedText: boolean;
 }
 

@@ -1488,12 +1488,17 @@ export class AuthService {
                 });
             }
 
+            // Determine if OCR extracted enough text to allow submission for manual review
+            const canProceedForReview = parsed.hasExtractedText;
+
             // Return extracted data for user verification
             return {
                 success: true,
                 message: parsed.isValid
                     ? "Document analyzed successfully"
-                    : this.mapDojahReasonToUserMessage(parsed.reason),
+                    : canProceedForReview
+                        ? "Document needs review but key details were extracted. You can proceed to submit."
+                        : this.mapDojahReasonToUserMessage(parsed.reason),
                 data: {
                     isValid: parsed.isValid,
                     reason: parsed.reason,
@@ -1513,6 +1518,7 @@ export class AuthService {
                     hasPortrait: parsed.hasPortrait,
                     hasFrontSide: parsed.hasFrontSide,
                     hasBackSide: parsed.hasBackSide,
+                    // OCR text extraction indicator (independent of image segmentation)
                     hasExtractedText: parsed.hasExtractedText,
                 },
             };
@@ -1885,17 +1891,36 @@ export class AuthService {
             `reason=${dojahParsed?.reason || "unknown"}`
         );
 
-        // Log reason if document not valid, but do NOT reject —
-        // allow it through as PENDING for manual review
+        // If Dojah says document is NOT valid, check if OCR extracted text
+        // If text was extracted, allow submission for manual review (PENDING status)
+        // Only hard-reject for truly unrecoverable errors (expired, unsupported type)
         if (!isDocumentValid && dojahParsed?.reason) {
-            logger.warn(
-                `Document for user ${user.id} not auto-verified by Dojah (reason: ${dojahParsed.reason}). ` +
-                `Saving as PENDING for manual review.`
+            const reason = dojahParsed.reason.toUpperCase();
+
+            // Hard-reject only for expired or unsupported documents
+            if (reason.includes("EXPIRED")) {
+                throw new VerificationGenericException(
+                    "Document appears to be expired. Please upload a valid, unexpired document.",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            if (reason.includes("NOT_SUPPORTED") || reason.includes("UNSUPPORTED")) {
+                throw new VerificationGenericException(
+                    "This document type is not supported. Please upload a valid passport, driver's license, or national ID.",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            // For NOT_VALID / INVALID / other reasons: allow through for manual review
+            // The document will be saved with PENDING status
+            logger.log(
+                `Document for user ${user.id} is not auto-verified (reason=${dojahParsed.reason}), ` +
+                `hasExtractedText=${dojahParsed.hasExtractedText} — saving for manual review`
             );
         }
 
-        // Auto-approve only if Dojah fully validated the document
-        // Otherwise save as PENDING for manual review (instead of rejecting)
+        // Auto-approve if document is valid; otherwise save as PENDING for manual review
+        // Name matching is informational only, logged for review if needed
         const shouldAutoApprove = isDocumentValid;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
