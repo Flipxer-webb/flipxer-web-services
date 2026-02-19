@@ -35,6 +35,9 @@ export class LiveCoinWatchService {
     private readonly logger = new Logger(LiveCoinWatchService.name);
     private readonly apiClient: AxiosInstance;
     private readonly baseUrl = "https://api.livecoinwatch.com";
+    private readonly inFlightUsdtPriceRequests = new Map<string, Promise<number>>();
+    private readonly inFlightBatchUsdtRequests = new Map<string, Promise<Record<string, number | null>>>();
+    private readonly inFlightBatchMarketRequests = new Map<string, Promise<Record<string, { price: number; change24h: number } | null>>>();
 
     // Map symbols to LiveCoinWatch codes (usually uppercase)
     private readonly symbolMap: { [key: string]: string } = {
@@ -72,6 +75,23 @@ export class LiveCoinWatchService {
             },
             timeout: 10000,
         });
+    }
+
+    private getHttpStatusFromError(error: unknown): number | undefined {
+        if (axios.isAxiosError(error)) {
+            return error.response?.status;
+        }
+
+        return undefined;
+    }
+
+    private getNormalizedAssets(assets: string[]): string[] {
+        return [...new Set(
+            assets
+                .map((asset) => asset?.trim())
+                .filter(Boolean)
+                .map((asset) => asset.toUpperCase())
+        )];
     }
 
     /**
@@ -145,35 +165,60 @@ export class LiveCoinWatchService {
             return cachedPrice;
         }
 
-        const lcwCode = this.symbolMap[asset.toLowerCase()] || asset.toUpperCase();
+        const inFlightRequest = this.inFlightUsdtPriceRequests.get(normalizedAsset);
+        if (inFlightRequest) {
+            return inFlightRequest;
+        }
 
-        for (let attempt = 1; attempt <= retries; attempt++) {
-            try {
-                this.logger.debug(`Requesting USDT price for ${asset} (code: ${lcwCode}), attempt ${attempt}`);
+        const requestPromise = (async () => {
+            const lcwCode = this.symbolMap[asset.toLowerCase()] || asset.toUpperCase();
 
-                // LiveCoinWatch supports any currency including USDT
-                const response = await this.apiClient.post("/coins/single", {
-                    currency: "USDT",
-                    code: lcwCode,
-                    meta: false,
-                });
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    this.logger.debug(`Requesting USDT price for ${asset} (code: ${lcwCode}), attempt ${attempt}`);
 
-                const rate = response.data?.rate;
-                if (!rate) throw new Error(`No USDT price data for ${asset}`);
+                    const response = await this.apiClient.post("/coins/single", {
+                        currency: "USDT",
+                        code: lcwCode,
+                        meta: false,
+                    });
 
-                await this.redisCacheService.set(cacheKey, rate, 60); // Cache for 1 minute (60s TTL)
-                this.logger.debug(`USDT price for ${asset}: ${rate}`);
-                return rate;
-            } catch (error) {
-                this.logger.error(`USDT price attempt ${attempt} failed for ${asset}: ${error.message}`);
-                if (attempt === retries) {
-                    throw new GeneralTransactionException(
-                        `Failed to fetch USDT price for ${asset}: ${error.message}`,
-                        HttpStatus.INTERNAL_SERVER_ERROR
-                    );
+                    const rate = response.data?.rate;
+                    if (!rate) throw new Error(`No USDT price data for ${asset}`);
+
+                    await this.redisCacheService.set(cacheKey, rate, 60);
+                    this.logger.debug(`USDT price for ${asset}: ${rate}`);
+                    return rate;
+                } catch (error) {
+                    const statusCode = this.getHttpStatusFromError(error);
+                    this.logger.error(`USDT price attempt ${attempt} failed for ${asset}: ${error.message}`);
+
+                    // 403 usually indicates key/plan/permission issue; avoid noisy retries.
+                    if (statusCode === 403 || attempt === retries) {
+                        throw new GeneralTransactionException(
+                            `Failed to fetch USDT price for ${asset}: ${error.message}`,
+                            HttpStatus.INTERNAL_SERVER_ERROR
+                        );
+                    }
+
+                    // On rate limits, use stronger linear backoff.
+                    const waitMs = statusCode === 429 ? delay * attempt * 2 : delay * attempt;
+                    await setTimeout(waitMs);
                 }
-                await setTimeout(delay * attempt);
             }
+
+            throw new GeneralTransactionException(
+                `Failed to fetch USDT price for ${asset}`,
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        })();
+
+        this.inFlightUsdtPriceRequests.set(normalizedAsset, requestPromise);
+
+        try {
+            return await requestPromise;
+        } finally {
+            this.inFlightUsdtPriceRequests.delete(normalizedAsset);
         }
     }
 
@@ -183,94 +228,111 @@ export class LiveCoinWatchService {
      * @returns Map of asset symbol (lowercase) to USDT price
      */
     async getBatchUsdtPrices(assets: string[]): Promise<Record<string, number | null>> {
-        this.logger.debug(`Batch fetching USDT prices for: ${assets.join(", ")}`);
+        const normalizedAssets = this.getNormalizedAssets(assets);
+        this.logger.debug(`Batch fetching USDT prices for: ${normalizedAssets.join(", ")}`);
 
-        const result: Record<string, number | null> = {};
-
-        // Handle USDT immediately - it's always 1:1
-        if (assets.some(a => a.toUpperCase() === "USDT")) {
-            result["usdt"] = 1.0;
+        const batchKey = `lcw:batch-usdt:inflight:${[...normalizedAssets].sort().join(",")}`;
+        const inFlightBatch = this.inFlightBatchUsdtRequests.get(batchKey);
+        if (inFlightBatch) {
+            return inFlightBatch;
         }
 
-        // Filter out USDT for the API call
-        const assetsToFetch = assets.filter(a => a.toUpperCase() !== "USDT");
+        const requestPromise = (async () => {
+            const result: Record<string, number | null> = {};
 
-        if (assetsToFetch.length === 0) {
-            return result;
-        }
-
-        // Check cache first for all assets
-        const cachedResults: Record<string, number | null> = {};
-        const uncachedAssets: string[] = [];
-
-        for (const asset of assetsToFetch) {
-            const cacheKey = `lcw:price:${asset.toLowerCase()}:usdt`;
-            const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
-            if (cachedPrice) {
-                cachedResults[asset.toLowerCase()] = cachedPrice;
-            } else {
-                uncachedAssets.push(asset);
+            // Handle USDT immediately - it's always 1:1
+            if (normalizedAssets.some(a => a.toUpperCase() === "USDT")) {
+                result["usdt"] = 1.0;
             }
-        }
 
-        // If all cached, return early
-        if (uncachedAssets.length === 0) {
-            this.logger.debug(`All ${assetsToFetch.length} USDT prices served from cache`);
-            return { ...result, ...cachedResults };
-        }
+            // Filter out USDT for the API call
+            const assetsToFetch = normalizedAssets.filter(a => a.toUpperCase() !== "USDT");
 
-        try {
-            const codes = uncachedAssets.map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase());
+            if (assetsToFetch.length === 0) {
+                return result;
+            }
 
-            this.logger.debug(`Making batch API call for ${codes.length} uncached assets: ${codes.join(", ")}`);
+            // Check cache first for all assets
+            const cachedResults: Record<string, number | null> = {};
+            const uncachedAssets: string[] = [];
 
-            const response = await this.apiClient.post("/coins/list", {
-                currency: "USDT",
-                codes: codes,
-                sort: "rank",
-                order: "ascending",
-                offset: 0,
-                limit: codes.length,
-                meta: false,
-            });
-
-            const coins = response.data as LiveCoinWatchCoin[];
-
-            // Cache and collect results
-            for (const coin of coins) {
-                const assetKey = uncachedAssets.find(
-                    a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
-                );
-
-                if (assetKey && coin.rate) {
-                    const key = assetKey.toLowerCase();
-                    result[key] = coin.rate;
-
-                    // Cache for 90s (aligned with cron interval + buffer)
-                    const cacheKey = `lcw:price:${key}:usdt`;
-                    await this.redisCacheService.set(cacheKey, coin.rate, 90);
+            for (const asset of assetsToFetch) {
+                const cacheKey = `lcw:price:${asset.toLowerCase()}:usdt`;
+                const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
+                if (cachedPrice) {
+                    cachedResults[asset.toLowerCase()] = cachedPrice;
+                } else {
+                    uncachedAssets.push(asset);
                 }
             }
 
-            // Mark any missing assets as null
-            for (const asset of uncachedAssets) {
-                if (result[asset.toLowerCase()] === undefined) {
+            // If all cached, return early
+            if (uncachedAssets.length === 0) {
+                this.logger.debug(`All ${assetsToFetch.length} USDT prices served from cache`);
+                return { ...result, ...cachedResults };
+            }
+
+            try {
+                const codes = uncachedAssets.map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase());
+
+                this.logger.debug(`Making batch API call for ${codes.length} uncached assets: ${codes.join(", ")}`);
+
+                const response = await this.apiClient.post("/coins/list", {
+                    currency: "USDT",
+                    codes: codes,
+                    sort: "rank",
+                    order: "ascending",
+                    offset: 0,
+                    limit: codes.length,
+                    meta: false,
+                });
+
+                const coins = response.data as LiveCoinWatchCoin[];
+
+                // Cache and collect results
+                for (const coin of coins) {
+                    const assetKey = uncachedAssets.find(
+                        a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
+                    );
+
+                    if (assetKey && coin.rate) {
+                        const key = assetKey.toLowerCase();
+                        result[key] = coin.rate;
+
+                        // Cache for 90s (aligned with cron interval + buffer)
+                        const cacheKey = `lcw:price:${key}:usdt`;
+                        await this.redisCacheService.set(cacheKey, coin.rate, 90);
+                    }
+                }
+
+                // Mark any missing assets as null
+                for (const asset of uncachedAssets) {
+                    if (result[asset.toLowerCase()] === undefined) {
+                        result[asset.toLowerCase()] = null;
+                    }
+                }
+
+                this.logger.debug(`✅ Batch fetched ${coins.length} USDT prices in 1 API call`);
+
+                return { ...result, ...cachedResults };
+            } catch (error) {
+                this.logger.error(`Batch USDT price fetch failed: ${error.message}`);
+
+                // Fill in nulls for failed fetch
+                for (const asset of uncachedAssets) {
                     result[asset.toLowerCase()] = null;
                 }
+
+                return { ...result, ...cachedResults };
             }
+        })();
 
-            this.logger.debug(`✅ Batch fetched ${coins.length} USDT prices in 1 API call`);
+        this.inFlightBatchUsdtRequests.set(batchKey, requestPromise);
 
-            return { ...result, ...cachedResults };
-        } catch (error) {
-            this.logger.error(`Batch USDT price fetch failed: ${error.message}`);
-
-            // Fill in nulls for failed fetch
-            for (const asset of uncachedAssets) {
-                result[asset.toLowerCase()] = null;
-            }
-
-            return { ...result, ...cachedResults };
+        try {
+            return await requestPromise;
+        } finally {
+            this.inFlightBatchUsdtRequests.delete(batchKey);
         }
     }
 
@@ -470,79 +532,91 @@ export class LiveCoinWatchService {
         assets: string[],
         timeoutMs?: number
     ): Promise<Record<string, { price: number; change24h: number } | null>> {
-        this.logger.debug(`Batch fetching market data for: ${assets.join(", ")}`);
+        const normalizedAssets = this.getNormalizedAssets(assets);
+        this.logger.debug(`Batch fetching market data for: ${normalizedAssets.join(", ")}`);
 
-        // Check cache first to prevent rate limiting
-        const cacheKey = `lcw:batch-market:${assets.sort().join(",")}`;
-        const cachedData = await this.redisCacheService.get<Record<string, { price: number; change24h: number } | null>>(cacheKey);
-        if (cachedData) {
-            this.logger.debug(`Cache hit for batch market data`);
-            return cachedData;
+        const batchKey = `lcw:batch-market:inflight:${[...normalizedAssets].sort().join(",")}`;
+        const inFlightBatch = this.inFlightBatchMarketRequests.get(batchKey);
+        if (inFlightBatch) {
+            return inFlightBatch;
         }
 
-        const result: Record<string, { price: number; change24h: number } | null> = {};
-
-        try {
-            const codes = assets
-                .map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase())
-                // Basic cleanup/mapping
-                .filter(Boolean); // Ensure valid codes
-
-            if (codes.length === 0) return result;
-
-            const response = await this.apiClient.post("/coins/list", {
-                currency: "USD",
-                codes: codes,
-                sort: "rank",
-                order: "ascending",
-                offset: 0,
-                limit: codes.length,
-                meta: true,
-            }, {
-                timeout: timeoutMs // Override timeout if provided
-            });
-
-            const coins = response.data as LiveCoinWatchCoin[];
-
-            coins.forEach(coin => {
-                const assetKey = assets.find(
-                    a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
-                );
-
-                if (assetKey) {
-                    const price = coin.rate;
-                    // delta.day is a multiplier (e.g. 1.05 = +5%). 
-                    // Calculate percentage change: (delta - 1) * 100
-                    const rawDelta = coin.delta?.day ?? 1;
-                    const change24h = (rawDelta - 1) * 100;
-
-                    result[assetKey.toLowerCase()] = {
-                        price,
-                        change24h
-                    };
-                }
-            });
-
-            // Fill in nulls for missing
-            assets.forEach(a => {
-                if (!result[a.toLowerCase()]) {
-                    result[a.toLowerCase()] = null;
-                }
-            });
-
-            // Cache successful result for 2 minutes to prevent rate limiting
-            if (Object.values(result).some(v => v !== null)) {
-                await this.redisCacheService.set(cacheKey, result, 120);
-                this.logger.debug(`Cached batch market data for 2 minutes`);
+        const requestPromise = (async () => {
+            // Check cache first to prevent rate limiting
+            const cacheKey = `lcw:batch-market:${[...normalizedAssets].sort().join(",")}`;
+            const cachedData = await this.redisCacheService.get<Record<string, { price: number; change24h: number } | null>>(cacheKey);
+            if (cachedData) {
+                this.logger.debug(`Cache hit for batch market data`);
+                return cachedData;
             }
 
-            return result;
-        } catch (error) {
-            this.logger.error(`Batch market data fetch failed: ${error.message}`);
-            assets.forEach(a => {
-                result[a.toLowerCase()] = null;
-            });
-            return result;
+            const result: Record<string, { price: number; change24h: number } | null> = {};
+
+            try {
+                const codes = normalizedAssets
+                    .map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase())
+                    .filter(Boolean);
+
+                if (codes.length === 0) return result;
+
+                const response = await this.apiClient.post("/coins/list", {
+                    currency: "USD",
+                    codes: codes,
+                    sort: "rank",
+                    order: "ascending",
+                    offset: 0,
+                    limit: codes.length,
+                    meta: true,
+                }, {
+                    timeout: timeoutMs
+                });
+
+                const coins = response.data as LiveCoinWatchCoin[];
+
+                coins.forEach(coin => {
+                    const assetKey = normalizedAssets.find(
+                        a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
+                    );
+
+                    if (assetKey) {
+                        const price = coin.rate;
+                        const rawDelta = coin.delta?.day ?? 1;
+                        const change24h = (rawDelta - 1) * 100;
+
+                        result[assetKey.toLowerCase()] = {
+                            price,
+                            change24h
+                        };
+                    }
+                });
+
+                normalizedAssets.forEach(a => {
+                    if (!result[a.toLowerCase()]) {
+                        result[a.toLowerCase()] = null;
+                    }
+                });
+
+                if (Object.values(result).some(v => v !== null)) {
+                    await this.redisCacheService.set(cacheKey, result, 120);
+                    this.logger.debug(`Cached batch market data for 2 minutes`);
+                }
+
+                return result;
+            } catch (error) {
+                this.logger.error(`Batch market data fetch failed: ${error.message}`);
+                normalizedAssets.forEach(a => {
+                    result[a.toLowerCase()] = null;
+                });
+                return result;
+            }
+        })();
+
+        this.inFlightBatchMarketRequests.set(batchKey, requestPromise);
+
+        try {
+            return await requestPromise;
+        } finally {
+            this.inFlightBatchMarketRequests.delete(batchKey);
         }
     }
 }
