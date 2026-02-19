@@ -4,6 +4,7 @@ import {
     Get,
     HttpCode,
     HttpStatus,
+    Logger,
     Post,
     Req,
     UploadedFile,
@@ -79,6 +80,8 @@ import {
     path: "auth",
 })
 export class AuthController {
+    private readonly logger = new Logger(AuthController.name);
+
     constructor(
         private authService: AuthService,
         private tierVerificationService: TierVerificationService
@@ -334,6 +337,9 @@ export class AuthController {
         @User() user: UserModel,
         @Body(ValidationPipe) dto: DojahWidgetVerificationDto
     ) {
+        this.logger.log(
+            `[DojahRoute] submit-dojah-verification hit: userId=${user.id}, hasVerificationId=${!!dto.verificationId}, hasReferenceId=${!!dto.referenceId}, hasIdData=${!!dto.idData}`
+        );
         return await this.authService.submitDojahWidgetVerification(user, dto);
     }
 
@@ -584,6 +590,9 @@ export class AuthController {
         @User() user: UserModel,
         @Body(ValidationPipe) dto: DojahVerifyGovernmentIdDto
     ) {
+        this.logger.log(
+            `[DojahRoute] verify-government-id/dojah hit: userId=${user.id}, hasVerificationId=${!!dto.verificationId}, verificationType=${dto.verificationType || "N/A"}, hasGovernment=${!!dto.government}`
+        );
         return await this.tierVerificationService.verifyGovernmentIdWithDojah(user, dto);
     }
 
