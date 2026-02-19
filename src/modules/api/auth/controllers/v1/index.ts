@@ -81,6 +81,11 @@ import {
 })
 export class AuthController {
     private readonly logger = new Logger(AuthController.name);
+    private maskSensitiveId(value?: string, visibleDigits: number = 4): string {
+        if (!value) return "N/A";
+        if (value.length <= visibleDigits) return value;
+        return `${"*".repeat(Math.max(0, value.length - visibleDigits))}${value.slice(-visibleDigits)}`;
+    }
 
     constructor(
         private authService: AuthService,
@@ -182,6 +187,9 @@ export class AuthController {
         @User() user: UserModel,
         @Body(ValidationPipe) dto: BvnVerificationDto
     ) {
+        this.logger.debug(
+            `[KYC][CTRL][BVN] Request received for user ${user.id} (bvn=${this.maskSensitiveId(dto.bvn)})`
+        );
         return await this.authService.bvnVerification(user, dto);
     }
 
@@ -195,6 +203,9 @@ export class AuthController {
         @User() user: UserModel,
         @Body(ValidationPipe) dto: NinVerificationDto
     ) {
+        this.logger.debug(
+            `[KYC][CTRL][NIN] Request received for user ${user.id} (nin=${this.maskSensitiveId(dto.nin)})`
+        );
         return await this.authService.ninVerification(user, dto);
     }
 
@@ -590,6 +601,9 @@ export class AuthController {
         @User() user: UserModel,
         @Body(ValidationPipe) dto: DojahVerifyGovernmentIdDto
     ) {
+        this.logger.debug(
+            `[KYC][CTRL][DOJAH_GOV] Request received for user ${user.id} (verificationId=${dto.verificationId})`
+        );
         this.logger.log(
             `[DojahRoute] verify-government-id/dojah hit: userId=${user.id}, hasVerificationId=${!!dto.verificationId}, verificationType=${dto.verificationType || "N/A"}, hasGovernment=${!!dto.government}`
         );
