@@ -116,6 +116,9 @@ export class UserService {
                     isDocumentVerified: true,
                     isAddressVerified: true,
                     isIncomeVerified: true,
+                    documentVerificationStatus: true,
+                    addressVerificationStatus: true,
+                    incomeVerificationStatus: true,
                     tier: true,
                     businessRecordCompleted: true,
                     businessDocumentsUploaded: true,
@@ -232,10 +235,19 @@ export class UserService {
                 requirements.nextStep = "GOVERNMENT_ID";
             } else if (!profile.isDocumentVerified) {
                 requirements.nextStep = "IDENTITY_DOCUMENT";
+                if (profile.documentVerificationStatus === DocumentVerificationStatus.DECLINED) {
+                    requirements.details = "Document verification was declined";
+                }
             } else if (!profile.isAddressVerified) {
                 requirements.nextStep = "ADDRESS_VERIFICATION";
+                if (profile.addressVerificationStatus === DocumentVerificationStatus.DECLINED) {
+                    requirements.details = "Address verification was declined";
+                }
             } else if (!profile.isIncomeVerified) {
                 requirements.nextStep = "INCOME_VERIFICATION";
+                if (profile.incomeVerificationStatus === DocumentVerificationStatus.DECLINED) {
+                    requirements.details = "Income verification was declined";
+                }
             }
         }
 
