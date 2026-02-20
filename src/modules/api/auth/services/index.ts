@@ -936,6 +936,14 @@ export class AuthService {
             );
         }
 
+        // Guard: ensure onboarding name and DOB exist before verification
+        if (!user.firstName || !user.lastName || !user.dateOfBirth) {
+            throw new VerificationGenericException(
+                "Please complete your profile (name and date of birth) before verifying BVN",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         this.logger.debug(`[KYC][BVN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyBvn({
             bvn: dto.bvn,
@@ -956,9 +964,6 @@ export class AuthService {
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {
-                    firstName: dto.firstName,
-                    lastName: dto.lastName,
-                    dateOfBirth: new Date(dto.dateOfBirth),
                     isBvnVerified: true,
                     bvn: generateId({ type: "numeric" }),
                 },
@@ -970,13 +975,13 @@ export class AuthService {
             });
         } else {
             const nameResult = matchNames(
-                dto.firstName,
-                dto.lastName,
+                user.firstName,
+                user.lastName,
                 result?.data?.entity?.first_name || "",
                 result?.data?.entity?.last_name || "",
             );
             const dobMatches = matchDateOfBirth(
-                dto.dateOfBirth,
+                user.dateOfBirth.toISOString().split("T")[0],
                 result?.data?.entity?.date_of_birth || "",
             );
 
@@ -996,9 +1001,6 @@ export class AuthService {
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {
-                    firstName: dto.firstName,
-                    lastName: dto.lastName,
-                    dateOfBirth: new Date(dto.dateOfBirth),
                     isBvnVerified: true,
                     bvn: dto.bvn,
                     bvnRegisteredPhone: result.data.entity.phone_number1,
@@ -1051,6 +1053,14 @@ export class AuthService {
             );
         }
 
+        // Guard: ensure onboarding name and DOB exist before verification
+        if (!user.firstName || !user.lastName || !user.dateOfBirth) {
+            throw new VerificationGenericException(
+                "Please complete your profile (name and date of birth) before verifying NIN",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         this.logger.debug(`[KYC][NIN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyNin({
             nin: dto.nin,
@@ -1071,9 +1081,6 @@ export class AuthService {
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {
-                    firstName: dto.firstName,
-                    lastName: dto.lastName,
-                    dateOfBirth: new Date(dto.dateOfBirth),
                     isNinVerified: true,
                     nin: generateId({ type: "numeric" }),
                 },
@@ -1085,13 +1092,13 @@ export class AuthService {
             });
         } else {
             const nameResult = matchNames(
-                dto.firstName,
-                dto.lastName,
+                user.firstName,
+                user.lastName,
                 result?.data?.entity?.first_name || "",
                 result?.data?.entity?.last_name || "",
             );
             const dobMatches = matchDateOfBirth(
-                dto.dateOfBirth,
+                user.dateOfBirth.toISOString().split("T")[0],
                 result?.data?.entity?.date_of_birth || "",
             );
 
@@ -1111,9 +1118,6 @@ export class AuthService {
             await this.prisma.user.update({
                 where: { id: user.id },
                 data: {
-                    firstName: dto.firstName,
-                    lastName: dto.lastName,
-                    dateOfBirth: new Date(dto.dateOfBirth),
                     isNinVerified: true,
                     nin: dto.nin,
                     ninRegisteredPhone: result.data.entity.phone_number,
@@ -2281,10 +2285,10 @@ export class AuthService {
                                 getField("cacImage")?.fileId || null,
                             cacImageFileName: getField("cacImage")
                                 ? generateFileName(
-                                      DocumentMetaMap.cacImage,
-                                      user.id,
-                                      getField("cacImage")?.originalName
-                                  )
+                                    DocumentMetaMap.cacImage,
+                                    user.id,
+                                    getField("cacImage")?.originalName
+                                )
                                 : null,
                             articleOfAssociationNumber:
                                 dto.articleOfAssociationNumber || null,
@@ -2298,11 +2302,11 @@ export class AuthService {
                                 "articleOfAssociationImage"
                             )
                                 ? generateFileName(
-                                      DocumentMetaMap.articleOfAssociationImage,
-                                      user.id,
-                                      getField("articleOfAssociationImage")
-                                          ?.originalName
-                                  )
+                                    DocumentMetaMap.articleOfAssociationImage,
+                                    user.id,
+                                    getField("articleOfAssociationImage")
+                                        ?.originalName
+                                )
                                 : null,
                             boardResolutionAuthorizedAcctOpeningImageUrl:
                                 getField(
@@ -2317,12 +2321,12 @@ export class AuthService {
                                     "boardResolutionAuthorizedAcctOpeningImage"
                                 )
                                     ? generateFileName(
-                                          DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
-                                          user.id,
-                                          getField(
-                                              "boardResolutionAuthorizedAcctOpeningImage"
-                                          )?.originalName
-                                      )
+                                        DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                                        user.id,
+                                        getField(
+                                            "boardResolutionAuthorizedAcctOpeningImage"
+                                        )?.originalName
+                                    )
                                     : null,
                             meansOfIdentificationForBeneficialOwner:
                                 getField(
@@ -2337,12 +2341,12 @@ export class AuthService {
                                     "meansOfIdentificationForBeneficialOwner"
                                 )
                                     ? generateFileName(
-                                          DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
-                                          user.id,
-                                          getField(
-                                              "meansOfIdentificationForBeneficialOwner"
-                                          )?.originalName
-                                      )
+                                        DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                                        user.id,
+                                        getField(
+                                            "meansOfIdentificationForBeneficialOwner"
+                                        )?.originalName
+                                    )
                                     : null,
                             proofOfAddressForBeneficialOwner:
                                 getField("proofOfAddressForBeneficialOwner")
@@ -2354,12 +2358,12 @@ export class AuthService {
                                 "proofOfAddressForBeneficialOwner"
                             )
                                 ? generateFileName(
-                                      DocumentMetaMap.proofOfAddressForBeneficialOwner,
-                                      user.id,
-                                      getField(
-                                          "proofOfAddressForBeneficialOwner"
-                                      )?.originalName
-                                  )
+                                    DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                                    user.id,
+                                    getField(
+                                        "proofOfAddressForBeneficialOwner"
+                                    )?.originalName
+                                )
                                 : null,
                         },
                     });
