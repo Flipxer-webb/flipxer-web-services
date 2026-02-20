@@ -809,11 +809,8 @@ export class SendService {
             );
         }
 
-        // 2. Check Rate Limits (Sharing limit with external withdrawals for now)
-        const rateLimitCheck = await this.checkWithdrawalRateLimits(user.id, currency);
-        if (!rateLimitCheck.allowed) {
-            throw new RateLimitExceededException(rateLimitCheck.reason);
-        }
+        // 2. Rate limits bypassed for internal transfers
+        // External withdrawals still check limits earlier in the flow
 
         // 3. Check Balance
         const balance = await this.ledgerService.getBalance(user.id, currency);
