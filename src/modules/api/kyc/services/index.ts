@@ -438,11 +438,7 @@ export class KycService {
             userId,
             title,
             body,
-            // We can add email option here too if we want the dispatcher to handle it, 
-            // but the plan asked for specific template usage which might be better handled explicitly 
-            // or via the dispatcher if it supported templates. 
-            // The dispatcher supports `emailPayload` but it seems tailored for transactions.
-            // So we will use the specific email service call as requested.
+            enablePush: true,
         });
 
         // Send Email

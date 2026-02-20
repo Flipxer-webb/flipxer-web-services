@@ -30,6 +30,8 @@ import { TierService } from "./tier.service";
 import * as bcrypt from "bcryptjs";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
+import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
 @Injectable()
 export class TierVerificationService {
@@ -44,6 +46,8 @@ export class TierVerificationService {
         private readonly emailService: EmailService,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
         private readonly dojahService: DojahService,
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly wsGateway: WsGateway,
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -112,6 +116,13 @@ export class TierVerificationService {
                     status: "PENDING",
                     documentUrl,
                 },
+            });
+
+            // In-app notification for pending review
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Document Submitted",
+                body: "Your address document has been submitted for review. We'll notify you once it's processed.",
             });
 
             return buildResponse({
@@ -219,6 +230,13 @@ export class TierVerificationService {
                     status: "PENDING",
                     documentUrl,
                 },
+            });
+
+            // In-app notification for pending review
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Document Submitted",
+                body: "Your income document has been submitted for review. We'll notify you once it's processed.",
             });
 
             return buildResponse({
@@ -744,19 +762,30 @@ export class TierVerificationService {
         // Sync tier & flush cache
         await this.tierService.syncTierAndCache(userId);
 
-        // Send notification
+        // Send email notification
         await this.sendReviewNotification(userId, documentType, true);
 
-        this.logger.log(`Admin approved ${documentType} document for user ${userId}`);
-
+        // In-app notification + push
         const friendlyMap: Record<string, string> = {
             address: "Address",
             income: "Income",
             business: "Business Documents",
         };
+        const friendlyType = friendlyMap[documentType] || documentType;
+        await this.notificationDispatcher.notify({
+            userId,
+            title: "Document Approved",
+            body: `Your ${friendlyType} verification has been approved.`,
+            enablePush: true,
+        });
+
+        // Push real-time profile update to connected client
+        this.wsGateway.notifyProfileUpdate(userId);
+
+        this.logger.log(`Admin approved ${documentType} document for user ${userId}`);
 
         return buildResponse({
-            message: `${friendlyMap[documentType] || documentType} approved successfully`,
+            message: `${friendlyType} approved successfully`,
         });
     }
 
@@ -791,19 +820,30 @@ export class TierVerificationService {
         // Sync tier & flush cache (rejection may lower tier)
         await this.tierService.syncTierAndCache(userId);
 
-        // Send notification
+        // Send email notification
         await this.sendReviewNotification(userId, documentType, false, reason);
 
-        this.logger.log(`Admin rejected ${documentType} document for user ${userId}: ${reason}`);
-
+        // In-app notification + push
         const friendlyMap: Record<string, string> = {
             address: "Address",
             income: "Income",
             business: "Business Documents",
         };
+        const friendlyType = friendlyMap[documentType] || documentType;
+        await this.notificationDispatcher.notify({
+            userId,
+            title: "Document Rejected",
+            body: `Your ${friendlyType} verification was rejected. Reason: ${reason}`,
+            enablePush: true,
+        });
+
+        // Push real-time profile update to connected client
+        this.wsGateway.notifyProfileUpdate(userId);
+
+        this.logger.log(`Admin rejected ${documentType} document for user ${userId}: ${reason}`);
 
         return buildResponse({
-            message: `${friendlyMap[documentType] || documentType} rejected`,
+            message: `${friendlyType} rejected`,
         });
     }
 }

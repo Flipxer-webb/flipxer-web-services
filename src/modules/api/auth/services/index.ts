@@ -102,6 +102,8 @@ import { KycStateMachineService } from "./kyc-state-machine.service";
 import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
+import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
 @Injectable()
 export class AuthService {
@@ -221,7 +223,9 @@ export class AuthService {
         private readonly settingService: SettingService,
         private readonly tierService: TierService,
         private readonly redisCacheService: RedisCacheService,
-        private readonly kycStateMachine: KycStateMachineService
+        private readonly kycStateMachine: KycStateMachineService,
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly wsGateway: WsGateway,
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -1367,6 +1371,13 @@ export class AuthService {
                 message: "Document verified successfully",
             });
         } else {
+            // In-app notification for pending review
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Document Submitted",
+                body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+            });
+
             return buildResponse({
                 message: "Document submitted for review. You will be notified once verification is complete.",
             });
@@ -1745,6 +1756,14 @@ export class AuthService {
                 });
             } else {
                 logger.warn(`Dojah widget verification for user ${user.id} requires manual review (server-side check failed)`);
+
+                // In-app notification for pending review
+                await this.notificationDispatcher.notify({
+                    userId: user.id,
+                    title: "Document Submitted",
+                    body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+                });
+
                 return buildResponse({
                     message: "Document submitted for review. You will be notified once verification is complete.",
                     data: {
@@ -2020,6 +2039,13 @@ export class AuthService {
                 message: "Document verified successfully",
             });
         } else {
+            // In-app notification for pending review
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Document Submitted",
+                body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+            });
+
             return buildResponse({
                 message: "Document verification is pending review",
             });
@@ -2180,6 +2206,13 @@ export class AuthService {
 
         // Invalidate backend profile cache so pending status is visible immediately
         await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
+        // In-app notification for pending review
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Business Documents Submitted",
+            body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
+        });
 
         // Fire-and-forget: Run Dojah business verification in background
         // This does NOT block the user response — results are stored async
@@ -2389,6 +2422,13 @@ export class AuthService {
 
         // Invalidate backend profile cache
         await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
+        // In-app notification for pending review
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Business Documents Submitted",
+            body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
+        });
 
         // For Dojah verification we need the CAC image buffer.
         // Since we already uploaded to ImageKit, fetch it back as base64.
