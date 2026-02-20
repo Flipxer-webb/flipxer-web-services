@@ -246,14 +246,14 @@ export class SolvencyService {
         const latestBalances = await this.prisma.$queryRaw<
             { total: Decimal }[]
         >`
-            SELECT COALESCE(SUM(latest.balance_after), 0) as total
+            SELECT COALESCE(SUM(latest."balanceAfter"), 0) as total
             FROM (
-                SELECT DISTINCT ON (user_id) balance_after
+                SELECT DISTINCT ON ("userId") "balanceAfter"
                 FROM "LedgerEntries"
                 WHERE currency = ${currency}
                   AND status != 'FAILED'
-                  AND user_id > 0
-                ORDER BY user_id, created_at DESC
+                  AND "userId" > 0
+                ORDER BY "userId", "createdAt" DESC
             ) as latest
         `;
 

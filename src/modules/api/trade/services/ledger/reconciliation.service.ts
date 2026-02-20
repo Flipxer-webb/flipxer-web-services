@@ -63,7 +63,7 @@ export class ReconciliationService {
         private readonly slackWebhookService: SlackWebhookService,
         private readonly floatConfigService: FloatConfigService,
         private readonly withdrawalQueueService: WithdrawalQueueService
-    ) {}
+    ) { }
 
     /**
      * Runs full reconciliation for all active currencies
@@ -121,8 +121,8 @@ export class ReconciliationService {
         const overallStatus = hasCritical
             ? "critical"
             : hasWarning
-            ? "warning"
-            : "ok";
+                ? "warning"
+                : "ok";
 
         const report: ReconciliationReport = {
             timestamp,
@@ -197,14 +197,14 @@ export class ReconciliationService {
         const latestBalances = await this.prisma.$queryRaw<
             { total: Decimal }[]
         >`
-            SELECT COALESCE(SUM(latest.balance_after), 0) as total
+            SELECT COALESCE(SUM(latest."balanceAfter"), 0) as total
             FROM (
-                SELECT DISTINCT ON (user_id) balance_after
+                SELECT DISTINCT ON ("userId") "balanceAfter"
                 FROM "LedgerEntries"
                 WHERE currency = ${currency}
                   AND status != 'FAILED'
-                  AND user_id > 0  -- Exclude platform account
-                ORDER BY user_id, created_at DESC
+                  AND "userId" > 0  -- Exclude platform account
+                ORDER BY "userId", "createdAt" DESC
             ) as latest
         `;
 
@@ -275,18 +275,14 @@ export class ReconciliationService {
             const emoji = severity === "critical" ? "🚨" : "⚠️";
 
             const messageText = [
-                `${emoji} *Reconciliation ${severity.toUpperCase()}: ${
-                    result.currency
+                `${emoji} *Reconciliation ${severity.toUpperCase()}: ${result.currency
                 }*`,
                 ``,
-                `Ledger Total: ${result.ledgerTotal.toString()} ${
-                    result.currency
+                `Ledger Total: ${result.ledgerTotal.toString()} ${result.currency
                 }`,
-                `Blockchain Total: ${result.blockchainTotal.toString()} ${
-                    result.currency
+                `Blockchain Total: ${result.blockchainTotal.toString()} ${result.currency
                 }`,
-                `Discrepancy: ${result.discrepancy.toString()} ${
-                    result.currency
+                `Discrepancy: ${result.discrepancy.toString()} ${result.currency
                 } (${result.discrepancyPct.toFixed(4)}%)`,
                 ``,
                 result.action === "pause"
