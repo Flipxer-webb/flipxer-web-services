@@ -328,13 +328,12 @@ export class NombaBank implements TNomba.INombaBank {
                 message: "Payment virtual account created successfully",
                 data: {
                     reference,
-                    accountNumber: result.data.accountNumber,
-                    accountName: result.data.accountName,
+                    accountNumber: result.data.bankAccountNumber,
+                    accountName: result.data.bankAccountName || result.data.accountName,
                     bankName: result.data.bankName,
-                    bankCode: result.data.bankCode,
+                    bankCode: "", // Nomba doesn't return bankCode for VAs
                     amount,
-                    // Use Nomba's returned expiryDate if available, otherwise our calculated one
-                    expiryAt: result.data.expiryDate || expiryDate,
+                    expiryAt: expiryDate,
                 },
             };
         } catch (error) {

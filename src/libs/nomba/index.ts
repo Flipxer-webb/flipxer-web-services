@@ -58,21 +58,26 @@ export interface NombaVirtualAccountPayload {
     accountRef: string;
     accountName: string;
     currency?: string;
-    expiryDate?: string; // ISO date for dynamic accounts
+    expiryDate?: string; // e.g. "2024-06-17 04:55:00"
+    expectedAmount?: number;
+    bvn?: string;
 }
 
 export interface NombaVirtualAccountResponse {
     code: string;
     description: string;
     data: {
+        createdAt: string;
+        accountHolderId: string;
         accountRef: string;
-        accountNumber: string;
-        accountName: string;
-        bankName: string;
-        bankCode: string;
+        bvn?: string;
+        accountName: string;          // name we set
         currency: string;
-        status: string;
-        expiryDate?: string; // ISO date — returned by Nomba for dynamic accounts
+        bankName: string;             // e.g. "Nombank MFB"
+        bankAccountNumber: string;    // the actual VA number
+        bankAccountName: string;      // bank-assigned name
+        callbackUrl?: string;
+        expired: boolean;
     };
 }
 
@@ -387,7 +392,7 @@ export class NombaLib {
     ): Promise<NombaVirtualAccountResponse> {
         try {
             const { data } = await this.axios.post<NombaVirtualAccountResponse>(
-                "/v2/accounts/virtual",
+                "/v1/accounts/virtual",
                 {
                     ...payload,
                     currency: payload.currency || "NGN",
@@ -406,7 +411,7 @@ export class NombaLib {
     async getVirtualAccount(accountRef: string): Promise<NombaVirtualAccountResponse> {
         try {
             const { data } = await this.axios.get<NombaVirtualAccountResponse>(
-                `/v2/accounts/virtual/${accountRef}`
+                `/v1/accounts/virtual/${accountRef}`
             );
             return data;
         } catch (error) {
