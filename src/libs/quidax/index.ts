@@ -66,6 +66,28 @@ export class QuidaxLib {
         }
     }
 
+    /**
+     * UUID v4 regex pattern for validating Quidax sub-account IDs.
+     * Also allows the special value "me" used for the master account.
+     */
+    private static readonly UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    /**
+     * Validates that a user_id is either "me" or a valid UUID before making API calls.
+     * Prevents invalid/mock IDs from hitting the Quidax API and producing confusing 404s.
+     */
+    private validateUserId(userId: string, context?: string): void {
+        if (userId === "me") return;
+        if (!QuidaxLib.UUID_REGEX.test(userId)) {
+            const logger = new Logger("QuidaxLib");
+            logger.error(`Invalid Quidax user_id detected: "${userId}"${context ? ` in ${context}` : ""}. Expected a UUID.`);
+            throw new e.QuidaxValidationError(
+                `Invalid sub-account ID: "${userId}". Expected a valid UUID.`,
+                "INVALID_SUB_ACCOUNT_ID"
+            );
+        }
+    }
+
     /************************** Account  *************************/
 
     /**
@@ -176,6 +198,7 @@ export class QuidaxLib {
     async getAccountDetail(
         options: t.GetAccountDetailOptions
     ): Promise<t.QuidaxResponse<t.GetAccountDetailResponse>> {
+        this.validateUserId(options.user_id, "getAccountDetail");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}`,
@@ -211,6 +234,7 @@ export class QuidaxLib {
     async getUserWalletList(
         options: t.GetUserWalletListOptions
     ): Promise<t.QuidaxResponse<t.GetUserWalletListResponse>> {
+        this.validateUserId(options.user_id, "getUserWalletList");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}/wallets`,
@@ -244,6 +268,7 @@ export class QuidaxLib {
     async getUserWallet(
         options: t.GetUserWalletOptions
     ): Promise<t.QuidaxResponse<t.GetUserWalletResponse>> {
+        this.validateUserId(options.user_id, "getUserWallet");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}/wallets/${options.currency}`,
@@ -277,6 +302,7 @@ export class QuidaxLib {
     async getPaymentAddress(
         options: t.GetPaymentAddressOptions
     ): Promise<t.QuidaxResponse<t.GetUserWalletResponse>> {
+        this.validateUserId(options.user_id, "getPaymentAddress");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}/wallets/${options.currency}/address`,
@@ -312,6 +338,7 @@ export class QuidaxLib {
     async getPaymentAddressList(
         options: t.GetPaymentAddressListOptions
     ): Promise<t.QuidaxResponse<t.GetPaymentAddressListResponse>> {
+        this.validateUserId(options.user_id, "getPaymentAddressList");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}/wallets/${options.currency}/addresses`,
@@ -347,6 +374,7 @@ export class QuidaxLib {
     async getPaymentAddressById(
         options: t.GetPaymentAddressByIdOptions
     ): Promise<t.QuidaxResponse<t.GetPaymentAddressByIdResponse>> {
+        this.validateUserId(options.user_id, "getPaymentAddressById");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}/wallets/${options.currency}/addresses/${options.address_id}`,
@@ -382,6 +410,7 @@ export class QuidaxLib {
     async createPaymentAddress(
         options: t.CreatePaymentAddressOptions
     ): Promise<t.QuidaxResponse<t.CreatePaymentAddressResponse>> {
+        this.validateUserId(options.user_id, "createPaymentAddress");
         try {
             const requestOptions: AxiosRequestConfig<t.CreatePaymentAddressOptions> =
             {
@@ -458,6 +487,7 @@ export class QuidaxLib {
     async createWithdrawerRequest(
         options: t.CreateWithdrawerRequestOptions
     ): Promise<t.QuidaxResponse<t.CreateWithdrawerRequestResponse>> {
+        this.validateUserId(options.user_id, "createWithdrawerRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CreateWithdrawerRequestOptions> =
             {
@@ -495,6 +525,7 @@ export class QuidaxLib {
     async cancelWithdrawerRequest(
         options: t.CancelWithdrawerRequestOptions
     ): Promise<t.QuidaxResponse<t.CancelWithdrawerRequestResponse>> {
+        this.validateUserId(options.user_id, "cancelWithdrawerRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CancelWithdrawerRequestOptions> =
             {
@@ -531,6 +562,7 @@ export class QuidaxLib {
         user_id: string,
         options: t.WithdrawalListOptions
     ): Promise<t.QuidaxResponse<t.WithdrawalListResponse>> {
+        this.validateUserId(user_id, "getWithdrawerList");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
             {
@@ -568,6 +600,7 @@ export class QuidaxLib {
     async getWithdrawerDetail(
         options: t.WithdrawerDetailOptions
     ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
+        this.validateUserId(options.user_id, "getWithdrawerDetail");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
             {
@@ -604,6 +637,7 @@ export class QuidaxLib {
     async getWithdrawerByReference(
         options: t.WithdrawerRecordByReferenceOptions
     ): Promise<t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>> {
+        this.validateUserId(options.user_id, "getWithdrawerByReference");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawerRecordByReferenceOptions> =
             {
@@ -677,6 +711,7 @@ export class QuidaxLib {
         user_id: string,
         options: t.SellOrBuyOrderRequestOptions
     ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
+        this.validateUserId(user_id, "buyOrSellOrderRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.SellOrBuyOrderRequestOptions> =
             {
@@ -713,6 +748,7 @@ export class QuidaxLib {
         user_id: string,
         options: t.CancelSellOrBuyOrderRequestOptions
     ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
+        this.validateUserId(user_id, "cancelBuyOrSellOrderRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CancelSellOrBuyOrderRequestOptions> =
             {
@@ -748,6 +784,7 @@ export class QuidaxLib {
         user_id: string,
         options: t.GetOrderListOptions
     ): Promise<t.QuidaxResponse<t.GetOrderListResponse>> {
+        this.validateUserId(user_id, "getAllOrders");
         try {
             const requestOptions: AxiosRequestConfig<t.GetOrderListOptions> = {
                 url: `/users/${user_id}/orders`,
@@ -782,6 +819,7 @@ export class QuidaxLib {
     async getOrderRecord(
         options: t.GetOrderRecordOptions
     ): Promise<t.QuidaxResponse<t.GetOrderRecordResponse>> {
+        this.validateUserId(options.user_id, "getOrderRecord");
         try {
             const requestOptions: AxiosRequestConfig<t.GetOrderRecordOptions> =
             {
@@ -818,6 +856,7 @@ export class QuidaxLib {
     async instantOrdersRequery(
         options: t.InstantOrdersRequeryOptions
     ): Promise<t.QuidaxResponse<t.InstantOrderResponse>> {
+        this.validateUserId(options.user_id, "instantOrdersRequery");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}/instant_orders/${options.instant_order_id}`,
@@ -858,6 +897,7 @@ export class QuidaxLib {
         user_id: string,
         options: t.CreateInstantSwapRequestOptions
     ): Promise<t.QuidaxResponse<t.CreateInstantSwapRequestResponse>> {
+        this.validateUserId(user_id, "createInstantSwapRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CreateInstantSwapRequestOptions> =
             {
@@ -893,6 +933,7 @@ export class QuidaxLib {
     async confirmInstantSwap(
         options: t.ConfirmInstantSwapOptions
     ): Promise<t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>> {
+        this.validateUserId(options.user_id, "confirmInstantSwap");
         try {
             const requestOptions: AxiosRequestConfig<t.ConfirmInstantSwapOptions> =
             {
@@ -931,6 +972,7 @@ export class QuidaxLib {
         quotation_id: string,
         options: t.RefreshInstantSwapOptions
     ): Promise<t.QuidaxResponse<t.RefreshInstantSwapResponse>> {
+        this.validateUserId(user_id, "refreshInstantSwapQuote");
         try {
             const requestOptions: AxiosRequestConfig<t.RefreshInstantSwapOptions> =
             {
@@ -966,6 +1008,7 @@ export class QuidaxLib {
     async getSwapTransaction(
         options: t.GetSwapTransactionOptions
     ): Promise<t.QuidaxResponse<t.GetSwapTransactionResponse>> {
+        this.validateUserId(options.user_id, "getSwapTransaction");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${options.user_id}/swap_transactions/${options.swap_transaction_id}`,
@@ -1001,6 +1044,7 @@ export class QuidaxLib {
     async getSwapTransactionList(
         user_id: string
     ): Promise<t.QuidaxResponse<t.GetSwapTransactionListResponse>> {
+        this.validateUserId(user_id, "getSwapTransactionList");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${user_id}/swap_transactions`,
@@ -1038,6 +1082,7 @@ export class QuidaxLib {
     async fetchDeposits(
         options: t.FetchDepositsOptions
     ): Promise<t.QuidaxResponse<t.FetchDepositsResponse>> {
+        this.validateUserId(options.user_id, "fetchDeposits");
         try {
             const params: Record<string, any> = {};
             // Currency is a query param, not part of the path
@@ -1079,6 +1124,7 @@ export class QuidaxLib {
     async fetchDeposit(
         options: t.FetchDepositOptions
     ): Promise<t.QuidaxResponse<t.FetchDepositResponse>> {
+        this.validateUserId(options.user_id, "fetchDeposit");
         try {
             const requestOptions: AxiosRequestConfig = {
                 // Correct endpoint: /users/{user_id}/deposits/{deposit_id}
