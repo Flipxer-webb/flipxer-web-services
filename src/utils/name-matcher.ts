@@ -68,7 +68,7 @@ function jaroSimilarity(s1: string, s2: string): number {
  * Gives a boost for common prefixes (up to 4 characters).
  * Returns a value between 0.0 and 1.0.
  */
-function jaroWinklerSimilarity(s1: string, s2: string): number {
+export function jaroWinklerSimilarity(s1: string, s2: string): number {
     const jaro = jaroSimilarity(s1, s2);
 
     // Calculate common prefix length (max 4)
@@ -91,7 +91,7 @@ function jaroWinklerSimilarity(s1: string, s2: string): number {
  * - Collapse multiple spaces / hyphens
  * - Trim
  */
-function normaliseName(name: string): string {
+export function normaliseName(name: string): string {
     return name
         .toLowerCase()
         .normalize("NFD")

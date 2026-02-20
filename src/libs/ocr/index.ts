@@ -5,8 +5,21 @@
 
 import Tesseract from "tesseract.js";
 import { Logger } from "@nestjs/common";
+import {
+    jaroWinklerSimilarity,
+    normaliseName,
+} from "@/utils/name-matcher";
 
 const logger = new Logger("OCRService");
+
+// Minimum confidence threshold for auto-approval
+const MIN_CONFIDENCE_THRESHOLD = 70;
+
+// Maximum age of a document for auto-approval (in months)
+const RECENCY_MONTHS = 3;
+
+// Jaro-Winkler threshold for name matching (consistent with BVN/NIN flow)
+const NAME_MATCH_THRESHOLD = 0.85;
 
 export interface OCRResult {
     text: string;
@@ -21,10 +34,11 @@ export interface DocumentValidationResult {
     matchedAddress?: boolean;
     requiresManualReview: boolean;
     reason?: string;
+    /** Most recent date found in document (ISO format), if any */
+    documentDate?: string;
+    /** Whether the document date is within the recency window */
+    isRecent?: boolean;
 }
-
-// Minimum confidence threshold for auto-approval
-const MIN_CONFIDENCE_THRESHOLD = 70;
 
 /**
  * Extract text from a document image or PDF
@@ -57,7 +71,7 @@ export async function extractTextFromDocument(
 }
 
 /**
- * Normalize a string for fuzzy matching
+ * Normalize a string for text comparison
  * Removes special characters, extra spaces, converts to lowercase
  */
 function normalizeString(str: string): string {
@@ -69,10 +83,17 @@ function normalizeString(str: string): string {
 }
 
 /**
- * Check if a name appears in the extracted text using fuzzy matching
+ * Check if a name appears in the extracted text using Jaro-Winkler fuzzy matching.
+ *
+ * Strategy:
+ *   1. Exact substring match for full name (first+last or last+first)
+ *   2. Both first AND last name found separately as substrings
+ *   3. Jaro-Winkler fuzzy match — requires BOTH first and last name
+ *      to exceed the 0.85 threshold against individual words in the text
+ *
  * @param extractedText - Text extracted from document via OCR
- * @param firstName - User's first name
- * @param lastName - User's last name
+ * @param firstName - User's first name (from database)
+ * @param lastName - User's last name (from database)
  * @returns true if the name is found in the text
  */
 export function checkNameInText(
@@ -83,6 +104,11 @@ export function checkNameInText(
     const normalizedText = normalizeString(extractedText);
     const normalizedFirst = normalizeString(firstName);
     const normalizedLast = normalizeString(lastName);
+
+    // Guard: if either name is empty, can't match
+    if (!normalizedFirst || !normalizedLast) {
+        return false;
+    }
 
     // Check for full name (first + last)
     const fullName = `${normalizedFirst} ${normalizedLast}`;
@@ -105,55 +131,32 @@ export function checkNameInText(
         return true;
     }
 
-    // Fuzzy match: check if 80% of characters match
+    // Jaro-Winkler fuzzy match: require BOTH names to match above threshold
     const words = normalizedText.split(" ");
+    let bestFirstScore = 0;
+    let bestLastScore = 0;
+
     for (const word of words) {
-        if (word.length >= 3) {
-            if (
-                levenshteinDistance(word, normalizedFirst) <= 2 ||
-                levenshteinDistance(word, normalizedLast) <= 2
-            ) {
-                return true;
-            }
+        if (word.length >= 2) {
+            const firstScore = jaroWinklerSimilarity(
+                normaliseName(word),
+                normaliseName(normalizedFirst)
+            );
+            const lastScore = jaroWinklerSimilarity(
+                normaliseName(word),
+                normaliseName(normalizedLast)
+            );
+            bestFirstScore = Math.max(bestFirstScore, firstScore);
+            bestLastScore = Math.max(bestLastScore, lastScore);
         }
+    }
+
+    // Both first and last name must fuzzy-match
+    if (bestFirstScore >= NAME_MATCH_THRESHOLD && bestLastScore >= NAME_MATCH_THRESHOLD) {
+        return true;
     }
 
     return false;
-}
-
-/**
- * Calculate Levenshtein distance between two strings
- * Used for fuzzy name matching
- */
-function levenshteinDistance(a: string, b: string): number {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-
-    const matrix: number[][] = [];
-
-    for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
-    }
-
-    for (let j = 0; j <= a.length; j++) {
-        matrix[0][j] = j;
-    }
-
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1, // substitution
-                    matrix[i][j - 1] + 1, // insertion
-                    matrix[i - 1][j] + 1 // deletion
-                );
-            }
-        }
-    }
-
-    return matrix[b.length][a.length];
 }
 
 /**
@@ -212,11 +215,114 @@ export function checkAddressIndicators(extractedText: string): boolean {
     return matchedKeywords.length >= 2;
 }
 
+// ───────────────────── Document Recency ─────────────────────
+
+const MONTH_MAP: Record<string, number> = {
+    jan: 0, january: 0,
+    feb: 1, february: 1,
+    mar: 2, march: 2,
+    apr: 3, april: 3,
+    may: 4,
+    jun: 5, june: 5,
+    jul: 6, july: 6,
+    aug: 7, august: 7,
+    sep: 8, september: 8,
+    oct: 9, october: 9,
+    nov: 10, november: 10,
+    dec: 11, december: 11,
+};
+
+/**
+ * Extract dates from OCR text and return the most recent valid one.
+ * Supports formats:
+ *   - DD/MM/YYYY or DD-MM-YYYY
+ *   - YYYY-MM-DD (ISO)
+ *   - "15 January 2025" or "January 15, 2025"
+ *
+ * Only returns dates that are plausible (year 2000-2099, valid month/day).
+ */
+export function extractDocumentDate(text: string): Date | null {
+    const dates: Date[] = [];
+
+    const tryAddDate = (year: number, month: number, day: number) => {
+        if (year < 2000 || year > 2099) return;
+        if (month < 0 || month > 11) return;
+        if (day < 1 || day > 31) return;
+        const d = new Date(year, month, day);
+        // Verify the date didn't overflow (e.g. Feb 30 → Mar 2)
+        if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) {
+            dates.push(d);
+        }
+    };
+
+    // Pattern 1: DD/MM/YYYY or DD-MM-YYYY
+    const dmyRegex = /\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/g;
+    let match: RegExpExecArray | null;
+    while ((match = dmyRegex.exec(text)) !== null) {
+        const day = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10) - 1; // 0-indexed
+        const year = parseInt(match[3], 10);
+        tryAddDate(year, month, day);
+    }
+
+    // Pattern 2: YYYY-MM-DD (ISO) — only match if not already captured by DMY
+    const isoRegex = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
+    while ((match = isoRegex.exec(text)) !== null) {
+        const year = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10) - 1;
+        const day = parseInt(match[3], 10);
+        tryAddDate(year, month, day);
+    }
+
+    // Pattern 3: "DD Month YYYY" (e.g. "15 January 2025")
+    const dMyRegex = /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{4})\b/gi;
+    while ((match = dMyRegex.exec(text)) !== null) {
+        const day = parseInt(match[1], 10);
+        const monthStr = match[2].toLowerCase();
+        const year = parseInt(match[3], 10);
+        const month = MONTH_MAP[monthStr];
+        if (month !== undefined) {
+            tryAddDate(year, month, day);
+        }
+    }
+
+    // Pattern 4: "Month DD, YYYY" (e.g. "January 15, 2025")
+    const mDyRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\b/gi;
+    while ((match = mDyRegex.exec(text)) !== null) {
+        const monthStr = match[1].toLowerCase();
+        const day = parseInt(match[2], 10);
+        const year = parseInt(match[3], 10);
+        const month = MONTH_MAP[monthStr];
+        if (month !== undefined) {
+            tryAddDate(year, month, day);
+        }
+    }
+
+    if (dates.length === 0) return null;
+
+    // Return the most recent date
+    dates.sort((a, b) => b.getTime() - a.getTime());
+    return dates[0];
+}
+
+/**
+ * Check if a document date is within the recency window.
+ * Returns false if no date is provided (conservative: treat undated documents as not recent).
+ */
+export function isDocumentRecent(documentDate: Date | null): boolean {
+    if (!documentDate) return false;
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - RECENCY_MONTHS);
+    return documentDate >= cutoff;
+}
+
+// ───────────────────── Document Validators ─────────────────────
+
 /**
  * Validate an address document
  * @param imageBuffer - Document image buffer
- * @param firstName - User's first name
- * @param lastName - User's last name
+ * @param firstName - User's first name (from database)
+ * @param lastName - User's last name (from database)
  * @returns DocumentValidationResult with validation details
  */
 export async function validateAddressDocument(
@@ -240,12 +346,15 @@ export async function validateAddressDocument(
 
     const matchedName = checkNameInText(ocrResult.text, firstName, lastName);
     const matchedAddress = checkAddressIndicators(ocrResult.text);
+    const docDate = extractDocumentDate(ocrResult.text);
+    const recent = isDocumentRecent(docDate);
 
     // Determine if manual review is needed
     const requiresManualReview =
         ocrResult.confidence < MIN_CONFIDENCE_THRESHOLD ||
         !matchedName ||
-        !matchedAddress;
+        !matchedAddress ||
+        !recent;
 
     let reason: string | undefined;
     if (requiresManualReview) {
@@ -259,6 +368,13 @@ export async function validateAddressDocument(
         if (!matchedAddress) {
             issues.push("Address not clearly visible");
         }
+        if (!recent) {
+            issues.push(
+                docDate
+                    ? "Document appears to be older than 3 months"
+                    : "Document date not found"
+            );
+        }
         reason = `Document flagged for review: ${issues.join(", ")}`;
     }
 
@@ -270,14 +386,16 @@ export async function validateAddressDocument(
         matchedAddress,
         requiresManualReview,
         reason,
+        documentDate: docDate?.toISOString(),
+        isRecent: recent,
     };
 }
 
 /**
  * Validate an income document (payslip, bank statement, tax document)
  * @param imageBuffer - Document image buffer
- * @param firstName - User's first name
- * @param lastName - User's last name
+ * @param firstName - User's first name (from database)
+ * @param lastName - User's last name (from database)
  * @returns DocumentValidationResult with validation details
  */
 export async function validateIncomeDocument(
@@ -299,6 +417,8 @@ export async function validateIncomeDocument(
     }
 
     const matchedName = checkNameInText(ocrResult.text, firstName, lastName);
+    const docDate = extractDocumentDate(ocrResult.text);
+    const recent = isDocumentRecent(docDate);
 
     // Check for income-related keywords
     const normalizedText = normalizeString(ocrResult.text);
@@ -339,7 +459,8 @@ export async function validateIncomeDocument(
     const requiresManualReview =
         ocrResult.confidence < MIN_CONFIDENCE_THRESHOLD ||
         !matchedName ||
-        !hasIncomeIndicators;
+        !hasIncomeIndicators ||
+        !recent;
 
     let reason: string | undefined;
     if (requiresManualReview) {
@@ -353,6 +474,13 @@ export async function validateIncomeDocument(
         if (!hasIncomeIndicators) {
             issues.push("Income information not clearly visible");
         }
+        if (!recent) {
+            issues.push(
+                docDate
+                    ? "Document appears to be older than 3 months"
+                    : "Document date not found"
+            );
+        }
         reason = `Document flagged for review: ${issues.join(", ")}`;
     }
 
@@ -363,5 +491,7 @@ export async function validateIncomeDocument(
         matchedName,
         requiresManualReview,
         reason,
+        documentDate: docDate?.toISOString(),
+        isRecent: recent,
     };
 }
