@@ -200,6 +200,18 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Send pending buy order reminder notification" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("buy/pending-notify/:reference")
+    async notifyPendingBuyOrder(
+        @Param("reference") reference: string,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.notifyPendingBuyOrder(reference, user.id);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Initiate sell order" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")

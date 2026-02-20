@@ -312,6 +312,13 @@ export class TradingService {
     }
 
     /**
+     * Send pending buy order reminder - delegates to BuyOrderService
+     */
+    async notifyPendingBuyOrder(reference: string, userId: number) {
+        return this.buyOrderService.notifyPendingBuyOrder(reference, userId);
+    }
+
+    /**
      * Places a sell order - delegates to SellOrderService
      */
     async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {

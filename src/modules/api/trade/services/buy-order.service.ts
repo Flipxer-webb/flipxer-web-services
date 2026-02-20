@@ -688,6 +688,42 @@ export class BuyOrderService {
     }
 
     /**
+     * Send a "still pending" notification when user closes the payment modal
+     * without cancelling. The order stays active.
+     */
+    async notifyPendingBuyOrder(reference: string, userId: number) {
+        const payment = await this.prisma.payment.findFirst({
+            where: { reference, userId, status: TransactionStatus.PENDING },
+            include: { order: true },
+        });
+
+        if (!payment?.order) {
+            return buildResponse({
+                message: "No pending payment found",
+                data: {},
+            });
+        }
+
+        await this.notificationDispatcher.notify({
+            userId,
+            title: "Buy order still pending",
+            body: `\u23F3 Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} is still pending payment. Complete the bank transfer before the account expires. Transaction ID: ${payment.order.transactionId}.`,
+            currency: payment.order.currency,
+            transactionType: OrderCategory.BUY,
+            enablePush: true,
+        });
+
+        this.logger.log(
+            `Pending buy order reminder sent to user ${userId} | Payment ref: ${reference}`
+        );
+
+        return buildResponse({
+            message: "Pending reminder sent",
+            data: {},
+        });
+    }
+
+    /**
      * Cancel expired buy orders.
      * Called by a scheduled job to clean up orders whose virtual account expired
      * without receiving payment.
