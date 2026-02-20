@@ -935,7 +935,7 @@ export class AuthService {
         if (bvnInUseByAnother) {
             this.logger.warn(`[KYC][BVN] BVN already in use (user=${user.id}, bvn=${maskedBvn})`);
             throw new VerificationGenericException(
-                "Bvn already in use",
+                "This BVN is already linked to another account. If this is your BVN, please contact support for assistance.",
                 HttpStatus.CONFLICT
             );
         }
@@ -1052,7 +1052,7 @@ export class AuthService {
         if (ninInUseByAnother) {
             this.logger.warn(`[KYC][NIN] NIN already in use (user=${user.id}, nin=${maskedNin})`);
             throw new VerificationGenericException(
-                "NIN already in use",
+                "This NIN is already linked to another account. If this is your NIN, please contact support for assistance.",
                 HttpStatus.CONFLICT
             );
         }
