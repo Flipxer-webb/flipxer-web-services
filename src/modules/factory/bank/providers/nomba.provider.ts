@@ -286,15 +286,17 @@ export class NombaBank implements TNomba.INombaBank {
         user: NombaUserRecord,
         amount: number,
         referenceOverride?: string,
-        expiryMinutes: number = 30
+        expiryMinutes: number = 35
     ) {
         try {
             const reference =
                 referenceOverride || generateId({ type: "reference" });
 
-            const expiryDate = new Date(
+            const expiryDateObj = new Date(
                 Date.now() + expiryMinutes * 60 * 1000
-            ).toISOString();
+            );
+            // Nomba expects format "YYYY-MM-DD HH:mm:ss" (no T, no Z)
+            const expiryDate = expiryDateObj.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
 
             logger.info(
                 { userId: user.id, amount, reference, expiryDate },
