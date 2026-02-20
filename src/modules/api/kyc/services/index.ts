@@ -260,7 +260,7 @@ export class KycService {
     // ==================== KYC DECISIONS ====================
 
     async processKycDecision(dto: KycDecisionDto, adminId?: number): Promise<ApiResponse> {
-        const { userId, action, note, newTier, verificationType } = dto;
+        const { userId, action, note, verificationType } = dto;
 
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -308,10 +308,8 @@ export class KycService {
                 updateData = verificationMap[verificationType] || {};
             }
 
-            // Update tier if specified
-            if (newTier !== undefined) {
-                updateData.tier = newTier;
-            }
+            // Tier is always derived from verification flags via syncTierAndCache below.
+            // Manual tier overrides removed to enforce verification-gated tier advancement.
         } else if (action === "REJECT") {
             // For rejection, update status to DECLINED and clear document URL
             if (verificationType) {
@@ -380,9 +378,8 @@ export class KycService {
             },
         });
 
-        // Invalidate backend profile cache so users immediately see new KYC status
-        // and recalculate tier for both approvals and rejections
-        await this.tierService.syncTierAndCache(userId);
+        // Recalculate tier from verification flags and flush profile cache
+        const syncedUser = await this.tierService.syncTierAndCache(userId);
 
         // Create KycVerification record for audit trail
         if (verificationType) {
@@ -406,7 +403,7 @@ export class KycService {
             });
         }
 
-        // Create audit log
+        // Create audit log — use syncedUser.tier (post-recalculation) for accuracy
         await this.prisma.auditLog.create({
             data: {
                 adminId,
@@ -415,7 +412,7 @@ export class KycService {
                 resourceId: userId.toString(),
                 details: {
                     previousTier: user.tier,
-                    newTier: updatedUser.tier,
+                    newTier: syncedUser.tier,
                     verificationType,
                     note,
                 },
@@ -513,12 +510,12 @@ export class KycService {
     }
 
     async processBulkKycDecision(dto: BulkKycDecisionDto, adminId?: number): Promise<ApiResponse> {
-        const { userIds, action, note, newTier } = dto;
+        const { userIds, action, note } = dto;
 
         const results = await Promise.allSettled(
             userIds.map((userId) =>
                 this.processKycDecision(
-                    { userId, action, note, newTier },
+                    { userId, action, note },
                     adminId
                 )
             )
@@ -550,12 +547,13 @@ export class KycService {
 
         const previousTier = user.tier;
 
-        // Security: Log warning if admin is setting tier higher than calculated
+        // Security: Clamp tier to verification-derived ceiling
         const calculatedTier = this.tierService.calculateTier(user);
         if (dto.tier > calculatedTier) {
             this.logger.warn(
-                `SECURITY: Admin ${adminId} setting tier ${dto.tier} above calculated tier ${calculatedTier} for user ${userId}. Reason: ${dto.reason || 'none provided'}`
+                `SECURITY: Admin ${adminId} requested tier ${dto.tier} above calculated tier ${calculatedTier} for user ${userId}. Clamped to ${calculatedTier}. Reason: ${dto.reason || 'none provided'}`
             );
+            dto.tier = calculatedTier;
         }
 
         const updatedUser = await this.prisma.user.update({

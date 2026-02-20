@@ -71,11 +71,7 @@ export class KycDecisionDto {
     @IsString()
     note?: string;
 
-    @ApiPropertyOptional({ description: "New tier level (if approving)" })
-    @IsOptional()
-    @Type(() => Number)
-    @IsNumber()
-    newTier?: number;
+    // newTier removed — tier is always derived from verification flags via syncTierAndCache
 }
 
 export class BulkKycDecisionDto {
@@ -97,11 +93,6 @@ export class BulkKycDecisionDto {
     @IsString()
     note?: string;
 
-    @ApiPropertyOptional({ description: "New tier level (if approving)" })
-    @IsOptional()
-    @Type(() => Number)
-    @IsNumber()
-    newTier?: number;
 }
 
 export class UpdateUserTierDto {
