@@ -453,6 +453,26 @@ export class SellOrderService {
                     },
                 });
 
+                // Send sell failure notification (in-app + push + email)
+                await this.notificationDispatcher.notify({
+                    userId: user.id,
+                    title: "Sell order failed",
+                    body: `❌ Your sell order of ${order.amount} ${order.currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
+                    currency: order.currency,
+                    transactionType: OrderCategory.SELL,
+                    enableEmail: true,
+                    emailPayload: {
+                        email: user.email,
+                        transactionType: 'sell',
+                        transactionId: order.transactionId,
+                        amount: String(order.amount),
+                        currency: order.currency.toUpperCase(),
+                        status: 'failed',
+                        date: new Date().toISOString(),
+                    },
+                    enablePush: true,
+                });
+
                 throw new HttpException(
                     'Sell order failed - payout could not be initiated. Your funds have been released.',
                     HttpStatus.INTERNAL_SERVER_ERROR

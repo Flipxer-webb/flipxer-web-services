@@ -236,6 +236,39 @@ export class WithdrawalWebhookHandler {
 
                     // Emit final completion status
                     this.emitTransactionUpdate(transaction.user.id, completedOrder);
+
+                    // Send sell completion notification to user
+                    const sellMessage = this.notificationMessage.sellTransactionSuccess({
+                        amount: transaction.amount,
+                        currency: transaction.currency,
+                        fiatAmount: transaction.totalToReceiveInFiat,
+                        bankName: transaction.destinationBankName || 'your bank',
+                        accountNumber: transaction.destinationBankAccountNumber || '',
+                        transactionId: transaction.transactionId,
+                    });
+
+                    await this.notificationDispatcher.notify({
+                        userId: transaction.user.id,
+                        title: "Sell order completed",
+                        body: sellMessage,
+                        currency: transaction.currency,
+                        transactionType: OrderCategory.SELL,
+                        enableEmail: true,
+                        emailPayload: {
+                            email: transaction.user.email,
+                            transactionType: 'sell',
+                            transactionId: transaction.transactionId,
+                            amount: String(transaction.amount),
+                            currency: transaction.currency.toUpperCase(),
+                            status: 'completed',
+                            date: new Date().toISOString(),
+                            fiatAmount: String(transaction.totalToReceiveInFiat || ''),
+                            bankName: transaction.destinationBankName || '',
+                            accountNumber: transaction.destinationBankAccountNumber || '',
+                        },
+                        enablePush: true,
+                    });
+
                     this.logger.log(`Order ${transaction.id} marked COMPLETED after successful payout`);
                 } catch (payoutError) {
                     // Payout failed - mark order as failed
@@ -516,6 +549,33 @@ export class WithdrawalWebhookHandler {
                 createdAt: buyOrder.createdAt,
                 updatedAt: new Date(),
             },
+        });
+
+        // Send failure notification to user
+        const message = this.notificationMessage.buyTransactionFailed({
+            amount: buyOrder.amount,
+            currency: buyOrder.currency,
+            transactionId: buyOrder.transactionId,
+            reason: "Crypto delivery failed",
+        });
+
+        await this.notificationDispatcher.notify({
+            userId: buyOrder.user.id,
+            title: "Buy order failed",
+            body: message,
+            currency: buyOrder.currency,
+            transactionType: OrderCategory.BUY,
+            enableEmail: true,
+            emailPayload: {
+                email: buyOrder.user.email,
+                transactionType: 'buy',
+                transactionId: buyOrder.transactionId,
+                amount: String(buyOrder.amount),
+                currency: buyOrder.currency.toUpperCase(),
+                status: 'failed',
+                date: new Date().toISOString(),
+            },
+            enablePush: true,
         });
 
         this.logger.error(`BUY order ${buyOrderId} marked as failed - manual refund required`);

@@ -280,6 +280,30 @@ export class DepositWebhookHandler {
             await this.handleDepositAccepted(user, options, transaction.transactionId);
         }
 
+        // Send notification for failed deposits
+        if (options.status === OrderStatus.failed && transaction.status !== OrderStatus.failed) {
+            const failMessage = `❌ Your deposit of ${options.amount} ${options.currency.toUpperCase()} has failed. Transaction ID: ${transaction.transactionId}. Please contact support if you need assistance.`;
+
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Deposit failed",
+                body: failMessage,
+                currency: options.currency.toUpperCase(),
+                transactionType: OrderCategory.RECEIVE,
+                enableEmail: true,
+                emailPayload: {
+                    email: user.email,
+                    transactionType: 'deposit',
+                    transactionId: transaction.transactionId,
+                    amount: String(options.amount),
+                    currency: options.currency.toUpperCase(),
+                    status: 'failed',
+                    date: new Date().toISOString(),
+                },
+                enablePush: true,
+            });
+        }
+
         return buildResponse({
             message: "Deposit transaction logged successfully",
         });

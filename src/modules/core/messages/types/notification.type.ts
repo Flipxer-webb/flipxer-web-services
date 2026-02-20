@@ -41,3 +41,44 @@ export interface ISellTransactionSuccess {
     accountNumber: string;
     transactionId: string;
 }
+
+export interface IBuyTransactionFailed {
+    amount: number | string;
+    currency: string;
+    transactionId: string;
+    reason?: string;
+}
+
+export interface IBuyTransactionCancelled {
+    amount: number | string;
+    currency: string;
+    transactionId: string;
+    reason?: string;
+}
+
+export interface ISellTransactionFailed {
+    amount: number | string;
+    currency: string;
+    transactionId: string;
+    reason?: string;
+}
+
+export interface ISwapTransactionFailed {
+    fromAmount: number | string;
+    fromCurrency: string;
+    toCurrency: string;
+    transactionId: string;
+    reason?: string;
+}
+
+export interface ISendTransactionQueued {
+    amount: number | string;
+    currency: string;
+    transactionId: string;
+}
+
+export interface IReceiveTransactionFailed {
+    amount: number | string;
+    currency: string;
+    transactionId: string;
+}

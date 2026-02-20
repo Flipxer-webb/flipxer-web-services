@@ -665,6 +665,18 @@ export class BuyOrderService {
         }
         this.wsGateway.notifyWalletUpdate(userId);
 
+        // Send cancellation notification (push only - user initiated this)
+        if (payment.order) {
+            await this.notificationDispatcher.notify({
+                userId: userId,
+                title: "Buy order cancelled",
+                body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled. Transaction ID: ${payment.order.transactionId}.`,
+                currency: payment.order.currency,
+                transactionType: OrderCategory.BUY,
+                enablePush: true,
+            });
+        }
+
         this.logger.log(
             `Buy order cancelled by user ${userId} | Payment ref: ${reference}`
         );
@@ -692,7 +704,7 @@ export class BuyOrderService {
                     lt: new Date(Date.now() - 35 * 60 * 1000),
                 },
             },
-            include: { order: true },
+            include: { order: true, user: { select: { id: true, email: true } } },
         });
 
         this.logger.log(
@@ -735,6 +747,28 @@ export class BuyOrderService {
                     });
                 }
                 this.wsGateway.notifyWalletUpdate(payment.userId);
+
+                // Send expired cancellation notification (push + email - user may not be in app)
+                if (payment.order) {
+                    await this.notificationDispatcher.notify({
+                        userId: payment.userId,
+                        title: "Buy order expired",
+                        body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled because the payment window expired. Transaction ID: ${payment.order.transactionId}.`,
+                        currency: payment.order.currency,
+                        transactionType: OrderCategory.BUY,
+                        enableEmail: true,
+                        emailPayload: {
+                            email: payment.user?.email || '',
+                            transactionType: 'buy',
+                            transactionId: payment.order.transactionId,
+                            amount: String(payment.order.amount),
+                            currency: payment.order.currency.toUpperCase(),
+                            status: 'cancelled',
+                            date: new Date().toISOString(),
+                        },
+                        enablePush: true,
+                    });
+                }
 
                 this.logger.log(
                     `Cancelled expired buy order | Payment: ${payment.id} | Ref: ${payment.reference}`

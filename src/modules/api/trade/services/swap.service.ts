@@ -437,6 +437,29 @@ export class SwapService {
 
             this.emitTransactionUpdate(user.id, { ...order, status: OrderStatus.failed });
 
+            // Send swap failure notification (in-app + push + email)
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Swap failed",
+                body: `\u274C Your swap of ${quote.from_amount} ${quote.from_currency.toUpperCase()} to ${quote.to_currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
+                currency: quote.from_currency,
+                transactionType: OrderCategory.SWAP,
+                enableEmail: true,
+                emailPayload: {
+                    email: user.email,
+                    transactionType: 'swap',
+                    transactionId: order.transactionId,
+                    amount: String(quote.from_amount),
+                    currency: quote.from_currency.toUpperCase(),
+                    status: 'failed',
+                    date: new Date().toISOString(),
+                    fromAmount: String(quote.from_amount),
+                    fromCurrency: quote.from_currency.toUpperCase(),
+                    toCurrency: quote.to_currency.toUpperCase(),
+                },
+                enablePush: true,
+            });
+
             throw new GeneralTransactionException(
                 "Swap failed. Please try again or contact support.",
                 HttpStatus.INTERNAL_SERVER_ERROR

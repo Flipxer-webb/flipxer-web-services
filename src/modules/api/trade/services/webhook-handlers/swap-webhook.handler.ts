@@ -10,6 +10,7 @@ import {
     SwapTransactionHandlerOptions,
 } from "../../interfaces/trade";
 import {
+    OrderCategory,
     OrderStatus,
     User,
 } from "@prisma/client";
@@ -108,7 +109,51 @@ export class SwapWebhookHandler {
 
         if (options.status == OrderStatus.completed) {
             await this.handleSwapCompleted(transaction);
+        } else if (
+            options.status === OrderStatus.failed ||
+            options.status === OrderStatus.reversed ||
+            options.status === OrderStatus.cancelled
+        ) {
+            await this.handleSwapFailed(transaction, options.status);
         }
+    }
+
+    /**
+     * Handle swap failure/reversal/cancellation - send notifications
+     */
+    private async handleSwapFailed(transaction: any, status: string) {
+        // Sync both wallets (in case funds were returned)
+        await Promise.all([
+            this.walletAddressService.syncWallet(transaction.user.id, transaction.fromCurrency),
+            this.walletAddressService.syncWallet(transaction.user.id, transaction.toCurrency),
+        ]);
+
+        this.wsGateway.notifyWalletUpdate(transaction.user.id);
+
+        const statusLabel = status === OrderStatus.reversed ? 'reversed' : status === OrderStatus.cancelled ? 'cancelled' : 'failed';
+        const message = `\u274C Your swap of ${transaction.fromAmount} ${transaction.fromCurrency?.toUpperCase()} to ${transaction.toCurrency?.toUpperCase()} has ${statusLabel}. Transaction ID: ${transaction.transactionId}.`;
+
+        await this.notificationDispatcher.notify({
+            userId: transaction.user.id,
+            title: `Swap ${statusLabel}`,
+            body: message,
+            currency: transaction.fromCurrency,
+            transactionType: transaction.orderCategory,
+            enableEmail: true,
+            emailPayload: {
+                email: transaction.user.email,
+                transactionType: 'swap',
+                transactionId: transaction.transactionId,
+                amount: String(transaction.fromAmount),
+                currency: transaction.fromCurrency?.toUpperCase(),
+                status: statusLabel,
+                date: new Date().toISOString(),
+                fromAmount: String(transaction.fromAmount),
+                fromCurrency: transaction.fromCurrency?.toUpperCase(),
+                toCurrency: transaction.toCurrency?.toUpperCase(),
+            },
+            enablePush: true,
+        });
     }
 
     /**

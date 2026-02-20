@@ -563,6 +563,16 @@ export class SendService {
                 reason: "LOW_LIQUIDITY",
             });
 
+            // Send queued notification (in-app + push)
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Send transaction queued",
+                body: `\u23F3 Your send of ${dto.amount} ${currency.toUpperCase()} is being processed. This may take a few minutes. Transaction ID: ${transactionId}.`,
+                currency: currency,
+                transactionType: OrderCategory.SEND,
+                enablePush: true,
+            });
+
             // Emit wallet update
             this.wsGateway.notifyWalletUpdate(user.id);
 
