@@ -6,6 +6,7 @@ import {
     HttpCode,
     HttpStatus,
     Logger,
+    Param,
     Post,
     Query,
     UseGuards,
@@ -172,6 +173,30 @@ export class TradingController {
         @User() user: UserModel
     ) {
         return await this.tradingService.buyCryptoOrder(user, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get buy order payment status (polling fallback)" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Get("buy/status/:reference")
+    async getBuyOrderStatus(
+        @Param("reference") reference: string,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.getBuyOrderStatus(reference, user.id);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Cancel a pending buy order" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("buy/cancel/:reference")
+    async cancelBuyOrder(
+        @Param("reference") reference: string,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.cancelBuyOrder(reference, user.id);
     }
 
     @HttpCode(HttpStatus.OK)

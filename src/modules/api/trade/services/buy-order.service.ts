@@ -38,6 +38,7 @@ import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
 } from "../constants";
+import { generateUssdCode } from "@/libs/nomba/ussd-codes";
 
 /**
  * Buy Order Service
@@ -214,6 +215,9 @@ export class BuyOrderService {
 
     /**
      * Places a buy order for crypto
+     * Creates a temporary Nomba virtual account for the user to transfer to.
+     * Returns payment instructions (account details, USSD code, expiry) instead
+     * of a checkout redirect URL.
      */
     async buyCryptoOrder(user: User, dto: InitiateBuyOrderDto) {
         const responseData = await this.calculateBuyQuote(user, dto);
@@ -229,23 +233,12 @@ export class BuyOrderService {
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
 
-        // Generate callback URL for Nomba to redirect after payment
-        // The frontend checks for ?buy=success and uses the stored reference for verification
-        // We don't include ref in URL since Nomba returns their own orderReference which we store
-        const callbackUrl = `${frontendUrl}/?buy=success`;
-
-        const { data } = await this.nombaService.initializePayment(
-            userData,
-            amount,
-            callbackUrl
-            // No checkoutReference override - let Nomba generate and use their orderReference
-        );
-
-        const result = data as {
-            link: string;
-            reference: string;  // This is now Nomba's orderReference
-            amount: number;
-        };
+        // Create a dynamic virtual account instead of a hosted checkout
+        const { data: vaData } =
+            await this.nombaService.initializePaymentViaVirtualAccount(
+                userData,
+                amount
+            );
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -276,7 +269,7 @@ export class BuyOrderService {
                 });
                 await tx.payment.create({
                     data: {
-                        reference: result.reference,
+                        reference: vaData.reference,
                         userId: user.id,
                         amount:
                             responseData.buyRate * responseData.cryptoBuyAmount,
@@ -327,14 +320,27 @@ export class BuyOrderService {
             enablePush: true,
         });
 
+        // Generate USSD code if bank is supported
+        const ussdCode = generateUssdCode(
+            vaData.bankCode,
+            vaData.accountNumber,
+            amount
+        );
+
         return buildResponse({
             message:
                 "Order placed successfully, Please proceed to make payment",
             data: {
                 order: order,
                 paymentInfo: {
-                    ...data,
-                    authorization_url: data.link,
+                    reference: vaData.reference,
+                    accountNumber: vaData.accountNumber,
+                    accountName: vaData.accountName,
+                    bankName: vaData.bankName,
+                    bankCode: vaData.bankCode,
+                    amount,
+                    expiryAt: vaData.expiryAt,
+                    ussdCode,
                 },
             },
         });
@@ -567,6 +573,180 @@ export class BuyOrderService {
                 updatedAt: order.updatedAt,
             },
         });
+    }
+
+    /**
+     * Get the status of a buy order by payment reference.
+     * Used as a polling fallback when WebSocket is unavailable.
+     */
+    async getBuyOrderStatus(reference: string, userId: number) {
+        const payment = await this.prisma.payment.findFirst({
+            where: { reference, userId },
+            include: { order: true },
+        });
+
+        if (!payment) {
+            return buildResponse({
+                message: "Payment not found",
+                data: { status: "not_found" },
+            });
+        }
+
+        const order = payment.order;
+        const status =
+            payment.status === TransactionStatus.SUCCESS
+                ? "completed"
+                : payment.status === TransactionStatus.FAILED
+                ? "failed"
+                : payment.status === TransactionStatus.APPROVED
+                ? "processing"
+                : "pending";
+
+        return buildResponse({
+            message: "Buy order status retrieved",
+            data: {
+                status,
+                paymentStatus: payment.status,
+                orderStatus: order?.status,
+                orderId: order?.id,
+                transactionId: order?.transactionId,
+            },
+        });
+    }
+
+    /**
+     * Cancel a pending buy order.
+     * Only cancels if payment is still PENDING (no money received yet).
+     */
+    async cancelBuyOrder(reference: string, userId: number) {
+        const payment = await this.prisma.payment.findFirst({
+            where: { reference, userId, status: TransactionStatus.PENDING },
+            include: { order: true },
+        });
+
+        if (!payment) {
+            return buildResponse({
+                message: "No pending payment found for this reference",
+                data: { cancelled: false },
+            });
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.payment.update({
+                where: { id: payment.id },
+                data: {
+                    status: TransactionStatus.FAILED,
+                    paymentStatus: TransactionStatus.FAILED,
+                },
+            });
+
+            if (payment.orderId) {
+                await tx.order.update({
+                    where: { id: payment.orderId },
+                    data: {
+                        status: OrderStatus.cancelled,
+                        streamlinedStatus: getStreamlinedStatus(
+                            OrderStatus.cancelled
+                        ),
+                        paymentStatus: TransactionStatus.FAILED,
+                    },
+                });
+            }
+        });
+
+        // Emit updates
+        if (payment.order) {
+            const updatedOrder = await this.prisma.order.findUnique({
+                where: { id: payment.orderId! },
+            });
+            if (updatedOrder) {
+                this.emitTransactionUpdate(userId, updatedOrder);
+            }
+        }
+        this.wsGateway.notifyWalletUpdate(userId);
+
+        this.logger.log(
+            `Buy order cancelled by user ${userId} | Payment ref: ${reference}`
+        );
+
+        return buildResponse({
+            message: "Buy order cancelled successfully",
+            data: { cancelled: true },
+        });
+    }
+
+    /**
+     * Cancel expired buy orders.
+     * Called by a scheduled job to clean up orders whose virtual account expired
+     * without receiving payment.
+     */
+    async cancelExpiredBuyOrders() {
+        const expiredPayments = await this.prisma.payment.findMany({
+            where: {
+                status: TransactionStatus.PENDING,
+                paymentMethod: PaymentMethod.NOMBA,
+                type: TransactionType.P2P_PAYMENT,
+                orderId: { not: null },
+                // Orders older than 35 minutes (5 min buffer beyond 30 min VA expiry)
+                createdAt: {
+                    lt: new Date(Date.now() - 35 * 60 * 1000),
+                },
+            },
+            include: { order: true },
+        });
+
+        this.logger.log(
+            `Found ${expiredPayments.length} expired buy order payments to cancel`
+        );
+
+        for (const payment of expiredPayments) {
+            try {
+                await this.prisma.$transaction(async (tx) => {
+                    await tx.payment.update({
+                        where: { id: payment.id },
+                        data: {
+                            status: TransactionStatus.FAILED,
+                            paymentStatus: TransactionStatus.FAILED,
+                        },
+                    });
+
+                    if (payment.orderId) {
+                        await tx.order.update({
+                            where: { id: payment.orderId },
+                            data: {
+                                status: OrderStatus.cancelled,
+                                streamlinedStatus: getStreamlinedStatus(
+                                    OrderStatus.cancelled
+                                ),
+                                paymentStatus: TransactionStatus.FAILED,
+                            },
+                        });
+                    }
+                });
+
+                // Emit updates
+                if (payment.order) {
+                    this.emitTransactionUpdate(payment.userId, {
+                        ...payment.order,
+                        status: OrderStatus.cancelled,
+                        streamlinedStatus: getStreamlinedStatus(
+                            OrderStatus.cancelled
+                        ),
+                    });
+                }
+                this.wsGateway.notifyWalletUpdate(payment.userId);
+
+                this.logger.log(
+                    `Cancelled expired buy order | Payment: ${payment.id} | Ref: ${payment.reference}`
+                );
+            } catch (error) {
+                this.logger.error(
+                    `Failed to cancel expired payment ${payment.id}: ${error.message}`
+                );
+            }
+        }
+
+        return expiredPayments.length;
     }
 
 

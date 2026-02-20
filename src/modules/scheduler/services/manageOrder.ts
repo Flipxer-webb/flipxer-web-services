@@ -4,6 +4,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { Mutex } from "async-mutex"; // Import Mutex
 import { OrderCategory, OrderStatus } from "@prisma/client";
 import { TradingService } from "@/modules/api/trade/services";
+import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
 
 @Injectable()
 export class ManageOrdersSchedulerService {
@@ -12,7 +13,8 @@ export class ManageOrdersSchedulerService {
 
     constructor(
         private prisma: PrismaService,
-        private tradingService: TradingService
+        private tradingService: TradingService,
+        private buyOrderService: BuyOrderService
     ) {}
 
     //every 1hr "0 */1 * * *"
@@ -223,6 +225,29 @@ export class ManageOrdersSchedulerService {
         } finally {
             release(); // Ensure lock is released even if an error occurs
             this.logger.debug("Lock released: Job completed");
+        }
+    }
+
+    /**
+     * Cancel expired buy orders whose virtual account payment window has passed.
+     * Runs every 5 minutes.
+     */
+    @Cron("*/5 * * * *", { timeZone: "Africa/Lagos" })
+    async cancelExpiredBuyOrders() {
+        this.logger.debug("Expired buy order cleanup cron triggered");
+        try {
+            const count =
+                await this.buyOrderService.cancelExpiredBuyOrders();
+            if (count > 0) {
+                this.logger.log(
+                    `Cancelled ${count} expired buy orders`
+                );
+            }
+        } catch (error) {
+            this.logger.error(
+                "Error cancelling expired buy orders:",
+                error
+            );
         }
     }
 }

@@ -298,6 +298,20 @@ export class TradingService {
     }
 
     /**
+     * Get buy order payment status by reference - delegates to BuyOrderService
+     */
+    async getBuyOrderStatus(reference: string, userId: number) {
+        return this.buyOrderService.getBuyOrderStatus(reference, userId);
+    }
+
+    /**
+     * Cancel a pending buy order - delegates to BuyOrderService
+     */
+    async cancelBuyOrder(reference: string, userId: number) {
+        return this.buyOrderService.cancelBuyOrder(reference, userId);
+    }
+
+    /**
      * Places a sell order - delegates to SellOrderService
      */
     async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {

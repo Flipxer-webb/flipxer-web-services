@@ -72,6 +72,7 @@ export interface NombaVirtualAccountResponse {
         bankCode: string;
         currency: string;
         status: string;
+        expiryDate?: string; // ISO date — returned by Nomba for dynamic accounts
     };
 }
 

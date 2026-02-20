@@ -179,6 +179,8 @@ export class NombaBank implements TNomba.INombaBank {
      *
      * NOTE: When integrating redirect-based checkout flows, callers may provide a
      * deterministic reference so the frontend can safely verify status post-redirect.
+     *
+     * @deprecated Use initializePaymentViaVirtualAccount for new buy flows
      */
     async initializePayment(
         user: NombaUserRecord,
@@ -270,6 +272,77 @@ export class NombaBank implements TNomba.INombaBank {
                 error instanceof Error
                     ? error.message
                     : "Failed to verify transaction",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    /**
+     * Initialize payment via a dynamic virtual account (no hosted checkout redirect).
+     * Creates a temporary Nomba virtual account with an expiry.
+     * Returns account details for the user to transfer to directly.
+     */
+    async initializePaymentViaVirtualAccount(
+        user: NombaUserRecord,
+        amount: number,
+        referenceOverride?: string,
+        expiryMinutes: number = 30
+    ) {
+        try {
+            const reference =
+                referenceOverride || generateId({ type: "reference" });
+
+            const expiryDate = new Date(
+                Date.now() + expiryMinutes * 60 * 1000
+            ).toISOString();
+
+            logger.info(
+                { userId: user.id, amount, reference, expiryDate },
+                "****INITIALIZE VA PAYMENT REQUEST****** NOMBA"
+            );
+
+            const result = await this.nomba.createVirtualAccount({
+                accountRef: reference,
+                accountName:
+                    `${user.firstName} ${user.lastName}`.trim() ||
+                    "Flipxer User",
+                currency: "NGN",
+                expiryDate,
+            });
+
+            logger.info(
+                { result: JSON.stringify(result) },
+                "****INITIALIZE VA PAYMENT RESPONSE****** NOMBA"
+            );
+
+            if (!result || result.code !== "00") {
+                throw new e.NombaWorkflowException(
+                    result?.description ||
+                        "Failed to create payment virtual account",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            return {
+                status: true,
+                message: "Payment virtual account created successfully",
+                data: {
+                    reference,
+                    accountNumber: result.data.accountNumber,
+                    accountName: result.data.accountName,
+                    bankName: result.data.bankName,
+                    bankCode: result.data.bankCode,
+                    amount,
+                    // Use Nomba's returned expiryDate if available, otherwise our calculated one
+                    expiryAt: result.data.expiryDate || expiryDate,
+                },
+            };
+        } catch (error) {
+            logger.error(error, "****INITIALIZE VA PAYMENT****** NOMBA");
+            throw new e.NombaWorkflowException(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to initialize virtual account payment",
                 HttpStatus.BAD_REQUEST
             );
         }
