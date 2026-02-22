@@ -368,6 +368,7 @@ export class WithdrawerRequestDto {
     amount: number;
 
     @ApiProperty({ required: false })
+    @Transform(({ value }) => value?.toLowerCase()?.trim())
     @IsOptional()
     @IsString()
     recipientEmail?: string;

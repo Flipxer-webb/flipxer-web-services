@@ -788,17 +788,21 @@ export class SendService {
             );
         }
 
+        // Normalize recipient email — emails are stored lowercase at registration,
+        // but users may type mixed-case input causing case-sensitive lookup misses
+        const recipientEmail = dto.recipientEmail.toLowerCase().trim();
+
         // 1. Resolve Recipient
         // Using prisma directly to avoid circular dependency if UserService is not available or to be efficient
         const recipient = await this.prisma.user.findUnique({
-            where: { email: dto.recipientEmail },
+            where: { email: recipientEmail },
             select: { id: true, email: true, firstName: true, lastName: true },
         });
 
         if (!recipient) {
             throw new IncompleteAccountSetupException(
-                "Recipient user not found",
-                HttpStatus.NOT_FOUND
+                "No account found with this email address. Please check and try again.",
+                HttpStatus.BAD_REQUEST
             );
         }
 
@@ -811,15 +815,6 @@ export class SendService {
 
         // 2. Rate limits bypassed for internal transfers
         // External withdrawals still check limits earlier in the flow
-
-        // 3. Check Balance
-        const balance = await this.ledgerService.getBalance(user.id, currency);
-        if (balance.available.lessThan(totalAmount)) {
-            throw new IncompleteAccountSetupException(
-                `Insufficient balance. Available: ${balance.available.toString()} ${currency}`,
-                HttpStatus.BAD_REQUEST
-            );
-        }
 
         let reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });
@@ -844,142 +839,181 @@ export class SendService {
             }
         }
 
-        // TASK-006: Wrap validation + transfer inside distributed lock scope
-        // This prevents race conditions where balance changes between validation and transfer
-        const transferResult = await this.ledgerService.runWithMultiUserLocks(
-            [user.id, recipient.id],
-            currency,
-            async () => {
-                // 4. Validation (Monitor) - now inside lock scope
-                const monitorResult = await this.transactionMonitor.validateBeforeExecution({
-                    userId: user.id,
-                    currency,
-                    amount: totalAmount,
-                    operationType: "SEND", // Monitor as SEND
-                    reference: `send:${reference}`,
-                });
-
-                if (!monitorResult.success) {
-                    this.logger.warn(
-                        `Transaction monitor blocked internal send | User: ${user.id} | Amount: ${totalAmount} | Reason: ${monitorResult.reason}`
-                    );
-                    throw new GeneralTransactionException(
-                        monitorResult.reason || "Transaction blocked by monitoring system",
-                        HttpStatus.FORBIDDEN
-                    );
-                }
-
-                // 5. Execute Atomic Transfer with skipLocking since we already hold the locks
-                return await this.ledgerService.internalTransfer(
-                    user.id,
-                    recipient.id,
-                    currency,
-                    totalAmount,
-                    reference,
-                    dto.narration || dto.transaction_note,
-                    true // skipLocking - caller already holds locks
+        // From this point on, the user's intent is clear — record failures in history
+        try {
+            // 3. Check Balance
+            const balance = await this.ledgerService.getBalance(user.id, currency);
+            if (balance.available.lessThan(totalAmount)) {
+                throw new IncompleteAccountSetupException(
+                    `Insufficient balance. Available: ${balance.available.toString()} ${currency}`,
+                    HttpStatus.BAD_REQUEST
                 );
             }
-        );
 
-        if (!transferResult.success) {
-            throw new GeneralTransactionException(
-                transferResult.error || "Transfer failed",
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
-        }
-
-        // 6. Create Order Record (Sender side)
-        const amtFiat = await this.getAmountInNaira(currency, totalAmount);
-
-        await this.prisma.order.create({
-            data: {
-                orderCategory: OrderCategory.SEND,
-                status: OrderStatus.completed, // Done immediately
-                streamlinedStatus: "completed",
-                orderReference: reference,
-                transactionId: transactionId,
-                userId: user.id,
-                currency: currency,
-                narration: dto.narration,
-                transaction_note: dto.transaction_note,
-                recipient: recipient.email, // Store email as recipient
-                amount: totalAmount,
-                amountInFiat: amtFiat?.amount,
-                rateAtConversion: amtFiat?.rate,
-                ledgerEntryId: transferResult.entryId,
-                fulfilled: true,
-            },
-        });
-
-        // 7. Notifications
-        // Notify Sender
-        await this.notificationDispatcher.notify({
-            userId: user.id,
-            title: "Transfer Sent",
-            body: `You sent ${totalAmount} ${currency} to ${recipient.email}`,
-            currency: currency,
-            transactionType: OrderCategory.SEND,
-            enableEmail: true,
-            enablePush: true,
-        });
-
-        // 8. Create Order Record (Recipient side) - Fix for missing history
-        // Recipient needs a "RECEIVE" record to see it in their history
-        await this.prisma.order.create({
-            data: {
-                orderCategory: OrderCategory.RECEIVE,
-                status: OrderStatus.completed,
-                streamlinedStatus: "completed",
-                orderReference: `RCV-${reference}`, // Unique reference for recipient
-                transactionId: `${transactionId}-2`, // Ensure uniqueness
-                userId: recipient.id,
-                currency: currency,
-                narration: dto.narration,
-                transaction_note: dto.transaction_note,
-                sender: user.email, // Store sender email
-                amount: totalAmount,
-                amountInFiat: amtFiat?.amount,
-                rateAtConversion: amtFiat?.rate,
-                ledgerEntryId: transferResult.creditEntryId || transferResult.entryId, // Issue #3 fix: use recipient's credit entry
-                fulfilled: true,
-            },
-        });
-
-        // Notify Recipient
-        await this.notificationDispatcher.notify({
-            userId: recipient.id,
-            title: "Funds Received",
-            body: `You received ${totalAmount} ${currency} from ${user.email}`,
-            currency: currency,
-            transactionType: OrderCategory.RECEIVE, // Assuming RECEIVE exists or fallback
-            enableEmail: true,
-            enablePush: true,
-        });
-
-        // Emit Wallet Updates
-        this.wsGateway.notifyWalletUpdate(user.id);
-        this.wsGateway.notifyWalletUpdate(recipient.id);
-
-        return buildResponse({
-            message: "Transfer successful",
-            data: {
-                transactionId,
-                status: "completed",
-                amount: String(totalAmount),
+            // TASK-006: Wrap validation + transfer inside distributed lock scope
+            // This prevents race conditions where balance changes between validation and transfer
+            const transferResult = await this.ledgerService.runWithMultiUserLocks(
+                [user.id, recipient.id],
                 currency,
-                fee: "0",
-                total: String(totalAmount),
-                recipient: {
-                    details: {
-                        address: recipient.email,
-                        destination_tag: "",
-                        name: null,
-                    },
-                    type: "internal",
+                async () => {
+                    // 4. Validation (Monitor) - now inside lock scope
+                    const monitorResult = await this.transactionMonitor.validateBeforeExecution({
+                        userId: user.id,
+                        currency,
+                        amount: totalAmount,
+                        operationType: "SEND", // Monitor as SEND
+                        reference: `send:${reference}`,
+                    });
+
+                    if (!monitorResult.success) {
+                        this.logger.warn(
+                            `Transaction monitor blocked internal send | User: ${user.id} | Amount: ${totalAmount} | Reason: ${monitorResult.reason}`
+                        );
+                        throw new GeneralTransactionException(
+                            monitorResult.reason || "Transaction blocked by monitoring system",
+                            HttpStatus.FORBIDDEN
+                        );
+                    }
+
+                    // 5. Execute Atomic Transfer with skipLocking since we already hold the locks
+                    return await this.ledgerService.internalTransfer(
+                        user.id,
+                        recipient.id,
+                        currency,
+                        totalAmount,
+                        reference,
+                        dto.narration || dto.transaction_note,
+                        true // skipLocking - caller already holds locks
+                    );
+                }
+            );
+
+            if (!transferResult.success) {
+                throw new GeneralTransactionException(
+                    transferResult.error || "Transfer failed",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
+
+            // 6. Create Order Record (Sender side)
+            const amtFiat = await this.getAmountInNaira(currency, totalAmount);
+
+            await this.prisma.order.create({
+                data: {
+                    orderCategory: OrderCategory.SEND,
+                    status: OrderStatus.completed, // Done immediately
+                    streamlinedStatus: "completed",
+                    orderReference: reference,
+                    transactionId: transactionId,
+                    userId: user.id,
+                    currency: currency,
+                    narration: dto.narration,
+                    transaction_note: dto.transaction_note,
+                    recipient: recipient.email, // Store email as recipient
+                    amount: totalAmount,
+                    amountInFiat: amtFiat?.amount,
+                    rateAtConversion: amtFiat?.rate,
+                    ledgerEntryId: transferResult.entryId,
+                    fulfilled: true,
                 },
-                created_at: new Date().toISOString(),
-            },
-        });
+            });
+
+            // 7. Notifications
+            // Notify Sender
+            await this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Transfer Sent",
+                body: `You sent ${totalAmount} ${currency} to ${recipient.email}`,
+                currency: currency,
+                transactionType: OrderCategory.SEND,
+                enableEmail: true,
+                enablePush: true,
+            });
+
+            // 8. Create Order Record (Recipient side) - Fix for missing history
+            // Recipient needs a "RECEIVE" record to see it in their history
+            await this.prisma.order.create({
+                data: {
+                    orderCategory: OrderCategory.RECEIVE,
+                    status: OrderStatus.completed,
+                    streamlinedStatus: "completed",
+                    orderReference: `RCV-${reference}`, // Unique reference for recipient
+                    transactionId: `${transactionId}-2`, // Ensure uniqueness
+                    userId: recipient.id,
+                    currency: currency,
+                    narration: dto.narration,
+                    transaction_note: dto.transaction_note,
+                    sender: user.email, // Store sender email
+                    amount: totalAmount,
+                    amountInFiat: amtFiat?.amount,
+                    rateAtConversion: amtFiat?.rate,
+                    ledgerEntryId: transferResult.creditEntryId || transferResult.entryId, // Issue #3 fix: use recipient's credit entry
+                    fulfilled: true,
+                },
+            });
+
+            // Notify Recipient
+            await this.notificationDispatcher.notify({
+                userId: recipient.id,
+                title: "Funds Received",
+                body: `You received ${totalAmount} ${currency} from ${user.email}`,
+                currency: currency,
+                transactionType: OrderCategory.RECEIVE, // Assuming RECEIVE exists or fallback
+                enableEmail: true,
+                enablePush: true,
+            });
+
+            // Emit Wallet Updates
+            this.wsGateway.notifyWalletUpdate(user.id);
+            this.wsGateway.notifyWalletUpdate(recipient.id);
+
+            return buildResponse({
+                message: "Transfer successful",
+                data: {
+                    transactionId,
+                    status: "completed",
+                    amount: String(totalAmount),
+                    currency,
+                    fee: "0",
+                    total: String(totalAmount),
+                    recipient: {
+                        details: {
+                            address: recipient.email,
+                            destination_tag: "",
+                            name: null,
+                        },
+                        type: "internal",
+                    },
+                    created_at: new Date().toISOString(),
+                },
+            });
+        } catch (error) {
+            // Record failed order so the attempt appears in user's transaction history
+            try {
+                await this.prisma.order.create({
+                    data: {
+                        orderCategory: OrderCategory.SEND,
+                        status: OrderStatus.failed,
+                        streamlinedStatus: "failed",
+                        orderReference: reference,
+                        transactionId: transactionId,
+                        userId: user.id,
+                        currency: currency,
+                        narration: `Failed: ${error.message || "Transfer failed"}`,
+                        transaction_note: dto.transaction_note,
+                        recipient: recipient.email,
+                        amount: totalAmount,
+                        fulfilled: false,
+                    },
+                });
+            } catch (orderError) {
+                this.logger.error(
+                    `Failed to record failed internal transfer order | User: ${user.id} | Ref: ${reference} | Error: ${orderError.message}`
+                );
+            }
+
+            // Re-throw the original error
+            throw error;
+        }
     }
 }
