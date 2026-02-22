@@ -297,6 +297,8 @@ export class NombaBank implements TNomba.INombaBank {
             );
             // Nomba expects format "YYYY-MM-DD HH:mm:ss" (no T, no Z)
             const expiryDate = expiryDateObj.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+            // Full ISO 8601 for the frontend — unambiguous UTC across all browsers
+            const expiryAtISO = expiryDateObj.toISOString();
 
             logger.info(
                 { userId: user.id, amount, reference, expiryDate },
@@ -335,7 +337,7 @@ export class NombaBank implements TNomba.INombaBank {
                     bankName: result.data.bankName,
                     bankCode: "", // Nomba doesn't return bankCode for VAs
                     amount,
-                    expiryAt: expiryDate,
+                    expiryAt: expiryAtISO,
                 },
             };
         } catch (error) {
