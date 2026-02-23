@@ -57,6 +57,7 @@ import {
     GetCryptoWithdrawerFeeDto,
     GetWalletDto,
     GetWalletAddressesDto,
+    BuyCryptoOrderDto,
     InitiateBuyOrderDto,
     InitiateSellOrderDto,
     InitiateWalletCreationDto,
@@ -292,9 +293,16 @@ export class TradingService {
     /**
      * Places a buy order - delegates to BuyOrderService
      */
-    async buyCryptoOrder(user: User, dto: InitiateBuyOrderDto) {
+    async buyCryptoOrder(user: User, dto: BuyCryptoOrderDto) {
         await this.enforcePasswordChangeCooldown(user.id);
         return this.buyOrderService.buyCryptoOrder(user, dto);
+    }
+
+    /**
+     * Confirm user has sent payment - delegates to BuyOrderService
+     */
+    async confirmPaymentSent(reference: string, userId: number) {
+        return this.buyOrderService.confirmPaymentSent(reference, userId);
     }
 
     /**

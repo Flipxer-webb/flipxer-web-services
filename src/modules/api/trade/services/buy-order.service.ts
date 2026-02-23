@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
@@ -28,7 +28,7 @@ import {
     CryptoTransactionFeeNotFoundException,
 } from "../../settings/errors";
 import { BuyQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
-import { InitiateBuyOrderDto } from "../dtos";
+import { BuyCryptoOrderDto, InitiateBuyOrderDto } from "../dtos";
 import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
@@ -219,7 +219,54 @@ export class BuyOrderService {
      * Returns payment instructions (account details, USSD code, expiry) instead
      * of a checkout redirect URL.
      */
-    async buyCryptoOrder(user: User, dto: InitiateBuyOrderDto) {
+    async buyCryptoOrder(user: User, dto: BuyCryptoOrderDto) {
+        // IDEMPOTENCY CHECK: Return existing order if same idempotencyKey was already used
+        if (dto.idempotencyKey) {
+            const existingPayment = await this.prisma.payment.findUnique({
+                where: { idempotencyKey: dto.idempotencyKey },
+                include: { order: true },
+            });
+
+            if (existingPayment && existingPayment.order) {
+                this.logger.warn(
+                    `Duplicate buy request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`
+                );
+
+                return this.buildExistingOrderResponse(existingPayment);
+            }
+        }
+
+        // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset
+        // Catches cases where frontend generates a new idempotencyKey (e.g. modal re-opened)
+        // but user already has a non-expired pending buy order for the same asset.
+        const existingPendingPayment = await this.prisma.payment.findFirst({
+            where: {
+                userId: user.id,
+                status: TransactionStatus.PENDING,
+                paymentMethod: PaymentMethod.NOMBA,
+                type: TransactionType.P2P_PAYMENT,
+                orderId: { not: null },
+                order: {
+                    orderCategory: OrderCategory.BUY,
+                    currency: dto.asset.toUpperCase(),
+                    status: OrderStatus.pending,
+                },
+                // Only consider orders within the VA expiry window (35 min)
+                createdAt: {
+                    gt: new Date(Date.now() - 35 * 60 * 1000),
+                },
+            },
+            include: { order: true },
+        });
+
+        if (existingPendingPayment && existingPendingPayment.order) {
+            this.logger.warn(
+                `User ${user.id} already has a pending buy order for ${dto.asset.toUpperCase()} (Order: ${existingPendingPayment.orderId}) - Returning existing order`
+            );
+
+            return this.buildExistingOrderResponse(existingPendingPayment);
+        }
+
         const responseData = await this.calculateBuyQuote(user, dto);
 
         const userData = {
@@ -289,6 +336,10 @@ export class BuyOrderService {
                         orderId: order.id,
                         isDebit: false,
                         expectedCurrency: responseData.currency,
+                        idempotencyKey: dto.idempotencyKey || null,
+                        destinationBankAccountNumber: vaData.accountNumber,
+                        destinationBankAccountName: vaData.accountName,
+                        destinationBankName: vaData.bankName,
                     },
                 });
 
@@ -387,6 +438,23 @@ export class BuyOrderService {
             } else if (existing.status === TransactionStatus.APPROVED) {
                 // Another webhook instance is currently processing - let that one finish
                 this.logger.log(`Payment ${reference} currently being processed by another instance`);
+            } else if (existing.status === TransactionStatus.FAILED) {
+                // Payment was cancelled but Nomba still sent money — needs manual refund
+                this.logger.error(
+                    `Payment ${reference} was cancelled/failed but received funds — manual refund required`
+                );
+                await this.slackWebhookService.sendWebhookFailureAlert(
+                    'nomba',
+                    reference,
+                    'Payment received for a cancelled/failed order. Manual refund required.',
+                    {
+                        paymentId: existing.id,
+                        orderId: existing.orderId,
+                        userId: existing.userId,
+                        amount: Number(existing.totalAmount),
+                        status: existing.status,
+                    }
+                );
             } else {
                 this.logger.log(`Payment ${reference} in unexpected state: ${existing.status}`);
             }
@@ -558,6 +626,42 @@ export class BuyOrderService {
         }
     }
 
+    /**
+     * Build a response for an existing order (used by idempotency check and pending order guard).
+     * Calculates proper VA expiry from the payment creation time.
+     */
+    private buildExistingOrderResponse(existingPayment: any) {
+        // VA expires 35 minutes after creation
+        const VA_EXPIRY_MINUTES = 35;
+        const expiryTime = existingPayment.createdAt.getTime() + VA_EXPIRY_MINUTES * 60 * 1000;
+        const expiryAt = new Date(expiryTime).toISOString();
+
+        // Don't return stale/near-expired VA details — force user to wait for expiry + create fresh order
+        const remainingMs = expiryTime - Date.now();
+        if (remainingMs < 2 * 60 * 1000) {
+            throw new BadRequestException(
+                'Your previous order has nearly expired. Please wait a moment and try again.'
+            );
+        }
+
+        return buildResponse({
+            message: "Order already exists for this request",
+            data: {
+                order: existingPayment.order,
+                paymentInfo: {
+                    reference: existingPayment.reference,
+                    accountNumber: existingPayment.destinationBankAccountNumber || "",
+                    accountName: existingPayment.destinationBankAccountName || "",
+                    bankName: existingPayment.destinationBankName || "",
+                    bankCode: "",
+                    amount: Number(existingPayment.totalAmount),
+                    expiryAt,
+                    ussdCode: null,
+                },
+            },
+        });
+    }
+
     private emitTransactionUpdate(userId: number, order: any) {
         this.wsGateway.notifyTransactionUpdate(userId, {
             type: "transaction_update",
@@ -631,14 +735,25 @@ export class BuyOrderService {
             });
         }
 
-        await this.prisma.$transaction(async (tx) => {
-            await tx.payment.update({
-                where: { id: payment.id },
+        // Atomic cancel: only cancel if payment is still PENDING.
+        // Prevents race condition where webhook claims PENDING→APPROVED between
+        // the findFirst above and this update.
+        const cancelled = await this.prisma.$transaction(async (tx) => {
+            const updated = await tx.payment.updateMany({
+                where: { id: payment.id, status: TransactionStatus.PENDING },
                 data: {
                     status: TransactionStatus.FAILED,
                     paymentStatus: TransactionStatus.FAILED,
                 },
             });
+
+            if (updated.count === 0) {
+                // Webhook claimed the payment between findFirst and now — abort cancel
+                this.logger.warn(
+                    `Cancel aborted: payment ${payment.id} no longer PENDING (webhook likely claimed it)`
+                );
+                return false;
+            }
 
             if (payment.orderId) {
                 await tx.order.update({
@@ -652,7 +767,16 @@ export class BuyOrderService {
                     },
                 });
             }
+
+            return true;
         });
+
+        if (!cancelled) {
+            return buildResponse({
+                message: "Order is already being processed and cannot be cancelled",
+                data: { cancelled: false },
+            });
+        }
 
         // Emit updates
         if (payment.order) {
@@ -724,9 +848,121 @@ export class BuyOrderService {
     }
 
     /**
+     * Record that the user clicked "I've sent the money".
+     * Sets a timestamp so the stuck-order detector can alert admins
+     * if the Nomba webhook doesn't arrive within a reasonable window.
+     */
+    async confirmPaymentSent(reference: string, userId: number) {
+        const payment = await this.prisma.payment.findFirst({
+            where: {
+                reference,
+                userId,
+                status: { in: [TransactionStatus.PENDING, TransactionStatus.APPROVED] },
+            },
+            include: { order: true },
+        });
+
+        if (!payment) {
+            return buildResponse({
+                message: "No active payment found for this reference",
+                data: { confirmed: false },
+            });
+        }
+
+        // Only set once — ignore duplicate clicks
+        if (!payment.paymentConfirmedByUser) {
+            await this.prisma.payment.update({
+                where: { id: payment.id },
+                data: { paymentConfirmedByUser: new Date() },
+            });
+
+            this.logger.log(
+                `User ${userId} confirmed payment sent | Ref: ${reference} | Order: ${payment.orderId}`
+            );
+        }
+
+        return buildResponse({
+            message: "Payment confirmation recorded",
+            data: { confirmed: true },
+        });
+    }
+
+    /**
+     * Detect buy orders where user confirmed payment but webhook hasn't arrived.
+     * Called by a scheduled cron job.
+     * Sends Slack alerts for admin intervention.
+     */
+    async detectStuckConfirmedOrders() {
+        const stuckPayments = await this.prisma.payment.findMany({
+            where: {
+                status: TransactionStatus.PENDING,
+                paymentMethod: PaymentMethod.NOMBA,
+                type: TransactionType.P2P_PAYMENT,
+                orderId: { not: null },
+                // Only alert payments we haven't already alerted
+                stuckAlertSentAt: null,
+                paymentConfirmedByUser: {
+                    not: null,
+                    // User confirmed over 5 minutes ago but webhook never arrived
+                    lt: new Date(Date.now() - 5 * 60 * 1000),
+                },
+            },
+            include: {
+                order: true,
+                user: { select: { id: true, email: true, firstName: true, lastName: true } },
+            },
+        });
+
+        if (stuckPayments.length === 0) return 0;
+
+        this.logger.warn(
+            `Found ${stuckPayments.length} stuck buy orders where user confirmed payment but webhook didn't arrive`
+        );
+
+        for (const payment of stuckPayments) {
+            try {
+                await this.slackWebhookService.sendWebhookFailureAlert(
+                    "nomba",
+                    payment.reference,
+                    "User confirmed payment sent but Nomba webhook never arrived. Manual verification required.",
+                    {
+                        orderId: payment.orderId,
+                        transactionId: payment.order?.transactionId,
+                        amount: payment.order?.amount,
+                        currency: payment.order?.currency,
+                        userId: payment.userId,
+                        userEmail: payment.user?.email,
+                        userName: `${payment.user?.firstName} ${payment.user?.lastName}`,
+                        confirmedAt: payment.paymentConfirmedByUser?.toISOString(),
+                        paymentCreatedAt: payment.createdAt.toISOString(),
+                    }
+                );
+
+                // Mark as alerted so we don't spam Slack on subsequent cron runs
+                await this.prisma.payment.update({
+                    where: { id: payment.id },
+                    data: { stuckAlertSentAt: new Date() },
+                });
+
+                this.logger.warn(
+                    `Slack alert sent for stuck order | Payment: ${payment.id} | Ref: ${payment.reference} | User: ${payment.userId}`
+                );
+            } catch (error) {
+                this.logger.error(
+                    `Failed to send Slack alert for stuck payment ${payment.id}: ${error.message}`
+                );
+            }
+        }
+
+        return stuckPayments.length;
+    }
+
+    /**
      * Cancel expired buy orders.
      * Called by a scheduled job to clean up orders whose virtual account expired
      * without receiving payment.
+     * NOTE: Excludes orders where user confirmed they sent payment — those are
+     * routed to the stuck-order detector for admin review instead.
      */
     async cancelExpiredBuyOrders() {
         const expiredPayments = await this.prisma.payment.findMany({
@@ -735,6 +971,8 @@ export class BuyOrderService {
                 paymentMethod: PaymentMethod.NOMBA,
                 type: TransactionType.P2P_PAYMENT,
                 orderId: { not: null },
+                // Don't auto-cancel orders where user confirmed payment — admin must review
+                paymentConfirmedByUser: null,
                 // Orders older than 35 minutes (5 min buffer beyond 30 min VA expiry)
                 createdAt: {
                     lt: new Date(Date.now() - 35 * 60 * 1000),
@@ -749,14 +987,22 @@ export class BuyOrderService {
 
         for (const payment of expiredPayments) {
             try {
-                await this.prisma.$transaction(async (tx) => {
-                    await tx.payment.update({
-                        where: { id: payment.id },
+                // Atomic: only cancel if still PENDING — prevents race with late webhook
+                const didCancel = await this.prisma.$transaction(async (tx) => {
+                    const updated = await tx.payment.updateMany({
+                        where: { id: payment.id, status: TransactionStatus.PENDING },
                         data: {
                             status: TransactionStatus.FAILED,
                             paymentStatus: TransactionStatus.FAILED,
                         },
                     });
+
+                    if (updated.count === 0) {
+                        this.logger.warn(
+                            `Skipping expired cancel for payment ${payment.id} — no longer PENDING`
+                        );
+                        return false;
+                    }
 
                     if (payment.orderId) {
                         await tx.order.update({
@@ -770,7 +1016,11 @@ export class BuyOrderService {
                             },
                         });
                     }
+
+                    return true;
                 });
+
+                if (!didCancel) continue;
 
                 // Emit updates
                 if (payment.order) {

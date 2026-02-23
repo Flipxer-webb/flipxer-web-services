@@ -212,6 +212,18 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Confirm user has sent payment for a buy order" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Post("buy/confirm-sent/:reference")
+    async confirmPaymentSent(
+        @Param("reference") reference: string,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.confirmPaymentSent(reference, user.id);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Initiate sell order" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")

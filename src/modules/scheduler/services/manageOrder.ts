@@ -250,4 +250,28 @@ export class ManageOrdersSchedulerService {
             );
         }
     }
+
+    /**
+     * Detect buy orders where user confirmed payment but Nomba webhook never arrived.
+     * Sends Slack alerts for admin intervention.
+     * Runs every 5 minutes.
+     */
+    @Cron("*/5 * * * *", { timeZone: "Africa/Lagos" })
+    async detectStuckConfirmedOrders() {
+        this.logger.debug("Stuck confirmed buy order detector cron triggered");
+        try {
+            const count =
+                await this.buyOrderService.detectStuckConfirmedOrders();
+            if (count > 0) {
+                this.logger.warn(
+                    `Detected ${count} stuck buy orders with user-confirmed payment`
+                );
+            }
+        } catch (error) {
+            this.logger.error(
+                "Error detecting stuck confirmed buy orders:",
+                error
+            );
+        }
+    }
 }

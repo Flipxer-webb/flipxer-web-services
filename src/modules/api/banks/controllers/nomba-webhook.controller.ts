@@ -6,6 +6,7 @@ import { TransactionStatus } from "@prisma/client";
 import * as Config from "@/config";
 import * as crypto from "crypto";
 import { BuyOrderService } from "../../trade/services/buy-order.service";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 
 @Controller("webhooks")
 export class NombaWebhookController {
@@ -13,7 +14,8 @@ export class NombaWebhookController {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly buyOrderService: BuyOrderService
+        private readonly buyOrderService: BuyOrderService,
+        private readonly slackWebhookService: SlackWebhookService,
     ) { }
 
     /**
@@ -179,6 +181,28 @@ export class NombaWebhookController {
         if (payment) {
             // Check if this payment is linked to a Buy Order
             if (payment.orderId) {
+                // Validate incoming amount against expected amount (1% tolerance for bank fees/rounding)
+                const expectedAmount = Number(payment.totalAmount);
+                if (expectedAmount > 0 && amount < expectedAmount * 0.99) {
+                    this.logger.error(
+                        `Underpayment detected | Ref: ${reference} | Expected: ${expectedAmount} | Received: ${amount}`
+                    );
+                    await this.slackWebhookService.sendWebhookFailureAlert(
+                        'nomba',
+                        reference,
+                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. Admin review required.`,
+                        {
+                            orderId: payment.orderId,
+                            userId: payment.userId,
+                            expectedAmount,
+                            receivedAmount: amount,
+                            shortfall: expectedAmount - amount,
+                        }
+                    );
+                    // Don't fulfill — payment stays PENDING for admin review
+                    return;
+                }
+
                 this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
                 // Let errors propagate so webhook returns 5xx and Nomba retries
                 await this.buyOrderService.fulfillBuyOrder(reference);

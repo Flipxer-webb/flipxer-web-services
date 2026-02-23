@@ -654,6 +654,9 @@ model Payment {
   destinationBankAccountNumber String?
   shortDescription             String?
   isDebit                      Boolean           @default(true)
+  idempotencyKey               String?           @unique
+  paymentConfirmedByUser       DateTime?
+  stuckAlertSentAt             DateTime?
   createdAt                    DateTime          @default(now())
   updatedAt                    DateTime          @updatedAt
   order                        Order?            @relation(fields: [orderId], references: [id])

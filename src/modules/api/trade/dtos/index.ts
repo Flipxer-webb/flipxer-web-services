@@ -131,6 +131,11 @@ export class BuyCryptoOrderDto {
     @IsPositive()
     @IsNumber()
     totalAmountToPayInFiat: number;
+
+    @ApiProperty({ description: "Unique key to prevent duplicate buy orders", required: true })
+    @IsNotEmpty()
+    @IsString()
+    idempotencyKey: string;
 }
 
 export class BankDetailDto {

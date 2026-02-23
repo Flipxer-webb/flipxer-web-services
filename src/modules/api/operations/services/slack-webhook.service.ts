@@ -287,7 +287,7 @@ export class SlackWebhookService {
      * Uses SLACK_WEBHOOK_URL environment variable directly for simplicity
      */
     async sendWebhookFailureAlert(
-        provider: 'fincra' | 'quidax',
+        provider: 'fincra' | 'quidax' | 'nomba',
         reference: string,
         error: string,
         details: Record<string, any> = {}
