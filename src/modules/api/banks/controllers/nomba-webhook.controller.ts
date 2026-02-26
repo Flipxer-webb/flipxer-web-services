@@ -54,9 +54,14 @@ export class NombaWebhookController {
 
         // Extract Standard Fields
         // 1. Reference: Must match what we stored in Payment.reference
+        //    - order.orderReference  → checkout/order flow
+        //    - data.reference        → generic events
+        //    - data.accountRef       → virtual-account credit events (VA buy flow)
+        //    - transaction.merchantTxRef → last-resort fallback (Nomba's own ref)
         const reference = order.orderReference
             || data.reference
-            || transaction.merchantTxRef; // Fallback only (Nomba's ref)
+            || data.accountRef
+            || transaction.merchantTxRef;
 
         // 2. Amount
         const amount = Number(data.amount || transaction.transactionAmount || order.amount || 0);
@@ -134,7 +139,9 @@ export class NombaWebhookController {
         try {
             // 3. Normalize Payload (The Fix)
             const event = this.normalizePayload(body);
-            this.logger.log(`Normalized Nomba Event: ${event.type} | Ref: ${event.reference}`);
+            this.logger.log(
+                `Normalized Nomba Event: ${event.type} | Ref: ${event.reference} | Amount: ${event.amount} | Provider Ref: ${event.providerReference}`
+            );
 
             // 4. Route based on Normalized Event
             switch (event.type) {
@@ -167,8 +174,13 @@ export class NombaWebhookController {
         const { reference, amount, metadata } = event;
 
         if (!reference) {
-            this.logger.warn("Missing reference in normalized payment event");
-            return;
+            this.logger.error(
+                `Missing reference in normalized payment event. Raw event_type: ${event.raw?.event_type || event.raw?.event}. ` +
+                `Keys in data: ${Object.keys(event.raw?.data || {}).join(', ')}`
+            );
+            throw new Error(
+                'Cannot process payment webhook: no reference could be extracted from the payload'
+            );
         }
 
         this.logger.log(`Processing incoming payment: ${amount} | Ref: ${reference}`);
