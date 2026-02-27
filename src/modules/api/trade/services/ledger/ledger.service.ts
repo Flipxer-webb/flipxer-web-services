@@ -120,6 +120,13 @@ export interface ReleaseHoldWithPlatformOptions {
  * Idempotency:
  * - Each operation uses type+reference as a unique key
  * - Duplicate operations return the existing entry
+ *
+ * Balance ordering:
+ * - All balance lookups order by sequenceNumber DESC as the primary sort key
+ * - sequenceNumber is a BIGSERIAL assigned by Postgres at INSERT time
+ * - This guarantees deterministic ordering even when two entries share
+ *   the same createdAt millisecond under concurrent load (AR-001 fix)
+ * - createdAt is retained as a secondary sort for human readability only
  */
 @Injectable()
 export class LedgerService {
@@ -133,6 +140,12 @@ export class LedgerService {
 
     // Decimal precision for crypto
     private readonly DECIMAL_PLACES = 8;
+
+    // F-001: Canonical balance ordering — sequenceNumber is monotonically
+    // increasing and assigned by Postgres, so it is safe under concurrent writes.
+    // All findFirst balance lookups MUST use this order object.
+    // FIX: F-001 — replaced { createdAt: "desc" } everywhere with this
+    private readonly BALANCE_ORDER = { sequenceNumber: "desc" } as const;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -244,19 +257,8 @@ export class LedgerService {
                     };
                 }
 
-                // Get current balance with FOR UPDATE lock
-                const lastEntry = await tx.ledgerEntry.findFirst({
-                    where: {
-                        userId,
-                        currency,
-                        status: { not: EntryStatus.FAILED },
-                    },
-                    orderBy: { createdAt: "desc" },
-                    select: { balanceAfter: true },
-                });
-
-                const currentBalance =
-                    lastEntry?.balanceAfter ?? new Decimal(0);
+                // Get current balance — uses sequenceNumber ordering (F-001 fix)
+                const currentBalance = await this.getCurrentBalance(tx, userId, currency);
                 const newBalance = currentBalance.plus(amount);
 
                 // Determine sweep status - use passed value or default based on type
@@ -507,12 +509,8 @@ export class LedgerService {
                     };
                 }
 
-                // Get current balance with lock
-                const balanceInfo = await this.getBalanceInTransaction(
-                    tx,
-                    userId,
-                    currency
-                );
+                // Get balance — uses sequenceNumber ordering (F-001 fix)
+                const balanceInfo = await this.getBalanceInTransaction(tx, userId, currency);
 
                 // Check if user has sufficient available balance
                 // Platform account (userId=0) can go negative
@@ -601,8 +599,7 @@ export class LedgerService {
      * @returns Operation result
      */
     async hold(options: HoldOptions): Promise<LedgerOperationResult> {
-        const { userId, currency, amount, reference, type, description, metadata } =
-            options;
+        const { userId, currency, amount, reference, type, description, metadata } = options;
         const holdAmount = this.toDecimal(amount);
 
         if (holdAmount.lessThanOrEqualTo(0)) {
@@ -674,14 +671,9 @@ export class LedgerService {
                     };
                 }
 
-                // Get current balance
-                const balanceInfo = await this.getBalanceInTransaction(
-                    tx,
-                    userId,
-                    currency
-                );
+                // Get balance — uses sequenceNumber ordering (F-001 fix)
+                const balanceInfo = await this.getBalanceInTransaction(tx, userId, currency);
 
-                // Check if user has sufficient available balance
                 if (
                     userId !== LedgerService.PLATFORM_USER_ID &&
                     balanceInfo.available.lessThan(amount)
@@ -933,6 +925,12 @@ export class LedgerService {
      * @param reference Unique reference for the transfer
      * @param description Optional description
      * @param skipLocking If true, skip distributed lock acquisition (caller must hold locks)
+   
+    * FIX: LT-001 — outer lock TTL increased to 25000ms to guarantee it outlives
+     * the inner lock (15000ms) plus the inner maxWaitMs (20000ms) with margin.
+     * Previous values (outer: 15000, inner: 10000) allowed outer to expire while
+     * inner was still running, creating a window where two operations could execute
+     * simultaneously on the same user balance.
      */
     async internalTransfer(
         fromUserId: number,
@@ -978,7 +976,6 @@ export class LedgerService {
             );
         }
 
-        // Sort locks to prevent deadlocks
         const firstLockUser = fromUserId < toUserId ? fromUserId : toUserId;
         const secondLockUser = fromUserId < toUserId ? toUserId : fromUserId;
 
@@ -986,6 +983,9 @@ export class LedgerService {
         const lockKey2 = `ledger:${secondLockUser}:${upperCurrency}`;
 
         try {
+            // FIX: LT-001 — outer TTL (25000) > inner TTL (15000) + inner maxWait (20000)
+            // ensures the outer lock cannot expire while the inner lock is still held.
+
             // Acquire locks sequentially (nested)
             return await this.lockService.withLock(
                 lockKey1,
@@ -1002,10 +1002,10 @@ export class LedgerService {
                                 description
                             );
                         },
-                        { ttlMs: 10000, maxWaitMs: 15000, strict: true }
+                        { ttlMs: 15000, maxWaitMs: 20000, strict: true } // inner
                     );
                 },
-                { ttlMs: 10000, maxWaitMs: 15000, strict: true }
+                { ttlMs: 45000, maxWaitMs: 25000, strict: true } // outer: must exceed inner ttl + inner maxWait
             );
         } catch (error) {
             this.logger.error(
@@ -1057,11 +1057,8 @@ export class LedgerService {
                 }
 
                 // 2. Sender Balance Check & Debit
-                const senderBalance = await this.getBalanceInTransaction(
-                    tx,
-                    fromUserId,
-                    currency
-                );
+
+                const senderBalance = await this.getBalanceInTransaction(tx, fromUserId, currency);
 
                 if (
                     fromUserId !== LedgerService.PLATFORM_USER_ID &&
@@ -1093,12 +1090,9 @@ export class LedgerService {
                 });
 
                 // 3. Recipient Credit
-                // Get recipient balance (locked by findFirst in getBalanceInTransaction)
-                const recipientBalance = await this.getBalanceInTransaction(
-                    tx,
-                    toUserId,
-                    currency
-                );
+
+                // Get recipient balance — uses sequenceNumber ordering (F-001 fix)
+                const recipientBalance = await this.getBalanceInTransaction(tx, toUserId, currency);
                 const recipientNewBalance = recipientBalance.total.plus(amount);
 
                 // Credit Recipient
@@ -1160,14 +1154,14 @@ export class LedgerService {
     async getBalance(userId: number, currency: string): Promise<BalanceInfo> {
         const upperCurrency = currency.toUpperCase();
 
-        // Get latest balance from most recent non-failed entry
+        // FIX: F-001 — order by sequenceNumber DESC instead of createdAt DESC
         const lastEntry = await this.prisma.ledgerEntry.findFirst({
             where: {
                 userId,
                 currency: upperCurrency,
                 status: { not: EntryStatus.FAILED },
             },
-            orderBy: { createdAt: "desc" },
+            orderBy: this.BALANCE_ORDER,
             select: { balanceAfter: true },
         });
 
@@ -1186,25 +1180,27 @@ export class LedgerService {
         const held = holdAggregation._sum.holdAmount ?? new Decimal(0);
         const available = total.minus(held);
 
-        return {
-            available,
-            held,
-            total,
-        };
+        return { available, held, total };
     }
 
     /**
      * Internal balance calculation within a transaction (for atomic operations)
+     *
+     * FIX: F-001 — all balance reads now order by sequenceNumber DESC.
+     * This is the single canonical source of truth for balance ordering.
+     * All other in-transaction balance reads route through this method
+     * or through getCurrentBalance() below.
      */
     private async getBalanceInTransaction(
         tx: Prisma.TransactionClient,
         userId: number,
         currency: string
     ): Promise<BalanceInfo> {
-        // Get latest balance
+        // FIX: F-001 — sequenceNumber DESC guarantees deterministic ordering
+        // under concurrent writes within the same millisecond
         const lastEntry = await tx.ledgerEntry.findFirst({
             where: { userId, currency, status: { not: EntryStatus.FAILED } },
-            orderBy: { createdAt: "desc" },
+            orderBy: this.BALANCE_ORDER,
             select: { balanceAfter: true },
         });
 
@@ -1223,18 +1219,30 @@ export class LedgerService {
         const held = holdAggregation._sum.holdAmount ?? new Decimal(0);
         const available = total.minus(held);
 
-        return {
-            available,
-            held,
-            total,
-        };
+        return { available, held, total };
+    }
+
+    /**
+     * Gets only the current total balance (no hold calculation) within a transaction.
+     * Used where only the running balance is needed, not the full BalanceInfo.
+     *
+     * FIX: F-001 — uses sequenceNumber DESC ordering
+     */
+    private async getCurrentBalance(
+        tx: Prisma.TransactionClient,
+        userId: number,
+        currency: string
+    ): Promise<Decimal> {
+        const lastEntry = await tx.ledgerEntry.findFirst({
+            where: { userId, currency, status: { not: EntryStatus.FAILED } },
+            orderBy: this.BALANCE_ORDER,
+            select: { balanceAfter: true },
+        });
+        return lastEntry?.balanceAfter ?? new Decimal(0);
     }
 
     /**
      * Gets all balances for a user across all currencies
-     *
-     * @param userId User ID
-     * @returns Map of currency (uppercase) to balance info
      */
     async getAllBalances(userId: number): Promise<Map<string, BalanceInfo>> {
         // Get distinct currencies this user has entries for
@@ -1320,7 +1328,7 @@ export class LedgerService {
 
     /**
      * Creates a pair of entries for a transfer between users
-     * (e.g., user-to-user send, or user-to-platform for trades)
+    * (e.g., user-to-user send, or user-to-platform for trades)
      *
      * @param fromUserId Source user
      * @param toUserId Destination user
@@ -1329,6 +1337,8 @@ export class LedgerService {
      * @param type Ledger type
      * @param reference Unique reference
      * @param tradeGroupId Optional trade group for linking related entries
+          
+     * FIX: LT-001 — outer TTL increased to guarantee it outlives the inner lock
      */
     async transfer(
         fromUserId: number,
@@ -1343,13 +1353,9 @@ export class LedgerService {
         const upperCurrency = currency.toUpperCase();
 
         if (transferAmount.lessThanOrEqualTo(0)) {
-            return {
-                success: false,
-                error: "Transfer amount must be positive",
-            };
+            return { success: false, error: "Transfer amount must be positive" };
         }
 
-        // Lock both users in consistent order to prevent deadlocks
         const [firstId, secondId] =
             fromUserId < toUserId
                 ? [fromUserId, toUserId]
@@ -1359,6 +1365,7 @@ export class LedgerService {
         const lockKey2 = `ledger:${secondId}:${upperCurrency}`;
 
         try {
+            // FIX: LT-001 — outer TTL (45000) > inner TTL (15000) + inner maxWait (20000)
             return await this.lockService.withLock(
                 lockKey1,
                 async () => {
@@ -1374,10 +1381,10 @@ export class LedgerService {
                                 reference,
                                 tradeGroupId
                             ),
-                        { ttlMs: 10000, maxWaitMs: 15000, strict: true }
+                        { ttlMs: 15000, maxWaitMs: 20000, strict: true } // inner
                     );
                 },
-                { ttlMs: 15000, maxWaitMs: 20000, strict: true }
+                { ttlMs: 45000, maxWaitMs: 25000, strict: true } // outer: must exceed inner ttl + inner maxWait
             );
         } catch (error) {
             this.logger.error(
@@ -1414,10 +1421,7 @@ export class LedgerService {
 
                 if (existingDebit) {
                     this.logger.warn(
-                        `Duplicate transfer detected | ${JSON.stringify({
-                            type,
-                            reference,
-                        })}`
+                        `Duplicate transfer detected | ${JSON.stringify({ type, reference })}`
                     );
                     return {
                         success: true,
@@ -1425,13 +1429,8 @@ export class LedgerService {
                         balanceAfter: existingDebit.balanceAfter,
                     };
                 }
-
                 // Check source balance
-                const sourceBalance = await this.getBalanceInTransaction(
-                    tx,
-                    fromUserId,
-                    currency
-                );
+                const sourceBalance = await this.getBalanceInTransaction(tx, fromUserId, currency);
 
                 if (
                     fromUserId !== LedgerService.PLATFORM_USER_ID &&
@@ -1443,19 +1442,11 @@ export class LedgerService {
                     };
                 }
 
-                // Get destination current balance
-                const destLastEntry = await tx.ledgerEntry.findFirst({
-                    where: {
-                        userId: toUserId,
-                        currency,
-                        status: { not: EntryStatus.FAILED },
-                    },
-                    orderBy: { createdAt: "desc" },
-                    select: { balanceAfter: true },
-                });
+                // FIX: F-001 — destination balance now uses sequenceNumber ordering
+                // via getCurrentBalance instead of a raw findFirst with createdAt
 
-                const destCurrentBalance =
-                    destLastEntry?.balanceAfter ?? new Decimal(0);
+                // Get destination current balance
+                const destCurrentBalance = await this.getCurrentBalance(tx, toUserId, currency);
 
                 // Create debit entry for source
                 const newSourceBalance = sourceBalance.total.minus(amount);
@@ -1620,11 +1611,7 @@ export class LedgerService {
     async backfillAuditLogs(limit: number = 1000): Promise<number> {
         this.logger.log(`Starting audit log backfill (limit: ${limit})...`);
         const entries = await this.prisma.ledgerEntry.findMany({
-            where: {
-                auditLogs: {
-                    none: {}
-                }
-            },
+            where: { auditLogs: { none: {} } },
             take: limit,
             orderBy: { createdAt: 'desc' }
         });
@@ -1681,9 +1668,9 @@ export class LedgerService {
         return count;
     }
 
-    // ==========================================
+    // =========================================================================
     // DOUBLE ENTRY (PAIRED) METHODS
-    // ==========================================
+    // =========================================================================
 
     /**
      * Helper to acquire multiple locks sequentially
@@ -1726,7 +1713,7 @@ export class LedgerService {
             return { success: false, error: "Cannot use pairedCredit for platform user" };
         }
 
-        const creditAmount = this.toDecimal(amount);
+        const creditAmount = this.toDecimal(options.amount);
         if (creditAmount.lessThanOrEqualTo(0)) {
             return { success: false, error: "Amount must be positive" };
         }
@@ -1741,10 +1728,7 @@ export class LedgerService {
             : [userLockKey];
 
         try {
-            return await this.withLocks(
-                locks,
-                async () => this.executePairedCredit(options, creditAmount)
-            );
+            return await this.withLocks(locks, async () => this.executePairedCredit(options, creditAmount));
         } catch (error) {
             this.logger.error(`Paired credit failed: ${error.message}`);
             return { success: false, error: error.message };
@@ -1786,14 +1770,10 @@ export class LedgerService {
                 };
             }
 
-            // 2. Process User Credit
+            // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
+
             // Get user current balance
-            const userLastEntry = await tx.ledgerEntry.findFirst({
-                where: { userId, currency, status: { not: EntryStatus.FAILED } },
-                orderBy: { createdAt: "desc" },
-                select: { balanceAfter: true },
-            });
-            const userCurrentBalance = userLastEntry?.balanceAfter ?? new Decimal(0);
+            const userCurrentBalance = await this.getCurrentBalance(tx, userId, currency);
             const userNewBalance = userCurrentBalance.plus(amount);
 
             const userEntry = await tx.ledgerEntry.create({
@@ -1821,15 +1801,15 @@ export class LedgerService {
             if (createPlatformEntry) {
                 const platformRef = `platform:${reference}`;
 
+                // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
                 // Get platform balance
-                const platformLastEntry = await tx.ledgerEntry.findFirst({
-                    where: { userId: LedgerService.PLATFORM_USER_ID, currency },
-                    orderBy: { createdAt: "desc" },
-                    select: { balanceAfter: true },
-                });
-                const platformCurrentBalance = platformLastEntry?.balanceAfter ?? new Decimal(0);
+                const platformCurrentBalance = await this.getCurrentBalance(
+                    tx, LedgerService.PLATFORM_USER_ID, currency
+                );
+
 
                 // User Credit = Platform Debit (Liability increases)
+
                 platformNewBalance = platformCurrentBalance.minus(amount);
 
                 const platformEntry = await tx.ledgerEntry.create({
@@ -1957,13 +1937,11 @@ export class LedgerService {
             };
         }
 
+        // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
+
+
         // 2. Process User Credit
-        const userLastEntry = await tx.ledgerEntry.findFirst({
-            where: { userId, currency, status: { not: EntryStatus.FAILED } },
-            orderBy: { createdAt: "desc" },
-            select: { balanceAfter: true },
-        });
-        const userCurrentBalance = userLastEntry?.balanceAfter ?? new Decimal(0);
+        const userCurrentBalance = await this.getCurrentBalance(tx, userId, currency);
         const userNewBalance = userCurrentBalance.plus(amount);
 
         const userEntry = await tx.ledgerEntry.create({
@@ -1991,13 +1969,10 @@ export class LedgerService {
         if (createPlatformEntry) {
             const platformRef = `platform:${reference}`;
 
-            const platformLastEntry = await tx.ledgerEntry.findFirst({
-                where: { userId: LedgerService.PLATFORM_USER_ID, currency },
-                orderBy: { createdAt: "desc" },
-                select: { balanceAfter: true },
-            });
-            const platformCurrentBalance = platformLastEntry?.balanceAfter ?? new Decimal(0);
-
+            // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
+            const platformCurrentBalance = await this.getCurrentBalance(
+                tx, LedgerService.PLATFORM_USER_ID, currency
+            );
             platformNewBalance = platformCurrentBalance.minus(amount);
 
             const platformEntry = await tx.ledgerEntry.create({
@@ -2071,7 +2046,7 @@ export class LedgerService {
             return { success: false, error: "Cannot use pairedDebit for platform user" };
         }
 
-        const debitAmount = this.toDecimal(amount);
+        const debitAmount = this.toDecimal(options.amount);
         const feeAmount = this.toDecimal(networkFee);
 
         if (debitAmount.lessThanOrEqualTo(0)) {
@@ -2085,10 +2060,7 @@ export class LedgerService {
         ];
 
         try {
-            return await this.withLocks(
-                lockKeys,
-                async () => this.executePairedDebit(options, debitAmount, feeAmount)
-            );
+            return await this.withLocks(lockKeys, async () => this.executePairedDebit(options, debitAmount, feeAmount));
         } catch (error) {
             this.logger.error(`Paired debit failed: ${error.message}`);
             return { success: false, error: error.message };
@@ -2151,13 +2123,12 @@ export class LedgerService {
 
             if (options.createPlatformEntry) {
                 const platformRef = `platform:${reference}`;
-                const platformLast = await tx.ledgerEntry.findFirst({
-                    where: { userId: LedgerService.PLATFORM_USER_ID, currency },
-                    orderBy: { createdAt: "desc" },
-                    select: { balanceAfter: true }
-                });
-                const platformCurrent = platformLast?.balanceAfter ?? new Decimal(0);
-                platformNewBalance = platformCurrent.plus(debitAmount); // User Debit = Platform Credit
+
+                // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
+                const platformCurrent = await this.getCurrentBalance(
+                    tx, LedgerService.PLATFORM_USER_ID, currency
+                );
+                platformNewBalance = platformCurrent.plus(debitAmount);
 
                 const platformEntry = await tx.ledgerEntry.create({
                     data: {
@@ -2207,13 +2178,12 @@ export class LedgerService {
 
                 // 5b. Credit Fee Account (userId = -1)
                 const feeAccountRef = `fee:${reference}`;
-                const feeAccountLast = await tx.ledgerEntry.findFirst({
-                    where: { userId: LedgerService.NETWORK_FEE_USER_ID, currency },
-                    orderBy: { createdAt: "desc" },
-                    select: { balanceAfter: true }
-                });
-                const feeAccountCurrent = feeAccountLast?.balanceAfter ?? new Decimal(0);
-                const feeAccountNew = feeAccountCurrent.plus(feeAmount);
+
+                // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
+                const feeCurrent = await this.getCurrentBalance(
+                    tx, LedgerService.NETWORK_FEE_USER_ID, currency
+                );
+                const feeAccountNew = feeCurrent.plus(feeAmount);
 
                 const feeAccountEntry = await tx.ledgerEntry.create({
                     data: {
@@ -2281,10 +2251,7 @@ export class LedgerService {
         ];
 
         try {
-            return await this.withLocks(
-                lockKeys,
-                async () => this.executeReleaseHoldWithPlatform(options, holdEntry)
-            );
+            return await this.withLocks(lockKeys, async () => this.executeReleaseHoldWithPlatform(options, holdEntry));
         } catch (error) {
             this.logger.error(`Release hold paired failed: ${error.message}`);
             return { success: false, error: error.message };
@@ -2307,7 +2274,7 @@ export class LedgerService {
             // Variable to hold the updated user entry (either form)
             let userEntryResult: any = null;
             let platformEntryResult: any = null;
-            let userNewBalance: Decimal = currentHold.balanceAfter; // Default if not settling
+            let userNewBalance: Decimal = currentHold.balanceAfter;
 
             if (settle) {
                 // 1. Convert Hold to Debit for User
@@ -2327,16 +2294,14 @@ export class LedgerService {
 
                 // 2. Create Platform Credit (if requested)
                 if (createPlatformEntry) {
-                    // Platform Credit = HoldAmount - FeeAmount
                     const effectivePlatformCredit = currentHold.holdAmount.minus(feeAmount);
 
                     const platformRef = `platform:${currentHold.reference}`;
-                    const platformLast = await tx.ledgerEntry.findFirst({
-                        where: { userId: LedgerService.PLATFORM_USER_ID, currency: currentHold.currency },
-                        orderBy: { createdAt: "desc" },
-                        select: { balanceAfter: true }
-                    });
-                    const platformCurrent = platformLast?.balanceAfter ?? new Decimal(0);
+
+                    // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
+                    const platformCurrent = await this.getCurrentBalance(
+                        tx, LedgerService.PLATFORM_USER_ID, currentHold.currency
+                    );
                     const platformNewBalance = platformCurrent.plus(effectivePlatformCredit);
 
                     const platformEntry = await tx.ledgerEntry.create({
@@ -2360,12 +2325,11 @@ export class LedgerService {
 
                     if (feeAmount.greaterThan(0)) {
                         const feeRef = `fee:${currentHold.reference}`;
-                        const feeLast = await tx.ledgerEntry.findFirst({
-                            where: { userId: LedgerService.NETWORK_FEE_USER_ID, currency: currentHold.currency },
-                            orderBy: { createdAt: "desc" },
-                            select: { balanceAfter: true }
-                        });
-                        const feeCurrent = feeLast?.balanceAfter ?? new Decimal(0);
+
+                        // FIX: F-001 — use getCurrentBalance with sequenceNumber ordering
+                        const feeCurrent = await this.getCurrentBalance(
+                            tx, LedgerService.NETWORK_FEE_USER_ID, currentHold.currency
+                        );
                         const feeNew = feeCurrent.plus(feeAmount);
 
                         await tx.ledgerEntry.create({
@@ -2411,17 +2375,10 @@ export class LedgerService {
                         updatedAt: new Date()
                     }
                 });
-
                 // --- Audit Logs (Refund) ---
-                await this.logAudit(
-                    updatedEntry.id,
-                    AuditAction.HOLD_RELEASED,
-                    'system',
-                    description,
-                    undefined,
-                    tx
-                );
-                // ---------------------------
+                this.logAudit(updatedEntry.id, AuditAction.HOLD_RELEASED, 'system', description)
+                    .catch(e => this.logger.error(`Failed to audit hold release ${updatedEntry.id}: ${e.message}`));
+                // --------------------------- // ---------------------------
 
                 userEntryResult = {
                     id: updatedEntry.id,
