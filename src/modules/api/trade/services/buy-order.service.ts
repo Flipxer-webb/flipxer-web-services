@@ -51,6 +51,7 @@ import { generateUssdCode } from "@/libs/nomba/ussd-codes";
 @Injectable()
 export class BuyOrderService {
     private readonly logger = new Logger("BuyOrderService");
+    private static readonly CRYPTO_AMOUNT_TOLERANCE = 1e-8;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -135,6 +136,39 @@ export class BuyOrderService {
             };
         } catch {
             return null;
+        }
+    }
+
+    private isSameCryptoAmount(requestedAmount: number, existingAmount?: number | null): boolean {
+        if (typeof existingAmount !== "number") return false;
+        return (
+            Math.abs(requestedAmount - existingAmount) <=
+            BuyOrderService.CRYPTO_AMOUNT_TOLERANCE
+        );
+    }
+
+    private ensureIdempotentRequestMatchesExistingOrder(
+        dto: BuyCryptoOrderDto,
+        existingPayment: { order: { amount?: number | null; currency?: string | null } | null }
+    ) {
+        if (!existingPayment.order) {
+            throw new BadRequestException(
+                "Idempotency key is linked to an invalid order state"
+            );
+        }
+
+        const requestedAsset = dto.asset.toUpperCase();
+        const existingAsset = existingPayment.order.currency?.toUpperCase();
+        if (existingAsset !== requestedAsset) {
+            throw new BadRequestException(
+                "Idempotency key already used for a different asset"
+            );
+        }
+
+        if (!this.isSameCryptoAmount(dto.amount, existingPayment.order.amount)) {
+            throw new BadRequestException(
+                "Idempotency key already used with a different amount"
+            );
         }
     }
 
@@ -228,6 +262,19 @@ export class BuyOrderService {
             });
 
             if (existingPayment && existingPayment.order) {
+                if (existingPayment.userId !== user.id) {
+                    throw new BadRequestException(
+                        "Idempotency key belongs to a different user"
+                    );
+                }
+
+                this.ensureIdempotentRequestMatchesExistingOrder(dto, {
+                    order: {
+                        amount: existingPayment.order.amount,
+                        currency: existingPayment.order.currency,
+                    },
+                });
+
                 this.logger.warn(
                     `Duplicate buy request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`
                 );
@@ -236,9 +283,9 @@ export class BuyOrderService {
             }
         }
 
-        // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset
+        // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset + amount
         // Catches cases where frontend generates a new idempotencyKey (e.g. modal re-opened)
-        // but user already has a non-expired pending buy order for the same asset.
+        // but user already has a non-expired pending buy order for the same asset and amount.
         const existingPendingPayment = await this.prisma.payment.findFirst({
             where: {
                 userId: user.id,
@@ -250,6 +297,10 @@ export class BuyOrderService {
                     orderCategory: OrderCategory.BUY,
                     currency: dto.asset.toUpperCase(),
                     status: OrderStatus.pending,
+                    amount: {
+                        gte: dto.amount - BuyOrderService.CRYPTO_AMOUNT_TOLERANCE,
+                        lte: dto.amount + BuyOrderService.CRYPTO_AMOUNT_TOLERANCE,
+                    },
                 },
                 // Only consider orders within the VA expiry window (35 min)
                 createdAt: {
@@ -257,6 +308,9 @@ export class BuyOrderService {
                 },
             },
             include: { order: true },
+            orderBy: {
+                createdAt: "desc",
+            },
         });
 
         if (existingPendingPayment && existingPendingPayment.order) {
