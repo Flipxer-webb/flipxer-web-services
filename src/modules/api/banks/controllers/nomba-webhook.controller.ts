@@ -59,11 +59,12 @@ export class NombaWebhookController {
         //    - data.accountRef       → virtual-account credit events (VA buy flow)
         //    - transaction.merchantTxRef → last-resort fallback (Nomba's own ref)|
         //    - transaction.aliasAccountReference → virtual-account credit events (VA buy flow)
-        const reference = order.orderReference
+        const reference = 
+         transaction.aliasAccountReference
+            || data.accountRef
+            || order.orderReference
             || data.reference
-            || transaction.merchantTxRef 
-            || transaction.aliasAccountReference
-            ; // Fallback only (Nomba's ref)
+            || transaction.merchantTxRef; // Fallback only (Nomba's ref)
 
         // 2. Amount
         const amount = Number(data.amount || transaction.transactionAmount || order.amount || 0);
