@@ -54,9 +54,14 @@ export class NombaWebhookController {
 
         // Extract Standard Fields
         // 1. Reference: Must match what we stored in Payment.reference
-        const reference = order.orderReference
+        //    For virtual_account.credited / payment_success (vact_transfer), Nomba sends
+        //    the VA ref in transaction.aliasAccountReference (our accountRef from VA creation).
+        //    Checkout flow uses order.orderReference; payout uses transaction.merchantTxRef.
+        const reference = transaction.aliasAccountReference
+            || data.accountRef
+            || order.orderReference
             || data.reference
-            || transaction.merchantTxRef; // Fallback only (Nomba's ref)
+            || transaction.merchantTxRef;
 
         // 2. Amount
         const amount = Number(data.amount || transaction.transactionAmount || order.amount || 0);
