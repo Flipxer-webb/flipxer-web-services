@@ -27,6 +27,7 @@ export default async (
 ): Promise<INestApplication> => {
     const app = await NestFactory.create<NestExpressApplication>(AppModule, {
         //logger: false,
+        rawBody: true, // Preserves raw request body as Buffer for webhook signature verification
     });
 
     app.set("trust proxy", true); // Enables Express to respect X-Forwarded-For headers and allows request-ip to get real IP
@@ -146,14 +147,9 @@ export default async (
     app.enableCors(corsOptions);
     app.use(morgan(options.production ? "combined" : "dev"));
     // SECURITY: Reduced from 100mb to 10mb to prevent DoS attacks
-    // AND: Preserve raw body for webhook signature verification using the verify hook
+    // Raw body is now preserved by NestJS rawBody:true option above
     app.useBodyParser("json", {
         limit: "10mb",
-        verify: (req: any, res: any, buf: Buffer) => {
-            if (buf && buf.length) {
-                req.rawBody = buf.toString();
-            }
-        }
     });
 
     // Legacy webhook routes - forward to correct internal paths

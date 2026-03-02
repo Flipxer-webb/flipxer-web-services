@@ -212,8 +212,9 @@ export class QuidaxWebhookGuard implements CanActivate {
             return false;
         }
 
-        // Use raw body if available (preserved by middleware), otherwise fallback to JSON.stringify
-        const requestBody = (request as any).rawBody || JSON.stringify(request.body);
+        // Use raw body if available (NestJS rawBody:true provides a Buffer), otherwise fallback
+        const rawBuf = (request as any).rawBody;
+        const requestBody = rawBuf ? (Buffer.isBuffer(rawBuf) ? rawBuf.toString() : rawBuf) : JSON.stringify(request.body);
         const payload = `${timestamp}.${requestBody}`;
 
         const expectedSignature = crypto

@@ -150,9 +150,12 @@ export class NombaWebhookController {
 
         // 2. Signature Verification (Security First)
         //    Use the raw (unparsed) request body so the HMAC matches what Nomba signed.
-        //    req.rawBody is set by the verify callback in src/www/index.ts.
+        //    rawBody is a Buffer provided by NestJS rawBody:true option.
         if (process.env.NODE_ENV === "production" && signature) {
-            const rawBody = (req as any).rawBody || JSON.stringify(body);
+            const rawBody = (req as any).rawBody
+                ? (req as any).rawBody.toString()
+                : JSON.stringify(body);
+            this.logger.log(`Signature verification — rawBody available: ${!!(req as any).rawBody}, sig: ${signature.substring(0, 12)}...`);
             const isValid = this.verifySignature(rawBody, signature);
             if (!isValid) {
                 this.logger.error("Invalid Nomba webhook signature");
