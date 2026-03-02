@@ -59,7 +59,7 @@ export class FincraWebhookController {
         }
 
         // Persist raw webhook payload to WebhookLog for audit trail
-        const providerReference = data.reference || data.id?.toString() || reference;
+        const providerReference = data.reference || reference;
         try {
             await this.prisma.webhookLog.upsert({
                 where: {
