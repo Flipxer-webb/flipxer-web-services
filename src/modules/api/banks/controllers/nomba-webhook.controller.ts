@@ -24,48 +24,76 @@ export class NombaWebhookController {
      */
     private verifySignature(payload: string, signature: string, timestamp?: string): boolean {
         const webhookSecret = Config.nombaOptions?.webhookSecret;
-        if (!webhookSecret) {
+        const clientSecret = Config.nombaOptions?.clientSecret;
+
+        if (!webhookSecret && !clientSecret) {
             this.logger.warn("Nomba webhook secret not configured - skipping signature verification");
             return true; // Allow in development
         }
 
-        // Try multiple signing strategies — Nomba docs are ambiguous on the exact scheme.
-        // Strategy 1: timestamp.body  (most common for providers that send a timestamp header)
-        // Strategy 2: body only       (fallback)
-        const candidates: string[] = [];
-        if (timestamp) {
-            candidates.push(`${timestamp}.${payload}`);  // timestamp.body
-            candidates.push(`${timestamp}${payload}`);   // timestampbody (no separator)
+        // Try multiple keys — some providers sign with the API clientSecret, not a separate webhook key
+        // Also try base64-decoded versions of each key (some providers encode the key)
+        const keys: { name: string; value: string | Buffer }[] = [];
+        if (webhookSecret) {
+            keys.push({ name: 'webhookSecret', value: webhookSecret });
+            // If the secret looks base64-encoded, also try decoding it
+            if (/^[A-Za-z0-9+/=]+$/.test(webhookSecret) && webhookSecret.length >= 20) {
+                keys.push({ name: 'webhookSecret(b64decoded)', value: Buffer.from(webhookSecret, 'base64') });
+            }
         }
-        candidates.push(payload); // body only
-
-        for (const candidate of candidates) {
-            const expectedHex = crypto
-                .createHmac("sha256", webhookSecret)
-                .update(candidate)
-                .digest("hex");
-
-            const expectedB64 = crypto
-                .createHmac("sha256", webhookSecret)
-                .update(candidate)
-                .digest("base64");
-
-            const sigBuf = Buffer.from(signature);
-            const hexBuf = Buffer.from(expectedHex);
-            const b64Buf = Buffer.from(expectedB64);
-
-            const hexMatch = sigBuf.length === hexBuf.length
-                && crypto.timingSafeEqual(sigBuf, hexBuf);
-            const b64Match = sigBuf.length === b64Buf.length
-                && crypto.timingSafeEqual(sigBuf, b64Buf);
-
-            if (hexMatch || b64Match) {
-                this.logger.log(`Signature matched using payload strategy: ${candidate === payload ? 'body-only' : candidate.startsWith(timestamp + '.') ? 'timestamp.body' : 'timestampbody'}`);
-                return true;
+        if (clientSecret && clientSecret !== webhookSecret) {
+            keys.push({ name: 'clientSecret', value: clientSecret });
+            if (/^[A-Za-z0-9+/=]+$/.test(clientSecret) && clientSecret.length >= 20) {
+                keys.push({ name: 'clientSecret(b64decoded)', value: Buffer.from(clientSecret, 'base64') });
             }
         }
 
-        this.logger.error(`Signature verification failed for all strategies. Tried ${candidates.length} candidates.`);
+        // Try multiple payload strategies per key
+        const payloadCandidates: { name: string; value: string }[] = [];
+        if (timestamp) {
+            payloadCandidates.push({ name: 'timestamp.body', value: `${timestamp}.${payload}` });
+            payloadCandidates.push({ name: 'timestampbody', value: `${timestamp}${payload}` });
+        }
+        payloadCandidates.push({ name: 'body-only', value: payload });
+
+        // TEMPORARY DIAGNOSTIC: log expected vs actual for first candidate to diagnose key/payload mismatch
+        if (webhookSecret) {
+            const diagHash = crypto.createHmac("sha256", webhookSecret).update(payload).digest("base64");
+            this.logger.warn(
+                `[SIG-DIAG] incoming=${signature.substring(0, 16)}... expected(body-only,webhookSecret)=${diagHash.substring(0, 16)}... ` +
+                `keyLen=${webhookSecret.length} bodyLen=${payload.length}`
+            );
+        }
+
+        for (const key of keys) {
+            for (const candidate of payloadCandidates) {
+                const expectedB64 = crypto
+                    .createHmac("sha256", key.value)
+                    .update(candidate.value)
+                    .digest("base64");
+
+                const expectedHex = crypto
+                    .createHmac("sha256", key.value)
+                    .update(candidate.value)
+                    .digest("hex");
+
+                const sigBuf = Buffer.from(signature);
+                const b64Buf = Buffer.from(expectedB64);
+                const hexBuf = Buffer.from(expectedHex);
+
+                const b64Match = sigBuf.length === b64Buf.length
+                    && crypto.timingSafeEqual(sigBuf, b64Buf);
+                const hexMatch = sigBuf.length === hexBuf.length
+                    && crypto.timingSafeEqual(sigBuf, hexBuf);
+
+                if (b64Match || hexMatch) {
+                    this.logger.log(`Signature matched: key=${key.name}, payload=${candidate.name}, encoding=${b64Match ? 'base64' : 'hex'}`);
+                    return true;
+                }
+            }
+        }
+
+        this.logger.error(`Signature verification failed. Tried ${keys.length} keys × ${payloadCandidates.length} payloads = ${keys.length * payloadCandidates.length} combinations.`);
         return false;
     }
 
@@ -174,6 +202,9 @@ export class NombaWebhookController {
                 ? (req as any).rawBody.toString()
                 : JSON.stringify(body);
             this.logger.log(`Signature verification — rawBody available: ${!!(req as any).rawBody}, timestamp: ${timestamp || 'NONE'}, sig: ${signature.substring(0, 12)}...`);
+            this.logger.log(`[SIG-DIAG] rawBody first 80 chars: ${rawBody.substring(0, 80)}`);
+            this.logger.log(`[SIG-DIAG] JSON.stringify first 80 chars: ${JSON.stringify(body).substring(0, 80)}`);
+            this.logger.log(`[SIG-DIAG] rawBody === JSON.stringify? ${rawBody === JSON.stringify(body)}`);
             const isValid = this.verifySignature(rawBody, signature, timestamp);
             if (!isValid) {
                 this.logger.error("Invalid Nomba webhook signature");
