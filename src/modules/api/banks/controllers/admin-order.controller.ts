@@ -395,6 +395,7 @@ export class AdminOrderController {
                     detected: result.stuckBuyOrders.detected,
                     autoRetried: result.stuckBuyOrders.autoRetried,
                     retryFailed: result.stuckBuyOrders.retryFailed,
+                    skippedNoWebhook: result.stuckBuyOrders.skippedNoWebhook,
                     details: result.stuckBuyOrders.details,
                 },
                 brokenLedgerOrders: {

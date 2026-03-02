@@ -194,6 +194,9 @@ export class NombaWebhookController {
                 `Normalized Nomba Event: ${event.type} | Ref: ${event.reference} | Amount: ${event.amount} | Provider Ref: ${event.providerReference}`
             );
 
+            // 3.5 Persist webhook payload to WebhookLog for audit trail & reconciliation
+            await this.logWebhook(event);
+
             // 4. Route based on Normalized Event
             switch (event.type) {
                 case 'payment_success':
@@ -215,6 +218,36 @@ export class NombaWebhookController {
             this.logger.error(`Error processing Nomba webhook: ${error.message}`);
             // Re-throw so NestJS returns 500 and Nomba retries the webhook
             throw error;
+        }
+    }
+
+    /**
+     * Persist raw webhook payload to WebhookLog for audit trail.
+     * Uses upsert with unique constraint (provider, eventType, externalId)
+     * to handle Nomba webhook retries idempotently.
+     */
+    private async logWebhook(event: NormalizedPaymentEvent): Promise<void> {
+        try {
+            const externalId = event.providerReference || event.reference || 'unknown';
+            await this.prisma.webhookLog.upsert({
+                where: {
+                    provider_eventType_externalId: {
+                        provider: 'nomba',
+                        eventType: event.type,
+                        externalId,
+                    },
+                },
+                create: {
+                    provider: 'nomba',
+                    eventType: event.type,
+                    externalId,
+                    payload: event.raw,
+                },
+                update: {}, // No-op on duplicate — already logged
+            });
+        } catch (error) {
+            // Non-fatal: don't block payment processing if logging fails
+            this.logger.error(`Failed to log webhook: ${error.message}`);
         }
     }
 
@@ -266,6 +299,14 @@ export class NombaWebhookController {
                     return;
                 }
 
+                // Store provider reference for reconciliation audit trail
+                if (event.providerReference) {
+                    await this.prisma.payment.update({
+                        where: { id: payment.id },
+                        data: { externalReference: event.providerReference },
+                    });
+                }
+
                 this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
                 // Let errors propagate so webhook returns 5xx and Nomba retries
                 await this.buyOrderService.fulfillBuyOrder(reference);
@@ -273,12 +314,13 @@ export class NombaWebhookController {
                 return;
             }
 
-            // Update existing payment status (Generic)
+            // Update existing payment status (Generic) + store provider ref
             await this.prisma.payment.update({
                 where: { id: payment.id },
                 data: {
                     status: TransactionStatus.SUCCESS,
                     paymentStatus: TransactionStatus.SUCCESS,
+                    ...(event.providerReference ? { externalReference: event.providerReference } : {}),
                 },
             });
             this.logger.log(`Updated payment ${payment.id} to SUCCESS`);
@@ -300,13 +342,18 @@ export class NombaWebhookController {
 
         this.logger.log(`Processing transfer success: ${reference}`);
 
-        await this.prisma.payment.updateMany({
-            where: { reference },
-            data: {
-                status: TransactionStatus.SUCCESS,
-                paymentStatus: TransactionStatus.SUCCESS,
-            },
-        });
+        // updateMany doesn't support externalReference (no unique filter), use findFirst + update
+        const payment = await this.prisma.payment.findFirst({ where: { reference } });
+        if (payment) {
+            await this.prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                    status: TransactionStatus.SUCCESS,
+                    paymentStatus: TransactionStatus.SUCCESS,
+                    ...(event.providerReference ? { externalReference: event.providerReference } : {}),
+                },
+            });
+        }
     }
 
     /**

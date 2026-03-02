@@ -17,13 +17,14 @@ export interface StuckOrderReconciliationResult {
         detected: number;
         autoRetried: number;
         retryFailed: number;
+        skippedNoWebhook: number;
         details: Array<{
             orderId: number;
             paymentId: number;
             reference: string;
             amount: number;
             currency: string;
-            action: "retried" | "retry_failed" | "skipped";
+            action: "retried" | "retry_failed" | "skipped_no_webhook";
             error?: string;
         }>;
     };
@@ -96,7 +97,7 @@ export class StuckOrderReconciliationService {
     async reconcile(): Promise<StuckOrderReconciliationResult> {
         const result: StuckOrderReconciliationResult = {
             timestamp: new Date(),
-            stuckBuyOrders: { detected: 0, autoRetried: 0, retryFailed: 0, details: [] },
+            stuckBuyOrders: { detected: 0, autoRetried: 0, retryFailed: 0, skippedNoWebhook: 0, details: [] },
             brokenLedgerOrders: { detected: 0, alerted: false, details: [] },
             preLedgerBackfill: { detected: 0, fixed: 0 },
             errors: [],
@@ -210,6 +211,53 @@ export class StuckOrderReconciliationService {
             };
 
             try {
+                // ─── CRITICAL: Verify payment via WebhookLog before auto-retrying ──────
+                // Only auto-retry if we have a matching webhook payload proving the
+                // provider actually sent us a payment_success event for this reference.
+                // This prevents crediting free crypto from orphaned/bogus SUCCESS statuses.
+                const webhookProof = await this.prisma.webhookLog.findFirst({
+                    where: {
+                        provider: { in: ["nomba", "fincra"] },
+                        eventType: "payment_success",
+                        payload: {
+                            path: [],
+                            not: undefined, // ensure payload exists
+                        },
+                    },
+                });
+
+                // Search for this payment's reference within stored webhook payloads
+                // WebhookLog.externalId is typically the provider reference, but we also
+                // need to check if the Payment.reference or Payment.externalReference
+                // appears in any logged webhook for this provider
+                const webhookByRef = await this.prisma.webhookLog.findFirst({
+                    where: {
+                        provider: { in: ["nomba", "fincra"] },
+                        eventType: { in: ["payment_success", "collection.successful"] },
+                        OR: [
+                            { externalId: payment.reference },
+                            { externalId: payment.externalReference ?? "__none__" },
+                        ],
+                    },
+                });
+
+                if (!webhookByRef) {
+                    detail.action = "skipped_no_webhook";
+                    detail.error = "No matching WebhookLog entry found — cannot verify payment was genuine";
+                    result.stuckBuyOrders.skippedNoWebhook++;
+
+                    this.logger.warn(
+                        `SKIPPED Order #${payment.order!.id} — no WebhookLog proof for reference ${payment.reference}. Alerting for manual review.`,
+                    );
+
+                    result.stuckBuyOrders.details.push(detail);
+                    continue;
+                }
+
+                this.logger.log(
+                    `WebhookLog verified for Order #${payment.order!.id} | webhookId: ${webhookByRef.id}`,
+                );
+
                 // Reset payment to PENDING so fulfillBuyOrder's atomic claim can succeed
                 await this.prisma.payment.update({
                     where: { id: payment.id },
@@ -288,8 +336,8 @@ export class StuckOrderReconciliationService {
             select: { id: true, status: true },
         });
 
-        const failedEntryMap = new Map(
-            failedEntries.map((e) => [e.id, e.status]),
+        const failedEntryMap = new Map<string, string>(
+            failedEntries.map((e) => [e.id, e.status as string]),
         );
 
         // Filter to only orders whose ledger entry is FAILED
@@ -382,9 +430,10 @@ export class StuckOrderReconciliationService {
                     `*Stuck BUY Orders:* ${result.stuckBuyOrders.detected} detected`,
                     `  - Auto-retried: ${result.stuckBuyOrders.autoRetried}`,
                     `  - Retry failed: ${result.stuckBuyOrders.retryFailed}`,
+                    `  - Skipped (no webhook proof): ${result.stuckBuyOrders.skippedNoWebhook}`,
                 ];
                 for (const d of result.stuckBuyOrders.details) {
-                    const status = d.action === "retried" ? "✅" : "❌";
+                    const status = d.action === "retried" ? "\u2705" : d.action === "skipped_no_webhook" ? "\u26A0\uFE0F" : "\u274C";
                     lines.push(
                         `  ${status} Order #${d.orderId} — ${d.amount} ${d.currency} (${d.reference})${d.error ? ` — ${d.error}` : ""}`,
                     );
@@ -425,6 +474,7 @@ export class StuckOrderReconciliationService {
                 {
                     stuckBuyOrders: result.stuckBuyOrders.detected,
                     autoRetried: result.stuckBuyOrders.autoRetried,
+                    skippedNoWebhook: result.stuckBuyOrders.skippedNoWebhook,
                     brokenLedger: result.brokenLedgerOrders.detected,
                     preLedgerBackfill: result.preLedgerBackfill.fixed,
                     errors: result.errors.length,
