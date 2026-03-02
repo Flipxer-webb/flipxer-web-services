@@ -28,15 +28,27 @@ export class NombaWebhookController {
             return true; // Allow in development
         }
 
-        const expectedSignature = crypto
+        const expectedSignatureHex = crypto
             .createHmac("sha256", webhookSecret)
             .update(payload)
             .digest("hex");
 
-        return crypto.timingSafeEqual(
-            Buffer.from(signature),
-            Buffer.from(expectedSignature)
-        );
+        const expectedSignatureBase64 = crypto
+            .createHmac("sha256", webhookSecret)
+            .update(payload)
+            .digest("base64");
+
+        // Nomba may send hex or base64 — compare both safely
+        const sigBuf = Buffer.from(signature);
+        const hexBuf = Buffer.from(expectedSignatureHex);
+        const b64Buf = Buffer.from(expectedSignatureBase64);
+
+        const hexMatch = sigBuf.length === hexBuf.length
+            && crypto.timingSafeEqual(sigBuf, hexBuf);
+        const b64Match = sigBuf.length === b64Buf.length
+            && crypto.timingSafeEqual(sigBuf, b64Buf);
+
+        return hexMatch || b64Match;
     }
 
     /**
@@ -54,13 +66,17 @@ export class NombaWebhookController {
 
         // Extract Standard Fields
         // 1. Reference: Must match what we stored in Payment.reference
-        //    - order.orderReference  → checkout/order flow
-        //    - data.reference        → generic events
-        //    - data.accountRef       → virtual-account credit events (VA buy flow)
-        //    - transaction.merchantTxRef → last-resort fallback (Nomba's own ref)
+        //    - order.orderReference      → checkout/order flow
+        //    - data.reference             → generic events
+        //    - data.accountRef            → virtual-account credit events (VA buy flow)
+        //    - transaction.accountRef     → payment_success events with nested transaction
+        //    - transaction.reference      → alternative transaction-level ref
+        //    - transaction.merchantTxRef  → last-resort fallback (Nomba's own ref)
         const reference = order.orderReference
             || data.reference
             || data.accountRef
+            || transaction.accountRef
+            || transaction.reference
             || transaction.merchantTxRef;
 
         // 2. Amount
@@ -96,7 +112,7 @@ export class NombaWebhookController {
             currency: 'NGN', // Nomba is NGN only for now
             raw: body, // Keep raw for debugging
             metadata: {
-                accountRef: data.accountRef || order.accountId,
+                accountRef: data.accountRef || transaction.accountRef || order.accountId,
                 customerEmail: data.customerEmail || order.customerEmail
             }
         };
@@ -118,8 +134,11 @@ export class NombaWebhookController {
         @Headers() headers: any
     ) {
         this.logger.log(`Raw Webhook Headers: ${JSON.stringify(headers)}`);
+        this.logger.log(`Raw Webhook Body: ${JSON.stringify(body)}`);
 
-        const signature = headers["x-nomba-signature"];
+        const signature = headers["nomba-signature"]
+            || headers["nomba-sig-value"]
+            || headers["x-nomba-signature"];
 
         // 1. Basic Validation
         if (!body || (!body.event_type && !body.event)) {
