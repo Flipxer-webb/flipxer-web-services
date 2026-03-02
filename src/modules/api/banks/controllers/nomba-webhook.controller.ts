@@ -22,34 +22,51 @@ export class NombaWebhookController {
     /**
      * Verify webhook signature from Nomba
      */
-    private verifySignature(payload: string, signature: string): boolean {
+    private verifySignature(payload: string, signature: string, timestamp?: string): boolean {
         const webhookSecret = Config.nombaOptions?.webhookSecret;
         if (!webhookSecret) {
             this.logger.warn("Nomba webhook secret not configured - skipping signature verification");
             return true; // Allow in development
         }
 
-        const expectedSignatureHex = crypto
-            .createHmac("sha256", webhookSecret)
-            .update(payload)
-            .digest("hex");
+        // Try multiple signing strategies — Nomba docs are ambiguous on the exact scheme.
+        // Strategy 1: timestamp.body  (most common for providers that send a timestamp header)
+        // Strategy 2: body only       (fallback)
+        const candidates: string[] = [];
+        if (timestamp) {
+            candidates.push(`${timestamp}.${payload}`);  // timestamp.body
+            candidates.push(`${timestamp}${payload}`);   // timestampbody (no separator)
+        }
+        candidates.push(payload); // body only
 
-        const expectedSignatureBase64 = crypto
-            .createHmac("sha256", webhookSecret)
-            .update(payload)
-            .digest("base64");
+        for (const candidate of candidates) {
+            const expectedHex = crypto
+                .createHmac("sha256", webhookSecret)
+                .update(candidate)
+                .digest("hex");
 
-        // Nomba may send hex or base64 — compare both safely
-        const sigBuf = Buffer.from(signature);
-        const hexBuf = Buffer.from(expectedSignatureHex);
-        const b64Buf = Buffer.from(expectedSignatureBase64);
+            const expectedB64 = crypto
+                .createHmac("sha256", webhookSecret)
+                .update(candidate)
+                .digest("base64");
 
-        const hexMatch = sigBuf.length === hexBuf.length
-            && crypto.timingSafeEqual(sigBuf, hexBuf);
-        const b64Match = sigBuf.length === b64Buf.length
-            && crypto.timingSafeEqual(sigBuf, b64Buf);
+            const sigBuf = Buffer.from(signature);
+            const hexBuf = Buffer.from(expectedHex);
+            const b64Buf = Buffer.from(expectedB64);
 
-        return hexMatch || b64Match;
+            const hexMatch = sigBuf.length === hexBuf.length
+                && crypto.timingSafeEqual(sigBuf, hexBuf);
+            const b64Match = sigBuf.length === b64Buf.length
+                && crypto.timingSafeEqual(sigBuf, b64Buf);
+
+            if (hexMatch || b64Match) {
+                this.logger.log(`Signature matched using payload strategy: ${candidate === payload ? 'body-only' : candidate.startsWith(timestamp + '.') ? 'timestamp.body' : 'timestampbody'}`);
+                return true;
+            }
+        }
+
+        this.logger.error(`Signature verification failed for all strategies. Tried ${candidates.length} candidates.`);
+        return false;
     }
 
     /**
@@ -141,6 +158,7 @@ export class NombaWebhookController {
         const signature = headers["nomba-signature"]
             || headers["nomba-sig-value"]
             || headers["x-nomba-signature"];
+        const timestamp = headers["nomba-timestamp"];
 
         // 1. Basic Validation
         if (!body || (!body.event_type && !body.event)) {
@@ -155,8 +173,8 @@ export class NombaWebhookController {
             const rawBody = (req as any).rawBody
                 ? (req as any).rawBody.toString()
                 : JSON.stringify(body);
-            this.logger.log(`Signature verification — rawBody available: ${!!(req as any).rawBody}, sig: ${signature.substring(0, 12)}...`);
-            const isValid = this.verifySignature(rawBody, signature);
+            this.logger.log(`Signature verification — rawBody available: ${!!(req as any).rawBody}, timestamp: ${timestamp || 'NONE'}, sig: ${signature.substring(0, 12)}...`);
+            const isValid = this.verifySignature(rawBody, signature, timestamp);
             if (!isValid) {
                 this.logger.error("Invalid Nomba webhook signature");
                 throw new UnauthorizedException("Invalid webhook signature");
