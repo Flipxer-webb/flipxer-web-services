@@ -16,6 +16,7 @@ import { AuthGuard } from '../../auth/guard';
 import { BankService } from '../services';
 import { SwapService } from '../../trade/services/swap.service';
 import { BuyOrderService } from '../../trade/services/buy-order.service';
+import { StuckOrderReconciliationService } from '../../trade/services/stuck-order-reconciliation.service';
 import { PrismaService } from '@/modules/core/prisma/services';
 import { buildResponse } from '@/utils';
 import { User } from '@/modules/api/user';
@@ -40,7 +41,8 @@ export class AdminOrderController {
         private readonly bankService: BankService,
         private readonly prisma: PrismaService,
         private readonly swapService: SwapService,
-        private readonly buyOrderService: BuyOrderService
+        private readonly buyOrderService: BuyOrderService,
+        private readonly stuckOrderReconciliation: StuckOrderReconciliationService,
     ) { }
 
     private async requireAdmin(userId: number): Promise<void> {
@@ -319,15 +321,6 @@ export class AdminOrderController {
         this.logger.log(`Reset payment to PENDING. Retrying fulfillment for order ${id}, payment reference: ${payment.reference}`);
 
         try {
-            // Reset payment to PENDING so fulfillBuyOrder can process it
-            await this.prisma.payment.update({
-                where: { id: payment.id },
-                data: {
-                    status: TransactionStatus.PENDING,
-                    paymentStatus: TransactionStatus.PENDING,
-                },
-            });
-
             await this.buyOrderService.fulfillBuyOrder(payment.reference);
             this.logger.log(`Successfully retried fulfillment for order ${id}`);
 
@@ -375,5 +368,45 @@ export class AdminOrderController {
         this.logger.log(`Admin ${user.id} request to retry swap order ${id}`);
 
         return await this.swapService.retryPendingSwap(id);
+    }
+
+    /**
+     * Manually trigger stuck-order reconciliation.
+     * Detects and auto-fixes stuck BUY orders, broken ledger links, and pre-ledger gaps.
+     */
+    @Post('reconcile')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: 'Run stuck-order reconciliation',
+        description: 'Detects stuck orders (payment received but not fulfilled) and auto-retries fulfillment. Also detects broken ledger links and backfills pre-ledger orders.',
+    })
+    async runReconciliation(@User() user: UserModel) {
+        await this.requireAdmin(user.id);
+
+        this.logger.log(`Admin ${user.id} triggered manual stuck-order reconciliation`);
+
+        const result = await this.stuckOrderReconciliation.reconcile();
+
+        return buildResponse({
+            message: 'Reconciliation complete',
+            data: {
+                timestamp: result.timestamp,
+                stuckBuyOrders: {
+                    detected: result.stuckBuyOrders.detected,
+                    autoRetried: result.stuckBuyOrders.autoRetried,
+                    retryFailed: result.stuckBuyOrders.retryFailed,
+                    details: result.stuckBuyOrders.details,
+                },
+                brokenLedgerOrders: {
+                    detected: result.brokenLedgerOrders.detected,
+                    details: result.brokenLedgerOrders.details,
+                },
+                preLedgerBackfill: {
+                    detected: result.preLedgerBackfill.detected,
+                    fixed: result.preLedgerBackfill.fixed,
+                },
+                errors: result.errors,
+            },
+        });
     }
 }

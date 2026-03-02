@@ -1,0 +1,415 @@
+import { Injectable, Logger } from "@nestjs/common";
+import { PrismaService } from "@/modules/core/prisma/services";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { BuyOrderService } from "./buy-order.service";
+import {
+    TransactionStatus,
+    OrderCategory,
+    OrderStatus,
+} from "@prisma/client";
+
+/**
+ * Result of a single reconciliation run
+ */
+export interface StuckOrderReconciliationResult {
+    timestamp: Date;
+    stuckBuyOrders: {
+        detected: number;
+        autoRetried: number;
+        retryFailed: number;
+        details: Array<{
+            orderId: number;
+            paymentId: number;
+            reference: string;
+            amount: number;
+            currency: string;
+            action: "retried" | "retry_failed" | "skipped";
+            error?: string;
+        }>;
+    };
+    brokenLedgerOrders: {
+        detected: number;
+        alerted: boolean;
+        details: Array<{
+            orderId: number;
+            transactionId: string;
+            category: string;
+            ledgerEntryId: string | null;
+            ledgerStatus: string | null;
+        }>;
+    };
+    preLedgerBackfill: {
+        detected: number;
+        fixed: number;
+    };
+    errors: string[];
+}
+
+/**
+ * StuckOrderReconciliationService
+ *
+ * Detects and auto-fixes orders where funds were received but fulfillment failed.
+ *
+ * Categories handled:
+ *
+ * 1. **Stuck BUY orders** (payment SUCCESS/APPROVED, order still pending, not fulfilled)
+ *    - Root cause: fulfillBuyOrder failed after webhook, but payment already marked SUCCESS
+ *    - Fix: Reset payment to PENDING, re-call fulfillBuyOrder (idempotent via atomic claim)
+ *    - Guard: Only processes orders >5 min old (avoids racing with active webhook processing)
+ *
+ * 2. **Broken ledger links** (order completed but ledger entry FAILED/missing)
+ *    - Root cause: Ledger transaction failed but order was already updated
+ *    - Fix: Slack alert for manual investigation (auto-fix too risky for money movement)
+ *
+ * 3. **Pre-ledger backfill** (completed BUY orders with no ledgerEntryId)
+ *    - Root cause: Orders completed before ledger system was deployed
+ *    - Fix: Set fulfilled=true (crypto was delivered via old Quidax transfer system)
+ *
+ * Runs via cron (every 10 minutes) and can also be triggered manually via admin endpoint.
+ */
+@Injectable()
+export class StuckOrderReconciliationService {
+    private readonly logger = new Logger(StuckOrderReconciliationService.name);
+
+    /**
+     * Only process orders older than this threshold to avoid racing with
+     * active webhook processing or in-flight fulfillment attempts.
+     */
+    private readonly STUCK_AGE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+    /**
+     * Maximum number of orders to auto-retry per run to avoid overwhelming
+     * the system if there's a large backlog.
+     */
+    private readonly MAX_AUTO_RETRY_PER_RUN = 10;
+
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly buyOrderService: BuyOrderService,
+        private readonly slackWebhookService: SlackWebhookService,
+    ) {}
+
+    /**
+     * Run full stuck-order reconciliation.
+     * Safe to call multiple times — all operations are idempotent.
+     */
+    async reconcile(): Promise<StuckOrderReconciliationResult> {
+        const result: StuckOrderReconciliationResult = {
+            timestamp: new Date(),
+            stuckBuyOrders: { detected: 0, autoRetried: 0, retryFailed: 0, details: [] },
+            brokenLedgerOrders: { detected: 0, alerted: false, details: [] },
+            preLedgerBackfill: { detected: 0, fixed: 0 },
+            errors: [],
+        };
+
+        // Run each category independently so one failure doesn't block others
+        try {
+            await this.detectAndRetryStuckBuyOrders(result);
+        } catch (error) {
+            const msg = `Stuck BUY detection failed: ${error.message}`;
+            this.logger.error(msg, error.stack);
+            result.errors.push(msg);
+        }
+
+        try {
+            await this.detectBrokenLedgerLinks(result);
+        } catch (error) {
+            const msg = `Broken ledger detection failed: ${error.message}`;
+            this.logger.error(msg, error.stack);
+            result.errors.push(msg);
+        }
+
+        try {
+            await this.backfillPreLedgerOrders(result);
+        } catch (error) {
+            const msg = `Pre-ledger backfill failed: ${error.message}`;
+            this.logger.error(msg, error.stack);
+            result.errors.push(msg);
+        }
+
+        // Send summary alert if anything was found
+        if (
+            result.stuckBuyOrders.detected > 0 ||
+            result.brokenLedgerOrders.detected > 0 ||
+            result.errors.length > 0
+        ) {
+            await this.sendReconciliationSummary(result);
+        }
+
+        return result;
+    }
+
+    // ─── Category 1: Stuck BUY orders ───────────────────────────────────────────
+
+    /**
+     * Detect BUY orders where payment succeeded but order was never fulfilled.
+     * Auto-retries by resetting payment → PENDING and calling fulfillBuyOrder.
+     */
+    private async detectAndRetryStuckBuyOrders(
+        result: StuckOrderReconciliationResult,
+    ): Promise<void> {
+        const cutoff = new Date(Date.now() - this.STUCK_AGE_THRESHOLD_MS);
+
+        // Find payments that are SUCCESS or APPROVED but linked to unfulfilled BUY orders
+        const stuckPayments = await this.prisma.payment.findMany({
+            where: {
+                status: {
+                    in: [TransactionStatus.SUCCESS, TransactionStatus.APPROVED],
+                },
+                order: {
+                    orderCategory: OrderCategory.BUY,
+                    fulfilled: false,
+                    // Order should still be in a non-terminal state
+                    status: {
+                        in: [
+                            OrderStatus.pending,
+                            OrderStatus.initiated,
+                            OrderStatus.processing,
+                            OrderStatus.confirmed,
+                        ],
+                    },
+                },
+                // Only process orders old enough to not be in-flight
+                createdAt: { lt: cutoff },
+            },
+            include: {
+                order: {
+                    select: {
+                        id: true,
+                        amount: true,
+                        currency: true,
+                        transactionId: true,
+                        userId: true,
+                    },
+                },
+            },
+            take: this.MAX_AUTO_RETRY_PER_RUN,
+            orderBy: { createdAt: "asc" }, // Oldest first
+        });
+
+        result.stuckBuyOrders.detected = stuckPayments.length;
+
+        if (stuckPayments.length === 0) {
+            this.logger.debug("No stuck BUY orders detected");
+            return;
+        }
+
+        this.logger.warn(
+            `Detected ${stuckPayments.length} stuck BUY order(s) — attempting auto-retry`,
+        );
+
+        for (const payment of stuckPayments) {
+            const detail: StuckOrderReconciliationResult["stuckBuyOrders"]["details"][number] = {
+                orderId: payment.order!.id,
+                paymentId: payment.id,
+                reference: payment.reference,
+                amount: Number(payment.order!.amount),
+                currency: payment.order!.currency,
+                action: "retried",
+                error: undefined,
+            };
+
+            try {
+                // Reset payment to PENDING so fulfillBuyOrder's atomic claim can succeed
+                await this.prisma.payment.update({
+                    where: { id: payment.id },
+                    data: {
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                    },
+                });
+
+                this.logger.log(
+                    `Retrying fulfillment for Order #${payment.order!.id} | payment: ${payment.reference}`,
+                );
+
+                await this.buyOrderService.fulfillBuyOrder(payment.reference);
+
+                result.stuckBuyOrders.autoRetried++;
+                this.logger.log(
+                    `Successfully retried Order #${payment.order!.id}`,
+                );
+            } catch (error) {
+                detail.action = "retry_failed";
+                detail.error = error.message;
+                result.stuckBuyOrders.retryFailed++;
+
+                this.logger.error(
+                    `Failed to retry Order #${payment.order!.id}: ${error.message}`,
+                    error.stack,
+                );
+            }
+
+            result.stuckBuyOrders.details.push(detail);
+        }
+    }
+
+    // ─── Category 2: Broken ledger links ────────────────────────────────────────
+
+    /**
+     * Detect orders that are marked as done/completed but have a FAILED or missing ledger entry.
+     * These require manual investigation — we only alert.
+     */
+    private async detectBrokenLedgerLinks(
+        result: StuckOrderReconciliationResult,
+    ): Promise<void> {
+        // Find completed orders whose linked ledger entry is FAILED
+        const brokenOrders = await this.prisma.order.findMany({
+            where: {
+                ledgerEntryId: { not: null },
+                status: {
+                    in: [OrderStatus.done, OrderStatus.completed],
+                },
+                ledgerEntry: {
+                    status: "FAILED",
+                },
+            },
+            select: {
+                id: true,
+                transactionId: true,
+                orderCategory: true,
+                ledgerEntryId: true,
+                ledgerEntry: { select: { status: true } },
+            },
+        });
+
+        result.brokenLedgerOrders.detected = brokenOrders.length;
+
+        if (brokenOrders.length === 0) {
+            this.logger.debug("No broken ledger links detected");
+            return;
+        }
+
+        this.logger.warn(
+            `Detected ${brokenOrders.length} order(s) with broken ledger links`,
+        );
+
+        for (const order of brokenOrders) {
+            result.brokenLedgerOrders.details.push({
+                orderId: order.id,
+                transactionId: order.transactionId,
+                category: order.orderCategory,
+                ledgerEntryId: order.ledgerEntryId,
+                ledgerStatus: order.ledgerEntry?.status ?? null,
+            });
+        }
+
+        result.brokenLedgerOrders.alerted = true;
+    }
+
+    // ─── Category 3: Pre-ledger backfill ────────────────────────────────────────
+
+    /**
+     * Find completed BUY orders that have no ledgerEntryId (pre-ledger era)
+     * and mark them as fulfilled. These orders were completed via the old
+     * direct Quidax transfer system before the double-entry ledger was deployed.
+     */
+    private async backfillPreLedgerOrders(
+        result: StuckOrderReconciliationResult,
+    ): Promise<void> {
+        const preLedgerOrders = await this.prisma.order.findMany({
+            where: {
+                orderCategory: OrderCategory.BUY,
+                fulfilled: false,
+                ledgerEntryId: null,
+                status: {
+                    in: [OrderStatus.done, OrderStatus.completed],
+                },
+            },
+            select: { id: true },
+        });
+
+        result.preLedgerBackfill.detected = preLedgerOrders.length;
+
+        if (preLedgerOrders.length === 0) {
+            this.logger.debug("No pre-ledger orders to backfill");
+            return;
+        }
+
+        this.logger.log(
+            `Backfilling ${preLedgerOrders.length} pre-ledger BUY order(s) as fulfilled`,
+        );
+
+        const ids = preLedgerOrders.map((o) => o.id);
+
+        const updated = await this.prisma.order.updateMany({
+            where: { id: { in: ids } },
+            data: { fulfilled: true },
+        });
+
+        result.preLedgerBackfill.fixed = updated.count;
+
+        this.logger.log(`Backfilled ${updated.count} pre-ledger order(s)`);
+    }
+
+    // ─── Slack alerts ───────────────────────────────────────────────────────────
+
+    /**
+     * Send a summary Slack alert after reconciliation run
+     */
+    private async sendReconciliationSummary(
+        result: StuckOrderReconciliationResult,
+    ): Promise<void> {
+        try {
+            const sections: string[] = [];
+
+            if (result.stuckBuyOrders.detected > 0) {
+                const lines = [
+                    `*Stuck BUY Orders:* ${result.stuckBuyOrders.detected} detected`,
+                    `  - Auto-retried: ${result.stuckBuyOrders.autoRetried}`,
+                    `  - Retry failed: ${result.stuckBuyOrders.retryFailed}`,
+                ];
+                for (const d of result.stuckBuyOrders.details) {
+                    const status = d.action === "retried" ? "✅" : "❌";
+                    lines.push(
+                        `  ${status} Order #${d.orderId} — ${d.amount} ${d.currency} (${d.reference})${d.error ? ` — ${d.error}` : ""}`,
+                    );
+                }
+                sections.push(lines.join("\n"));
+            }
+
+            if (result.brokenLedgerOrders.detected > 0) {
+                const lines = [
+                    `*Broken Ledger Links:* ${result.brokenLedgerOrders.detected} detected (manual fix required)`,
+                ];
+                for (const d of result.brokenLedgerOrders.details) {
+                    lines.push(
+                        `  ⚠️ Order #${d.orderId} (${d.category}) — ledger ${d.ledgerEntryId} status: ${d.ledgerStatus}`,
+                    );
+                }
+                sections.push(lines.join("\n"));
+            }
+
+            if (result.preLedgerBackfill.fixed > 0) {
+                sections.push(
+                    `*Pre-Ledger Backfill:* ${result.preLedgerBackfill.fixed} orders marked fulfilled`,
+                );
+            }
+
+            if (result.errors.length > 0) {
+                sections.push(
+                    `*Errors:*\n${result.errors.map((e) => `  ❌ ${e}`).join("\n")}`,
+                );
+            }
+
+            const text = `🔄 *Stuck Order Reconciliation Report*\n${sections.join("\n\n")}`;
+
+            await this.slackWebhookService.sendWebhookFailureAlert(
+                "nomba",
+                "reconciliation",
+                text,
+                {
+                    stuckBuyOrders: result.stuckBuyOrders.detected,
+                    autoRetried: result.stuckBuyOrders.autoRetried,
+                    brokenLedger: result.brokenLedgerOrders.detected,
+                    preLedgerBackfill: result.preLedgerBackfill.fixed,
+                    errors: result.errors.length,
+                },
+            );
+        } catch (error) {
+            this.logger.error(
+                `Failed to send reconciliation Slack alert: ${error.message}`,
+            );
+        }
+    }
+}
