@@ -253,15 +253,13 @@ export class StuckOrderReconciliationService {
     private async detectBrokenLedgerLinks(
         result: StuckOrderReconciliationResult,
     ): Promise<void> {
-        // Find completed orders whose linked ledger entry is FAILED
-        const brokenOrders = await this.prisma.order.findMany({
+        // Order model has ledgerEntryId as a plain String? (no Prisma relation),
+        // so we query orders first, then check ledger entries separately.
+        const candidateOrders = await this.prisma.order.findMany({
             where: {
                 ledgerEntryId: { not: null },
                 status: {
                     in: [OrderStatus.done, OrderStatus.completed],
-                },
-                ledgerEntry: {
-                    status: "FAILED",
                 },
             },
             select: {
@@ -269,9 +267,35 @@ export class StuckOrderReconciliationService {
                 transactionId: true,
                 orderCategory: true,
                 ledgerEntryId: true,
-                ledgerEntry: { select: { status: true } },
             },
         });
+
+        if (candidateOrders.length === 0) {
+            this.logger.debug("No broken ledger links detected");
+            return;
+        }
+
+        // Batch-fetch linked ledger entries to check for FAILED status
+        const ledgerEntryIds = candidateOrders
+            .map((o) => o.ledgerEntryId)
+            .filter((id): id is string => id !== null);
+
+        const failedEntries = await this.prisma.ledgerEntry.findMany({
+            where: {
+                id: { in: ledgerEntryIds },
+                status: "FAILED",
+            },
+            select: { id: true, status: true },
+        });
+
+        const failedEntryMap = new Map(
+            failedEntries.map((e) => [e.id, e.status]),
+        );
+
+        // Filter to only orders whose ledger entry is FAILED
+        const brokenOrders = candidateOrders.filter(
+            (o) => o.ledgerEntryId && failedEntryMap.has(o.ledgerEntryId),
+        );
 
         result.brokenLedgerOrders.detected = brokenOrders.length;
 
@@ -290,7 +314,7 @@ export class StuckOrderReconciliationService {
                 transactionId: order.transactionId,
                 category: order.orderCategory,
                 ledgerEntryId: order.ledgerEntryId,
-                ledgerStatus: order.ledgerEntry?.status ?? null,
+                ledgerStatus: failedEntryMap.get(order.ledgerEntryId!) ?? null,
             });
         }
 
