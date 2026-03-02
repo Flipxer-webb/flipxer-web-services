@@ -295,13 +295,14 @@ export class LedgerService {
                 );
 
                 // --- Audit Log ---
-                this.logAudit(
+                await this.logAudit(
                     entry.id,
                     AuditAction.CREATED,
                     'system',
                     description,
-                    metadata
-                ).catch(e => this.logger.error(`Failed to audit credit ${entry.id}: ${e.message}`));
+                    metadata,
+                    tx
+                );
                 // -----------------
 
                 return {
@@ -565,12 +566,14 @@ export class LedgerService {
                 );
 
                 // --- Audit Log ---
-                this.logAudit(
+                await this.logAudit(
                     entry.id,
                     AuditAction.CREATED,
                     'system',
-                    description
-                ).catch(e => this.logger.error(`Failed to audit debit ${entry.id}: ${e.message}`));
+                    description,
+                    undefined,
+                    tx
+                );
                 // -----------------
 
                 return {
@@ -727,12 +730,14 @@ export class LedgerService {
                 );
 
                 // --- Audit Log ---
-                this.logAudit(
+                await this.logAudit(
                     entry.id,
                     AuditAction.HOLD_PLACED,
                     'system',
-                    description
-                ).catch(e => this.logger.error(`Failed to audit hold ${entry.id}: ${e.message}`));
+                    description,
+                    undefined,
+                    tx
+                );
                 // -----------------
 
                 return {
@@ -856,12 +861,14 @@ export class LedgerService {
                     );
 
                     // --- Audit Log ---
-                    this.logAudit(
+                    await this.logAudit(
                         updatedEntry.id,
                         AuditAction.SETTLED,
                         'system',
-                        description
-                    ).catch(e => this.logger.error(`Failed to audit hold settlement ${updatedEntry.id}: ${e.message}`));
+                        description,
+                        undefined,
+                        tx
+                    );
                     // -----------------
 
                     result = {
@@ -891,12 +898,14 @@ export class LedgerService {
                     );
 
                     // --- Audit Log ---
-                    this.logAudit(
+                    await this.logAudit(
                         updatedEntry.id,
                         AuditAction.HOLD_RELEASED,
                         'system',
-                        description
-                    ).catch(e => this.logger.error(`Failed to audit hold release ${updatedEntry.id}: ${e.message}`));
+                        description,
+                        undefined,
+                        tx
+                    );
                     // -----------------
 
                     result = {
@@ -1121,10 +1130,10 @@ export class LedgerService {
                 );
 
                 // --- Audit Logs (Both sides) ---
-                Promise.all([
-                    this.logAudit(debitEntry.id, AuditAction.CREATED, 'system', `Transfer sent to ${toUserId}`, { counterparty: toUserId }),
-                    this.logAudit(creditEntry.id, AuditAction.CREATED, 'system', `Transfer received from ${fromUserId}`, { counterparty: fromUserId })
-                ]).catch(e => this.logger.error(`Failed to audit internal transfer: ${e.message}`));
+                await Promise.all([
+                    this.logAudit(debitEntry.id, AuditAction.CREATED, 'system', `Transfer sent to ${toUserId}`, { counterparty: toUserId }, tx),
+                    this.logAudit(creditEntry.id, AuditAction.CREATED, 'system', `Transfer received from ${fromUserId}`, { counterparty: fromUserId }, tx)
+                ]);
                 // -------------------------------
 
                 return {
@@ -1497,10 +1506,10 @@ export class LedgerService {
                 );
 
                 // --- Audit Logs ---
-                Promise.all([
-                    this.logAudit(debitEntry.id, AuditAction.CREATED, 'system', `Transfer from ${fromUserId} to ${toUserId}`, { counterparty: toUserId }),
-                    this.logAudit(creditEntry.id, AuditAction.CREATED, 'system', `Transfer from ${fromUserId} to ${toUserId}`, { counterparty: fromUserId })
-                ]).catch(e => this.logger.error(`Failed to audit transfer: ${e.message}`));
+                await Promise.all([
+                    this.logAudit(debitEntry.id, AuditAction.CREATED, 'system', `Transfer from ${fromUserId} to ${toUserId}`, { counterparty: toUserId }, tx),
+                    this.logAudit(creditEntry.id, AuditAction.CREATED, 'system', `Transfer from ${fromUserId} to ${toUserId}`, { counterparty: fromUserId }, tx)
+                ]);
                 // ------------------
 
                 return {
@@ -1534,10 +1543,12 @@ export class LedgerService {
         action: AuditAction,
         actor: string,
         reason?: string,
-        metadata?: Record<string, any>
+        metadata?: Record<string, any>,
+        tx?: Prisma.TransactionClient
     ): Promise<void> {
         try {
-            await this.prisma.ledgerAuditLog.create({
+            const client = tx ?? this.prisma;
+            await client.ledgerAuditLog.create({
                 data: {
                     ledgerEntryId,
                     action,
@@ -1850,12 +1861,12 @@ export class LedgerService {
 
             // --- Audit Logs ---
             const audits = [
-                this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryResult?.id })
+                this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryResult?.id }, tx)
             ];
             if (platformEntryResult) {
-                audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }));
+                audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }, tx));
             }
-            Promise.all(audits).catch(e => this.logger.error(`Failed to audit paired credit: ${e.message}`));
+            await Promise.all(audits);
             // ------------------
 
             return {
@@ -2016,14 +2027,14 @@ export class LedgerService {
 
         this.logger.log(`Paired credit (in-tx) success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? `Debited` : 'Skipped'}`);
 
-        // Audit logs (fire-and-forget, outside the critical path)
+        // Audit logs (using same transaction client for FK integrity)
         const audits = [
-            this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryResult?.id })
+            this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryResult?.id }, tx)
         ];
         if (platformEntryResult) {
-            audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }));
+            audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }, tx));
         }
-        Promise.all(audits).catch(e => this.logger.error(`Failed to audit paired credit: ${e.message}`));
+        await Promise.all(audits);
 
         return {
             success: true,
@@ -2223,21 +2234,21 @@ export class LedgerService {
                 });
 
                 // --- Audit Logs for Fees ---
-                Promise.all([
-                    this.logAudit(userFeeEntry.id, AuditAction.CREATED, 'system', `User fee debit for ${type}`, { relatedTo: userEntry.id, feeTo: feeAccountEntry.id }),
-                    this.logAudit(feeAccountEntry.id, AuditAction.CREATED, 'system', `Fee collected from User ${userId} for ${type}`, { relatedTo: userEntry.id, feeFrom: userFeeEntry.id })
-                ]).catch(e => this.logger.error(`Failed to audit fee entries: ${e.message}`));
+                await Promise.all([
+                    this.logAudit(userFeeEntry.id, AuditAction.CREATED, 'system', `User fee debit for ${type}`, { relatedTo: userEntry.id, feeTo: feeAccountEntry.id }, tx),
+                    this.logAudit(feeAccountEntry.id, AuditAction.CREATED, 'system', `Fee collected from User ${userId} for ${type}`, { relatedTo: userEntry.id, feeFrom: userFeeEntry.id }, tx)
+                ]);
                 // ---------------------------
             }
 
             // --- Audit Logs for main entries ---
             const audits = [
-                this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryId })
+                this.logAudit(userEntry.id, AuditAction.CREATED, 'system', description, { type, platformEntry: platformEntryId }, tx)
             ];
             if (platformEntryResult) {
-                audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }));
+                audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { type, userEntry: userEntry.id }, tx));
             }
-            Promise.all(audits).catch(e => this.logger.error(`Failed to audit paired debit: ${e.message}`));
+            await Promise.all(audits);
             // ------------------
 
             return {
@@ -2379,12 +2390,12 @@ export class LedgerService {
 
                 // --- Audit Logs (Settle) ---
                 const audits = [
-                    this.logAudit(updatedUserEntry.id, AuditAction.SETTLED, 'system', description)
+                    this.logAudit(updatedUserEntry.id, AuditAction.SETTLED, 'system', description, undefined, tx)
                 ];
                 if (platformEntryResult) {
-                    audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { relatedTo: updatedUserEntry.id }));
+                    audits.push(this.logAudit(platformEntryResult.id, AuditAction.CREATED, 'system', description, { relatedTo: updatedUserEntry.id }, tx));
                 }
-                Promise.all(audits).catch(e => this.logger.error(`Failed to audit hold settlement ${updatedUserEntry.id}: ${e.message}`));
+                await Promise.all(audits);
                 // ---------------------------
 
                 userEntryResult = { id: updatedUserEntry.id, balanceAfter: userNewBalance, reference: updatedUserEntry.reference };
@@ -2402,12 +2413,14 @@ export class LedgerService {
                 });
 
                 // --- Audit Logs (Refund) ---
-                this.logAudit(
+                await this.logAudit(
                     updatedEntry.id,
                     AuditAction.HOLD_RELEASED,
                     'system',
-                    description
-                ).catch(e => this.logger.error(`Failed to audit hold release ${updatedEntry.id}: ${e.message}`));
+                    description,
+                    undefined,
+                    tx
+                );
                 // ---------------------------
 
                 userEntryResult = {
