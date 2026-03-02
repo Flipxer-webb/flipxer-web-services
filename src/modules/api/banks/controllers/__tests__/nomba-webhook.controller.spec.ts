@@ -50,6 +50,35 @@ function vaCredit(accountRef: string, amount = 1000) {
     };
 }
 
+/** Build a realistic VA payment_success payload (vact_transfer) from Nomba docs. */
+function vaPaymentSuccess(aliasAccountReference: string, amount = 1000) {
+    return {
+        event_type: 'payment_success',
+        requestId: '49e11b44-909b-4f83-82b4-9a83aXXXXXX',
+        data: {
+            merchant: {
+                walletId: 'wallet-1',
+                walletBalance: 539.4,
+                userId: 'merchant-user-1',
+            },
+            terminal: {},
+            transaction: {
+                type: 'vact_transfer',
+                transactionId: 'API-VACT_TRA-xxx',
+                transactionAmount: amount,
+                narration: 'Transfer from JOHN GRASS',
+                time: '2026-02-06T10:21:56Z',
+                aliasAccountReference,
+            },
+            customer: {
+                senderName: 'JOHN GRASS',
+                bankName: 'Paycom (Opay)',
+                accountNumber: '81689XXX',
+            },
+        },
+    };
+}
+
 /** Build a checkout/order webhook body. */
 function checkoutSuccess(orderReference: string, amount = 2000) {
     return {
@@ -108,6 +137,17 @@ describe('NombaWebhookController', () => {
     // ── Normalization / Reference Extraction ─────────────────
 
     describe('normalizePayload — reference extraction', () => {
+        it('should extract aliasAccountReference from VA payment_success (vact_transfer)', async () => {
+            const ref = 'va-ref-alias-123';
+            const payment = { id: 9, orderId: 98, totalAmount: 1000, reference: ref, userId: 7 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+            buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
+
+            await controller.handleWebhook(vaPaymentSuccess(ref, 1000), {});
+
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
+        });
+
         it('should extract accountRef from VA-credit webhooks', async () => {
             const ref = 'g156bb83hh82gg4h16b6gb088ha677';
             const payment = { id: 10, orderId: 99, totalAmount: 1000, reference: ref, userId: 7 };
@@ -145,7 +185,7 @@ describe('NombaWebhookController', () => {
             });
         });
 
-        it('should prefer orderReference over accountRef', async () => {
+        it('should prefer accountRef over orderReference', async () => {
             const body = {
                 event_type: 'payment_success',
                 data: {
@@ -153,16 +193,16 @@ describe('NombaWebhookController', () => {
                     order: { orderReference: 'preferred-ref', amount: 100 },
                 },
             };
-            const payment = { id: 12, orderId: 101, totalAmount: 100, reference: 'preferred-ref', userId: 9 };
+            const payment = { id: 12, orderId: 101, totalAmount: 100, reference: 'should-not-use', userId: 9 };
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
             await controller.handleWebhook(body, {});
 
-            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith('preferred-ref');
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith('should-not-use');
         });
 
-        it('should prefer data.reference over accountRef', async () => {
+        it('should prefer accountRef over data.reference', async () => {
             const body = {
                 event_type: 'virtual_account.credited',
                 data: {
@@ -171,13 +211,13 @@ describe('NombaWebhookController', () => {
                     amount: 100,
                 },
             };
-            const payment = { id: 13, orderId: null, totalAmount: 100, reference: 'data-ref', userId: 10 };
+            const payment = { id: 13, orderId: null, totalAmount: 100, reference: 'account-ref-fallback', userId: 10 };
             prisma.payment.findFirst.mockResolvedValue(payment);
 
             await controller.handleWebhook(body, {});
 
-            // The payment lookup goes through with 'data-ref', not 'account-ref-fallback'
-            expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: 'data-ref' } });
+            // The payment lookup goes through with 'account-ref-fallback', not 'data-ref'
+            expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: 'account-ref-fallback' } });
         });
 
         it('should throw when no reference can be extracted from a payment event', async () => {
