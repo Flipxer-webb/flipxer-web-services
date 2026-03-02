@@ -926,7 +926,7 @@ export class LedgerService {
      * @param description Optional description
      * @param skipLocking If true, skip distributed lock acquisition (caller must hold locks)
    
-    * FIX: LT-001 — outer lock TTL increased to 25000ms to guarantee it outlives
+    * FIX: LT-001 — outer lock TTL increased to 45000ms to guarantee it outlives
      * the inner lock (15000ms) plus the inner maxWaitMs (20000ms) with margin.
      * Previous values (outer: 15000, inner: 10000) allowed outer to expire while
      * inner was still running, creating a window where two operations could execute
@@ -983,7 +983,7 @@ export class LedgerService {
         const lockKey2 = `ledger:${secondLockUser}:${upperCurrency}`;
 
         try {
-            // FIX: LT-001 — outer TTL (25000) > inner TTL (15000) + inner maxWait (20000)
+            // FIX: LT-001 — outer TTL (45000ms) > inner TTL (15000) + inner maxWait (20000)
             // ensures the outer lock cannot expire while the inner lock is still held.
 
             // Acquire locks sequentially (nested)
