@@ -1,4 +1,5 @@
-import { Controller, Post, Get, Body, Headers, HttpCode, Logger, UnauthorizedException } from "@nestjs/common";
+import { Controller, Post, Get, Body, Headers, HttpCode, Logger, Req, UnauthorizedException } from "@nestjs/common";
+import { Request } from "express";
 import { NombaWebhookPayload, NombaWebhookEventType } from "../dtos/nomba-webhook.dto";
 import { NormalizedPaymentEvent } from "../types/payment-event.interface";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -131,7 +132,8 @@ export class NombaWebhookController {
     @HttpCode(200)
     async handleWebhook(
         @Body() body: any,
-        @Headers() headers: any
+        @Headers() headers: any,
+        @Req() req: Request,
     ) {
         this.logger.log(`Raw Webhook Headers: ${JSON.stringify(headers)}`);
         this.logger.log(`Raw Webhook Body: ${JSON.stringify(body)}`);
@@ -147,8 +149,11 @@ export class NombaWebhookController {
         }
 
         // 2. Signature Verification (Security First)
+        //    Use the raw (unparsed) request body so the HMAC matches what Nomba signed.
+        //    req.rawBody is set by the verify callback in src/www/index.ts.
         if (process.env.NODE_ENV === "production" && signature) {
-            const isValid = this.verifySignature(JSON.stringify(body), signature);
+            const rawBody = (req as any).rawBody || JSON.stringify(body);
+            const isValid = this.verifySignature(rawBody, signature);
             if (!isValid) {
                 this.logger.error("Invalid Nomba webhook signature");
                 throw new UnauthorizedException("Invalid webhook signature");
