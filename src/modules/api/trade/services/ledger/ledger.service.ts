@@ -1327,8 +1327,9 @@ export class LedgerService {
     }
 
     /**
+     /**
      * Creates a pair of entries for a transfer between users
-    * (e.g., user-to-user send, or user-to-platform for trades)
+     * (e.g., user-to-user send, or user-to-platform for trades)
      *
      * @param fromUserId Source user
      * @param toUserId Destination user
@@ -2376,9 +2377,15 @@ export class LedgerService {
                     }
                 });
                 // --- Audit Logs (Refund) ---
-                this.logAudit(updatedEntry.id, AuditAction.HOLD_RELEASED, 'system', description)
-                    .catch(e => this.logger.error(`Failed to audit hold release ${updatedEntry.id}: ${e.message}`));
-                // --------------------------- // ---------------------------
+                await this.logAudit(
+                    updatedEntry.id,
+                    AuditAction.HOLD_RELEASED,
+                    'system',
+                    description,
+                    undefined,
+                    tx
+                );
+                // ---------------------------
 
                 userEntryResult = {
                     id: updatedEntry.id,
