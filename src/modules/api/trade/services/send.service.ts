@@ -156,14 +156,20 @@ export class SendService {
 
                 // Release the held funds back to available balance
                 try {
-                    await this.ledgerService.releaseHold(
+                    const releaseResult = await this.ledgerService.releaseHold(
                         `withdrawal:${pendingWithdrawal.orderReference}`,
                         false,
                         "Stuck order auto-failed"
                     );
-                    this.logger.log(
-                        `Released held funds for stuck order | userId: ${userId} | currency: ${currency} | amount: ${pendingWithdrawal.amount} | ref: ${pendingWithdrawal.orderReference}`
-                    );
+                    if (releaseResult.success) {
+                        this.logger.log(
+                            `Released held funds for stuck order | userId: ${userId} | currency: ${currency} | amount: ${pendingWithdrawal.amount} | ref: ${pendingWithdrawal.orderReference}`
+                        );
+                    } else {
+                        this.logger.warn(
+                            `No hold entry found to release for stuck order (may have been released already or order predates ledger holds) | userId: ${userId} | orderId: ${pendingWithdrawal.id} | ref: ${pendingWithdrawal.orderReference} | error: ${releaseResult.error}`
+                        );
+                    }
                 } catch (releaseError) {
                     // Log but don't block — the order is already marked failed.
                     // Manual reconciliation may be needed if hold release fails.
