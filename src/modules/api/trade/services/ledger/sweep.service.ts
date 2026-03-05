@@ -311,10 +311,18 @@ export class SweepService {
 
             // FIX: SW-001 — store the Quidax transactionId on the ledger entry
             // so handleSweepConfirmation() can correlate the webhook back to
-            // this entry without a separate table
+            // this entry without a separate table.
+            // NOTE: Using metadata JSON until migration 20260302000000 adds
+            // the dedicated sweepTxId column to production.
+            const existingMeta = (entry.metadata as Record<string, any>) ?? {};
             await this.prisma.ledgerEntry.update({
                 where: { id: ledgerEntryId },
-                data: { sweepTxId: transferResult.data.id },
+                data: {
+                    metadata: {
+                        ...existingMeta,
+                        sweepTxId: transferResult.data.id,
+                    },
+                },
             });
 
             this.logger.log(
@@ -481,9 +489,16 @@ export class SweepService {
             await this.lockService.withLock(
                 lockKey,
                 async () => {
-                    // FIX: SW-001 — look up entry by sweepTxId stored at initiation
+                    // FIX: SW-001 — look up entry by sweepTxId stored in metadata
+                    // NOTE: Using metadata JSON filter until migration 20260302000000
+                    // adds the dedicated sweepTxId column to production.
                     const entry = await this.prisma.ledgerEntry.findFirst({
-                        where: { sweepTxId: transactionId },
+                        where: {
+                            metadata: {
+                                path: ['sweepTxId'],
+                                equals: transactionId,
+                            },
+                        },
                         select: { id: true, sweepStatus: true, userId: true, currency: true },
                     });
 
@@ -675,19 +690,20 @@ export class SweepService {
      *   Beyond MAX_LIFETIME_RETRIES (3): permanently skipped
      */
     async retryFailedSweeps(maxRetries = 5): Promise<number> {
+        // NOTE: sweepRetryCount filter moved to application code because the
+        // dedicated column doesn't exist in production yet (migration 20260302000000).
+        // Retry count is stored in metadata.sweepRetryCount instead.
         const failed = await this.prisma.ledgerEntry.findMany({
             where: {
                 type: LedgerType.DEPOSIT,
                 sweepStatus: SweepStatus.FAILED,
                 status: EntryStatus.SETTLED,
-                // FIX: SW-002 — only fetch entries that have not exhausted retries
-                sweepRetryCount: { lt: this.MAX_LIFETIME_RETRIES },
             },
             orderBy: { updatedAt: "asc" },
-            take: maxRetries,
+            take: maxRetries * 2, // Over-fetch since we filter retries in app code
             select: {
                 id: true,
-                sweepRetryCount: true,
+                metadata: true,
                 updatedAt: true,
                 currency: true,
             },
@@ -702,11 +718,19 @@ export class SweepService {
         let retried = 0;
 
         for (const entry of failed) {
+            const entryMeta = (entry.metadata as Record<string, any>) ?? {};
+            const retryCount = (entryMeta.sweepRetryCount as number) ?? 0;
+
+            // Skip entries that have exhausted retries
+            if (retryCount >= this.MAX_LIFETIME_RETRIES) {
+                continue;
+            }
+
             // FIX: SW-002 — exponential backoff: only retry if the cooloff
             // window has elapsed since the last failure
             const backoffMinutes = Math.pow(
                 this.BACKOFF_BASE_MINUTES,
-                entry.sweepRetryCount + 1
+                retryCount + 1
             );
             const cooloffExpiry = new Date(
                 entry.updatedAt.getTime() + backoffMinutes * 60 * 1000
@@ -714,13 +738,15 @@ export class SweepService {
 
             if (new Date() < cooloffExpiry) {
                 this.logger.debug(
-                    `Sweep retry deferred | ledgerEntryId: ${entry.id} | retryCount: ${entry.sweepRetryCount} | eligibleAt: ${cooloffExpiry.toISOString()}`
+                    `Sweep retry deferred | ledgerEntryId: ${entry.id} | retryCount: ${retryCount} | eligibleAt: ${cooloffExpiry.toISOString()}`
                 );
                 continue;
             }
 
-            // FIX: SW-002 — increment retry count and reset to PENDING atomically
-            // Uses updateMany with FAILED gate to prevent concurrent retry races
+            // FIX: SW-002 — increment retry count (in metadata) and reset to PENDING atomically.
+            // Uses updateMany with FAILED gate to prevent concurrent retry races.
+            // NOTE: sweepRetryCount stored in metadata JSON until migration 20260302000000.
+            const newMeta = { ...entryMeta, sweepRetryCount: retryCount + 1 };
             const updateResult = await this.prisma.ledgerEntry.updateMany({
                 where: {
                     id: entry.id,
@@ -728,7 +754,7 @@ export class SweepService {
                 },
                 data: {
                     sweepStatus: SweepStatus.PENDING,
-                    sweepRetryCount: { increment: 1 },
+                    metadata: newMeta,
                 },
             });
 
@@ -738,7 +764,7 @@ export class SweepService {
             }
 
             this.logger.log(
-                `Retrying sweep | ledgerEntryId: ${entry.id} | attempt: ${entry.sweepRetryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
+                `Retrying sweep | ledgerEntryId: ${entry.id} | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
             );
 
             const result = await this.initiateSweep(entry.id);
