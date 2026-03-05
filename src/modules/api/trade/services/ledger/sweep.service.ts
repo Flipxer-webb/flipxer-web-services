@@ -306,6 +306,18 @@ export class SweepService {
             // retries and clock drift, unlike Date.now() which is not monotonic
             const sweepReference = `sweep-${ledgerEntryId}-${randomUUID().slice(0, 8)}`;
 
+            // FIX: SW-010 — log the full Quidax request for debugging sweep failures
+            this.logger.log(
+                `Initiating sweep Quidax transfer | ${JSON.stringify({
+                    ledgerEntryId,
+                    userId: entry.userId,
+                    subAccountId: entry.user.cryptoSubAccountId,
+                    currency: entry.currency.toLowerCase(),
+                    amount: entry.credit.toString(),
+                    reference: sweepReference,
+                })}`
+            );
+
             // Initiate internal transfer from sub-account to main wallet.
             // fund_uid: "me" tells Quidax to credit the parent/main account
             // directly — no blockchain transaction, no network fee.
@@ -353,6 +365,19 @@ export class SweepService {
             const errorMsg = error.message || String(error);
             const isNonRetryable = this.NON_RETRYABLE_ERRORS.some(re => re.test(errorMsg));
 
+            // FIX: SW-010 — log full error details including Quidax response
+            this.logger.error(
+                `Sweep Quidax API call failed | ${JSON.stringify({
+                    ledgerEntryId,
+                    userId: entry.userId,
+                    currency: entry.currency,
+                    error: errorMsg,
+                    errorName: error.name || error.constructor?.name,
+                    isNonRetryable,
+                    status: error.status ?? error.getStatus?.() ?? 'unknown',
+                })}`
+            );
+
             if (isNonRetryable) {
                 this.logger.warn(
                     `Sweep permanently failed (non-retryable) | ${JSON.stringify({
@@ -360,16 +385,16 @@ export class SweepService {
                         error: errorMsg,
                     })}`
                 );
+                // FIX: SW-010 — mark as FAILED only, do NOT auto-transition to
+                // NOT_APPLICABLE. Non-retryable errors like "insufficient balance"
+                // may be transient (e.g., deposit still confirming on Quidax side).
+                // The retry mechanism will eventually exhaust MAX_LIFETIME_RETRIES (3)
+                // and stop retrying, but the entry stays FAILED for manual review
+                // rather than silently being swept under the rug as NOT_APPLICABLE.
                 await this.updateSweepStatus(
                     ledgerEntryId,
                     SweepStatus.FAILED,
                     `non-retryable: ${errorMsg}`
-                );
-                // Immediately transition to NOT_APPLICABLE so it won't be retried
-                await this.updateSweepStatus(
-                    ledgerEntryId,
-                    SweepStatus.NOT_APPLICABLE,
-                    `auto-resolved: non-retryable error (${errorMsg})`
                 );
                 return { success: false, ledgerEntryId, error: errorMsg };
             }
@@ -879,12 +904,6 @@ export class SweepService {
                 this.logger.log(
                     `Auto-resolving ${staleEntries.length} stale sweep entries for omnibus user ${userId} (${currency})`
                 );
-                // FIX: SW-008 — route through updateSweepStatus for audit trail
-                // Note: IN_PROGRESS → NOT_APPLICABLE is not a standard transition
-                // so we go via FAILED for IN_PROGRESS entries, then could re-mark
-                // but for omnibus users the simplest correct path is direct prisma
-                // update since this is an exceptional cleanup, not a normal flow.
-                // We document the reason explicitly.
                 await this.prisma.ledgerEntry.updateMany({
                     where: {
                         userId,
@@ -904,19 +923,23 @@ export class SweepService {
             return false;
         }
 
-        // Sub-account user — auto-fail stale entries beyond the window
+        // Sub-account user — only auto-fail entries that are truly stale
+        // FIX: SW-010 — use updatedAt instead of createdAt for the cutoff.
+        // createdAt reflects when the deposit arrived; updatedAt reflects
+        // the last sweep attempt. A deposit may be old but the sweep was
+        // retried recently (e.g., 5 min ago). Using createdAt would kill
+        // legitimate in-flight retries.
         const cutoff = new Date();
         cutoff.setHours(cutoff.getHours() - this.SWEEP_BLOCK_WINDOW_HOURS);
 
-        // FIX: SW-008 — fetch stale entries first, then update each through
-        // updateSweepStatus() so every transition is validated and logged
+        // FIX: SW-010 — use updatedAt for staleness (not createdAt)
         const staleEntries = await this.prisma.ledgerEntry.findMany({
             where: {
                 userId,
                 currency: currency.toUpperCase(),
                 type: LedgerType.DEPOSIT,
                 sweepStatus: { in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS] },
-                createdAt: { lt: cutoff },
+                updatedAt: { lt: cutoff },
             },
             select: { id: true, sweepStatus: true },
         });
@@ -943,7 +966,9 @@ export class SweepService {
             );
         }
 
-        // Count only recent blocking sweeps
+        // FIX: SW-010 — use updatedAt for the pending count too, so that
+        // recently-retried sweeps still block withdrawal (they're active),
+        // while truly ancient ones have already been auto-failed above.
         const pendingCount = await this.prisma.ledgerEntry.count({
             where: {
                 userId,
@@ -952,7 +977,6 @@ export class SweepService {
                 sweepStatus: {
                     in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS],
                 },
-                createdAt: { gte: cutoff },
             },
         });
 
