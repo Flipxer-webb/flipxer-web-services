@@ -5,7 +5,7 @@ import { SweepService } from "../services/ledger/sweep.service";
 /**
  * SweepCron
  *
- * Processes pending sweeps and retries failed sweeps on a schedule.
+ * Processes pending sweeps and retries failed/stale sweeps on a schedule.
  *
  * Sweep flow:
  * 1. Deposit webhook credits user ledger with sweepStatus = PENDING
@@ -15,6 +15,7 @@ import { SweepService } from "../services/ledger/sweep.service";
  *
  * Retry flow:
  * - Failed sweeps are retried every 10 minutes with exponential backoff
+ * - Stale IN_PROGRESS sweeps (>15 min) are also recovered in the same cycle (SW-009)
  * - Max 3 lifetime retries per entry before permanent abandonment
  *
  * Both methods are protected by distributed Redis locks inside SweepService
@@ -50,8 +51,9 @@ export class SweepCron {
     }
 
     /**
-     * Retry failed sweeps - runs every 10 minutes
-     * Retries FAILED entries with exponential backoff (max 3 retries)
+     * Retry failed sweeps & recover stale IN_PROGRESS - runs every 10 minutes
+     * Phase 1: Retries FAILED entries with exponential backoff (max 3 retries)
+     * Phase 2: Resets stale IN_PROGRESS entries (>15 min) back to PENDING (SW-009)
      */
     @Cron(CronExpression.EVERY_10_MINUTES)
     async retryFailedSweeps(): Promise<void> {

@@ -91,6 +91,7 @@ import { SellOrderService } from "./sell-order.service";
 import { SwapService } from "./swap.service";
 import { SendService } from "./send.service";
 import { LedgerService } from "./ledger/ledger.service";
+import { SweepService } from "./ledger/sweep.service";
 import { WebhookHandlerService } from "./webhook-handler.service";
 import {
     SUPPORTED_ASSETS,
@@ -168,6 +169,7 @@ export class TradingService {
         private readonly swapService: SwapService,
         private readonly sendService: SendService,
         private readonly ledgerService: LedgerService,
+        private readonly sweepService: SweepService,
         private readonly webhookHandlerService: WebhookHandlerService
     ) { }
 
@@ -1153,6 +1155,19 @@ export class TradingService {
         options: WithdrawerTransactionHandlerOptions
     ) {
         return this.webhookHandlerService.withdrawerTransactionHandler(options);
+    }
+
+    /**
+     * Facade for SweepService.handleSweepConfirmation().
+     * Called by QuidaxWebhookService when a sweep-prefixed withdrawal
+     * webhook arrives, routing it to the sweep pipeline instead of the
+     * order-based withdrawal handler.
+     */
+    async handleSweepConfirmation(
+        transactionId: string,
+        status: "completed" | "failed"
+    ) {
+        return this.sweepService.handleSweepConfirmation(transactionId, status);
     }
 
     async getFee(
