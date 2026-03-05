@@ -47,6 +47,15 @@ export interface ReconciliationReport {
  * - Blockchain Total = main wallet balance (from Quidax)
  * - Discrepancy = |Ledger - Blockchain|
  * - Discrepancy% = (Discrepancy / Ledger) * 100
+ *
+ * Fix notes:
+ * - RC-001: getLedgerTotal() DISTINCT ON query updated to ORDER BY
+ *   "userId", "sequenceNumber" DESC instead of "userId", "createdAt" DESC,
+ *   consistent with the F-001 fix in LedgerService. Under concurrent writes
+ *   within the same millisecond, createdAt ordering is non-deterministic and
+ *   could return a stale balance snapshot for a user. sequenceNumber is a
+ *   BIGSERIAL assigned by Postgres at INSERT time and is strictly monotonic,
+ *   guaranteeing the correct (most recently inserted) entry is always selected.
  */
 @Injectable()
 export class ReconciliationService {
@@ -187,6 +196,16 @@ export class ReconciliationService {
     /**
      * Gets sum of all user balances from ledger
      *
+     * FIX: RC-001 — ORDER BY clause updated from "createdAt" DESC to
+     * "sequenceNumber" DESC. DISTINCT ON ("userId") requires the first ORDER BY
+     * key to match the DISTINCT key ("userId"), and the second key determines
+     * which row is selected per user. sequenceNumber is strictly monotonic
+     * (BIGSERIAL, assigned by Postgres at INSERT time), so the highest
+     * sequenceNumber for a userId is always the most recently inserted entry —
+     * i.e. the entry whose balanceAfter reflects the user's current balance.
+     * createdAt has millisecond resolution and is non-deterministic under
+     * concurrent writes, making it an unreliable tiebreaker.
+     *
      * @param currency Currency symbol
      * @returns Total balance across all users
      */
@@ -204,7 +223,7 @@ export class ReconciliationService {
                 WHERE currency = ${currency}
                   AND status != 'FAILED'
                   AND "userId" > 0  -- Exclude platform account
-                ORDER BY "userId", "createdAt" DESC
+                ORDER BY "userId", "sequenceNumber" DESC
             ) as latest
         `;
 
@@ -275,15 +294,11 @@ export class ReconciliationService {
             const emoji = severity === "critical" ? "🚨" : "⚠️";
 
             const messageText = [
-                `${emoji} *Reconciliation ${severity.toUpperCase()}: ${result.currency
-                }*`,
+                `${emoji} *Reconciliation ${severity.toUpperCase()}: ${result.currency}*`,
                 ``,
-                `Ledger Total: ${result.ledgerTotal.toString()} ${result.currency
-                }`,
-                `Blockchain Total: ${result.blockchainTotal.toString()} ${result.currency
-                }`,
-                `Discrepancy: ${result.discrepancy.toString()} ${result.currency
-                } (${result.discrepancyPct.toFixed(4)}%)`,
+                `Ledger Total: ${result.ledgerTotal.toString()} ${result.currency}`,
+                `Blockchain Total: ${result.blockchainTotal.toString()} ${result.currency}`,
+                `Discrepancy: ${result.discrepancy.toString()} ${result.currency} (${result.discrepancyPct.toFixed(4)}%)`,
                 ``,
                 result.action === "pause"
                     ? `❌ *Withdrawal queue PAUSED* - Admin approval required to resume`

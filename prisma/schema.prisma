@@ -1143,6 +1143,7 @@ enum MigrationStatus {
   PAUSED
 }
 
+
 // Core ledger entry for double-entry accounting
 // Each balance change creates an entry; balanceAfter provides O(1) balance lookup
 model LedgerEntry {
@@ -1163,6 +1164,9 @@ model LedgerEntry {
   paymentReference   String?       // Fiat payment reference
   description        String?       // Human-readable description for audit
   metadata           Json?         // Additional data
+  sequenceNumber     BigInt        @default(autoincrement()) @unique // F-001: monotonic ordering
+  sweepTxId          String?       @unique                           // SW-001: webhook correlation
+  sweepRetryCount    Int           @default(0)                       // SW-002: retry tracking
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -1174,7 +1178,9 @@ model LedgerEntry {
 
   // Prevent duplicate entries for same transaction
   @@unique([type, reference])
-  // Fast balance lookups
+  // Fast balance lookups — sequenceNumber is the canonical ordering index (F-001)
+  @@index([userId, currency, sequenceNumber(sort: Desc)])
+  // Retained for time-range queries (history, audit logs, reconciliation date filters)
   @@index([userId, currency, createdAt(sort: Desc)])
   @@index([status])
   @@index([sweepStatus])

@@ -349,6 +349,7 @@ export class SendService {
             const verification = await this.walletAddressService.verifyWalletAddress({
                 currency: currency.toLowerCase() as any,
                 address: recipientWalletAddress,
+                network: dto.network,
             });
 
             if (!verification?.data?.valid) {
