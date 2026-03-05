@@ -272,7 +272,10 @@ export class KycService {
         // FIX: KC-006 idempotency guard now also covers ESCALATE path to prevent
         // duplicate KycVerification records and duplicate audit log entries when
         // the same escalation is submitted more than once.
-        if (verificationType && this.isVerificationAlreadyFinal(user, verificationType, action)) {
+
+        const alreadyFinal = action === "ESCALATE" ? await this.isEscalationAlreadyActive(userId, verificationType) : this.isVerificationAlreadyFinal(user, verificationType, action);
+
+        if (verificationType && alreadyFinal) {
             return buildResponse({
                 message: `KYC ${action.toLowerCase()} already processed for ${verificationType}`,
                 data: {
@@ -441,14 +444,14 @@ export class KycService {
                     : `Your ${notificationType}verification has been escalated for additional review.`;
 
         this.notificationDispatcher.notify({
-                userId,
-                title,
-                body,
-                enablePush: true, 
-            }).catch((e) => this.logger.error(`Failed to send KYC push notification to user ${userId}: ${e.message}`));
-            
-            // Send Email
-            this.sendKycEmail(user, action, verificationType, note).catch((e) => this.logger.error(`Failed to send KYC email to user ${userId}: ${e.message}`));
+            userId,
+            title,
+            body,
+            enablePush: true,
+        }).catch((e) => this.logger.error(`Failed to send KYC push notification to user ${userId}: ${e.message}`));
+
+        // Send Email
+        this.sendKycEmail(user, action, verificationType, note).catch((e) => this.logger.error(`Failed to send KYC email to user ${userId}: ${e.message}`));
 
         // Push real-time profile update to connected client
         this.wsGateway.notifyProfileUpdate(userId);
@@ -535,8 +538,8 @@ export class KycService {
                 chunk.map((userId) =>
                     this.processKycDecision(
                         { userId, action, note },
-                         adminId
-                        )
+                        adminId
+                    )
                 )
             );
             successful += results.filter((r) => r.status === "fulfilled").length;
@@ -822,11 +825,10 @@ export class KycService {
         return pending;
     }
 
-    // FIX: KC-004 Observed this is not used anywhere.
-     /**
-     * @deprecated Limits are derived from shared tier constants and enforced
-     * via Redis aggregate checks in transaction flows.
-     */
+    /**
+    * @deprecated Limits are derived from shared tier constants and enforced
+    * via Redis aggregate checks in transaction flows.
+    */
     private async updateAccountLimits(userId: number, tier: number): Promise<void> {
         const tierLimits: Record<number, Prisma.AccountLimitUpdateInput> = {
             0: { sellTokenFiat: 50000, sendToken: 50000 },
@@ -898,6 +900,8 @@ export class KycService {
         return map[documentType] || "DOCUMENT";
     }
 
+
+
     /**
      * Check if a verification action has already been finalised to prevent
      * duplicate processing.
@@ -908,10 +912,26 @@ export class KycService {
      * Previously, returning false for ESCALATE meant every repeated escalation call
      * created a duplicate KycVerification record and a duplicate audit log entry.
      */
+    private async isEscalationAlreadyActive(
+        userId: number,
+        verificationType?: string
+    ): Promise<boolean> {
+        if (!verificationType) return false;
+        const existing = await this.prisma.kycVerification.findFirst({
+            where: {
+                userId,
+                verificationType: verificationType as any,
+                status: "ESCALATED",
+            },
+            orderBy: { createdAt: "desc" },
+        });
+        return !!existing;
+    }
+
     private isVerificationAlreadyFinal(
         user: any,
         verificationType: string,
-        action: "APPROVE" | "REJECT" | "ESCALATE"
+        action: "APPROVE" | "REJECT"
     ): boolean {
         const approvedChecks: Record<string, boolean> = {
             BVN: user.isBvnVerified === true,
@@ -929,16 +949,8 @@ export class KycService {
             BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "DECLINED",
         };
 
-        const escalatedChecks: Record<string, boolean> = {
-            DOCUMENT: user.documentVerificationStatus === "ESCALATED",
-            ADDRESS: user.addressVerificationStatus === "ESCALATED",
-            INCOME: user.incomeVerificationStatus === "ESCALATED",
-            BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "ESCALATED",
-        };
-
         if (action === "APPROVE") return approvedChecks[verificationType] === true;
         if (action === "REJECT") return rejectedChecks[verificationType] === true;
-        if (action === "ESCALATE") return escalatedChecks[verificationType] === true;
 
         return false;
     }
