@@ -282,6 +282,7 @@ export interface QuidaxConfig {
     api_public: string;
     api_secret: string;
     webhook_key: string;
+    mainAccountId: string;
 }
 export const quidaxConfig: QuidaxConfig = {
     baseUrl: process.env.QUIDAX_BASE_URL || "",
@@ -289,6 +290,7 @@ export const quidaxConfig: QuidaxConfig = {
     api_public: process.env.QUIDAX_API_PUBLIC || "",
     api_secret: process.env.QUIDAX_API_SECRET || "",
     webhook_key: process.env.QUIDAX_WEBHOOK_KEY || "",
+    mainAccountId: process.env.QUIDAX_MAIN_ACCOUNT_ID || "",
 };
 
 export interface TradingConfig {

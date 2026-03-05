@@ -5,6 +5,7 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { LedgerService } from "./ledger.service";
+import { quidaxConfig } from "@/config";
 import { Decimal } from "@prisma/client/runtime/library";
 import { randomUUID } from "crypto";
 
@@ -44,17 +45,17 @@ export interface PendingSweep {
  * Sweep flow:
  * 1. Deposit webhook credits user ledger (sweepStatus = PENDING)
  * 2. Sweep cron picks up pending sweeps
- * 3. Initiates internal transfer from sub-account to main wallet (fund_uid: "me")
+ * 3. Initiates internal transfer from sub-account to main wallet (fund_uid: mainAccountId)
  * 4. Updates sweepStatus to IN_PROGRESS, stores sweepTxId for webhook correlation
  * 5. Quidax fires withdraw.successful webhook → routed by reference prefix "sweep-"
  *    to handleSweepConfirmation() via TradingService facade
  * 6. sweepStatus updated to COMPLETED or FAILED
  * 7. User can now withdraw
  *
- * Internal transfer (fund_uid: "me") vs on-chain withdrawal:
+ * Internal transfer (fund_uid: mainAccountId) vs on-chain withdrawal:
  * - Fee-free: no blockchain network fees
  * - Instant: no block confirmation wait
- * - No wallet address lookup needed: "me" tells Quidax to credit parent account
+ * - fund_uid must be the main account UUID — "me" is rejected as invalid_address (SW-012)
  *
  * Fix notes:
  * - SW-001: handleSweepConfirmation() fully implemented. sweepTxId column on
@@ -64,7 +65,7 @@ export interface PendingSweep {
  *   backoff, and caps retries at MAX_LIFETIME_RETRIES.
  * - SW-003: updateSweepStatus() is now private with a state machine transition
  *   guard. External callers use purpose-built public methods.
- * - SW-004: (removed) Wallet address pre-fetch no longer needed — fund_uid: "me".
+ * - SW-004: (removed) Wallet address pre-fetch no longer needed — internal transfer.
  * - SW-005: processPendingSweeps() protected by a distributed job lock.
  * - SW-006: MIN_SWEEP_AMOUNTS unknown currency throws instead of defaulting to 0.
  * - SW-007: sweepReference uses randomUUID() suffix instead of Date.now().
@@ -95,7 +96,7 @@ export class SweepService {
     // Minimum amount to sweep (avoid dust)
     // FIX: SW-006 — unknown currencies are explicitly rejected rather than
     // silently defaulting to Decimal(0) which would sweep any dust amount
-    // Thresholds lowered: internal transfers (fund_uid: "me") are fee-free,
+    // Thresholds lowered: internal transfers are fee-free,
     // so we only need to guard against true dust rather than covering network fees.
     private readonly MIN_SWEEP_AMOUNTS: Record<string, Decimal> = {
         BTC: new Decimal(0.00001),
@@ -218,7 +219,7 @@ export class SweepService {
     /**
      * Executes sweep within distributed lock
      *
-     * Uses Quidax internal transfer (fund_uid: "me") to move funds from
+     * Uses Quidax internal transfer (fund_uid: mainAccountId) to move funds from
      * sub-account to main wallet. This is fee-free and instant compared
      * to on-chain withdrawals.
      *
@@ -319,13 +320,18 @@ export class SweepService {
             );
 
             // Initiate internal transfer from sub-account to main wallet.
-            // fund_uid: "me" tells Quidax to credit the parent/main account
-            // directly — no blockchain transaction, no network fee.
+            // fund_uid must be the main account UUID — Quidax treats "me" as a
+            // literal address string, causing invalid_address rejection (SW-012).
+            const mainAccountId = quidaxConfig.mainAccountId;
+            if (!mainAccountId) {
+                throw new Error("QUIDAX_MAIN_ACCOUNT_ID not configured — cannot sweep");
+            }
+
             const transferResult = await this.quidaxService.createWithdrawerRequest({
                 user_id: entry.user.cryptoSubAccountId,
                 currency: entry.currency.toLowerCase(),
                 amount: entry.credit.toString(),
-                fund_uid: "me",
+                fund_uid: mainAccountId,
                 transaction_note: `Sweep from sub-account to main wallet`,
                 narration: `Ledger sweep: ${ledgerEntryId}`,
                 reference: sweepReference,
