@@ -1,0 +1,3 @@
+-- This migration was applied to the database from another branch.
+-- Placeholder created locally to align migration histories.
+-- The actual SQL was executed via that branch's deployment.
