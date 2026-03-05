@@ -338,7 +338,39 @@ export class SendService {
             );
         }
 
-        if (!this.isNetworkCompatibleWithAddress(dto.network, recipientWalletAddress)) {
+        // Auto-detect network from address format when not provided by the client.
+        // Without the network param, Quidax validates against the currency's default
+        // network (e.g. ERC20 for USDT), which rejects valid TRC20 addresses.
+        let resolvedNetwork = dto.network;
+        if (!resolvedNetwork && recipientWalletAddress) {
+            const family = this.inferAddressFamily(recipientWalletAddress);
+            if (family !== "unknown") {
+                const familyToNetwork: Record<string, NetworkTypes> = {
+                    evm: NetworkTypes.erc20,
+                    trc20: NetworkTypes.trc20,
+                    btc: NetworkTypes.btc,
+                    ltc: NetworkTypes.ltc,
+                    doge: NetworkTypes.doge,
+                    dash: NetworkTypes.dash,
+                    bch: NetworkTypes.bch,
+                    ripple: NetworkTypes.ripple,
+                    stellar: NetworkTypes.stellar,
+                    cardano: NetworkTypes.cardano,
+                    solana: NetworkTypes.solana,
+                    ton: NetworkTypes.ton,
+                };
+                resolvedNetwork = familyToNetwork[family];
+                this.logger.log(
+                    `Auto-detected network from address | userId: ${user.id} | family: ${family} | resolvedNetwork: ${resolvedNetwork}`
+                );
+            }
+        }
+
+        this.logger.debug(
+            `Withdrawal validation | userId: ${user.id} | currency: ${currency} | dto.network: ${dto.network} | resolvedNetwork: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`
+        );
+
+        if (!this.isNetworkCompatibleWithAddress(resolvedNetwork, recipientWalletAddress)) {
             throw new IncompleteAccountSetupException(
                 "Wallet address is not compatible with the selected network",
                 HttpStatus.BAD_REQUEST
@@ -349,10 +381,13 @@ export class SendService {
             const verification = await this.walletAddressService.verifyWalletAddress({
                 currency: currency.toLowerCase() as any,
                 address: recipientWalletAddress,
-                network: dto.network,
+                network: resolvedNetwork,
             });
 
             if (!verification?.data?.valid) {
+                this.logger.warn(
+                    `Address validation returned invalid | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`
+                );
                 throw new IncompleteAccountSetupException(
                     "Invalid wallet address for selected currency",
                     HttpStatus.BAD_REQUEST
@@ -363,7 +398,7 @@ export class SendService {
                 throw error;
             }
 
-            this.logger.warn(`Address verification failed | userId: ${user.id} | currency: ${currency} | error: ${error.message}`);
+            this.logger.warn(`Address verification failed | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | error: ${error.message}`);
             throw new IncompleteAccountSetupException(
                 "Unable to verify wallet address. Please check the address and try again.",
                 HttpStatus.BAD_REQUEST
@@ -376,7 +411,7 @@ export class SendService {
         const feeDataRes = await this.getCryptoWithdrawerFee({
             amount: dto.amount,
             currency: currency as any,
-            network: dto.network as any,
+            network: resolvedNetwork as any,
         });
 
         const networkFee = new Decimal(feeDataRes.data.totalFee || 0);
@@ -449,7 +484,7 @@ export class SendService {
             metadata: {
                 destinationAddress: dto.recipientWalletAddress,
                 destinationTag: dto.destinationTag,
-                network: dto.network,
+                network: resolvedNetwork,
                 narration: dto.narration,
                 transaction_note: dto.transaction_note,
             },
@@ -518,7 +553,7 @@ export class SendService {
 
         if (hasLiquidity) {
             // Execute withdrawal from main wallet immediately
-            return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId!);
+            return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId!, resolvedNetwork);
         } else {
             // Add to queue - withdrawal will be processed when liquidity is available
             const queueResult = await this.withdrawalQueueService.addToQueue({
@@ -630,7 +665,8 @@ export class SendService {
         user: User,
         order: any,
         dto: WithdrawerRequestDto,
-        holdEntryId: string
+        holdEntryId: string,
+        resolvedNetwork?: string
     ) {
         try {
             // Execute withdrawal from main wallet (not user's sub-account)
@@ -643,7 +679,7 @@ export class SendService {
                 fund_uid: dto.recipientWalletAddress,
                 fund_uid2: dto.destinationTag,
                 reference: order.orderReference,
-                network: dto.network,
+                network: resolvedNetwork || dto.network,
             });
 
             // Update order with provider details
