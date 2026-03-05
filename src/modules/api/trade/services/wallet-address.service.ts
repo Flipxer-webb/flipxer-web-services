@@ -663,6 +663,7 @@ export class WalletAddressService {
         const info = await this.quidaxService.verifyAddress({
             address: dto.address,
             currency: dto.currency,
+            network: dto.network,
         });
 
         return buildResponse({

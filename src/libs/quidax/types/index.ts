@@ -64,6 +64,7 @@ export interface InstantOrderResponse {
 export interface VerifyAddressOptions {
     currency: string;
     address: string;
+    network?: string;
 }
 
 export interface VerifyAddressResponse {
