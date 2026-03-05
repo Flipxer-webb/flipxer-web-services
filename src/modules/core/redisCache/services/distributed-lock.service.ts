@@ -126,7 +126,9 @@ export class DistributedLockService {
         const lockToken = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
         const startTime = Date.now();
 
-        while (Date.now() - startTime < maxWaitMs) {
+        // do-while ensures at least one acquisition attempt even when maxWaitMs=0
+        // (maxWaitMs=0 means "try once, don't wait if locked")
+        do {
             try {
                 if (!this.isConnected) {
                     if (strict) {
@@ -150,8 +152,10 @@ export class DistributedLockService {
                     return lockToken;
                 }
 
-                // Lock not acquired, wait and retry
-                await this.sleep(retryIntervalMs);
+                // Lock not acquired, wait and retry (skip sleep on last iteration)
+                if (Date.now() - startTime < maxWaitMs) {
+                    await this.sleep(retryIntervalMs);
+                }
             } catch (error) {
                 // Re-throw if it's our strict mode error
                 if (error.message?.includes("Redis lock service unavailable")) {
@@ -166,7 +170,7 @@ export class DistributedLockService {
                 // On error, allow operation to proceed (non-strict mode)
                 return lockToken;
             }
-        }
+        } while (Date.now() - startTime < maxWaitMs);
 
         this.logger.warn(`Failed to acquire lock for ${key} within ${maxWaitMs}ms`);
         return null;
