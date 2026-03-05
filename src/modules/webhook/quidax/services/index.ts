@@ -54,15 +54,21 @@ export class QuidaxWebhookService implements QuidaxWebhook {
      * @returns true if valid, false if too old
      */
     private isWebhookTimestampValid(eventData: any): { valid: boolean; ageMs: number } {
-        const createdAt = eventData?.created_at || eventData?.data?.created_at;
+        // Prefer updated_at over created_at for staleness checks.
+        // For "wallet.updated" events, created_at is when the wallet was
+        // originally provisioned (potentially months/years ago), while
+        // updated_at reflects the moment the event actually occurred.
+        const timestamp =
+            eventData?.updated_at || eventData?.data?.updated_at ||
+            eventData?.created_at || eventData?.data?.created_at;
         
-        if (!createdAt) {
+        if (!timestamp) {
             // If no timestamp, allow for backward compatibility but log warning
             this.logger.warn(`Webhook received without timestamp - allowing for compatibility`);
             return { valid: true, ageMs: 0 };
         }
 
-        const eventTime = new Date(createdAt).getTime();
+        const eventTime = new Date(timestamp).getTime();
         const now = Date.now();
         const ageMs = now - eventTime;
 
