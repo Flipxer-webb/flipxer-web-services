@@ -141,11 +141,14 @@ export class LedgerService {
     // Decimal precision for crypto
     private readonly DECIMAL_PLACES = 8;
 
-    // F-001: Canonical balance ordering — sequenceNumber is monotonically
-    // increasing and assigned by Postgres, so it is safe under concurrent writes.
-    // All findFirst balance lookups MUST use this order object.
-    // FIX: F-001 — replaced { createdAt: "desc" } everywhere with this
-    private readonly BALANCE_ORDER = { sequenceNumber: "desc" } as const;
+    // F-001: Canonical balance ordering.
+    // TODO: Once migration 20260302000000_add_sequence_number_and_sweep_columns
+    // has been applied to the production database, revert this to:
+    //   { sequenceNumber: "desc" }
+    // sequenceNumber is a BIGSERIAL that guarantees deterministic ordering
+    // under concurrent writes within the same millisecond.
+    // Temporarily using createdAt until the column exists in production.
+    private readonly BALANCE_ORDER = { createdAt: "desc" } as const;
 
     constructor(
         private readonly prisma: PrismaService,
