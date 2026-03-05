@@ -433,12 +433,13 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                     : 'failed' as const;
 
             this.logger.log(
-                `[WITHDRAWAL] Routing sweep webhook | txId: ${eventData.id} | reference: ${eventData.reference} | status: ${sweepStatus}`
+                `[WITHDRAWAL] Routing sweep webhook | txId: ${eventData.id} | reference: ${eventData.reference} | status: ${sweepStatus} | reason: ${eventData.reason ?? 'none'}`
             );
 
             await this.tradingService.handleSweepConfirmation(
                 eventData.id,
-                sweepStatus
+                sweepStatus,
+                eventData.reason ?? undefined
             );
             return;
         }

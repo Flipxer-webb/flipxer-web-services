@@ -1165,9 +1165,10 @@ export class TradingService {
      */
     async handleSweepConfirmation(
         transactionId: string,
-        status: "completed" | "failed"
+        status: "completed" | "failed",
+        reason?: string
     ) {
-        return this.sweepService.handleSweepConfirmation(transactionId, status);
+        return this.sweepService.handleSweepConfirmation(transactionId, status, reason);
     }
 
     async getFee(

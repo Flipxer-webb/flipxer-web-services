@@ -512,7 +512,8 @@ export class SweepService {
      */
     async handleSweepConfirmation(
         transactionId: string,
-        status: "completed" | "failed"
+        status: "completed" | "failed",
+        reason?: string
     ): Promise<void> {
         const lockKey = `sweep-confirm:${transactionId}`;
 
@@ -558,7 +559,9 @@ export class SweepService {
                     await this.updateSweepStatus(
                         entry.id,
                         newStatus,
-                        `quidax webhook: ${status}`
+                        reason
+                            ? `quidax webhook: ${status} — ${reason}`
+                            : `quidax webhook: ${status}`
                     );
 
                     this.logger.log(
@@ -568,6 +571,7 @@ export class SweepService {
                             currency: entry.currency,
                             transactionId,
                             status: newStatus,
+                            reason: reason ?? null,
                         })}`
                     );
                 },
