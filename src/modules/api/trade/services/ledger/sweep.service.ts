@@ -99,9 +99,19 @@ export class SweepService {
     private readonly VALID_TRANSITIONS: Partial<Record<SweepStatus, SweepStatus[]>> = {
         [SweepStatus.PENDING]: [SweepStatus.IN_PROGRESS, SweepStatus.NOT_APPLICABLE, SweepStatus.COMPLETED],
         [SweepStatus.IN_PROGRESS]: [SweepStatus.COMPLETED, SweepStatus.FAILED],
-        [SweepStatus.FAILED]: [SweepStatus.PENDING],
+        [SweepStatus.FAILED]: [SweepStatus.PENDING, SweepStatus.NOT_APPLICABLE],
         // COMPLETED and NOT_APPLICABLE are terminal — no valid next state
     };
+
+    // Quidax error messages that indicate a non-retryable condition.
+    // Sweeps matching these patterns are marked NOT_APPLICABLE instead of FAILED
+    // because retrying will never succeed.
+    private readonly NON_RETRYABLE_ERRORS: RegExp[] = [
+        /insufficient balance/i,
+        /account.*not found/i,
+        /account.*disabled/i,
+        /account.*suspended/i,
+    ];
 
     constructor(
         private readonly prisma: PrismaService,
@@ -336,17 +346,41 @@ export class SweepService {
                 transactionId: transferResult.data.id,
             };
         } catch (error) {
+            const errorMsg = error.message || String(error);
+            const isNonRetryable = this.NON_RETRYABLE_ERRORS.some(re => re.test(errorMsg));
+
+            if (isNonRetryable) {
+                this.logger.warn(
+                    `Sweep permanently failed (non-retryable) | ${JSON.stringify({
+                        ledgerEntryId,
+                        error: errorMsg,
+                    })}`
+                );
+                await this.updateSweepStatus(
+                    ledgerEntryId,
+                    SweepStatus.FAILED,
+                    `non-retryable: ${errorMsg}`
+                );
+                // Immediately transition to NOT_APPLICABLE so it won't be retried
+                await this.updateSweepStatus(
+                    ledgerEntryId,
+                    SweepStatus.NOT_APPLICABLE,
+                    `auto-resolved: non-retryable error (${errorMsg})`
+                );
+                return { success: false, ledgerEntryId, error: errorMsg };
+            }
+
             this.logger.error(
                 `Sweep failed | ${JSON.stringify({
                     ledgerEntryId,
-                    error: error.message,
+                    error: errorMsg,
                 })}`
             );
 
-            // Mark as failed
+            // Mark as failed (retryable)
             await this.updateSweepStatus(ledgerEntryId, SweepStatus.FAILED);
 
-            return { success: false, ledgerEntryId, error: error.message };
+            return { success: false, ledgerEntryId, error: errorMsg };
         }
     }
 
@@ -451,10 +485,11 @@ export class SweepService {
 
     /**
      * Marks a sweep as not applicable (terminal)
-     * Called when a user has no sub-account to sweep from.
+     * Called when a user has no sub-account to sweep from,
+     * or by admin to resolve permanently-failed sweeps.
      */
-    async markNotApplicable(ledgerEntryId: string): Promise<void> {
-        await this.updateSweepStatus(ledgerEntryId, SweepStatus.NOT_APPLICABLE);
+    async markNotApplicable(ledgerEntryId: string, reason?: string): Promise<void> {
+        await this.updateSweepStatus(ledgerEntryId, SweepStatus.NOT_APPLICABLE, reason);
     }
 
     /**
@@ -619,8 +654,10 @@ export class SweepService {
                     return processed;
                 },
                 // ttlMs covers worst-case batch: BATCH_SIZE(10) * per-sweep max(30s) + margin
+                // Reduced from 360s to 120s to avoid stale lock overlapping the 5-min cron interval.
+                // Actual execution typically completes in <30s for 10 entries.
                 // strict: false — do not wait if another pod holds the lock, skip instead
-                { ttlMs: 360000, maxWaitMs: 0, strict: false }
+                { ttlMs: 120000, maxWaitMs: 0, strict: false }
             );
         } catch (error) {
             if (error.message?.includes("Failed to acquire lock")) {

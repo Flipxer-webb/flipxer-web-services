@@ -282,6 +282,35 @@ export class AdminLedgerController {
         });
     }
 
+    @ApiOperation({ summary: "Resolve a stuck/failed sweep as NOT_APPLICABLE" })
+    @Post("sweeps/:id/resolve")
+    async resolveSweep(
+        @Param("id") id: string,
+        @User() admin: UserEntity,
+        @Body("reason") reason?: string,
+    ) {
+        this.logger.log(`Admin ${admin.id} resolving sweep ${id}`);
+        await this.sweepService.markNotApplicable(
+            id,
+            reason || `manually resolved by admin ${admin.id}`
+        );
+        return buildResponse({
+            message: "Sweep resolved as NOT_APPLICABLE",
+            data: { ledgerEntryId: id },
+        });
+    }
+
+    @ApiOperation({ summary: "Retry failed sweeps now" })
+    @Post("sweeps/retry")
+    async retryFailedSweeps() {
+        this.logger.log("Admin triggering failed sweep retry");
+        const retriedCount = await this.sweepService.retryFailedSweeps();
+        return buildResponse({
+            message: "Failed sweep retry completed",
+            data: { retriedCount },
+        });
+    }
+
     // =========================================================================
     // ORPHANED HOLD ENDPOINTS
     // =========================================================================
