@@ -312,16 +312,10 @@ export class SweepService {
             // FIX: SW-001 — store the Quidax transactionId on the ledger entry
             // so handleSweepConfirmation() can correlate the webhook back to
             // this entry without a separate table.
-            // NOTE: Using metadata JSON until migration 20260302000000 adds
-            // the dedicated sweepTxId column to production.
-            const existingMeta = (entry.metadata as Record<string, any>) ?? {};
             await this.prisma.ledgerEntry.update({
                 where: { id: ledgerEntryId },
                 data: {
-                    metadata: {
-                        ...existingMeta,
-                        sweepTxId: transferResult.data.id,
-                    },
+                    sweepTxId: transferResult.data.id,
                 },
             });
 
@@ -489,15 +483,10 @@ export class SweepService {
             await this.lockService.withLock(
                 lockKey,
                 async () => {
-                    // FIX: SW-001 — look up entry by sweepTxId stored in metadata
-                    // NOTE: Using metadata JSON filter until migration 20260302000000
-                    // adds the dedicated sweepTxId column to production.
+                    // FIX: SW-001 — look up entry by sweepTxId column
                     const entry = await this.prisma.ledgerEntry.findFirst({
                         where: {
-                            metadata: {
-                                path: ['sweepTxId'],
-                                equals: transactionId,
-                            },
+                            sweepTxId: transactionId,
                         },
                         select: { id: true, sweepStatus: true, userId: true, currency: true },
                     });
@@ -690,20 +679,18 @@ export class SweepService {
      *   Beyond MAX_LIFETIME_RETRIES (3): permanently skipped
      */
     async retryFailedSweeps(maxRetries = 5): Promise<number> {
-        // NOTE: sweepRetryCount filter moved to application code because the
-        // dedicated column doesn't exist in production yet (migration 20260302000000).
-        // Retry count is stored in metadata.sweepRetryCount instead.
         const failed = await this.prisma.ledgerEntry.findMany({
             where: {
                 type: LedgerType.DEPOSIT,
                 sweepStatus: SweepStatus.FAILED,
                 status: EntryStatus.SETTLED,
+                sweepRetryCount: { lt: this.MAX_LIFETIME_RETRIES },
             },
             orderBy: { updatedAt: "asc" },
-            take: maxRetries * 2, // Over-fetch since we filter retries in app code
+            take: maxRetries * 2,
             select: {
                 id: true,
-                metadata: true,
+                sweepRetryCount: true,
                 updatedAt: true,
                 currency: true,
             },
@@ -718,8 +705,7 @@ export class SweepService {
         let retried = 0;
 
         for (const entry of failed) {
-            const entryMeta = (entry.metadata as Record<string, any>) ?? {};
-            const retryCount = (entryMeta.sweepRetryCount as number) ?? 0;
+            const retryCount = entry.sweepRetryCount;
 
             // Skip entries that have exhausted retries
             if (retryCount >= this.MAX_LIFETIME_RETRIES) {
@@ -743,10 +729,8 @@ export class SweepService {
                 continue;
             }
 
-            // FIX: SW-002 — increment retry count (in metadata) and reset to PENDING atomically.
+            // FIX: SW-002 — increment retry count and reset to PENDING atomically.
             // Uses updateMany with FAILED gate to prevent concurrent retry races.
-            // NOTE: sweepRetryCount stored in metadata JSON until migration 20260302000000.
-            const newMeta = { ...entryMeta, sweepRetryCount: retryCount + 1 };
             const updateResult = await this.prisma.ledgerEntry.updateMany({
                 where: {
                     id: entry.id,
@@ -754,7 +738,7 @@ export class SweepService {
                 },
                 data: {
                     sweepStatus: SweepStatus.PENDING,
-                    metadata: newMeta,
+                    sweepRetryCount: retryCount + 1,
                 },
             });
 

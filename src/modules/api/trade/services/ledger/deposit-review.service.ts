@@ -213,11 +213,10 @@ export class DepositReviewService {
         floatConfig: { floatAllowance: Decimal }
     ): Promise<number> {
         // Raw query required: Prisma does not support DISTINCT ON natively.
-        // DISTINCT ON (userId) with ORDER BY userId, createdAt DESC gives
-        // exactly one row per user — the row with the latest createdAt
+        // DISTINCT ON (userId) with ORDER BY userId, sequenceNumber DESC gives
+        // exactly one row per user — the row with the highest sequenceNumber
         // (i.e. the most recently inserted entry), whose balanceAfter reflects
         // the user's current balance.
-        // TODO: Once migration 20260302000000 is applied, switch to sequenceNumber DESC
         const result = await (client as any).$queryRaw<[{ total_balance: string | null }]>`
             SELECT SUM(latest."balanceAfter") AS total_balance
             FROM (
@@ -226,7 +225,7 @@ export class DepositReviewService {
                 WHERE currency = ${currency}
                   AND "userId" > 0
                   AND status != 'FAILED'
-                ORDER BY "userId", "createdAt" DESC
+                ORDER BY "userId", "sequenceNumber" DESC
             ) AS latest
         `;
 

@@ -34,11 +34,11 @@ async function preMigrateCheck(): Promise<void> {
     const paymentCount = await prisma.payment.count();
     tables.push({ table: 'Payment', count: paymentCount });
     
-    const walletCount = await prisma.wallet.count();
-    tables.push({ table: 'Wallet', count: walletCount });
+    const walletCount = await prisma.assetWallet.count();
+    tables.push({ table: 'AssetWallet', count: walletCount });
     
-    const transactionCount = await prisma.transaction.count();
-    tables.push({ table: 'Transaction', count: transactionCount });
+    const ledgerEntryCount = await prisma.ledgerEntry.count();
+    tables.push({ table: 'LedgerEntry', count: ledgerEntryCount });
     
     // Display counts
     tables.forEach(({ table, count }) => {

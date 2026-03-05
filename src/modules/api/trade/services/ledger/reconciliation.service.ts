@@ -213,7 +213,7 @@ export class ReconciliationService {
         // Get the latest balance for each user by finding the most recent entry
         // This is more complex - we need to aggregate the latest balanceAfter per user
 
-        // TODO: Once migration 20260302000000 is applied, switch to sequenceNumber DESC
+        // Uses sequenceNumber for deterministic ordering (F-001)
         const latestBalances = await this.prisma.$queryRaw<
             { total: Decimal }[]
         >`
@@ -224,7 +224,7 @@ export class ReconciliationService {
                 WHERE currency = ${currency}
                   AND status != 'FAILED'
                   AND "userId" > 0  -- Exclude platform account
-                ORDER BY "userId", "createdAt" DESC
+                ORDER BY "userId", "sequenceNumber" DESC
             ) as latest
         `;
 

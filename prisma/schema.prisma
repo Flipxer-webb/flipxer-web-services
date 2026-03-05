@@ -1164,11 +1164,9 @@ model LedgerEntry {
   paymentReference   String?       // Fiat payment reference
   description        String?       // Human-readable description for audit
   metadata           Json?         // Additional data
-  // TEMPORARILY COMMENTED — migration 20260302000000 not yet applied to production.
-  // Uncomment after the migration has run and redeploy.
-  // sequenceNumber     BigInt        @default(autoincrement()) @unique // F-001: monotonic ordering
-  // sweepTxId          String?       @unique                           // SW-001: webhook correlation
-  // sweepRetryCount    Int           @default(0)                       // SW-002: retry tracking
+  sequenceNumber     BigInt        @default(autoincrement()) @unique // F-001: monotonic ordering
+  sweepTxId          String?       @unique                           // SW-001: webhook correlation
+  sweepRetryCount    Int           @default(0)                       // SW-002: retry tracking
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -1181,8 +1179,7 @@ model LedgerEntry {
   // Prevent duplicate entries for same transaction
   @@unique([type, reference])
   // Fast balance lookups — sequenceNumber is the canonical ordering index (F-001)
-  // TEMPORARILY COMMENTED — migration 20260302000000 not yet applied to production.
-  // @@index([userId, currency, sequenceNumber(sort: Desc)])
+  @@index([userId, currency, sequenceNumber(sort: Desc)])
   // Retained for time-range queries (history, audit logs, reconciliation date filters)
   @@index([userId, currency, createdAt(sort: Desc)])
   @@index([status])
