@@ -1327,7 +1327,6 @@ export class LedgerService {
     }
 
     /**
-     /**
      * Creates a pair of entries for a transfer between users
      * (e.g., user-to-user send, or user-to-platform for trades)
      *
