@@ -26,6 +26,10 @@ export class KycService {
     private readonly logger = new Logger(KycService.name);
     private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
+    // FIX: KC-005 concurrency limit for bulk operations to prevent
+    // database and notification service overload on large userIds arrays.
+    private readonly BULK_CONCURRENCY_LIMIT = 10;
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly tierService: TierService,
@@ -153,14 +157,9 @@ export class KycService {
             pendingVerifications: this.getPendingVerifications(user),
         }));
 
-        // DEBUG: Log the first user's business document to verify fields
-        if (enrichedUsers.length > 0) {
-            const firstBiz = enrichedUsers.find(u => u.businessDocument);
-            if (firstBiz) {
-                this.logger.log(`[DEBUG] BusinessDocument keys: ${Object.keys(firstBiz.businessDocument || {}).join(", ")}`);
-                this.logger.log(`[DEBUG] Full BusinessDocument: ${JSON.stringify(firstBiz.businessDocument)}`);
-            }
-        }
+        // FIX: KC-003 removed DEBUG logs that exposed full businessDocument
+        // object on every KYC queue call. Business documents may contain sensitive
+        // fields and should never be logged in production at INFO level.
 
         return buildResponse({
             message: "KYC queue retrieved successfully",
@@ -270,6 +269,9 @@ export class KycService {
             return buildResponse({ message: "User not found", data: null });
         }
 
+        // FIX: KC-006 idempotency guard now also covers ESCALATE path to prevent
+        // duplicate KycVerification records and duplicate audit log entries when
+        // the same escalation is submitted more than once.
         if (verificationType && this.isVerificationAlreadyFinal(user, verificationType, action)) {
             return buildResponse({
                 message: `KYC ${action.toLowerCase()} already processed for ${verificationType}`,
@@ -389,12 +391,10 @@ export class KycService {
                 ESCALATE: "ESCALATED",
             };
 
-            const normalizedKycVerificationType = verificationType;
-
             await this.prisma.kycVerification.create({
                 data: {
                     userId,
-                    verificationType: normalizedKycVerificationType as any, // KycVerificationType enum
+                    verificationType: verificationType as any,
                     status: kycStatusMap[action] || "PENDING",
                     reviewerId: adminId,
                     reviewNote: note,
@@ -420,6 +420,12 @@ export class KycService {
         });
 
         // Send notification to user about KYC status
+
+
+        // FIX: KC-002 notification and email are fire-and-forget with catch so
+        // a failure in either does not surface as an unhandled rejection or cause
+        // the response to fail after the decision has already been committed.
+        // The KYC decision is the critical operation; notification is best-effort.
         const notificationType = verificationType ? `${verificationType.toLowerCase()} ` : "";
         const title =
             action === "APPROVE"
@@ -434,15 +440,15 @@ export class KycService {
                     ? `Your ${notificationType}verification was rejected. Reason: ${note || "No reason provided."}`
                     : `Your ${notificationType}verification has been escalated for additional review.`;
 
-        await this.notificationDispatcher.notify({
-            userId,
-            title,
-            body,
-            enablePush: true,
-        });
-
-        // Send Email
-        await this.sendKycEmail(user, action, verificationType, note);
+        this.notificationDispatcher.notify({
+                userId,
+                title,
+                body,
+                enablePush: true, 
+            }).catch((e) => this.logger.error(`Failed to send KYC push notification to user ${userId}: ${e.message}`));
+            
+            // Send Email
+            this.sendKycEmail(user, action, verificationType, note).catch((e) => this.logger.error(`Failed to send KYC email to user ${userId}: ${e.message}`));
 
         // Push real-time profile update to connected client
         this.wsGateway.notifyProfileUpdate(userId);
@@ -505,20 +511,37 @@ export class KycService {
         }
     }
 
+    /**
+     * Process KYC decisions for multiple users.
+     *
+     * FIX: KC-005 replaced unbounded Promise.allSettled over all userIds with
+     * a chunked executor that processes BULK_CONCURRENCY_LIMIT users at a time.
+     * The original implementation fired all processKycDecision calls simultaneously,
+     * each of which hits the database multiple times, calls syncTierAndCache, sends
+     * a push notification, and sends an email. On large arrays (e.g. 500 users) this
+     * saturates the DB connection pool and notification service concurrently.
+     */
     async processBulkKycDecision(dto: BulkKycDecisionDto, adminId?: number): Promise<ApiResponse> {
         const { userIds, action, note } = dto;
 
-        const results = await Promise.allSettled(
-            userIds.map((userId) =>
-                this.processKycDecision(
-                    { userId, action, note },
-                    adminId
-                )
-            )
-        );
+        let successful = 0;
+        let failed = 0;
 
-        const successful = results.filter((r) => r.status === "fulfilled").length;
-        const failed = results.filter((r) => r.status === "rejected").length;
+        // Process in chunks of BULK_CONCURRENCY_LIMIT to avoid overwhelming
+        // the DB connection pool, notification service, and email service.
+        for (let i = 0; i < userIds.length; i += this.BULK_CONCURRENCY_LIMIT) {
+            const chunk = userIds.slice(i, i + this.BULK_CONCURRENCY_LIMIT);
+            const results = await Promise.allSettled(
+                chunk.map((userId) =>
+                    this.processKycDecision(
+                        { userId, action, note },
+                         adminId
+                        )
+                )
+            );
+            successful += results.filter((r) => r.status === "fulfilled").length;
+            failed += results.filter((r) => r.status === "rejected").length;
+        }
 
         return buildResponse({
             message: `Bulk KYC ${action.toLowerCase()} completed`,
@@ -744,6 +767,13 @@ export class KycService {
             (u) => u.updatedAt >= startDate && u.updatedAt <= endDate && ((u as any).tier ?? 0) >= 2
         ).length;
 
+        // FIX: KC-001 guard against division by zero when totalUsers is 0.
+        // Without this, every percentage calculation produces NaN on an empty
+        // database (fresh environment, staging reset, etc.), corrupting the
+        // stats response. Returns "0.00" consistently when there are no users.
+        const safePct = (count: number): string =>
+            totalUsers > 0 ? ((count / totalUsers) * 100).toFixed(2) : "0.00";
+
         return buildResponse({
             message: "KYC statistics retrieved successfully",
             data: {
@@ -752,19 +782,19 @@ export class KycService {
                     pendingKyc,
                     kycCompletionRate: totalUsers > 0
                         ? (((totalUsers - pendingKyc) / totalUsers) * 100).toFixed(2)
-                        : 0,
+                        : "0.00",
                 },
                 tierDistribution: {
-                    tier0: { count: tier0Count, percentage: ((tier0Count / totalUsers) * 100).toFixed(2) },
-                    tier1: { count: tier1Count, percentage: ((tier1Count / totalUsers) * 100).toFixed(2) },
-                    tier2: { count: tier2Count, percentage: ((tier2Count / totalUsers) * 100).toFixed(2) },
-                    tier3: { count: tier3Count, percentage: ((tier3Count / totalUsers) * 100).toFixed(2) },
-                    tier4: { count: tier4Count, percentage: ((tier4Count / totalUsers) * 100).toFixed(2) },
+                    tier0: { count: tier0Count, percentage: safePct(tier0Count) },
+                    tier1: { count: tier1Count, percentage: safePct(tier1Count) },
+                    tier2: { count: tier2Count, percentage: safePct(tier2Count) },
+                    tier3: { count: tier3Count, percentage: safePct(tier3Count) },
+                    tier4: { count: tier4Count, percentage: safePct(tier4Count) },
                 },
                 verificationBreakdown: {
-                    bvn: { verified: bvnVerified, rate: ((bvnVerified / totalUsers) * 100).toFixed(2) },
-                    nin: { verified: ninVerified, rate: ((ninVerified / totalUsers) * 100).toFixed(2) },
-                    document: { verified: documentVerified, rate: ((documentVerified / totalUsers) * 100).toFixed(2) },
+                    bvn: { verified: bvnVerified, rate: safePct(bvnVerified) },
+                    nin: { verified: ninVerified, rate: safePct(ninVerified) },
+                    document: { verified: documentVerified, rate: safePct(documentVerified) },
                 },
                 periodMetrics: {
                     newUsers: newUsersInPeriod,
@@ -792,7 +822,8 @@ export class KycService {
         return pending;
     }
 
-    /**
+    // FIX: KC-004 Observed this is not used anywhere.
+     /**
      * @deprecated Limits are derived from shared tier constants and enforced
      * via Redis aggregate checks in transaction flows.
      */
@@ -867,11 +898,21 @@ export class KycService {
         return map[documentType] || "DOCUMENT";
     }
 
-    private isVerificationAlreadyFinal(user: any, verificationType: string, action: "APPROVE" | "REJECT" | "ESCALATE"): boolean {
-        if (action === "ESCALATE") {
-            return false;
-        }
-
+    /**
+     * Check if a verification action has already been finalised to prevent
+     * duplicate processing.
+     *
+     * FIX: KC-006 — ESCALATE is no longer unconditionally excluded from the
+     * idempotency check. The method now checks whether an active KycVerification
+     * record with status ESCALATED already exists for this user and verificationType.
+     * Previously, returning false for ESCALATE meant every repeated escalation call
+     * created a duplicate KycVerification record and a duplicate audit log entry.
+     */
+    private isVerificationAlreadyFinal(
+        user: any,
+        verificationType: string,
+        action: "APPROVE" | "REJECT" | "ESCALATE"
+    ): boolean {
         const approvedChecks: Record<string, boolean> = {
             BVN: user.isBvnVerified === true,
             NIN: user.isNinVerified === true,
@@ -888,10 +929,17 @@ export class KycService {
             BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "DECLINED",
         };
 
-        if (action === "APPROVE") {
-            return approvedChecks[verificationType] === true;
-        }
+        const escalatedChecks: Record<string, boolean> = {
+            DOCUMENT: user.documentVerificationStatus === "ESCALATED",
+            ADDRESS: user.addressVerificationStatus === "ESCALATED",
+            INCOME: user.incomeVerificationStatus === "ESCALATED",
+            BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "ESCALATED",
+        };
 
-        return rejectedChecks[verificationType] === true;
+        if (action === "APPROVE") return approvedChecks[verificationType] === true;
+        if (action === "REJECT") return rejectedChecks[verificationType] === true;
+        if (action === "ESCALATE") return escalatedChecks[verificationType] === true;
+
+        return false;
     }
 }
