@@ -377,6 +377,11 @@ export class SendService {
             );
         }
 
+        // Verify address with Quidax, but fall back to local regex validation
+        // if the provider rejects a locally-valid address format.
+        // Quidax has been observed returning valid=false for legitimate TRC20 addresses.
+        const addressFamily = this.inferAddressFamily(recipientWalletAddress);
+
         try {
             const verification = await this.walletAddressService.verifyWalletAddress({
                 currency: currency.toLowerCase() as any,
@@ -385,24 +390,40 @@ export class SendService {
             });
 
             if (!verification?.data?.valid) {
-                this.logger.warn(
-                    `Address validation returned invalid | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`
-                );
-                throw new IncompleteAccountSetupException(
-                    "Invalid wallet address for selected currency",
-                    HttpStatus.BAD_REQUEST
-                );
+                // If Quidax says invalid but our local regex matched a known family,
+                // trust the local check and proceed with a warning.
+                if (addressFamily !== "unknown") {
+                    this.logger.warn(
+                        `Quidax rejected address but local validation passed — proceeding | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | family: ${addressFamily} | address: ${recipientWalletAddress.slice(0, 10)}...`
+                    );
+                } else {
+                    this.logger.warn(
+                        `Address validation returned invalid | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`
+                    );
+                    throw new IncompleteAccountSetupException(
+                        "Invalid wallet address for selected currency",
+                        HttpStatus.BAD_REQUEST
+                    );
+                }
             }
         } catch (error) {
             if (error instanceof IncompleteAccountSetupException) {
                 throw error;
             }
 
-            this.logger.warn(`Address verification failed | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | error: ${error.message}`);
-            throw new IncompleteAccountSetupException(
-                "Unable to verify wallet address. Please check the address and try again.",
-                HttpStatus.BAD_REQUEST
-            );
+            // Quidax API call itself failed (network error, timeout, etc.)
+            // If local validation passed, allow the withdrawal to proceed.
+            if (addressFamily !== "unknown") {
+                this.logger.warn(
+                    `Address verification API failed but local validation passed — proceeding | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | family: ${addressFamily} | error: ${error.message}`
+                );
+            } else {
+                this.logger.warn(`Address verification failed | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | error: ${error.message}`);
+                throw new IncompleteAccountSetupException(
+                    "Unable to verify wallet address. Please check the address and try again.",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
         }
 
         // 1. Calculate Fees (External Only)
