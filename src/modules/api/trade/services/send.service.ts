@@ -496,6 +496,7 @@ export class SendService {
                 amountInFiat: amtFiat?.amount,
                 rateAtConversion: amtFiat?.rate,
                 ledgerEntryId: holdResult.entryId,
+                network: dto.network ?? undefined,
             },
         });
 

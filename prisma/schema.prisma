@@ -558,6 +558,8 @@ model Order {
   sender                       String?
   streamlinedStatus            OrderStreamlinedStatus @default(pending)
   transactionId                String?                @unique
+  network                      String?                // Blockchain network (send/receive) for receipt
+  paymentMethod                String?                // Payment method or sender name (buy/sell) for receipt
   fulfilled                    Boolean                @default(false) // Set to true when BUY order crypto has been delivered
   // Virtual Balance / Ledger System
   ledgerEntryId                String?                // Link to main ledger entry for this order
