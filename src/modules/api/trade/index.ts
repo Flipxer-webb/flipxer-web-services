@@ -22,6 +22,7 @@ import { SolvencyService } from "./services/ledger/solvency.service";
 import { WithdrawalQueueCron } from "./crons/withdrawal-queue.cron";
 import { OrphanedHoldCron } from "./crons/orphaned-hold.cron";
 import { StuckOrderReconciliationCron } from "./crons/stuck-order-reconciliation.cron";
+import { SweepCron } from "./crons/sweep.cron";
 import { OrphanedHoldService } from "./services/ledger/orphaned-hold.service";
 import { StuckOrderReconciliationService } from "./services/stuck-order-reconciliation.service";
 import { TransactionMonitorService } from "./services/ledger/transaction-monitor.service";
@@ -102,6 +103,7 @@ export * from "./errors";
         WithdrawalQueueCron,
         OrphanedHoldCron,
         StuckOrderReconciliationCron,
+        SweepCron,
         StuckOrderReconciliationService,
         TradingEvent,
         QuidaxTradingCryptoAccountInitQueueProcessor,
