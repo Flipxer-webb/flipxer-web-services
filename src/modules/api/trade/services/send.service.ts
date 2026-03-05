@@ -134,10 +134,9 @@ export class SendService {
             // configured threshold, mark it as failed so the user isn't blocked
             // indefinitely by an order that will never complete.
             const orderAgeMs = Date.now() - new Date(pendingWithdrawal.createdAt).getTime();
-            const isSubmittedOrPending = [
-                OrderStatus.submitted,
-                OrderStatus.pending,
-            ].includes(pendingWithdrawal.status as OrderStatus);
+            const isSubmittedOrPending =
+                pendingWithdrawal.status === OrderStatus.submitted ||
+                pendingWithdrawal.status === OrderStatus.pending;
             const threshold = isSubmittedOrPending
                 ? STUCK_ORDER_SUBMITTED_THRESHOLD_MS
                 : STUCK_ORDER_PROCESSING_THRESHOLD_MS;
@@ -151,10 +150,7 @@ export class SendService {
                     where: { id: pendingWithdrawal.id },
                     data: {
                         status: OrderStatus.failed,
-                        metadata: {
-                            autoFailedAt: new Date().toISOString(),
-                            autoFailReason: `Stuck in ${pendingWithdrawal.status} for ${Math.round(orderAgeMs / 60000)} minutes (threshold: ${Math.round(threshold / 60000)} min)`,
-                        },
+                        reason: `Auto-failed: stuck in ${pendingWithdrawal.status} for ${Math.round(orderAgeMs / 60000)} min (threshold: ${Math.round(threshold / 60000)} min) at ${new Date().toISOString()}`,
                     },
                 });
 
