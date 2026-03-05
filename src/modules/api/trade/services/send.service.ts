@@ -39,6 +39,10 @@ import { GeneralTransactionException } from "../errors";
 const WITHDRAWAL_RATE_LIMIT = parseInt(process.env.WITHDRAWAL_RATE_LIMIT || "5", 10);
 const WITHDRAWAL_RATE_WINDOW_SECONDS = parseInt(process.env.WITHDRAWAL_RATE_WINDOW_SECONDS || "3600", 10); // 1 hour default
 
+// Stuck order thresholds: auto-fail orders older than these durations
+const STUCK_ORDER_SUBMITTED_THRESHOLD_MS = parseInt(process.env.STUCK_ORDER_SUBMITTED_THRESHOLD_MS || String(30 * 60 * 1000), 10); // 30 min
+const STUCK_ORDER_PROCESSING_THRESHOLD_MS = parseInt(process.env.STUCK_ORDER_PROCESSING_THRESHOLD_MS || String(2 * 60 * 60 * 1000), 10); // 2 hours
+
 /**
  * Send Service
  * 
@@ -98,6 +102,9 @@ export class SendService {
         );
 
         if (!rateLimitResult.allowed) {
+            this.logger.warn(
+                `Withdrawal rate limit (hourly) hit | userId: ${userId} | currency: ${currency} | limit: ${WITHDRAWAL_RATE_LIMIT}/hr | retryAfter: ${Math.ceil(rateLimitResult.retryAfter || 0)}s`
+            );
             return {
                 allowed: false,
                 reason: `Rate limit exceeded. You can make ${WITHDRAWAL_RATE_LIMIT} withdrawals per hour. Try again in ${Math.ceil(rateLimitResult.retryAfter || 0)} seconds.`,
@@ -119,14 +126,88 @@ export class SendService {
                     ],
                 },
             },
-            select: { id: true, orderReference: true, amount: true },
+            select: { id: true, orderReference: true, amount: true, status: true, createdAt: true },
         });
 
         if (pendingWithdrawal) {
-            return {
-                allowed: false,
-                reason: `You already have a pending ${currency.toUpperCase()} withdrawal (${pendingWithdrawal.orderReference}). Please wait for it to complete before making another.`,
-            };
+            // Auto-resolve stuck orders: if a pending order is older than the
+            // configured threshold, mark it as failed so the user isn't blocked
+            // indefinitely by an order that will never complete.
+            const orderAgeMs = Date.now() - new Date(pendingWithdrawal.createdAt).getTime();
+            const isSubmittedOrPending = [
+                OrderStatus.submitted,
+                OrderStatus.pending,
+            ].includes(pendingWithdrawal.status as OrderStatus);
+            const threshold = isSubmittedOrPending
+                ? STUCK_ORDER_SUBMITTED_THRESHOLD_MS
+                : STUCK_ORDER_PROCESSING_THRESHOLD_MS;
+
+            if (orderAgeMs > threshold) {
+                this.logger.warn(
+                    `Auto-failing stuck withdrawal order | userId: ${userId} | currency: ${currency} | orderId: ${pendingWithdrawal.id} | ref: ${pendingWithdrawal.orderReference} | status: ${pendingWithdrawal.status} | age: ${Math.round(orderAgeMs / 60000)}min | threshold: ${Math.round(threshold / 60000)}min`
+                );
+
+                await this.prisma.order.update({
+                    where: { id: pendingWithdrawal.id },
+                    data: {
+                        status: OrderStatus.failed,
+                        metadata: {
+                            autoFailedAt: new Date().toISOString(),
+                            autoFailReason: `Stuck in ${pendingWithdrawal.status} for ${Math.round(orderAgeMs / 60000)} minutes (threshold: ${Math.round(threshold / 60000)} min)`,
+                        },
+                    },
+                });
+
+                // Release the held funds back to available balance
+                try {
+                    await this.ledgerService.releaseHold(
+                        `withdrawal:${pendingWithdrawal.orderReference}`,
+                        false,
+                        "Stuck order auto-failed"
+                    );
+                    this.logger.log(
+                        `Released held funds for stuck order | userId: ${userId} | currency: ${currency} | amount: ${pendingWithdrawal.amount} | ref: ${pendingWithdrawal.orderReference}`
+                    );
+                } catch (releaseError) {
+                    // Log but don't block — the order is already marked failed.
+                    // Manual reconciliation may be needed if hold release fails.
+                    this.logger.error(
+                        `Failed to release hold for auto-failed order | userId: ${userId} | orderId: ${pendingWithdrawal.id} | error: ${releaseError.message}`
+                    );
+                }
+
+                // Notify ops via Slack
+                try {
+                    await this.slackWebhookService.sendAlert(
+                        "STUCK_WITHDRAWAL",
+                        {
+                            text: `⚠️ Stuck Withdrawal Auto-Failed`,
+                            blocks: [
+                                {
+                                    type: "section",
+                                    text: {
+                                        type: "mrkdwn",
+                                        text: `*Order:* ${pendingWithdrawal.orderReference}\n*User:* ${userId}\n*Currency:* ${currency}\n*Status:* ${pendingWithdrawal.status}\n*Stuck for:* ${Math.round(orderAgeMs / 60000)} min\n*Action:* Auto-failed, held funds released.`,
+                                    },
+                                },
+                            ],
+                        },
+                        { alertKey: `stuck_withdrawal:${pendingWithdrawal.id}` }
+                    );
+                } catch (_) {
+                    // Slack notification is best-effort
+                }
+
+                // Order resolved — allow the new withdrawal to proceed
+            } else {
+                this.logger.warn(
+                    `Withdrawal blocked by pending order | userId: ${userId} | currency: ${currency} | orderId: ${pendingWithdrawal.id} | ref: ${pendingWithdrawal.orderReference} | status: ${pendingWithdrawal.status} | age: ${Math.round(orderAgeMs / 60000)}min`
+                );
+                return {
+                    allowed: false,
+                    reason: `You already have a pending ${currency.toUpperCase()} withdrawal (${pendingWithdrawal.orderReference}). Please wait for it to complete before making another.`,
+                };
+            }
         }
 
         return { allowed: true };
@@ -426,24 +507,42 @@ export class SendService {
             }
         }
 
+        // Check rate limits FIRST (cheap local check before any external API calls)
+        const rateLimitCheck = await this.checkWithdrawalRateLimits(user.id, currency);
+        if (!rateLimitCheck.allowed) {
+            this.logger.warn(
+                `Withdrawal blocked by rate limit | userId: ${user.id} | currency: ${currency} | reason: ${rateLimitCheck.reason}`
+            );
+            throw new RateLimitExceededException(rateLimitCheck.reason);
+        }
+
         // 1. Calculate Fees (External Only)
         // We must fetch the authoritative fee from the provider/admin settings
         // to ensure the user has enough balance for Amount + Fee.
-        const feeDataRes = await this.getCryptoWithdrawerFee({
-            amount: dto.amount,
-            currency: currency as any,
-            network: resolvedNetwork as any,
-        });
+        let feeDataRes;
+        try {
+            feeDataRes = await this.getCryptoWithdrawerFee({
+                amount: dto.amount,
+                currency: currency as any,
+                network: resolvedNetwork as any,
+            });
+        } catch (feeError) {
+            // If Quidax returns 429, give the user a friendlier message
+            // instead of propagating a raw upstream rate-limit error.
+            if (feeError?.status === 429 || feeError?.name === "DojahTooManyRequestError") {
+                this.logger.warn(
+                    `Quidax 429 during fee fetch | userId: ${user.id} | currency: ${currency} | error: ${feeError.message}`
+                );
+                throw new RateLimitExceededException(
+                    "Our withdrawal service is temporarily busy. Please try again in a few seconds."
+                );
+            }
+            throw feeError;
+        }
 
         const networkFee = new Decimal(feeDataRes.data.totalFee || 0);
         const amount = new Decimal(dto.amount);
         const totalAmount = amount.plus(networkFee); // Total = Amount + Fee
-
-        // Check rate limits first
-        const rateLimitCheck = await this.checkWithdrawalRateLimits(user.id, currency);
-        if (!rateLimitCheck.allowed) {
-            throw new RateLimitExceededException(rateLimitCheck.reason);
-        }
 
         // Check for pending sweeps - user can't withdraw until deposits are confirmed
         // NOTE: In omnibus mode (no sub-account), this auto-resolves and returns false.
