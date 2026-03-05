@@ -289,6 +289,64 @@ export class SendService {
         }
     }
 
+    /**
+     * Throws if `destinationAddress` matches any of the sender's own deposit
+     * addresses (CryptoWalletAddress or AssetWallet.depositAddress).
+     *
+     * EVM / TRC20 addresses are compared case-insensitively (EIP-55 checksum
+     * can differ) while other address formats are compared as-is.
+     */
+    private async assertNotOwnDepositAddress(
+        userId: number,
+        destinationAddress: string,
+        currency: string,
+    ): Promise<void> {
+        const addr = destinationAddress.trim();
+        const isEVMOrTRC20 = /^(0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})$/.test(addr);
+
+        // 1. Check CryptoWalletAddress table (per-network addresses)
+        const ownCryptoAddress = await this.prisma.cryptoWalletAddress.findFirst({
+            where: {
+                userId,
+                ...(isEVMOrTRC20
+                    ? { address: { equals: addr, mode: "insensitive" as any } }
+                    : { address: addr }),
+            },
+            select: { address: true, network: true },
+        });
+
+        if (ownCryptoAddress) {
+            this.logger.warn(
+                `Blocked self-send to own deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | matchedNetwork: ${ownCryptoAddress.network}`
+            );
+            throw new IncompleteAccountSetupException(
+                "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // 2. Fallback: check AssetWallet.depositAddress (older storage)
+        const ownWallet = await this.prisma.assetWallet.findFirst({
+            where: {
+                userId,
+                ...(isEVMOrTRC20
+                    ? { depositAddress: { equals: addr, mode: "insensitive" as any } }
+                    : { depositAddress: addr }),
+            },
+            select: { depositAddress: true, assetCurrency: true },
+        });
+
+        if (ownWallet) {
+            this.logger.warn(
+                `Blocked self-send to own wallet deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${ownWallet.assetCurrency}`
+            );
+            throw new IncompleteAccountSetupException(
+                "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
     private inferAddressFamily(address: string):
         | "evm"
         | "trc20"
@@ -420,6 +478,11 @@ export class SendService {
                 HttpStatus.BAD_REQUEST
             );
         }
+
+        // Block self-sends: prevent user from sending to their own deposit address.
+        // This avoids a wasted withdrawal fee (funds leave via on-chain withdrawal
+        // and immediately return as a new deposit on the same sub-account).
+        await this.assertNotOwnDepositAddress(user.id, recipientWalletAddress, currency);
 
         // Auto-detect network from address format when not provided by the client.
         // Without the network param, Quidax validates against the currency's default
