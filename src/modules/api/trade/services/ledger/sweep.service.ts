@@ -4,6 +4,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { LedgerService } from "./ledger.service";
 import { quidaxConfig } from "@/config";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -132,7 +133,8 @@ export class SweepService {
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly lockService: DistributedLockService,
-        private readonly ledgerService: LedgerService
+        private readonly ledgerService: LedgerService,
+        private readonly slackWebhookService: SlackWebhookService
     ) { }
 
     /**
@@ -738,6 +740,51 @@ export class SweepService {
      */
     private async _retryFailedSweepsInner(maxRetries: number): Promise<number> {
         let retried = 0;
+
+        // ── Phase 0: Alert on permanently exhausted entries (SW-014) ────
+        // Find FAILED entries that have hit the retry cap and are silently
+        // stuck. We alert once per cron cycle so admins take manual action.
+        const exhausted = await this.prisma.ledgerEntry.findMany({
+            where: {
+                type: LedgerType.DEPOSIT,
+                sweepStatus: SweepStatus.FAILED,
+                status: EntryStatus.SETTLED,
+                sweepRetryCount: { gte: this.MAX_LIFETIME_RETRIES },
+            },
+            select: {
+                id: true,
+                userId: true,
+                currency: true,
+                credit: true,
+                sweepRetryCount: true,
+                updatedAt: true,
+            },
+        });
+
+        if (exhausted.length > 0) {
+            this.logger.warn(
+                `${exhausted.length} sweep(s) permanently failed after ${this.MAX_LIFETIME_RETRIES} retries — manual intervention required`
+            );
+
+            await this.slackWebhookService.sendSystemAlert(
+                "sweep",
+                "Sweep Retries Exhausted",
+                `${exhausted.length} deposit sweep(s) have exhausted all ${this.MAX_LIFETIME_RETRIES} retries and are permanently stuck. ` +
+                `Affected users cannot withdraw until these are resolved manually.`,
+                {
+                    count: exhausted.length,
+                    entries: exhausted.map((e) => ({
+                        ledgerEntryId: e.id,
+                        userId: e.userId,
+                        currency: e.currency,
+                        amount: e.credit?.toString(),
+                        retries: e.sweepRetryCount,
+                        lastAttempt: e.updatedAt.toISOString(),
+                    })),
+                },
+                "error"
+            );
+        }
 
         // ── Phase 1: retry FAILED entries (existing behaviour) ──────────
         const failed = await this.prisma.ledgerEntry.findMany({

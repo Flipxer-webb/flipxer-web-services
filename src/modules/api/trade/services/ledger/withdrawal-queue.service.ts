@@ -5,6 +5,7 @@ import {
     LedgerType,
     WithdrawalQueue,
     OrderCategory,
+    Prisma,
 } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { LedgerService } from "./ledger.service";
@@ -141,21 +142,6 @@ export class WithdrawalQueueService {
                 };
             }
 
-            // Check if already queued
-            const existingQueue = await this.prisma.withdrawalQueue.findUnique({
-                where: { holdEntryId },
-            });
-
-            if (existingQueue) {
-                this.logger.warn(
-                    `Ledger entry already queued | ${JSON.stringify({
-                        holdEntryId,
-                        existingQueueId: existingQueue.id,
-                    })}`
-                );
-                return { success: true, queueEntry: existingQueue };
-            }
-
             // Get current queue position for this currency
             const maxPosition = await this.prisma.withdrawalQueue.aggregate({
                 where: {
@@ -173,17 +159,47 @@ export class WithdrawalQueueService {
                     ? amount
                     : new Decimal(amount.toString());
 
-            // Create queue entry
-            const queueEntry = await this.prisma.withdrawalQueue.create({
-                data: {
-                    userId,
-                    currency: currency.toUpperCase(),
-                    amount: queueAmount,
-                    holdEntryId,
-                    reason,
-                    position: nextPosition,
-                },
-            });
+            // FIX: WQ-002 — Use try/catch on create instead of findUnique+create
+            // to eliminate the race condition where two concurrent requests both
+            // pass the uniqueness check before either creates. The @unique
+            // constraint on holdEntryId is the authoritative guard.
+            let queueEntry: WithdrawalQueue;
+            try {
+                queueEntry = await this.prisma.withdrawalQueue.create({
+                    data: {
+                        userId,
+                        currency: currency.toUpperCase(),
+                        amount: queueAmount,
+                        holdEntryId,
+                        reason,
+                        position: nextPosition,
+                    },
+                });
+            } catch (error) {
+                // P2002 = unique constraint violation → entry already queued
+                if (
+                    error instanceof Prisma.PrismaClientKnownRequestError &&
+                    error.code === "P2002"
+                ) {
+                    const existingQueue =
+                        await this.prisma.withdrawalQueue.findUnique({
+                            where: { holdEntryId },
+                        });
+
+                    this.logger.warn(
+                        `Ledger entry already queued (concurrent insert) | ${JSON.stringify({
+                            holdEntryId,
+                            existingQueueId: existingQueue?.id,
+                        })}`
+                    );
+
+                    return {
+                        success: true,
+                        queueEntry: existingQueue ?? undefined,
+                    };
+                }
+                throw error;
+            }
 
             this.logger.log(
                 `Withdrawal queued | ${JSON.stringify({
@@ -272,6 +288,11 @@ export class WithdrawalQueueService {
      * Finds and processes timed-out queue entries
      * Releases holds and refunds users for entries older than 72h
      *
+     * FIX: WQ-003 — Uses an optimistic concurrency gate (updateMany setting
+     * releasedAt WHERE releasedAt IS NULL) before calling releaseHold().
+     * This prevents multi-pod duplicate refund attempts when processQueue()
+     * runs concurrently on multiple pods.
+     *
      * @returns Number of entries processed
      */
     async processTimeouts(): Promise<number> {
@@ -303,6 +324,24 @@ export class WithdrawalQueueService {
 
         for (const queueEntry of timedOut) {
             try {
+                // FIX: WQ-003 — Optimistic concurrency gate: claim the entry
+                // by setting releasedAt. If another pod already claimed it,
+                // updateMany returns count=0 and we skip.
+                const claimResult = await this.prisma.withdrawalQueue.updateMany({
+                    where: {
+                        id: queueEntry.id,
+                        releasedAt: null, // gate: only if not yet released
+                    },
+                    data: { releasedAt: new Date() },
+                });
+
+                if (claimResult.count === 0) {
+                    this.logger.debug(
+                        `Timeout entry already claimed by another process | queueId: ${queueEntry.id}`
+                    );
+                    continue;
+                }
+
                 // Release the hold (refund to user)
                 const result = await this.ledgerService.releaseHold(
                     queueEntry.holdEntry.reference,
@@ -311,9 +350,6 @@ export class WithdrawalQueueService {
                 );
 
                 if (result.success) {
-                    // Mark as released
-                    await this.markReleased(queueEntry.id);
-
                     this.logger.log(
                         `Timeout refund processed | ${JSON.stringify({
                             queueId: queueEntry.id,
@@ -326,8 +362,15 @@ export class WithdrawalQueueService {
 
                     processed++;
                 } else {
+                    // Rollback the optimistic claim so the entry can be
+                    // retried on the next cycle
+                    await this.prisma.withdrawalQueue.update({
+                        where: { id: queueEntry.id },
+                        data: { releasedAt: null },
+                    });
+
                     this.logger.error(
-                        `Failed to release hold for timeout | ${JSON.stringify({
+                        `Failed to release hold for timeout (claim rolled back) | ${JSON.stringify({
                             queueId: queueEntry.id,
                             error: result.error,
                         })}`
