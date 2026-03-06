@@ -366,6 +366,9 @@ export class BuyOrderService {
                         userId: user.id,
                         amountInFiat: amtFiat?.amount,
                         rateAtConversion: amtFiat?.rate,
+                        narration: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
+                        transaction_note: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
+                        sender: `${user.lastName} ${user.firstName}`,
                     },
                 });
                 await tx.payment.create({

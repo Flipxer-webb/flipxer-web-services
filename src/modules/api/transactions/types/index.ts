@@ -38,15 +38,15 @@ export const shapeTransaction = (
         swap:
             isSwap
                 ? {
-                      quotationId: t?.quotationId,
-                      fromCurrency: t?.fromCurrency,
-                      toCurrency: t?.toCurrency,
-                      fromAmount: t?.fromAmount,
-                      toAmount: t?.toAmount,
-                      quoted_price: t?.quoted_price,
-                      quoted_currency: t?.quoted_currency,
-                      executionPrice: t?.executionPrice,
-                  }
+                    quotationId: t?.quotationId,
+                    fromCurrency: t?.fromCurrency,
+                    toCurrency: t?.toCurrency,
+                    fromAmount: t?.fromAmount,
+                    toAmount: t?.toAmount,
+                    quoted_price: t?.quoted_price,
+                    quoted_currency: t?.quoted_currency,
+                    executionPrice: t?.executionPrice,
+                }
                 : null,
         narration: t?.narration,
         reason: t?.reason,
@@ -54,6 +54,12 @@ export const shapeTransaction = (
         recipient: t?.recipient,
         fee: t?.fee,
         total: t?.total,
+        amountInFiat: t?.amountInFiat,
+        rateAtConversion: t?.rateAtConversion,
+        orderReference: t?.orderReference,
+        sender: t?.sender,
+        txHash: t?.blockchain_txid,
+        sourceType: t?.sourceType,
     };
 };
 

@@ -321,6 +321,7 @@ export class SellOrderService {
                     destinationBankCode: dto.bankDetail.bankCode,
                     amountInFiat: amtFiat?.amount,
                     rateAtConversion: amtFiat?.rate,
+                    sender: `${user.lastName} ${user.firstName}`,
                     ledgerEntryId: settleResult.userEntry?.id, // Link to ledger entry (from settled hold)
                 },
             });

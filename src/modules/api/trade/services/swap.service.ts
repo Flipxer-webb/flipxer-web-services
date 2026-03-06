@@ -277,6 +277,7 @@ export class SwapService {
                 recipient: "Internal Swap",
                 narration: `Swap ${quote.from_currency} -> ${quote.to_currency}`,
                 transaction_note: `Swapping ${quote.from_amount} ${quote.from_currency} to ${quote.to_amount.toFixed(8)} ${quote.to_currency}`,
+                fee: 0, // No explicit fee for swaps (built into rate)
                 quotationId: dto.quotationId, // Track the quote ID
             }
         });

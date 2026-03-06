@@ -1735,6 +1735,7 @@ export class TradingService {
                     await this.withdrawerTransactionHandler({
                         orderReference: transaction.orderReference,
                         status: OrderStatus.done,
+                        txid: response.data?.txid,
                     });
 
                     return buildResponse({
@@ -1749,6 +1750,7 @@ export class TradingService {
                     await this.withdrawerTransactionHandler({
                         orderReference: transaction.orderReference,
                         status: OrderStatus.rejected,
+                        txid: response.data?.txid,
                     });
 
                     return buildResponse({

@@ -452,6 +452,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
                     status: OrderStatus.done,
+                    txid: eventData.txid,
                 });
                 break;
 
@@ -460,6 +461,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
                     status: OrderStatus.failed, // Map rejected/failed to OrderStatus.failed
+                    txid: eventData.txid,
                 });
                 break;
 

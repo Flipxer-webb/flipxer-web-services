@@ -716,6 +716,8 @@ export class SendService {
                 total: totalAmount.toNumber(), // The total deducted
                 amountInFiat: amtFiat?.amount,
                 rateAtConversion: amtFiat?.rate,
+                sender: user.email,
+                sourceType: resolvedNetwork || currency,
                 ledgerEntryId: holdResult.entryId,
             },
         });
@@ -1133,6 +1135,8 @@ export class SendService {
                     transaction_note: dto.transaction_note,
                     recipient: recipient.email, // Store email as recipient
                     amount: totalAmount,
+                    fee: 0, // No fee for internal transfers
+                    sender: user.email,
                     amountInFiat: amtFiat?.amount,
                     rateAtConversion: amtFiat?.rate,
                     ledgerEntryId: transferResult.entryId,
@@ -1166,7 +1170,9 @@ export class SendService {
                     narration: dto.narration,
                     transaction_note: dto.transaction_note,
                     sender: user.email, // Store sender email
+                    recipient: recipient.email, // Store recipient email
                     amount: totalAmount,
+                    fee: 0, // No fee for internal transfers
                     amountInFiat: amtFiat?.amount,
                     rateAtConversion: amtFiat?.rate,
                     ledgerEntryId: transferResult.creditEntryId || transferResult.entryId, // Issue #3 fix: use recipient's credit entry

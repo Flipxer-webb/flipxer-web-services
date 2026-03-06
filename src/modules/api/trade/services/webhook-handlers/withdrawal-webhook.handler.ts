@@ -202,6 +202,7 @@ export class WithdrawalWebhookHandler {
                 streamlinedStatus: isSellPayoutPending
                     ? OrderStreamlinedStatus.pending
                     : getStreamlinedStatus(options.status),
+                ...(options.txid && { blockchain_txid: options.txid }),
             },
         });
 
