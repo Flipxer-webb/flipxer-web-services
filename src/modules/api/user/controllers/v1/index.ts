@@ -39,7 +39,7 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "user",
 })
-@UseGuards(CountryBlockGuard, AuthGuard, EnabledAccountGuard, RateLimiterGuard)
+@UseGuards(RateLimiterGuard, CountryBlockGuard, AuthGuard, EnabledAccountGuard)
 export class UserController {
     constructor(private readonly userService: UserService) { }
 
