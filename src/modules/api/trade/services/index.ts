@@ -1639,6 +1639,38 @@ export class TradingService {
     }
 
     /**
+     * Lightweight order status check (DB-only, no external provider calls).
+     * Used as a polling fallback when WebSocket is unavailable.
+     */
+    async getOrderStatus(user: User, transactionId: string) {
+        const order = await this.prisma.order.findFirst({
+            where: {
+                transactionId,
+                userId: user.id,
+            },
+            select: {
+                transactionId: true,
+                status: true,
+                streamlinedStatus: true,
+                orderCategory: true,
+                updatedAt: true,
+            },
+        });
+
+        if (!order) {
+            throw new TransactionNotFoundException(
+                "Transaction not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        return buildResponse({
+            message: "Order status retrieved",
+            data: order,
+        });
+    }
+
+    /**
      * Refresh transaction status from Quidax provider
      * This allows users to manually trigger a status check for pending transactions
      */

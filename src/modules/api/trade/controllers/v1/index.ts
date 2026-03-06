@@ -332,6 +332,18 @@ export class TradingController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Get order status (lightweight DB-only poll)" })
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @Get("order-status/:transactionId")
+    async getOrderStatus(
+        @Param("transactionId") transactionId: string,
+        @User() user: UserModel
+    ) {
+        return await this.tradingService.getOrderStatus(user, transactionId);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Refresh transaction status from provider" })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")

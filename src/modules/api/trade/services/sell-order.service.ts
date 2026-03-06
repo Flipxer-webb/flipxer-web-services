@@ -377,9 +377,14 @@ export class SellOrderService {
 
                 this.logger.log(`[Omnibus] Sell Order ${order.id} payout initiated successfully`);
 
+                // Re-fetch order from DB to return the latest status after payout processing
+                const freshOrder = await this.prisma.order.findUnique({
+                    where: { id: order.id },
+                });
+
                 return buildResponse({
                     message: "Order placed successfully, Payment is processing",
-                    data: order,
+                    data: freshOrder ?? order,
                 });
             } catch (payoutError) {
                 // Payout initiation failed - release hold and fail the order
