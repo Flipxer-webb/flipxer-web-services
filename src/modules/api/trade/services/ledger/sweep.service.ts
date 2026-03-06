@@ -711,8 +711,32 @@ export class SweepService {
      * then immediately re-initiated. An optimistic concurrency gate
      * (sweepStatus must still be IN_PROGRESS) prevents racing with a
      * legitimate late-arriving completion webhook.
+     *
+     * FIX: SW-013 — protected by a distributed Redis job lock (like
+     * processPendingSweeps) to prevent multi-pod race conditions.
      */
     async retryFailedSweeps(maxRetries = 5): Promise<number> {
+        const jobLockKey = "job:sweep:retry_failed";
+
+        try {
+            return await this.lockService.withLock(
+                jobLockKey,
+                async () => this._retryFailedSweepsInner(maxRetries),
+                { ttlMs: 120000, maxWaitMs: 0, strict: false }
+            );
+        } catch (error) {
+            if (error.message?.includes("Failed to acquire lock")) {
+                this.logger.debug("Retry job already running on another pod — skipping");
+                return 0;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Inner implementation of retryFailedSweeps, called within the job lock.
+     */
+    private async _retryFailedSweepsInner(maxRetries: number): Promise<number> {
         let retried = 0;
 
         // ── Phase 1: retry FAILED entries (existing behaviour) ──────────
