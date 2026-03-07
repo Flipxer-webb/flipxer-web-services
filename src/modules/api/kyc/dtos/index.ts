@@ -25,7 +25,7 @@ export class GetKycQueueDto {
 
     @ApiPropertyOptional({
         description: "Verification type filter",
-        enum: ["BVN", "NIN", "DOCUMENT", "ADDRESS", "BIOMETRIC", "INCOME", "BUSINESS_DOCUMENT", "all"],
+        enum: ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT", "all"],
     })
     @IsOptional()
     @IsString()
@@ -72,27 +72,6 @@ export class KycDecisionDto {
     note?: string;
 
     // newTier removed — tier is always derived from verification flags via syncTierAndCache
-}
-
-export class BulkKycDecisionDto {
-    @ApiProperty({ description: "Array of user IDs" })
-    @IsArray()
-    @IsNumber({}, { each: true })
-    userIds: number[];
-
-    @ApiProperty({
-        description: "Decision action",
-        enum: ["APPROVE", "REJECT"],
-    })
-    @IsString()
-    @IsIn(["APPROVE", "REJECT"])
-    action: "APPROVE" | "REJECT";
-
-    @ApiPropertyOptional({ description: "Review note" })
-    @IsOptional()
-    @IsString()
-    note?: string;
-
 }
 
 export class UpdateUserTierDto {

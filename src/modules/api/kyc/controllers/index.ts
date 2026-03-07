@@ -23,7 +23,6 @@ import { KycService } from "../services";
 import {
     GetKycQueueDto,
     KycDecisionDto,
-    BulkKycDecisionDto,
     UpdateUserTierDto,
     UpdateUserVerificationDto,
     GetKycStatsDto,
@@ -70,16 +69,6 @@ export class KycController {
         const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
         if (!adminId) throw new UnauthorizedException('Invalid admin session');
         return await this.kycService.processKycDecision(dto, adminId);
-    }
-
-    @ApiOperation({ summary: "Process bulk KYC decisions" })
-    @ApiBearerAuth("access-token")
-    @Permissions([PermissionName.KYC_APPROVE])
-    @Post("bulk-decision")
-    async processBulkKycDecision(@Body() dto: BulkKycDecisionDto, @Req() req: any) {
-        const adminId = typeof req.user?.id === 'number' ? req.user.id : undefined;
-        if (!adminId) throw new UnauthorizedException('Invalid admin session');
-        return await this.kycService.processBulkKycDecision(dto, adminId);
     }
 
     @ApiOperation({ summary: "Update user verification tier" })
