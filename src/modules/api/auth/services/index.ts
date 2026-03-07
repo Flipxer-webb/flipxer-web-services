@@ -1407,6 +1407,22 @@ export class AuthService {
 
         const date = Date.now();
         const body = file[0].buffer;
+        const mimetype = file[0].mimetype?.toLowerCase() || "";
+
+        // PDFs cannot be processed by Sharp — upload directly without compression
+        const isPdf =
+            mimetype === "application/pdf" ||
+            file[0].originalname?.toLowerCase().endsWith(".pdf");
+
+        if (isPdf) {
+            const result = await this.uploadService.uploadImage({
+                dir: storageDirConfig.document,
+                name: `document-${date}-${generateRandomNum(5)}.pdf`,
+                format: "png",
+                body: body,
+            });
+            return result;
+        }
 
         const result = await this.uploadService.uploadCompressedImage({
             dir: storageDirConfig.document,

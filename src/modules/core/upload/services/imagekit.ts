@@ -11,12 +11,10 @@ export class ImagekitService extends BaseUploadService {
     public async uploadImage(
         options: CompressImageOptions
     ): Promise<UploadResponse> {
-        const base64String = `data:image/${
-            options.format
-        };base64,${options.body.toString("base64")}`;
-
+        // Use raw buffer directly — works for all file types including PDFs.
+        // ImageKit accepts Buffer, base64 string, or URL.
         const uploadedResponse = await this.imagekit.upload({
-            file: base64String,
+            file: options.body,
             fileName: options.name,
             folder: options.dir,
         });
