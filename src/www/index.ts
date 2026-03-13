@@ -39,7 +39,7 @@ export default async (
 
     const corsOptions: CorsOptions = {
         origin: whitelist,
-        allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type"],
+        allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type", "x-security-token", "x-2fa-code"],
         methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         credentials: true,
     };

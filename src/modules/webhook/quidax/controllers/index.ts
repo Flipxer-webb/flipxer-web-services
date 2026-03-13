@@ -1,4 +1,7 @@
 import { QuidaxWebhookGuard, AuthGuard } from "@/modules/api/auth/guard";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserType } from "@prisma/client";
 import {
     Body,
     Controller,
@@ -45,7 +48,8 @@ export class QuidaxWebhookController {
         }
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RoleGuard)
+    @UserTypes([UserType.ADMIN])
     @ApiBearerAuth()
     @Get("metrics")
     @ApiOperation({ summary: "Get webhook processing metrics (Admin only)" })

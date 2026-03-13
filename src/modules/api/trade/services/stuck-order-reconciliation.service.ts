@@ -88,7 +88,7 @@ export class StuckOrderReconciliationService {
         private readonly prisma: PrismaService,
         private readonly buyOrderService: BuyOrderService,
         private readonly slackWebhookService: SlackWebhookService,
-    ) {}
+    ) { }
 
     /**
      * Run full stuck-order reconciliation.
@@ -211,20 +211,10 @@ export class StuckOrderReconciliationService {
             };
 
             try {
-                // ─── CRITICAL: Verify payment via WebhookLog before auto-retrying ──────
-                // Only auto-retry if we have a matching webhook payload proving the
-                // provider actually sent us a payment_success event for this reference.
-                // This prevents crediting free crypto from orphaned/bogus SUCCESS statuses.
-                const webhookProof = await this.prisma.webhookLog.findFirst({
-                    where: {
-                        provider: { in: ["nomba", "fincra"] },
-                        eventType: "payment_success",
-                        payload: {
-                            path: [],
-                            not: undefined, // ensure payload exists
-                        },
-                    },
-                });
+                // SECURITY: Only auto-retry if a matching WebhookLog entry exists proving
+                // the provider actually sent a payment_success event for this reference.
+                // This prevents crediting crypto from orphaned or bogus SUCCESS statuses.
+
 
                 // Search for this payment's reference within stored webhook payloads
                 // WebhookLog.externalId is typically the provider reference, but we also
@@ -316,6 +306,8 @@ export class StuckOrderReconciliationService {
                 orderCategory: true,
                 ledgerEntryId: true,
             },
+            take: 100,
+            orderBy: { updatedAt: "desc" },
         });
 
         if (candidateOrders.length === 0) {
@@ -389,6 +381,7 @@ export class StuckOrderReconciliationService {
                 },
             },
             select: { id: true },
+            take: 100,
         });
 
         result.preLedgerBackfill.detected = preLedgerOrders.length;

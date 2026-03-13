@@ -31,8 +31,8 @@ export class NombaWebhookController {
     private verifySignature(body: any, signature: string, timestamp: string): boolean {
         const webhookSecret = Config.nombaOptions?.webhookSecret;
         if (!webhookSecret) {
-            this.logger.warn("Nomba webhook secret not configured - skipping signature verification");
-            return true;
+            this.logger.error("SECURITY: Nomba webhook secret not configured - rejecting webhook");
+            return false;
         }
 
         const data = body.data || {};
@@ -178,13 +178,16 @@ export class NombaWebhookController {
         // 2. Signature Verification (Security First)
         //    Nomba signs a colon-separated string of specific fields (not the raw body).
         //    See: https://developer.nomba.com/docs/api-basics/webhook#webhook-signature-verification
-        if (process.env.NODE_ENV === "production" && signature) {
-            this.logger.log(`Signature verification — timestamp: ${timestamp || 'NONE'}, sig: ${signature.substring(0, 12)}...`);
-            const isValid = this.verifySignature(body, signature, timestamp);
-            if (!isValid) {
-                this.logger.error("Invalid Nomba webhook signature");
-                throw new UnauthorizedException("Invalid webhook signature");
-            }
+        if (!signature) {
+            this.logger.error("SECURITY: Nomba webhook rejected - missing signature header");
+            throw new UnauthorizedException("Missing webhook signature");
+        }
+
+        this.logger.log(`Signature verification - timestamp: ${timestamp || 'NONE'}, sig: ${signature.substring(0, 12)}...`);
+        const isValid = this.verifySignature(body, signature, timestamp);
+        if (!isValid) {
+            this.logger.error("SECURITY: Invalid Nomba webhook signature");
+            throw new UnauthorizedException("Invalid webhook signature");
         }
 
         try {
