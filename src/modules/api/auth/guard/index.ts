@@ -54,12 +54,14 @@ import {
     jwtSecret,
     quidaxConfig,
 } from "@/config";
+import { SessionService } from "@/modules/api/session/services";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
     constructor(
         private jwtService: JwtService,
-        private prisma: PrismaService
+        private prisma: PrismaService,
+        private sessionService: SessionService
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -74,8 +76,9 @@ export class AuthGuard implements CanActivate {
         }
 
         try {
-            const user = await this.verifyAndFetchUser(token);
+            const { user, payload } = await this.verifyAndFetchUser(token);
             request.user = user;
+            request.sessionId = payload.sessionId;
             return true;
         } catch (error) {
             this.handleAuthError(error);
@@ -107,7 +110,23 @@ export class AuthGuard implements CanActivate {
             );
         }
 
-        return user;
+        // Backward compatibility: legacy tokens may not include sessionId.
+        if (payload.sessionId) {
+            const isSessionValid = await this.sessionService.validateSession(
+                payload.sessionId
+            );
+
+            if (!isSessionValid) {
+                throw new InvalidAuthTokenException(
+                    "Your session is unauthorized or expired",
+                    HttpStatus.UNAUTHORIZED
+                );
+            }
+
+            await this.sessionService.touchSessionActivity(payload.sessionId);
+        }
+
+        return { user, payload };
     }
 
     private handleAuthError(error: any): never {

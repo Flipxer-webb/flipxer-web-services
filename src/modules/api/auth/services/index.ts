@@ -82,6 +82,7 @@ import { IdentityComplianceInjectionToken } from "@/modules/factory/identityComp
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import {
     DocumentMetaMap,
+    DataStoredInToken,
     DocumentVerificationFileInterface,
     LoginPlatform,
     SignInOptions,
@@ -2772,13 +2773,6 @@ export class AuthService {
             });
         }
 
-        const tokens = await this.generateTokens({
-            sub: user.id,
-            platform: loginPlatform,
-        });
-
-        await this.saveRefreshToken(user.id, tokens.refreshToken);
-
         // Create session for user logins with error handling
         // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
@@ -2802,6 +2796,16 @@ export class AuthService {
                 // Session creation is non-critical, login should still succeed
             }
         }
+
+        const tokenPayload: Record<string, any> = {
+            sub: user.id,
+            platform: loginPlatform,
+            ...(sessionId ? { sessionId } : {}),
+        };
+
+        const tokens = await this.generateTokens(tokenPayload);
+
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
 
         await this.prisma.user.update({
             where: { id: user.id },
@@ -2854,7 +2858,7 @@ export class AuthService {
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
         const payload = await this.jwtService.verify(options.refreshToken, {
             secret: jwt_refresh_secret,
-        });
+        }) as DataStoredInToken;
 
         const isValid = await this.validateRefreshToken(
             payload.sub,
@@ -2868,7 +2872,23 @@ export class AuthService {
             );
         }
 
-        const newTokens = await this.generateTokens({ sub: payload.sub });
+        if (payload.sessionId) {
+            const isSessionValid = await this.sessionService.validateSession(
+                payload.sessionId
+            );
+
+            if (!isSessionValid) {
+                throw new InvalidRefreshToken(
+                    "Session expired or invalid",
+                    HttpStatus.UNAUTHORIZED
+                );
+            }
+        }
+
+        const newTokens = await this.generateTokens({
+            sub: payload.sub,
+            ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
+        });
 
         await this.saveRefreshToken(payload.sub, newTokens.refreshToken);
 
@@ -2990,14 +3010,6 @@ export class AuthService {
             );
         }
 
-        // Generate actual tokens
-        const tokens = await this.generateTokens({
-            sub: user.id,
-            platform: payload.platform,
-        });
-
-        await this.saveRefreshToken(user.id, tokens.refreshToken);
-
         // Create session for user logins (2FA complete) with error handling
         // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
@@ -3021,6 +3033,14 @@ export class AuthService {
                 // Session creation is non-critical, login should still succeed
             }
         }
+
+        const tokens = await this.generateTokens({
+            sub: user.id,
+            platform: payload.platform,
+            ...(sessionId ? { sessionId } : {}),
+        });
+
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
 
         await this.prisma.user.update({
             where: { id: user.id },
