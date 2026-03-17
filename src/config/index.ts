@@ -163,7 +163,7 @@ try {
 export const allowedDomains =
     process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
 export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
-export const isProduction: boolean = process.env.NODE_ENV === "production";
+export const isProduction: boolean = process.env.ENVIRONMENT === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
 export const frontendUrl = process.env.FRONTEND_URL || "https://resolve-web-app-cyan.vercel.app";

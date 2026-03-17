@@ -276,6 +276,6 @@ export class KycStateMachineService {
     }
 
     private isDecisionStatus(status: KycStatus): boolean {
-        return [KycStatus.APPROVED, KycStatus.REJECTED, KycStatus.ESCALATED].includes(status);
+        return ([KycStatus.APPROVED, KycStatus.REJECTED, KycStatus.ESCALATED] as KycStatus[]).includes(status);
     }
 }
