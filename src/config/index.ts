@@ -115,6 +115,19 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
 
+     // SECURITY: QUIDAX_WEBHOOK_KEY is required - without it, all Quidax webhooks
+     // are rejected and crypto deposits/withdrawals/swaps will never fulfill.
+    {
+        name: "QUIDAX_WEBHOOK_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    // SECURITY: NOMBA_WEBHOOK_SECRET is required - without it, all Nomba webhooks
+    // are rejected and fiat payment confirmations will never fulfill BUY orders.
+    {
+        name: "NOMBA_WEBHOOK_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
+
     // Note: The following are now OPTIONAL (not validated at startup):
     // - Cloudinary (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET)
     // - ImageKit (IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, IMAGEKIT_URL)

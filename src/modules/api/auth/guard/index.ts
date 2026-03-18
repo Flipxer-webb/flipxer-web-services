@@ -186,6 +186,11 @@ export class QuidaxWebhookGuard implements CanActivate {
             .switchToHttp()
             .getRequest() as RequestFromQuidax;
 
+        if (!quidaxConfig.webhook_key) {
+            this.logger.error("[WEBHOOK AUTH] SECURITY: QUIDAX_WEBHOOK_KEY not configured - rejecting all webhooks");
+            return false;
+        }
+
         const quidaxSignature = request.headers["quidax-signature"] as string;
 
         if (!quidaxSignature) {
