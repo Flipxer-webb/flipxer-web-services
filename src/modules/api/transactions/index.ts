@@ -5,9 +5,10 @@ import { TransactionController } from "./controllers/v1";
 import { AdminTransactionController } from "./controllers/v1/admin";
 import { TradingModule } from "../trade";
 import { SettingModule } from "../settings";
+import { SessionModule } from "../session";
 
 @Module({
-    imports: [forwardRef(() => TradingModule), SettingModule],
+    imports: [forwardRef(() => TradingModule), SettingModule, SessionModule],
     providers: [TransactionService, AdminTransactionService],
     controllers: [TransactionController, AdminTransactionController],
     exports: [TransactionService, AdminTransactionService],
