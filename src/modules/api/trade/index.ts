@@ -57,6 +57,7 @@ import { TierService } from "../auth/services/tier.service";
 import { OperationsModule } from "../operations";
 import { NotificationModule } from "../notification/notification.module";
 import { CachingModule } from "@/modules/core/redisCache";
+import { SessionModule } from "../session";
 export * from "./interfaces";
 export * from "./errors";
 
@@ -74,6 +75,7 @@ export * from "./errors";
         OperationsModule,
         NotificationModule,
         CachingModule,
+        SessionModule,
     ],
     controllers: [TradingController, PriceAlertController, AdminLedgerController],
     providers: [
