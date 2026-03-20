@@ -226,23 +226,31 @@ export class AdminNotificationService {
         // Emit real-time WebSocket notification to each target user
         for (const user of targetUsers) {
             try {
-                this.wsGateway.notifyUser(user.id, {
-                    title,
-                    body,
-                    type: "broadcast",
+                const notificationList = await this.prisma.notification.findMany({
+                    where: { userId: user.id },
+                    orderBy: { createdAt: "desc" },
+                    take: 20,
                 });
+
+                if (notificationList.length > 0) {
+                    this.wsGateway.notifyUser(user.id, {
+                        type: "new_notification",
+                        notification: notificationList[0],
+                        notificationList,
+                    });
+                }
             } catch {
                 // Non-critical: user may not be connected
             }
         }
 
         // Send push notifications to users with tokens
-        const userIds = targetUsers.map(u => u.id);
+        const targetUserIds = targetUsers.map((u) => u.id);
         let pushResult = { successCount: 0, failureCount: 0 };
         
-        if (userIds.length > 0 && (type === "PUSH_NOTIFICATION" || !type)) {
+        if (targetUserIds.length > 0 && (type === "PUSH_NOTIFICATION" || !type)) {
             pushResult = await this.pushNotificationService.sendToUsers(
-                userIds,
+                targetUserIds,
                 { title, body }
             );
             this.logger.log(
