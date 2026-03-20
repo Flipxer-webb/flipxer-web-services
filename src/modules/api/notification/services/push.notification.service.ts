@@ -262,24 +262,31 @@ export class PushNotificationService implements OnModuleInit {
         payload: PushNotificationPayload
     ): Promise<PushResult> {
         try {
-            const deviceTokens = await this.prisma.deviceToken.findMany({
+            const deviceTokenRecords = await this.prisma.deviceToken.findMany({
                 where: { userId: { in: userIds } },
-                select: { token: true },
+                select: { userId: true, token: true },
             });
 
-            const tokens = deviceTokens.map((d) => d.token);
+            const userIdsWithDeviceTokens = new Set(deviceTokenRecords.map((d) => d.userId));
+            const tokens = deviceTokenRecords.map((d) => d.token);
 
-            // Fallback: also check legacy User.notificationToken
-            const legacyUsers = await this.prisma.user.findMany({
-                where: {
-                    id: { in: userIds },
-                    notificationToken: { not: null },
-                },
-                select: { notificationToken: true },
-            });
-            const legacyTokens = legacyUsers
-                .map((u) => u.notificationToken)
-                .filter((t): t is string => t !== null);
+            // Fallback: only check legacy User.notificationToken for users who have NO DeviceToken record.
+            // This mirrors the exclusive-fallback pattern in sendToUser and prevents duplicate pushes
+            // for users whose token is stored in both DeviceToken and User.notificationToken.
+            const userIdsWithoutDeviceTokens = userIds.filter((id) => !userIdsWithDeviceTokens.has(id));
+            let legacyTokens: string[] = [];
+            if (userIdsWithoutDeviceTokens.length > 0) {
+                const legacyUsers = await this.prisma.user.findMany({
+                    where: {
+                        id: { in: userIdsWithoutDeviceTokens },
+                        notificationToken: { not: null },
+                    },
+                    select: { notificationToken: true },
+                });
+                legacyTokens = legacyUsers
+                    .map((u) => u.notificationToken)
+                    .filter((t): t is string => t !== null);
+            }
 
             const allTokens = [...new Set([...tokens, ...legacyTokens])];
 
