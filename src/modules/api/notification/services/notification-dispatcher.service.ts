@@ -239,6 +239,8 @@ export class NotificationDispatcher {
                         data: {
                             type: options.transactionType || "notification",
                             currency: options.currency || "",
+                            category: options.category || "transaction",
+                            url: this.getCategoryUrl(options.category),
                         },
                     });
                 } catch (pushError) {
@@ -251,6 +253,19 @@ export class NotificationDispatcher {
         } catch (error) {
             this.logger.error(`Failed to send notification to user ${options.userId}: ${error.message}`, error.stack);
             // Don't throw - notification failures shouldn't break business logic
+        }
+    }
+
+    /**
+     * Map a notification category to a deep-link URL for push notification click handling.
+     */
+    private getCategoryUrl(category?: NotificationCategory): string {
+        switch (category) {
+            case "security": return "/security";
+            case "price_alert": return "/price-alerts";
+            case "marketing": return "/dashboard";
+            case "transaction":
+            default: return "/transactions";
         }
     }
 

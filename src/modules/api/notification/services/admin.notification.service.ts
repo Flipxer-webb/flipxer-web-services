@@ -251,7 +251,7 @@ export class AdminNotificationService {
         if (targetUserIds.length > 0 && (type === "PUSH_NOTIFICATION" || !type)) {
             pushResult = await this.pushNotificationService.sendToUsers(
                 targetUserIds,
-                { title, body }
+                { title, body, data: { category: "marketing", url: "/dashboard" } }
             );
             this.logger.log(
                 `Broadcast push: ${pushResult.successCount} sent, ${pushResult.failureCount} failed`
@@ -353,7 +353,7 @@ export class AdminNotificationService {
                 if (tokens.length > 0) {
                     const pushResult = await this.pushNotificationService.sendToMultipleDevices(
                         tokens,
-                        { title: notification.title, body: notification.body }
+                        { title: notification.title, body: notification.body, data: { category: "marketing", url: "/dashboard" } }
                     );
                     this.logger.log(
                         `Notification #${notificationId} approved: ${pushResult.successCount} push sent, ${pushResult.failureCount} failed`
@@ -365,7 +365,7 @@ export class AdminNotificationService {
             if (notification.type === NotificationType.PUSH_NOTIFICATION) {
                 await this.pushNotificationService.sendToUser(
                     notification.userId,
-                    { title: notification.title, body: notification.body }
+                    { title: notification.title, body: notification.body, data: { category: "marketing", url: "/dashboard" } }
                 );
                 this.logger.log(`Individual notification #${notificationId} sent to user ${notification.userId}`);
             }
