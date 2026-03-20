@@ -162,15 +162,27 @@ export class UserController {
                     nullable: true,
                     description: "FCM token for push notifications. Pass null to disable.",
                 },
+                deviceName: {
+                    type: "string",
+                    nullable: true,
+                    description: "Human-readable device name, e.g. 'Chrome on Windows'",
+                },
+                platform: {
+                    type: "string",
+                    nullable: true,
+                    description: "Platform identifier: web, android, or ios",
+                },
             },
         },
     })
     @Post("notification-token")
     async updateNotificationToken(
         @Body("token") token: string | null,
+        @Body("deviceName") deviceName: string | undefined,
+        @Body("platform") platform: string | undefined,
         @User() user: UserModel
     ) {
-        return await this.userService.updateNotificationToken(user, token);
+        return await this.userService.updateNotificationToken(user, token, deviceName, platform);
     }
 
     @ApiOperation({ summary: "Lookup user by email" })

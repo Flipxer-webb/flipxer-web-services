@@ -847,15 +847,48 @@ export class UserService {
 
     /**
      * Update user's notification token for push notifications (FCM)
+     * Now stores in DeviceToken table for multi-device support.
      */
     async updateNotificationToken(
         user: User,
-        token: string | null
+        token: string | null,
+        deviceName?: string,
+        platform?: string
     ): Promise<{ message: string }> {
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: { notificationToken: token },
-        });
+        if (token) {
+            // Upsert into DeviceToken table
+            await this.prisma.deviceToken.upsert({
+                where: {
+                    userId_token: { userId: user.id, token },
+                },
+                update: {
+                    deviceName: deviceName ?? undefined,
+                    platform: platform ?? undefined,
+                },
+                create: {
+                    userId: user.id,
+                    token,
+                    deviceName: deviceName ?? null,
+                    platform: platform ?? "web",
+                },
+            });
+
+            // Also keep legacy field in sync for backward compatibility
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: { notificationToken: token },
+            });
+        } else {
+            // Disable: remove all device tokens for this user
+            await this.prisma.deviceToken.deleteMany({
+                where: { userId: user.id },
+            });
+
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: { notificationToken: null },
+            });
+        }
 
         // Invalidate profile cache
         await this.redisCacheService.del(this.getProfileCacheKey(user.id));

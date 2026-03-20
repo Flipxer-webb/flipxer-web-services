@@ -433,6 +433,7 @@ export class KycService {
             userId,
             title,
             body,
+            category: "security",
             enablePush: true,
         });
 

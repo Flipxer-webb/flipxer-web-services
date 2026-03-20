@@ -1377,6 +1377,7 @@ export class AuthService {
                 userId: user.id,
                 title: "Document Submitted",
                 body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+                category: "security",
             });
 
             return buildResponse({
@@ -1779,6 +1780,7 @@ export class AuthService {
                     userId: user.id,
                     title: "Document Submitted",
                     body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+                    category: "security",
                 });
 
                 return buildResponse({
@@ -2061,6 +2063,7 @@ export class AuthService {
                 userId: user.id,
                 title: "Document Submitted",
                 body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+                category: "security",
             });
 
             return buildResponse({
@@ -2229,6 +2232,7 @@ export class AuthService {
             userId: user.id,
             title: "Business Documents Submitted",
             body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
+            category: "security",
         });
 
         // Fire-and-forget: Run Dojah business verification in background
@@ -2445,6 +2449,7 @@ export class AuthService {
             userId: user.id,
             title: "Business Documents Submitted",
             body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
+            category: "security",
         });
 
         // For Dojah verification we need the CAC image buffer.

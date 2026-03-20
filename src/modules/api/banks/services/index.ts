@@ -689,6 +689,7 @@ export class BankService {
                         userId: transaction.userId,
                         title: "Your payment is sent",
                         body: message,
+                        category: "transaction",
                         currency: "NGN",
                         transactionType: OrderCategory.SELL,
                         enableEmail: true,

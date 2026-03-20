@@ -20,6 +20,7 @@ export interface UpdateNotificationPreferencesDto {
     pushPriceAlerts?: boolean;
     pushSecurityAlerts?: boolean;
     pushMarketing?: boolean;
+    soundEnabled?: boolean;
     quietHoursEnabled?: boolean;
     quietHoursStart?: string;
     quietHoursEnd?: string;

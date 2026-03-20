@@ -7,10 +7,20 @@ import {
     NotificationBeneficiary,
     NotificationStatus,
     NotificationType,
+    NotificationPreferences,
     OrderCategory,
     UserNotificationTarget,
 } from "@prisma/client";
 import { TransactionType } from "../types/notification.type";
+
+/**
+ * Notification categories that map to user preference toggles.
+ * - transaction: buy/sell/swap/deposit/withdrawal events
+ * - security: login, 2FA, password changes, tier verification
+ * - price_alert: price alert triggers
+ * - marketing: promotional / admin broadcast
+ */
+export type NotificationCategory = "transaction" | "security" | "price_alert" | "marketing";
 
 /**
  * Options for sending a notification through all channels
@@ -21,6 +31,9 @@ export interface NotifyOptions {
     body: string;
     currency?: string;
     transactionType?: OrderCategory;
+
+    /** Category controls which user preference toggle is checked */
+    category?: NotificationCategory;
 
     // Email options
     enableEmail?: boolean;
@@ -80,6 +93,70 @@ export class NotificationDispatcher {
     ) { }
 
     /**
+     * Check if the user's push preference allows this notification category.
+     * Defaults to true if no preferences exist.
+     */
+    private shouldSendPush(
+        prefs: NotificationPreferences | null,
+        category?: NotificationCategory,
+    ): boolean {
+        if (!prefs) return true;
+        switch (category) {
+            case "security":
+                return prefs.pushSecurityAlerts !== false;
+            case "price_alert":
+                return prefs.pushPriceAlerts !== false;
+            case "marketing":
+                return prefs.pushMarketing !== false;
+            case "transaction":
+            default:
+                return prefs.pushTransactions !== false;
+        }
+    }
+
+    /**
+     * Check if the user's email preference allows this notification category.
+     * Defaults to true if no preferences exist.
+     */
+    private shouldSendEmail(
+        prefs: NotificationPreferences | null,
+        category?: NotificationCategory,
+    ): boolean {
+        if (!prefs) return true;
+        switch (category) {
+            case "security":
+                return prefs.emailSecurityAlerts !== false;
+            case "marketing":
+                return prefs.emailMarketing !== false;
+            case "transaction":
+            case "price_alert":
+            default:
+                return prefs.emailTransactions !== false;
+        }
+    }
+
+    /**
+     * Check if the current time falls within the user's quiet hours.
+     * During quiet hours, push and email are suppressed (except security).
+     */
+    private isInQuietHours(prefs: NotificationPreferences | null): boolean {
+        if (!prefs?.quietHoursEnabled || !prefs.quietHoursStart || !prefs.quietHoursEnd) {
+            return false;
+        }
+        const now = new Date();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const [startH, startM] = prefs.quietHoursStart.split(":").map(Number);
+        const [endH, endM] = prefs.quietHoursEnd.split(":").map(Number);
+        const start = startH * 60 + startM;
+        const end = endH * 60 + endM;
+        // Handle overnight ranges (e.g., 22:00 - 07:00)
+        if (start > end) {
+            return currentMinutes >= start || currentMinutes < end;
+        }
+        return currentMinutes >= start && currentMinutes < end;
+    }
+
+    /**
      * Send a notification through all enabled channels.
      * This method is atomic for DB operations (prevents race conditions).
      */
@@ -105,6 +182,7 @@ export class NotificationDispatcher {
                         senderId: null,
                         transactionType: options.transactionType,
                         currency: options.currency,
+                        category: options.category,
                     },
                 });
 
@@ -128,10 +206,14 @@ export class NotificationDispatcher {
                 this.logger.warn(`WebSocket notification failed for user ${options.userId}: ${wsError.message}`);
             }
 
+            // Quiet hours suppress push & email (security alerts bypass quiet hours)
+            const inQuietHours = this.isInQuietHours(prefs) && options.category !== "security";
+
             // 4. Email (if enabled and user allows it)
             const shouldEmail = options.enableEmail &&
                 options.emailPayload &&
-                (prefs?.emailTransactions !== false); // Default to true if no prefs
+                !inQuietHours &&
+                this.shouldSendEmail(prefs, options.category);
 
             if (shouldEmail) {
                 try {
@@ -146,7 +228,8 @@ export class NotificationDispatcher {
 
             // 5. Push (if enabled and user allows it)
             const shouldPush = options.enablePush &&
-                (prefs?.pushTransactions !== false); // Default to true if no prefs
+                !inQuietHours &&
+                this.shouldSendPush(prefs, options.category);
 
             if (shouldPush) {
                 try {
