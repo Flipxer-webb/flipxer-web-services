@@ -86,26 +86,31 @@ export class PushNotificationService implements OnModuleInit {
         }
 
         try {
+            // Use data-only message so Chrome does NOT auto-display a notification
+            // with the favicon. Our service worker's onBackgroundMessage handles
+            // display with the correct per-category/currency icons.
+            const data: Record<string, string> = {
+                ...payload.data,
+                title: payload.title,
+                body: payload.body,
+                ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
+            };
+
             const message: admin.messaging.Message = {
                 token,
-                notification: {
-                    title: payload.title,
-                    body: payload.body,
-                    ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
-                },
-                data: payload.data,
+                data,
                 android: {
                     priority: "high",
-                    notification: {
-                        sound: "default",
-                        channelId: "flipxer_default",
-                    },
                 },
                 apns: {
                     payload: {
                         aps: {
                             sound: "default",
                             badge: 1,
+                            alert: {
+                                title: payload.title,
+                                body: payload.body,
+                            },
                         },
                     },
                 },
@@ -150,26 +155,29 @@ export class PushNotificationService implements OnModuleInit {
         }
 
         try {
+            // Data-only message — same rationale as sendToDevice
+            const data: Record<string, string> = {
+                ...payload.data,
+                title: payload.title,
+                body: payload.body,
+                ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
+            };
+
             const message: admin.messaging.MulticastMessage = {
                 tokens: validTokens,
-                notification: {
-                    title: payload.title,
-                    body: payload.body,
-                    ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
-                },
-                data: payload.data,
+                data,
                 android: {
                     priority: "high",
-                    notification: {
-                        sound: "default",
-                        channelId: "flipxer_default",
-                    },
                 },
                 apns: {
                     payload: {
                         aps: {
                             sound: "default",
                             badge: 1,
+                            alert: {
+                                title: payload.title,
+                                body: payload.body,
+                            },
                         },
                     },
                 },
