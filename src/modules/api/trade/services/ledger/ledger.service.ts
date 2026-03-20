@@ -1576,31 +1576,63 @@ export class LedgerService {
     /**
      * Gets recent audit logs across all entries
      *
-     * @param limit Maximum number of entries to return
+     * @param pageNumber Page number (1-based)
+     * @param pageSize Items per page
      * @param action Optional filter by action type
-     * @returns Array of audit log entries with ledger entry details
+     * @param search Optional text search on actor/reason
+     * @param startDate Optional start date filter
+     * @param endDate Optional end date filter
+     * @returns Object with logs array and total count
      */
-    async getRecentAuditLogs(pageNumber: number = 1, pageSize: number = 100, action?: AuditAction) {
-        return this.prisma.ledgerAuditLog.findMany({
-            where: action ? { action } : undefined,
-            orderBy: { createdAt: "desc" },
-            skip: (pageNumber - 1) * pageSize,
-            take: pageSize,
-            include: {
-                ledgerEntry: {
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                email: true,
-                                firstName: true,
-                                lastName: true,
+    async getRecentAuditLogs(
+        pageNumber: number = 1,
+        pageSize: number = 100,
+        action?: AuditAction,
+        search?: string,
+        startDate?: string,
+        endDate?: string,
+    ): Promise<{ logs: any[]; total: number }> {
+        const where: Prisma.LedgerAuditLogWhereInput = {
+            ...(action && { action }),
+            ...(search && {
+                OR: [
+                    { actor: { contains: search, mode: "insensitive" as const } },
+                    { reason: { contains: search, mode: "insensitive" as const } },
+                ],
+            }),
+            ...((startDate || endDate) && {
+                createdAt: {
+                    ...(startDate && { gte: new Date(startDate) }),
+                    ...(endDate && { lte: new Date(endDate) }),
+                },
+            }),
+        };
+
+        const [logs, total] = await this.prisma.$transaction([
+            this.prisma.ledgerAuditLog.findMany({
+                where,
+                orderBy: { createdAt: "desc" },
+                skip: (pageNumber - 1) * pageSize,
+                take: pageSize,
+                include: {
+                    ledgerEntry: {
+                        include: {
+                            user: {
+                                select: {
+                                    id: true,
+                                    email: true,
+                                    firstName: true,
+                                    lastName: true,
+                                },
                             },
                         },
                     },
                 },
-            },
-        });
+            }),
+            this.prisma.ledgerAuditLog.count({ where }),
+        ]);
+
+        return { logs, total };
     }
 
     /**

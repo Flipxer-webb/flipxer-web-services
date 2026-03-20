@@ -15,9 +15,11 @@ import {
     AuthGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, Permissions } from "@/modules/api/authorize/decorator";
 import { UserType, User as UserEntity } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user/decorators";
 import { ReconciliationService } from "../../services/ledger/reconciliation.service";
 import { WithdrawalQueueService } from "../../services/ledger/withdrawal-queue.service";
@@ -46,7 +48,7 @@ import { buildResponse } from "@/utils/api-response-util";
  * - Solvency: Monitor platform reserves vs liabilities
  * - User Balance: Query user ledger balances
  */
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
 @ApiTags("admin-ledger")
 @ApiBearerAuth("access-token")
@@ -407,6 +409,7 @@ export class AdminLedgerController {
     // =========================================================================
 
     @ApiOperation({ summary: "Get audit trail for a ledger entry" })
+    @Permissions([PermissionName.SYSTEM_AUDIT_LOGS])
     @Get("audit/:entryId")
     async getAuditTrail(@Param("entryId") entryId: string) {
         this.logger.log(`Admin fetching audit trail for entry ${entryId}`);
@@ -422,30 +425,42 @@ export class AdminLedgerController {
     }
 
     @ApiOperation({ summary: "Get recent audit logs" })
-    @ApiQuery({ name: "limit", required: false, description: "Max entries to return (default: 100)" })
+    @Permissions([PermissionName.SYSTEM_AUDIT_LOGS])
+    @ApiQuery({ name: "pageNumber", required: false, description: "Page number (default: 1)" })
+    @ApiQuery({ name: "pageSize", required: false, description: "Page size (default: 20)" })
     @ApiQuery({ name: "action", required: false, description: "Filter by action type" })
+    @ApiQuery({ name: "search", required: false, description: "Search actor or reason" })
+    @ApiQuery({ name: "startDate", required: false, description: "Start date (ISO)" })
+    @ApiQuery({ name: "endDate", required: false, description: "End date (ISO)" })
     @Get("audit-logs")
     async getRecentAuditLogs(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
-        @Query("pageSize", new DefaultValuePipe(100), ParseIntPipe) pageSize: number,
-        @Query("action") action?: string
+        @Query("pageSize", new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+        @Query("action") action?: string,
+        @Query("search") search?: string,
+        @Query("startDate") startDate?: string,
+        @Query("endDate") endDate?: string,
     ) {
         this.logger.log(`Admin fetching recent audit logs (page ${pageNumber})`);
-        const logs = await this.ledgerService.getRecentAuditLogs(
+        const { logs, total } = await this.ledgerService.getRecentAuditLogs(
             pageNumber,
             pageSize,
-            action as any // Will be validated by Prisma
+            action as any,
+            search,
+            startDate,
+            endDate,
         );
         return buildResponse({
             message: "Audit logs retrieved",
             data: {
                 logs,
-                count: logs.length,
+                count: total,
             },
         });
     }
 
     @ApiOperation({ summary: "Trigger backfill of audit logs for existing entries" })
+    @Permissions([PermissionName.SYSTEM_AUDIT_LOGS])
     @Post("audit/backfill")
     async backfillAuditLogs(@Body() body: { limit?: number }) {
         this.logger.log(`Admin triggering audit log backfill (limit: ${body.limit || 1000})`);
