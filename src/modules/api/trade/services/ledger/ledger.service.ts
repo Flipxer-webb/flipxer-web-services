@@ -1616,7 +1616,18 @@ export class LedgerService {
                 take: pageSize,
                 include: {
                     ledgerEntry: {
-                        include: {
+                        select: {
+                            id: true,
+                            userId: true,
+                            currency: true,
+                            type: true,
+                            debit: true,
+                            credit: true,
+                            balanceAfter: true,
+                            status: true,
+                            reference: true,
+                            description: true,
+                            createdAt: true,
                             user: {
                                 select: {
                                     id: true,
