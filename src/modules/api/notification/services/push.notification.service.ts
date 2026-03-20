@@ -99,6 +99,18 @@ export class PushNotificationService implements OnModuleInit {
             const message: admin.messaging.Message = {
                 token,
                 data,
+                webpush: {
+                    headers: {
+                        Urgency: "high",
+                    },
+                    notification: {
+                        title: payload.title,
+                        body: payload.body,
+                        icon: "/images/logo.png",
+                        badge: "/icons/icon-192x192.png",
+                    },
+                    data,
+                },
                 android: {
                     priority: "high",
                 },
@@ -166,6 +178,18 @@ export class PushNotificationService implements OnModuleInit {
             const message: admin.messaging.MulticastMessage = {
                 tokens: validTokens,
                 data,
+                webpush: {
+                    headers: {
+                        Urgency: "high",
+                    },
+                    notification: {
+                        title: payload.title,
+                        body: payload.body,
+                        icon: "/images/logo.png",
+                        badge: "/icons/icon-192x192.png",
+                    },
+                    data,
+                },
                 android: {
                     priority: "high",
                 },
