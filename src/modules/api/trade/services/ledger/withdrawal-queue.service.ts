@@ -381,7 +381,7 @@ export class WithdrawalQueueService {
                             enableEmail: true,
                             emailPayload: {
                                 email: queueEntry.user?.email || '',
-                                transactionType: 'send',
+                                transactionType: 'withdrawal',
                                 transactionId: queueEntry.id,
                                 amount: queueEntry.amount.toString(),
                                 currency: queueEntry.currency.toUpperCase(),
