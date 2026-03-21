@@ -84,46 +84,42 @@ export class WithdrawalQueueCron {
                 return;
             }
 
-            // 1. Process timed-out entries first
+            // 1. Get queue stats for monitoring
+            const stats = await this.withdrawalQueueService.getQueueStats();
+
+            // 2. Process currency queues FIRST — timed-out entries with available
+            // liquidity get fulfilled normally before the timeout refund runs
+            if (stats.totalQueued > 0) {
+                this.logger.log(`Queue stats: ${JSON.stringify(stats)}`);
+
+                const pendingCurrencies = await this.prisma.withdrawalQueue.groupBy({
+                    by: ['currency'],
+                    where: {
+                        processedAt: null,
+                        releasedAt: null,
+                    },
+                });
+
+                let totalProcessed = 0;
+                for (const { currency } of pendingCurrencies) {
+                    const processed = await this.processCurrencyQueue(currency);
+                    totalProcessed += processed;
+                }
+
+                if (totalProcessed > 0) {
+                    this.logger.log(`Processed ${totalProcessed} queued withdrawals`);
+                }
+
+                await this.checkQueueHealth(stats);
+            }
+
+            // 3. Process timed-out entries AFTER queue processing —
+            // only entries that couldn't be fulfilled get refunded
             const timeoutCount = await this.withdrawalQueueService.processTimeouts();
             if (timeoutCount > 0) {
                 this.logger.log(`Processed ${timeoutCount} timed-out queue entries`);
                 await this.sendTimeoutAlert(timeoutCount);
             }
-
-            // 2. Get queue stats for monitoring
-            const stats = await this.withdrawalQueueService.getQueueStats();
-
-            if (stats.totalQueued === 0) {
-                this.logger.log("No queued withdrawals to process");
-                return;
-            }
-
-            this.logger.log(`Queue stats: ${JSON.stringify(stats)}`);
-
-            // 3. Get currencies that have pending withdrawals (dynamic)
-            // Pending = not yet processed and not released
-            const pendingCurrencies = await this.prisma.withdrawalQueue.groupBy({
-                by: ['currency'],
-                where: {
-                    processedAt: null,
-                    releasedAt: null,
-                },
-            });
-
-            // 4. Process each currency with pending entries
-            let totalProcessed = 0;
-            for (const { currency } of pendingCurrencies) {
-                const processed = await this.processCurrencyQueue(currency);
-                totalProcessed += processed;
-            }
-
-            if (totalProcessed > 0) {
-                this.logger.log(`Processed ${totalProcessed} queued withdrawals`);
-            }
-
-            // 5. Check if queue is getting too large
-            await this.checkQueueHealth(stats);
 
         } catch (error) {
             this.logger.error(`Queue processing failed: ${error.message}`, error.stack);

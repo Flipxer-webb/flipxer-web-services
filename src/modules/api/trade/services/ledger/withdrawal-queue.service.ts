@@ -10,6 +10,8 @@ import {
 import { PrismaService } from "@/modules/core/prisma/services";
 import { LedgerService } from "./ledger.service";
 import { Decimal } from "@prisma/client/runtime/library";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
+import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 
 /**
  * Result of a queue operation
@@ -104,7 +106,9 @@ export class WithdrawalQueueService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly ledgerService: LedgerService
+        private readonly ledgerService: LedgerService,
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly notificationMessage: NotificationMessageService,
     ) {}
 
     /**
@@ -359,6 +363,38 @@ export class WithdrawalQueueService {
                             queuedAt: queueEntry.queuedAt,
                         })}`
                     );
+
+                    // Notify user that their queued withdrawal was refunded
+                    try {
+                        const message = this.notificationMessage.sendWithdrawalRefunded({
+                            amount: queueEntry.amount.toString(),
+                            currency: queueEntry.currency,
+                            transactionId: queueEntry.id,
+                        });
+                        await this.notificationDispatcher.notify({
+                            userId: queueEntry.userId,
+                            title: "Withdrawal refunded",
+                            body: message,
+                            category: "transaction",
+                            currency: queueEntry.currency,
+                            transactionType: OrderCategory.SEND,
+                            enableEmail: true,
+                            emailPayload: {
+                                email: queueEntry.user?.email || '',
+                                transactionType: 'send',
+                                transactionId: queueEntry.id,
+                                amount: queueEntry.amount.toString(),
+                                currency: queueEntry.currency.toUpperCase(),
+                                status: 'refunded',
+                                date: new Date().toISOString(),
+                            },
+                            enablePush: true,
+                        });
+                    } catch (notifError) {
+                        this.logger.error(
+                            `Failed to send refund notification for queue entry ${queueEntry.id}: ${notifError.message}`
+                        );
+                    }
 
                     processed++;
                 } else {

@@ -93,6 +93,7 @@ export class WithdrawalWebhookHandler {
                 data: {
                     status: OrderStatus.done,
                     streamlinedStatus: OrderStreamlinedStatus.completed,
+                    fulfilled: true,
                 },
             });
             this.emitTransactionUpdate(transaction.user.id, completedOrder);
@@ -232,6 +233,7 @@ export class WithdrawalWebhookHandler {
                         data: {
                             status: OrderStatus.done,
                             streamlinedStatus: OrderStreamlinedStatus.completed,
+                            fulfilled: true,
                         },
                     });
 

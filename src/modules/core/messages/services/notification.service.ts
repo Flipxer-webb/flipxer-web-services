@@ -72,4 +72,12 @@ export class NotificationMessageService {
     receiveTransactionFailed(options: t.IReceiveTransactionFailed) {
         return `❌ Your deposit of ${+options.amount} ${options.currency.toUpperCase()} has failed. Transaction ID: ${options.transactionId}. Please contact support if you need assistance.`;
     }
+
+    buyPaymentShort(options: t.IBuyPaymentShort) {
+        return `⚠️ Your payment of ₦${+options.receivedAmount} was less than the required ₦${+options.expectedAmount}. Order #${options.transactionId} has been cancelled. Our team will process your refund shortly.`;
+    }
+
+    sendWithdrawalRefunded(options: t.ISendWithdrawalRefunded) {
+        return `Your withdrawal of ${+options.amount} ${options.currency.toUpperCase()} was cancelled after a processing delay. Funds have been returned to your balance. Transaction ID: ${options.transactionId}.`;
+    }
 }

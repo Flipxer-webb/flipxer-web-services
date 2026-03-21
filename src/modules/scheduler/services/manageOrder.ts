@@ -252,6 +252,29 @@ export class ManageOrdersSchedulerService {
     }
 
     /**
+     * Cancel underpaid buy orders after 2-hour grace period.
+     * Runs every 5 minutes alongside expired order cleanup.
+     */
+    @Cron("*/5 * * * *", { timeZone: "Africa/Lagos" })
+    async cancelUnderpaidBuyOrders() {
+        this.logger.debug("Underpaid buy order cleanup cron triggered");
+        try {
+            const count =
+                await this.buyOrderService.cancelUnderpaidBuyOrders();
+            if (count > 0) {
+                this.logger.log(
+                    `Cancelled ${count} underpaid buy orders`
+                );
+            }
+        } catch (error) {
+            this.logger.error(
+                "Error cancelling underpaid buy orders:",
+                error
+            );
+        }
+    }
+
+    /**
      * Detect buy orders where user confirmed payment but Nomba webhook never arrived.
      * Sends Slack alerts for admin intervention.
      * Runs every 5 minutes.

@@ -674,6 +674,10 @@ model Payment {
   idempotencyKey               String?           @unique
   paymentConfirmedByUser       DateTime?
   stuckAlertSentAt             DateTime?
+  senderAccountNumber          String?
+  senderAccountName            String?
+  senderBankName               String?
+  receivedAmount               Decimal?          @db.Decimal(10, 2)
   createdAt                    DateTime          @default(now())
   updatedAt                    DateTime          @updatedAt
   order                        Order?            @relation(fields: [orderId], references: [id])
