@@ -19,6 +19,7 @@ import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard
 import { PrismaService } from "@/modules/core/prisma/services";
 import { SolvencyService } from "../../services/ledger/solvency.service";
 import { buildResponse } from "@/utils/api-response-util";
+import { buildPaginationMeta } from "@/utils";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes([UserType.ADMIN])
@@ -154,10 +155,8 @@ export class AdminAccountingController {
         return buildResponse({
             message: "Trading balances retrieved",
             data: {
-                items,
-                total,
-                pageNumber,
-                pageSize,
+                meta: buildPaginationMeta(pageNumber, pageSize, total, items.length),
+                records: items,
             },
         });
     }
@@ -234,10 +233,8 @@ export class AdminAccountingController {
         return buildResponse({
             message: "Swap log retrieved",
             data: {
-                items,
-                total,
-                pageNumber,
-                pageSize,
+                meta: buildPaginationMeta(pageNumber, pageSize, total, items.length),
+                records: items,
             },
         });
     }
