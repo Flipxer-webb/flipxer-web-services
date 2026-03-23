@@ -198,7 +198,7 @@ export class AdminLedgerController {
     // USER BALANCE ENDPOINTS
     // =========================================================================
 
-    @ApiOperation({ summary: "Get user ledger balance" })
+    @ApiOperation({ summary: "Get user ledger balance for a specific currency" })
     @Get("balance/:userId/:currency")
     async getUserBalance(
         @Param("userId", ParseIntPipe) userId: number,
@@ -213,6 +213,26 @@ export class AdminLedgerController {
                 currency: currency.toUpperCase(),
                 ...balance,
             },
+        });
+    }
+
+    @ApiOperation({ summary: "Get user ledger balances for all currencies" })
+    @Get("balance/:userId")
+    async getUserBalances(
+        @Param("userId", ParseIntPipe) userId: number
+    ) {
+        this.logger.log(`Admin fetching all balances for user ${userId}`);
+        const balancesMap = await this.ledgerService.getAllBalances(userId);
+        const balances = Array.from(balancesMap.entries()).map(([currency, info]) => ({
+            userId,
+            currency,
+            available: info.available.toNumber(),
+            held: info.held.toNumber(),
+            total: info.total.toNumber(),
+        }));
+        return buildResponse({
+            message: "User balances retrieved",
+            data: balances,
         });
     }
 
