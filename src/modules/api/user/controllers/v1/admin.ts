@@ -34,8 +34,8 @@ export class AdminUserController {
     @ApiOperation({ summary: "Admin gets Dashboard analytics overview" })
     @ApiBearerAuth("access-token")
     @Get("analytics-overview")
-    async getAnalyticsOverview() {
-        return await this.adminService.getAnalyticsOverview();
+    async getAnalyticsOverview(@Query("period") period?: string) {
+        return await this.adminService.getAnalyticsOverview(period);
     }
 
     @ApiOperation({ summary: "Admin gets all users list" })

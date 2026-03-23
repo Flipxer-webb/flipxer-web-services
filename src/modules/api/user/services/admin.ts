@@ -7,7 +7,18 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
-import { endOfMonth, startOfMonth } from "date-fns";
+import {
+    startOfDay,
+    endOfDay,
+    startOfWeek,
+    endOfWeek,
+    startOfMonth,
+    endOfMonth,
+    startOfQuarter,
+    endOfQuarter,
+    startOfYear,
+    endOfYear,
+} from "date-fns";
 import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../dtos"; // Added FlagUserDto
 import { Prisma, User, UserType } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
@@ -24,12 +35,11 @@ export class AdminUserService {
         private emailService: EmailService
     ) {}
 
-    async getAnalyticsOverview(): Promise<ApiResponse> {
+    async getAnalyticsOverview(period?: string): Promise<ApiResponse> {
         const now = new Date();
-        const startOfCurrentMonth = startOfMonth(now);
-        const endOfCurrentMonth = endOfMonth(now);
+        const { startDate, endDate } = this.getDateRange(period || "month");
 
-        const [totalUsers, usersThisMonth] = await Promise.all([
+        const [totalUsers, usersInPeriod] = await Promise.all([
             // Exclude admin users from total count
             this.prisma.user.count({
                 where: { userType: { not: UserType.ADMIN } },
@@ -38,14 +48,14 @@ export class AdminUserService {
                 where: {
                     userType: { not: UserType.ADMIN },
                     createdAt: {
-                        gte: startOfCurrentMonth,
-                        lte: endOfCurrentMonth,
+                        gte: startDate,
+                        lte: endDate,
                     },
                 },
             }),
         ]);
 
-        const [totalTransactionVolume, transactionsThisMonth] =
+        const [totalTransactionVolume, transactionsInPeriod] =
             await Promise.all([
                 this.prisma.order.aggregate({
                     _sum: { amountInFiat: true },
@@ -58,8 +68,8 @@ export class AdminUserService {
                     where: {
                         streamlinedStatus: 'completed',
                         createdAt: {
-                            gte: startOfCurrentMonth,
-                            lte: endOfCurrentMonth,
+                            gte: startDate,
+                            lte: endDate,
                         },
                     },
                 }),
@@ -68,11 +78,11 @@ export class AdminUserService {
             message: "Analytics Overview successfully retrieved",
             data: {
                 totalUsers,
-                usersThisMonth,
+                usersInPeriod,
                 totalTransactionVolume:
                     totalTransactionVolume?._sum.amountInFiat || 0,
-                transactionsThisMonth:
-                    transactionsThisMonth?._sum.amountInFiat || 0,
+                transactionsInPeriod:
+                    transactionsInPeriod?._sum.amountInFiat || 0,
             },
         });
     }
@@ -462,5 +472,25 @@ export class AdminUserService {
             message: "Account flagged successfully.",
             data: { flaggedRecord: { flagged: true, reason: dto.reason } },
         });
+    }
+
+    private getDateRange(period: string): { startDate: Date; endDate: Date } {
+        const now = new Date();
+        switch (period) {
+            case "today":
+                return { startDate: startOfDay(now), endDate: endOfDay(now) };
+            case "week":
+                return { startDate: startOfWeek(now), endDate: endOfWeek(now) };
+            case "month":
+                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+            case "quarter":
+                return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
+            case "year":
+                return { startDate: startOfYear(now), endDate: endOfYear(now) };
+            case "all":
+                return { startDate: new Date(0), endDate: now };
+            default:
+                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+        }
     }
 }
