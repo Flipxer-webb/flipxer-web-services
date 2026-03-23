@@ -248,9 +248,31 @@ export class AdminAccountingController {
     async getOnChainSummary() {
         this.logger.log("Admin fetching on-chain summary");
         const report = await this.solvencyService.generateReport();
+
+        // Transform solvency report into the frontend-expected format
+        const wallets = (report.currencies ?? []).map((c: any) => ({
+            currency: c.currency,
+            network: null,
+            onChainBalance: Number(c.platformReserves ?? 0),
+            ledgerBalance: Number(c.userLiabilities ?? 0),
+            walletAddress: null,
+            reserveRatio: c.reserveRatio,
+            status: c.status,
+        }));
+
+        const totalOnChain = wallets.reduce((sum: number, w: any) => sum + w.onChainBalance, 0);
+
         return buildResponse({
             message: "On-chain summary retrieved",
-            data: report,
+            data: {
+                wallets,
+                totals: {
+                    walletCount: wallets.length,
+                    totalValueUsd: totalOnChain,
+                },
+                overallStatus: report.overallStatus,
+                timestamp: report.timestamp,
+            },
         });
     }
 }
