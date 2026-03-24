@@ -27,6 +27,7 @@ import {
     TransactionIncludeOptions,
 } from "../../transactions/types";
 import { GetUserTransactionListDto } from "../../transactions/dtos";
+import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
 
 @Injectable()
 export class AdminUserService {
@@ -268,6 +269,26 @@ export class AdminUserService {
                 photo: true,
                 bvn: true,
                 accountLimit: true,
+                gender: true,
+                country: true,
+                dateOfBirth: true,
+                status: true,
+                tier: true,
+                createdAt: true,
+                recoveryEmail: true,
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+                isEmailVerified: true,
+                isPasswordCreated: true,
+                isPhoneVerified: true,
+                isAddressVerified: true,
+                isIncomeVerified: true,
+                documentVerificationStatus: true,
+                addressVerificationStatus: true,
+                incomeVerificationStatus: true,
+                businessDocumentVerificationStatus: true,
+                businessRecordCompleted: true,
                 businessDocument: true,
                 userDocument: true,
                 businessRecord: true,
@@ -286,9 +307,12 @@ export class AdminUserService {
                 HttpStatus.NOT_FOUND
             );
         }
+
+        const withdrawalLimit = TIER_WITHDRAWAL_LIMITS[userDetail.tier as TierLevel] ?? 0;
+
         return buildResponse({
             message: "User personal info retrieved",
-            data: userDetail,
+            data: { ...userDetail, withdrawalLimit },
         });
     }
 
