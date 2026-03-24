@@ -89,15 +89,16 @@ export class RateService {
 
         if (!usdtRate || usdtRate.buyRate <= 0 || usdtRate.sellRate <= 0) {
             this.logger.error("CRITICAL: USDT rate not configured or invalid");
-            this.slackWebhookService.sendWebhookFailureAlert(
-                "system",
-                "usdt-rate",
+            this.slackWebhookService.sendSystemAlert(
+                "rate-service",
+                "USDT Rate Missing/Invalid",
                 "CRITICAL: USDT base rate is not configured or invalid. All dynamic rate calculations are broken. Please update the USDT rate in the admin panel immediately.",
                 {
                     buyRate: usdtRate?.buyRate ?? null,
                     sellRate: usdtRate?.sellRate ?? null,
                     timestamp: new Date().toISOString(),
-                }
+                },
+                "error"
             ).catch((e) => this.logger.error(`Failed to send Slack alert: ${e.message}`));
             throw new GeneralTransactionException(
                 "USDT rate not configured. Please contact support.",
