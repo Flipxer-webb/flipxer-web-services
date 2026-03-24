@@ -86,26 +86,43 @@ export class PushNotificationService implements OnModuleInit {
         }
 
         try {
+            // Use data-only message so Chrome does NOT auto-display a notification
+            // with the favicon. Our service worker's onBackgroundMessage handles
+            // display with the correct per-category/currency icons.
+            const data: Record<string, string> = {
+                ...payload.data,
+                title: payload.title,
+                body: payload.body,
+                ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
+            };
+
             const message: admin.messaging.Message = {
                 token,
-                notification: {
-                    title: payload.title,
-                    body: payload.body,
-                    ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
+                data,
+                webpush: {
+                    headers: {
+                        Urgency: "high",
+                    },
+                    notification: {
+                        title: payload.title,
+                        body: payload.body,
+                        icon: "/images/logo.png",
+                        badge: "/icons/icon-192x192.png",
+                    },
+                    data,
                 },
-                data: payload.data,
                 android: {
                     priority: "high",
-                    notification: {
-                        sound: "default",
-                        channelId: "flipxer_default",
-                    },
                 },
                 apns: {
                     payload: {
                         aps: {
                             sound: "default",
                             badge: 1,
+                            alert: {
+                                title: payload.title,
+                                body: payload.body,
+                            },
                         },
                     },
                 },
@@ -150,26 +167,41 @@ export class PushNotificationService implements OnModuleInit {
         }
 
         try {
+            // Data-only message — same rationale as sendToDevice
+            const data: Record<string, string> = {
+                ...payload.data,
+                title: payload.title,
+                body: payload.body,
+                ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
+            };
+
             const message: admin.messaging.MulticastMessage = {
                 tokens: validTokens,
-                notification: {
-                    title: payload.title,
-                    body: payload.body,
-                    ...(payload.imageUrl && { imageUrl: payload.imageUrl }),
+                data,
+                webpush: {
+                    headers: {
+                        Urgency: "high",
+                    },
+                    notification: {
+                        title: payload.title,
+                        body: payload.body,
+                        icon: "/images/logo.png",
+                        badge: "/icons/icon-192x192.png",
+                    },
+                    data,
                 },
-                data: payload.data,
                 android: {
                     priority: "high",
-                    notification: {
-                        sound: "default",
-                        channelId: "flipxer_default",
-                    },
                 },
                 apns: {
                     payload: {
                         aps: {
                             sound: "default",
                             badge: 1,
+                            alert: {
+                                title: payload.title,
+                                body: payload.body,
+                            },
                         },
                     },
                 },
@@ -216,24 +248,38 @@ export class PushNotificationService implements OnModuleInit {
     }
 
     /**
-     * Send push notification to a user by their ID
+     * Send push notification to a user by their ID (all devices)
      */
     async sendToUser(
         userId: number,
         payload: PushNotificationPayload
     ): Promise<boolean> {
         try {
-            const user = await this.prisma.user.findUnique({
-                where: { id: userId },
-                select: { notificationToken: true },
+            const deviceTokens = await this.prisma.deviceToken.findMany({
+                where: { userId },
+                select: { token: true },
             });
 
-            if (!user?.notificationToken) {
-                this.logger.warn(`User ${userId} has no notification token`);
-                return false;
+            if (deviceTokens.length === 0) {
+                // Fallback: check legacy User.notificationToken
+                const user = await this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { notificationToken: true },
+                });
+                if (!user?.notificationToken) {
+                    this.logger.warn(`User ${userId} has no device tokens`);
+                    return false;
+                }
+                return await this.sendToDevice(user.notificationToken, payload);
             }
 
-            return await this.sendToDevice(user.notificationToken, payload);
+            const tokens = deviceTokens.map((d) => d.token);
+            if (tokens.length === 1) {
+                return await this.sendToDevice(tokens[0], payload);
+            }
+
+            const result = await this.sendToMultipleDevices(tokens, payload);
+            return result.successCount > 0;
         } catch (error: any) {
             this.logger.error(`Failed to send push to user ${userId}: ${error.message}`);
             return false;
@@ -248,24 +294,40 @@ export class PushNotificationService implements OnModuleInit {
         payload: PushNotificationPayload
     ): Promise<PushResult> {
         try {
-            const users = await this.prisma.user.findMany({
-                where: { 
-                    id: { in: userIds },
-                    notificationToken: { not: null },
-                },
-                select: { notificationToken: true },
+            const deviceTokenRecords = await this.prisma.deviceToken.findMany({
+                where: { userId: { in: userIds } },
+                select: { userId: true, token: true },
             });
 
-            const tokens = users
-                .map((u) => u.notificationToken)
-                .filter((t): t is string => t !== null);
+            const userIdsWithDeviceTokens = new Set(deviceTokenRecords.map((d) => d.userId));
+            const tokens = deviceTokenRecords.map((d) => d.token);
 
-            if (tokens.length === 0) {
-                this.logger.warn("No users with notification tokens found");
+            // Fallback: only check legacy User.notificationToken for users who have NO DeviceToken record.
+            // This mirrors the exclusive-fallback pattern in sendToUser and prevents duplicate pushes
+            // for users whose token is stored in both DeviceToken and User.notificationToken.
+            const userIdsWithoutDeviceTokens = userIds.filter((id) => !userIdsWithDeviceTokens.has(id));
+            let legacyTokens: string[] = [];
+            if (userIdsWithoutDeviceTokens.length > 0) {
+                const legacyUsers = await this.prisma.user.findMany({
+                    where: {
+                        id: { in: userIdsWithoutDeviceTokens },
+                        notificationToken: { not: null },
+                    },
+                    select: { notificationToken: true },
+                });
+                legacyTokens = legacyUsers
+                    .map((u) => u.notificationToken)
+                    .filter((t): t is string => t !== null);
+            }
+
+            const allTokens = [...new Set([...tokens, ...legacyTokens])];
+
+            if (allTokens.length === 0) {
+                this.logger.warn("No users with device tokens found");
                 return { successCount: 0, failureCount: 0, failedTokens: [] };
             }
 
-            return await this.sendToMultipleDevices(tokens, payload);
+            return await this.sendToMultipleDevices(allTokens, payload);
         } catch (error: any) {
             this.logger.error(`Failed to send push to users: ${error.message}`);
             return { successCount: 0, failureCount: userIds.length, failedTokens: [] };
@@ -273,10 +335,14 @@ export class PushNotificationService implements OnModuleInit {
     }
 
     /**
-     * Invalidate a single token (remove from user record)
+     * Invalidate a single token (remove from DeviceToken table + legacy User field)
      */
     private async invalidateToken(token: string): Promise<void> {
         try {
+            await this.prisma.deviceToken.deleteMany({
+                where: { token },
+            });
+            // Also clear legacy field
             await this.prisma.user.updateMany({
                 where: { notificationToken: token },
                 data: { notificationToken: null },
@@ -292,6 +358,10 @@ export class PushNotificationService implements OnModuleInit {
      */
     private async invalidateTokens(tokens: string[]): Promise<void> {
         try {
+            await this.prisma.deviceToken.deleteMany({
+                where: { token: { in: tokens } },
+            });
+            // Also clear legacy field
             await this.prisma.user.updateMany({
                 where: { notificationToken: { in: tokens } },
                 data: { notificationToken: null },

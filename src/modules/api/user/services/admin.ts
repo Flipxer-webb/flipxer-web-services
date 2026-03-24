@@ -7,7 +7,18 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
-import { endOfMonth, startOfMonth } from "date-fns";
+import {
+    startOfDay,
+    endOfDay,
+    startOfWeek,
+    endOfWeek,
+    startOfMonth,
+    endOfMonth,
+    startOfQuarter,
+    endOfQuarter,
+    startOfYear,
+    endOfYear,
+} from "date-fns";
 import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../dtos"; // Added FlagUserDto
 import { Prisma, User, UserType } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
@@ -24,12 +35,11 @@ export class AdminUserService {
         private emailService: EmailService
     ) {}
 
-    async getAnalyticsOverview(): Promise<ApiResponse> {
+    async getAnalyticsOverview(period?: string): Promise<ApiResponse> {
         const now = new Date();
-        const startOfCurrentMonth = startOfMonth(now);
-        const endOfCurrentMonth = endOfMonth(now);
+        const { startDate, endDate } = this.getDateRange(period || "month");
 
-        const [totalUsers, usersThisMonth] = await Promise.all([
+        const [totalUsers, usersInPeriod] = await Promise.all([
             // Exclude admin users from total count
             this.prisma.user.count({
                 where: { userType: { not: UserType.ADMIN } },
@@ -38,14 +48,14 @@ export class AdminUserService {
                 where: {
                     userType: { not: UserType.ADMIN },
                     createdAt: {
-                        gte: startOfCurrentMonth,
-                        lte: endOfCurrentMonth,
+                        gte: startDate,
+                        lte: endDate,
                     },
                 },
             }),
         ]);
 
-        const [totalTransactionVolume, transactionsThisMonth] =
+        const [totalTransactionVolume, transactionsInPeriod] =
             await Promise.all([
                 this.prisma.order.aggregate({
                     _sum: { amountInFiat: true },
@@ -58,8 +68,8 @@ export class AdminUserService {
                     where: {
                         streamlinedStatus: 'completed',
                         createdAt: {
-                            gte: startOfCurrentMonth,
-                            lte: endOfCurrentMonth,
+                            gte: startDate,
+                            lte: endDate,
                         },
                     },
                 }),
@@ -68,11 +78,11 @@ export class AdminUserService {
             message: "Analytics Overview successfully retrieved",
             data: {
                 totalUsers,
-                usersThisMonth,
+                usersInPeriod,
                 totalTransactionVolume:
                     totalTransactionVolume?._sum.amountInFiat || 0,
-                transactionsThisMonth:
-                    transactionsThisMonth?._sum.amountInFiat || 0,
+                transactionsInPeriod:
+                    transactionsInPeriod?._sum.amountInFiat || 0,
             },
         });
     }
@@ -186,6 +196,61 @@ export class AdminUserService {
         return buildResponse({
             message: "Users list retrieved",
             data: responseData,
+        });
+    }
+
+    async getUserFilteredStats(query: GetUserListDto): Promise<ApiResponse> {
+        const baseWhere: Prisma.UserWhereInput = {
+            userType: { not: UserType.ADMIN },
+            ...(query.status && { status: query.status }),
+            ...(query.accountType && { userType: query.accountType }),
+            ...(query.searchText && {
+                OR: [
+                    { firstName: { contains: query.searchText, mode: "insensitive" } },
+                    { lastName:  { contains: query.searchText, mode: "insensitive" } },
+                    { email:     { contains: query.searchText, mode: "insensitive" } },
+                    { phone:     { contains: query.searchText, mode: "insensitive" } },
+                ],
+            }),
+            ...(query.startDate || query.endDate
+                ? {
+                      createdAt: {
+                          ...(query.startDate && { gte: new Date(query.startDate) }),
+                          ...(query.endDate   && { lte: new Date(query.endDate)   }),
+                      },
+                  }
+                : {}),
+            ...(query.tier !== undefined && query.tier !== "" && {
+                tier: parseInt(query.tier as any, 10),
+            }),
+        };
+
+        const total = await this.prisma.user.count({ where: baseWhere });
+
+        // Short-circuit sub-counts to avoid Prisma field conflicts when filters are already applied
+        let active: number;
+        if (query.status) {
+            active = query.status === "ACTIVE" ? total : 0;
+        } else {
+            active = await this.prisma.user.count({ where: { ...baseWhere, status: "ACTIVE" } });
+        }
+
+        let verified: number;
+        let pendingKyc: number;
+        if (query.tier !== undefined && query.tier !== "") {
+            const tierNum = parseInt(query.tier as any, 10);
+            verified   = tierNum >= 1 ? total : 0;
+            pendingKyc = tierNum === 0 ? total : 0;
+        } else {
+            [verified, pendingKyc] = await Promise.all([
+                this.prisma.user.count({ where: { ...baseWhere, tier: { gte: 1 } } }),
+                this.prisma.user.count({ where: { ...baseWhere, tier: 0 } }),
+            ]);
+        }
+
+        return buildResponse({
+            message: "User filtered stats retrieved",
+            data: { total, active, verified, pendingKyc },
         });
     }
 
@@ -462,5 +527,25 @@ export class AdminUserService {
             message: "Account flagged successfully.",
             data: { flaggedRecord: { flagged: true, reason: dto.reason } },
         });
+    }
+
+    private getDateRange(period: string): { startDate: Date; endDate: Date } {
+        const now = new Date();
+        switch (period) {
+            case "today":
+                return { startDate: startOfDay(now), endDate: endOfDay(now) };
+            case "week":
+                return { startDate: startOfWeek(now), endDate: endOfWeek(now) };
+            case "month":
+                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+            case "quarter":
+                return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
+            case "year":
+                return { startDate: startOfYear(now), endDate: endOfYear(now) };
+            case "all":
+                return { startDate: new Date(0), endDate: now };
+            default:
+                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+        }
     }
 }

@@ -14,6 +14,12 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Request, Response } from "express";
 import { waitForRedis } from "@/utils";
 
+// Prevent "Do not know how to serialize a BigInt" crashes in JSON responses
+// (Prisma BigInt fields like LedgerEntry.sequenceNumber)
+(BigInt.prototype as any).toJSON = function () {
+    return this.toString();
+};
+
 export interface CreateServerOptions {
     port: number;
     production?: boolean;

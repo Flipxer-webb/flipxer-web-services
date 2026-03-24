@@ -67,10 +67,12 @@ export class NotificationController {
         summary: "Toggle notification read status only",
     })
     async toggleNotificationReadStatus(
+        @User() user: UserModel,
         @Param("notificationId", ParseIntPipe) notificationId: number
     ) {
         return await this.notificationService.toggleNotificationReadStatus(
-            notificationId
+            notificationId,
+            user.id
         );
     }
 

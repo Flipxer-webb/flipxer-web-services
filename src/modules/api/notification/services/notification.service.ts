@@ -28,9 +28,9 @@ export class NotificationService {
         });
     }
 
-    async toggleNotificationReadStatus(notificationId: number) {
-        const notification = await this.prisma.notification.findUnique({
-            where: { id: notificationId },
+    async toggleNotificationReadStatus(notificationId: number, userId: number) {
+        const notification = await this.prisma.notification.findFirst({
+            where: { id: notificationId, userId },
         });
 
         if (!notification) {
@@ -128,6 +128,7 @@ export class NotificationService {
                 // Broadcast notifications are created with userId set for each recipient
                 userId: user.id,
                 status: "APPROVED",
+                ...(query.category && { category: query.category }),
             },
         };
 

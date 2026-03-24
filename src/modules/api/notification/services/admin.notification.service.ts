@@ -6,6 +6,7 @@ import * as Utils from "@/utils";
 import * as e from "../errors/notification.error";
 import { NotificationEvent } from "../events/notification.event";
 import { PushNotificationService } from "./push.notification.service";
+import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
 @Injectable()
 export class AdminNotificationService {
@@ -15,6 +16,7 @@ export class AdminNotificationService {
         private prisma: PrismaService,
         private notificationEvent: NotificationEvent,
         private pushNotificationService: PushNotificationService,
+        private readonly wsGateway: WsGateway,
     ) {}
 
     async getNotification(notificationId: number) {
@@ -176,23 +178,23 @@ export class AdminNotificationService {
     async broadcastNotification(data: dto.BroadcastNotificationDto, adminId?: number) {
         const { title, body, type, targetAudience, userIds } = data;
 
-        let targetUsers: { id: number; notificationToken: string | null }[] = [];
+        let targetUsers: { id: number }[] = [];
 
         if (targetAudience === "all") {
             // Broadcast to all non-admin users
             targetUsers = await this.prisma.user.findMany({
                 where: { userType: { not: UserType.ADMIN } },
-                select: { id: true, notificationToken: true },
+                select: { id: true },
             });
         } else if (targetAudience === "individual" && userIds?.length) {
             targetUsers = await this.prisma.user.findMany({
                 where: { id: { in: userIds } },
-                select: { id: true, notificationToken: true },
+                select: { id: true },
             });
         } else if (targetAudience === "business") {
             targetUsers = await this.prisma.user.findMany({
                 where: { userType: UserType.BUSINESS },
-                select: { id: true, notificationToken: true },
+                select: { id: true },
             });
         } else if (targetAudience === "verified") {
             targetUsers = await this.prisma.user.findMany({
@@ -200,7 +202,7 @@ export class AdminNotificationService {
                     userType: { not: UserType.ADMIN },
                     tier: { gte: 2 },
                 },
-                select: { id: true, notificationToken: true },
+                select: { id: true },
             });
         }
 
@@ -221,24 +223,39 @@ export class AdminNotificationService {
             data: notificationData,
         });
 
+        // Emit real-time WebSocket notification to each target user
+        for (const user of targetUsers) {
+            try {
+                const notificationList = await this.prisma.notification.findMany({
+                    where: { userId: user.id },
+                    orderBy: { createdAt: "desc" },
+                    take: 20,
+                });
+
+                if (notificationList.length > 0) {
+                    this.wsGateway.notifyUser(user.id, {
+                        type: "new_notification",
+                        notification: notificationList[0],
+                        notificationList,
+                    });
+                }
+            } catch {
+                // Non-critical: user may not be connected
+            }
+        }
+
         // Send push notifications to users with tokens
-        const usersWithTokens = targetUsers.filter(u => u.notificationToken);
+        const targetUserIds = targetUsers.map((u) => u.id);
         let pushResult = { successCount: 0, failureCount: 0 };
         
-        if (usersWithTokens.length > 0 && (type === "PUSH_NOTIFICATION" || !type)) {
-            const tokens = usersWithTokens
-                .map(u => u.notificationToken)
-                .filter((t): t is string => t !== null);
-            
-            if (tokens.length > 0) {
-                pushResult = await this.pushNotificationService.sendToMultipleDevices(
-                    tokens,
-                    { title, body }
-                );
-                this.logger.log(
-                    `Broadcast push: ${pushResult.successCount} sent, ${pushResult.failureCount} failed`
-                );
-            }
+        if (targetUserIds.length > 0 && (type === "PUSH_NOTIFICATION" || !type)) {
+            pushResult = await this.pushNotificationService.sendToUsers(
+                targetUserIds,
+                { title, body, data: { category: "marketing", url: "/dashboard" } }
+            );
+            this.logger.log(
+                `Broadcast push: ${pushResult.successCount} sent, ${pushResult.failureCount} failed`
+            );
         }
 
         // Log audit
@@ -260,7 +277,6 @@ export class AdminNotificationService {
             message: "Broadcast sent successfully",
             data: {
                 recipientCount: targetUsers.length,
-                pushNotificationsAttempted: usersWithTokens.length,
                 pushNotificationsSent: pushResult.successCount,
                 pushNotificationsFailed: pushResult.failureCount,
             },
@@ -337,7 +353,7 @@ export class AdminNotificationService {
                 if (tokens.length > 0) {
                     const pushResult = await this.pushNotificationService.sendToMultipleDevices(
                         tokens,
-                        { title: notification.title, body: notification.body }
+                        { title: notification.title, body: notification.body, data: { category: "marketing", url: "/dashboard" } }
                     );
                     this.logger.log(
                         `Notification #${notificationId} approved: ${pushResult.successCount} push sent, ${pushResult.failureCount} failed`
@@ -349,7 +365,7 @@ export class AdminNotificationService {
             if (notification.type === NotificationType.PUSH_NOTIFICATION) {
                 await this.pushNotificationService.sendToUser(
                     notification.userId,
-                    { title: notification.title, body: notification.body }
+                    { title: notification.title, body: notification.body, data: { category: "marketing", url: "/dashboard" } }
                 );
                 this.logger.log(`Individual notification #${notificationId} sent to user ${notification.userId}`);
             }

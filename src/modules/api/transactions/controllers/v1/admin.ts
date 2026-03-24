@@ -95,8 +95,12 @@ export class AdminTransactionController {
     @ApiOperation({ summary: "Get transaction statistics" })
     @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("stats")
-    async getTransactionStats(@Query("period") period?: string) {
-        return this.adminTransactionService.getTransactionStats(period);
+    async getTransactionStats(
+        @Query("period") period?: string,
+        @Query("status") status?: string,
+        @Query("type") type?: string,
+    ) {
+        return this.adminTransactionService.getTransactionStats(period, status, type);
     }
 
     @HttpCode(HttpStatus.OK)

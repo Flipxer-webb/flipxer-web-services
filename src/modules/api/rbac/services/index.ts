@@ -103,7 +103,7 @@ export class RbacService {
         });
     }
 
-    async createRole(dto: CreateRoleDto): Promise<ApiResponse> {
+    async createRole(dto: CreateRoleDto, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const slug = dto.name.toLowerCase().replace(/\s+/g, "-");
 
         const existingRole = await this.prisma.role.findFirst({
@@ -152,6 +152,8 @@ export class RbacService {
             resource: "role",
             resourceId: role.id.toString(),
             details: { roleName: role.name, permissionCount: dto.permissionIds.length },
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -169,7 +171,7 @@ export class RbacService {
         });
     }
 
-    async updateRole(roleId: number, dto: UpdateRoleDto): Promise<ApiResponse> {
+    async updateRole(roleId: number, dto: UpdateRoleDto, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const role = await this.prisma.role.findUnique({
             where: { id: roleId },
         });
@@ -223,6 +225,8 @@ export class RbacService {
             resource: "role",
             resourceId: roleId.toString(),
             details: { changes: dto },
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -231,7 +235,7 @@ export class RbacService {
         });
     }
 
-    async deleteRole(roleId: number): Promise<ApiResponse> {
+    async deleteRole(roleId: number, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const role = await this.prisma.role.findUnique({
             where: { id: roleId },
             include: { _count: { select: { users: true } } },
@@ -268,6 +272,8 @@ export class RbacService {
             resource: "role",
             resourceId: roleId.toString(),
             details: { roleName: role.name },
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -278,7 +284,8 @@ export class RbacService {
 
     async assignPermissionsToRole(
         roleId: number,
-        dto: AssignPermissionsDto
+        dto: AssignPermissionsDto,
+        auditContext?: { ipAddress?: string; userAgent?: string },
     ): Promise<ApiResponse> {
         const role = await this.prisma.role.findUnique({
             where: { id: roleId },
@@ -314,6 +321,8 @@ export class RbacService {
             resource: "role",
             resourceId: roleId.toString(),
             details: { permissionCount: dto.permissionIds.length },
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -455,7 +464,7 @@ export class RbacService {
         });
     }
 
-    async createAdminUser(dto: CreateAdminUserDto): Promise<ApiResponse> {
+    async createAdminUser(dto: CreateAdminUserDto, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         // Check if email already exists
         const existingUser = await this.prisma.user.findUnique({
             where: { email: dto.email },
@@ -506,6 +515,8 @@ export class RbacService {
             resource: "admin_user",
             resourceId: admin.id.toString(),
             details: { email: admin.email, role: role.name },
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -516,7 +527,8 @@ export class RbacService {
 
     async updateAdminUser(
         adminId: number,
-        dto: UpdateAdminUserDto
+        dto: UpdateAdminUserDto,
+        auditContext?: { ipAddress?: string; userAgent?: string },
     ): Promise<ApiResponse> {
         const admin = await this.prisma.user.findFirst({
             where: { id: adminId, userType: UserType.ADMIN },
@@ -559,6 +571,8 @@ export class RbacService {
             resource: "admin_user",
             resourceId: adminId.toString(),
             details: { changes: dto },
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -567,7 +581,7 @@ export class RbacService {
         });
     }
 
-    async deleteAdminUser(adminId: number): Promise<ApiResponse> {
+    async deleteAdminUser(adminId: number, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const admin = await this.prisma.user.findFirst({
             where: { id: adminId, userType: UserType.ADMIN },
             include: { role: true },
@@ -590,6 +604,8 @@ export class RbacService {
             resource: "admin_user",
             resourceId: adminId.toString(),
             details: { email: admin.email },
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -600,7 +616,8 @@ export class RbacService {
 
     async changeAdminPassword(
         adminId: number,
-        dto: ChangeAdminPasswordDto
+        dto: ChangeAdminPasswordDto,
+        auditContext?: { ipAddress?: string; userAgent?: string },
     ): Promise<ApiResponse> {
         const admin = await this.prisma.user.findFirst({
             where: { id: adminId, userType: UserType.ADMIN },
@@ -622,6 +639,8 @@ export class RbacService {
             resource: "admin_user",
             resourceId: adminId.toString(),
             details: {},
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
@@ -686,6 +705,8 @@ export class RbacService {
         resourceId: string;
         details: Record<string, any>;
         adminId?: number;
+        ipAddress?: string;
+        userAgent?: string;
     }): Promise<void> {
         try {
             await this.prisma.auditLog.create({
@@ -695,6 +716,8 @@ export class RbacService {
                     resourceId: params.resourceId,
                     details: params.details,
                     adminId: params.adminId,
+                    ipAddress: params.ipAddress,
+                    userAgent: params.userAgent,
                 },
             });
         } catch (error) {

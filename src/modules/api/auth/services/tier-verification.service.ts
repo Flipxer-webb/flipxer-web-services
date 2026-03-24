@@ -123,6 +123,7 @@ export class TierVerificationService {
                 userId: user.id,
                 title: "Document Submitted",
                 body: "Your address document has been submitted for review. We'll notify you once it's processed.",
+                category: "security",
             });
 
             return buildResponse({
@@ -237,6 +238,7 @@ export class TierVerificationService {
                 userId: user.id,
                 title: "Document Submitted",
                 body: "Your income document has been submitted for review. We'll notify you once it's processed.",
+                category: "security",
             });
 
             return buildResponse({
@@ -749,6 +751,7 @@ export class TierVerificationService {
             updateData.isAddressVerified = true;
         } else if (documentType === "business") {
             updateData.businessDocumentVerificationStatus = DocumentVerificationStatus.VERIFIED;
+            updateData.isDocumentVerified = true;
         } else {
             updateData.incomeVerificationStatus = DocumentVerificationStatus.VERIFIED;
             updateData.isIncomeVerified = true;
@@ -776,6 +779,7 @@ export class TierVerificationService {
             userId,
             title: "Document Approved",
             body: `Your ${friendlyType} verification has been approved.`,
+            category: "security",
             enablePush: true,
         });
 
@@ -834,6 +838,7 @@ export class TierVerificationService {
             userId,
             title: "Document Rejected",
             body: `Your ${friendlyType} verification was rejected. Reason: ${reason}`,
+            category: "security",
             enablePush: true,
         });
 

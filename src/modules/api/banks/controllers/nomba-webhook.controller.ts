@@ -2,7 +2,7 @@ import { Controller, Post, Get, Body, Headers, HttpCode, Logger, UnauthorizedExc
 import { NombaWebhookPayload, NombaWebhookEventType } from "../dtos/nomba-webhook.dto";
 import { NormalizedPaymentEvent } from "../types/payment-event.interface";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { TransactionStatus } from "@prisma/client";
+import { TransactionStatus, OrderCategory, OrderStatus } from "@prisma/client";
 import * as Config from "@/config";
 import * as crypto from "crypto";
 import { BuyOrderService } from "../../trade/services/buy-order.service";
@@ -138,6 +138,9 @@ export class NombaWebhookController {
             providerReference: transaction.transactionId || data.id,
             amount,
             currency: 'NGN', // Nomba is NGN only for now
+            senderAccountNumber: data.senderAccountNumber || transaction.senderAccountNumber,
+            senderAccountName: data.senderAccountName || transaction.senderAccountName,
+            senderBankName: data.senderBankName || transaction.senderBankName,
             raw: body, // Keep raw for debugging
             metadata: {
                 accountRef: data.accountRef || transaction.accountRef || transaction.aliasAccountReference || order.accountId,
@@ -286,19 +289,37 @@ export class NombaWebhookController {
                     this.logger.error(
                         `Underpayment detected | Ref: ${reference} | Expected: ${expectedAmount} | Received: ${amount}`
                     );
+
+                    // Capture sender details and received amount for ops refund processing
+                    await this.prisma.payment.update({
+                        where: { id: payment.id },
+                        data: {
+                            receivedAmount: amount,
+                            senderAccountNumber: event.senderAccountNumber || null,
+                            senderAccountName: event.senderAccountName || null,
+                            senderBankName: event.senderBankName || null,
+                            narration: `Underpayment: received ₦${amount} of expected ₦${expectedAmount}`,
+                        },
+                    });
+
                     await this.slackWebhookService.sendWebhookFailureAlert(
                         'nomba',
                         reference,
-                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. Admin review required.`,
+                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. ` +
+                        `Sender: ${event.senderAccountName || 'N/A'} (${event.senderAccountNumber || 'N/A'}) @ ${event.senderBankName || 'N/A'}. ` +
+                        `Auto-cancel will run after 2 hours. Ops must process refund.`,
                         {
                             orderId: payment.orderId,
                             userId: payment.userId,
                             expectedAmount,
                             receivedAmount: amount,
                             shortfall: expectedAmount - amount,
+                            senderAccountNumber: event.senderAccountNumber,
+                            senderAccountName: event.senderAccountName,
+                            senderBankName: event.senderBankName,
                         }
                     );
-                    // Don't fulfill — payment stays PENDING for admin review
+                    // Don't fulfill — underpaid order will be auto-cancelled by cron after 2 hours
                     return;
                 }
 
@@ -372,6 +393,12 @@ export class NombaWebhookController {
 
         this.logger.log(`Processing transfer failure: ${reference}`);
 
+        // Find payments matching this reference before updating
+        const payments = await this.prisma.payment.findMany({
+            where: { reference },
+            select: { id: true, orderId: true, userId: true, totalAmount: true },
+        });
+
         await this.prisma.payment.updateMany({
             where: { reference },
             data: {
@@ -379,5 +406,50 @@ export class NombaWebhookController {
                 paymentStatus: TransactionStatus.FAILED,
             },
         });
+
+        // Propagate failure to linked SELL orders whose payout failed
+        for (const payment of payments) {
+            if (!payment.orderId) continue;
+
+            const order = await this.prisma.order.findUnique({
+                where: { id: payment.orderId },
+                select: {
+                    id: true,
+                    orderCategory: true,
+                    status: true,
+                    transactionId: true,
+                    totalToReceiveInFiat: true,
+                    destinationBankName: true,
+                    destinationBankAccountNumber: true,
+                    user: { select: { id: true, email: true } },
+                },
+            });
+
+            if (order && order.orderCategory === OrderCategory.SELL && order.status === OrderStatus.done) {
+                await this.prisma.order.update({
+                    where: { id: order.id },
+                    data: { paymentStatus: TransactionStatus.FAILED },
+                });
+
+                this.logger.error(
+                    `SELL order ${order.id} payout failed. User ${order.user.id} owed ₦${order.totalToReceiveInFiat}`,
+                );
+
+                await this.slackWebhookService.sendWebhookFailureAlert(
+                    'nomba',
+                    reference,
+                    `SELL order #${order.transactionId} payout FAILED after completion. ` +
+                    `User owed ₦${order.totalToReceiveInFiat}. ` +
+                    `Bank: ${order.destinationBankName} / ${order.destinationBankAccountNumber}. ` +
+                    `Manual retry required.`,
+                    {
+                        orderId: order.id,
+                        userId: order.user.id,
+                        email: order.user.email,
+                        amount: order.totalToReceiveInFiat,
+                    },
+                );
+            }
+        }
     }
 }

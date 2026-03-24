@@ -99,15 +99,11 @@ export class AnalyticsService {
                 },
             }),
 
-            // KYC pending count
+            // KYC pending count (Tier 0 users - not yet KYC verified)
             this.prisma.user.count({
                 where: {
                     userType: { not: UserType.ADMIN },
-                    OR: [
-                        { isBvnVerified: false },
-                        { isNinVerified: false },
-                        { isDocumentVerified: false },
-                    ],
+                    tier: 0,
                 },
             }),
         ]);
@@ -169,13 +165,11 @@ export class AnalyticsService {
         );
         const usersChange = this.calculatePercentageChange(prevNewUsers, newUsersCount);
 
-        // Count verified users (tier >= 2 or all verifications complete)
+        // Count KYC verified users (tier >= 1, i.e. completed at least one KYC tier)
         const verifiedUsers = await this.prisma.user.count({
             where: {
                 userType: { not: UserType.ADMIN },
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
+                tier: { gte: 1 },
             },
         });
 

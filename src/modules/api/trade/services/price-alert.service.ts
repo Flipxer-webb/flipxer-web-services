@@ -307,6 +307,8 @@ export class PriceAlertService {
                         type: "PRICE_ALERT",
                         currency: alert.currency,
                         alertId: alert.id.toString(),
+                        category: "price_alert",
+                        url: "/price-alerts",
                     },
                 }
             );

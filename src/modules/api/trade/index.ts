@@ -30,6 +30,7 @@ import { DepositReviewService } from "./services/ledger/deposit-review.service";
 import { TradingController } from "./controllers/v1";
 import { PriceAlertController } from "./controllers/v1/price-alert.controller";
 import { AdminLedgerController } from "./controllers/v1/admin-ledger.controller";
+import { AdminAccountingController } from "./controllers/v1/admin-accounting.controller";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
 import { BullModule } from "@nestjs/bull";
@@ -77,7 +78,7 @@ export * from "./errors";
         CachingModule,
         SessionModule,
     ],
-    controllers: [TradingController, PriceAlertController, AdminLedgerController],
+    controllers: [TradingController, PriceAlertController, AdminLedgerController, AdminAccountingController],
     providers: [
         TradingService,
         TradeHelpersService,
