@@ -170,9 +170,9 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Get withdrawal queue statistics" })
     @Get("withdrawal-queue/stats")
-    async getWithdrawalQueueStats() {
+    async getWithdrawalQueueStats(@Query("currency") currency?: string) {
         this.logger.log("Admin fetching withdrawal queue stats");
-        const stats = await this.withdrawalQueueService.getAdminQueueStats();
+        const stats = await this.withdrawalQueueService.getAdminQueueStats(currency);
         return buildResponse({
             message: "Queue statistics retrieved",
             data: stats,
@@ -611,9 +611,12 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Get deposit review queue statistics" })
     @Get("deposit-review-stats")
-    async getDepositReviewStats() {
+    async getDepositReviewStats(
+        @Query("status") status?: string,
+        @Query("currency") currency?: string,
+    ) {
         this.logger.log("Admin fetching deposit review stats");
-        const stats = await this.depositReviewService.getStats();
+        const stats = await this.depositReviewService.getStats(status, currency);
         return buildResponse({
             message: "Deposit review statistics retrieved",
             data: stats,

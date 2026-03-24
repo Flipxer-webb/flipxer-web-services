@@ -506,11 +506,12 @@ export class WithdrawalQueueService {
         };
     }
 
-    async getAdminQueueStats(): Promise<AdminWithdrawalQueueStats> {
+    async getAdminQueueStats(currency?: string): Promise<AdminWithdrawalQueueStats> {
         const activeEntries = await this.prisma.withdrawalQueue.findMany({
             where: {
                 processedAt: null,
                 releasedAt: null,
+                ...(currency && { currency: currency.toUpperCase() }),
             },
             select: {
                 currency: true,

@@ -535,28 +535,43 @@ export class DepositReviewService {
     /**
      * Get statistics for deposit review queue
      */
-    async getStats() {
-        const [pending, approved, rejected, autoApproved] = await Promise.all([
-            this.prisma.depositReviewQueue.count({
-                where: { status: DepositReviewStatus.PENDING },
-            }),
-            this.prisma.depositReviewQueue.count({
-                where: { status: DepositReviewStatus.APPROVED },
-            }),
-            this.prisma.depositReviewQueue.count({
-                where: { status: DepositReviewStatus.REJECTED },
-            }),
-            this.prisma.depositReviewQueue.count({
-                where: { status: DepositReviewStatus.AUTO_APPROVED },
-            }),
-        ]);
+    async getStats(status?: string, currency?: string) {
+        const baseWhere = {
+            ...(currency && { currency: currency.toUpperCase() }),
+        };
+
+        const filteredWhere = {
+            ...baseWhere,
+            ...(status && { status: status as DepositReviewStatus }),
+        };
+
+        const total = await this.prisma.depositReviewQueue.count({ where: filteredWhere });
+
+        let pending: number;
+        let approved: number;
+        let rejected: number;
+        let autoApproved: number;
+
+        if (status) {
+            pending     = status === DepositReviewStatus.PENDING      ? total : 0;
+            approved    = status === DepositReviewStatus.APPROVED     ? total : 0;
+            rejected    = status === DepositReviewStatus.REJECTED     ? total : 0;
+            autoApproved = status === DepositReviewStatus.AUTO_APPROVED ? total : 0;
+        } else {
+            [pending, approved, rejected, autoApproved] = await Promise.all([
+                this.prisma.depositReviewQueue.count({ where: { ...baseWhere, status: DepositReviewStatus.PENDING } }),
+                this.prisma.depositReviewQueue.count({ where: { ...baseWhere, status: DepositReviewStatus.APPROVED } }),
+                this.prisma.depositReviewQueue.count({ where: { ...baseWhere, status: DepositReviewStatus.REJECTED } }),
+                this.prisma.depositReviewQueue.count({ where: { ...baseWhere, status: DepositReviewStatus.AUTO_APPROVED } }),
+            ]);
+        }
 
         return {
             pending,
             approved,
             rejected,
             autoApproved,
-            total: pending + approved + rejected + autoApproved,
+            total,
         };
     }
 

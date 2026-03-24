@@ -45,6 +45,13 @@ export class AdminUserController {
         return await this.adminService.getUserList(query);
     }
 
+    @ApiOperation({ summary: "Admin gets filter-aware user stats" })
+    @ApiBearerAuth("access-token")
+    @Get("stats")
+    async getUserStats(@Query() query: GetUserListDto) {
+        return await this.adminService.getUserFilteredStats(query);
+    }
+
     @ApiOperation({ summary: "Admin gets user transactions list" })
     @ApiBearerAuth("access-token")
     @Get("transactions/:userId")

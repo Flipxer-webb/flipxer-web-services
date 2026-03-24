@@ -199,6 +199,61 @@ export class AdminUserService {
         });
     }
 
+    async getUserFilteredStats(query: GetUserListDto): Promise<ApiResponse> {
+        const baseWhere: Prisma.UserWhereInput = {
+            userType: { not: UserType.ADMIN },
+            ...(query.status && { status: query.status }),
+            ...(query.accountType && { userType: query.accountType }),
+            ...(query.searchText && {
+                OR: [
+                    { firstName: { contains: query.searchText, mode: "insensitive" } },
+                    { lastName:  { contains: query.searchText, mode: "insensitive" } },
+                    { email:     { contains: query.searchText, mode: "insensitive" } },
+                    { phone:     { contains: query.searchText, mode: "insensitive" } },
+                ],
+            }),
+            ...(query.startDate || query.endDate
+                ? {
+                      createdAt: {
+                          ...(query.startDate && { gte: new Date(query.startDate) }),
+                          ...(query.endDate   && { lte: new Date(query.endDate)   }),
+                      },
+                  }
+                : {}),
+            ...(query.tier !== undefined && query.tier !== "" && {
+                tier: parseInt(query.tier as any, 10),
+            }),
+        };
+
+        const total = await this.prisma.user.count({ where: baseWhere });
+
+        // Short-circuit sub-counts to avoid Prisma field conflicts when filters are already applied
+        let active: number;
+        if (query.status) {
+            active = query.status === "ACTIVE" ? total : 0;
+        } else {
+            active = await this.prisma.user.count({ where: { ...baseWhere, status: "ACTIVE" } });
+        }
+
+        let verified: number;
+        let pendingKyc: number;
+        if (query.tier !== undefined && query.tier !== "") {
+            const tierNum = parseInt(query.tier as any, 10);
+            verified   = tierNum >= 1 ? total : 0;
+            pendingKyc = tierNum === 0 ? total : 0;
+        } else {
+            [verified, pendingKyc] = await Promise.all([
+                this.prisma.user.count({ where: { ...baseWhere, tier: { gte: 1 } } }),
+                this.prisma.user.count({ where: { ...baseWhere, tier: 0 } }),
+            ]);
+        }
+
+        return buildResponse({
+            message: "User filtered stats retrieved",
+            data: { total, active, verified, pendingKyc },
+        });
+    }
+
     async getUserInfo(userId: number) {
         const userDetail = await this.prisma.user.findUnique({
             where: { id: userId },
