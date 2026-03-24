@@ -9,9 +9,11 @@ import { getStreamlinedStatus } from "../../trade/interfaces/trade";
 
 export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
     include: {
-        user: { select: { firstName: true; lastName: true; email: true } };
+        user: { select: { firstName: true; lastName: true } };
     };
-}>;
+}> & {
+    user: { email?: string };
+};
 
 export const shapeTransaction = (
     t: TransactionIncludeOptions,
