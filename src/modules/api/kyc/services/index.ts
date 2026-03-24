@@ -759,6 +759,8 @@ export class KycService {
                 return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
             case "year":
                 return { startDate: startOfYear(now), endDate: endOfYear(now) };
+            case "all":
+                return { startDate: new Date(0), endDate: now };
             default:
                 return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
         }
