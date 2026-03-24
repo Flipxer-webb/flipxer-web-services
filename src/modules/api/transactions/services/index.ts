@@ -141,7 +141,7 @@ export class TransactionService {
         const transDetail = await this.prisma.order.findUnique({
             where: { transactionId: transactionId },
             include: {
-                user: { select: { firstName: true, lastName: true } },
+                user: { select: { firstName: true, lastName: true, email: true } },
             },
         });
 

@@ -9,7 +9,7 @@ import { getStreamlinedStatus } from "../../trade/interfaces/trade";
 
 export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
     include: {
-        user: { select: { firstName: true; lastName: true } };
+        user: { select: { firstName: true; lastName: true; email: true } };
     };
 }>;
 
@@ -24,8 +24,10 @@ export const shapeTransaction = (
 
     return {
         orderId: t.id,
+        userId: t.userId,
         transactionId: t.transactionId,
         name: `${t.user.lastName} ${t.user.firstName}`,
+        email: t.user.email,
         walletAddress: t?.recipient,
         transactionType: t.orderCategory,
         amount: displayAmount,
@@ -35,6 +37,7 @@ export const shapeTransaction = (
             filter ? t.streamlinedStatus : t.status
         ) as string,
         date: t.createdAt,
+        updatedAt: t.updatedAt,
         swap:
             isSwap
                 ? {
@@ -46,6 +49,7 @@ export const shapeTransaction = (
                     quoted_price: t?.quoted_price,
                     quoted_currency: t?.quoted_currency,
                     executionPrice: t?.executionPrice,
+                    swapExpiresAt: t?.swapExpiresAt,
                 }
                 : null,
         narration: t?.narration,
@@ -56,10 +60,27 @@ export const shapeTransaction = (
         total: t?.total,
         amountInFiat: t?.amountInFiat,
         rateAtConversion: t?.rateAtConversion,
+        totalToReceiveInFiat: t?.totalToReceiveInFiat,
+        estimatedProfit: t?.estimatedProfit,
+        referenceFiatCurrency: t?.referenceFiatCurrency,
         orderReference: t?.orderReference,
+        providerOrderId: t?.providerOrderId,
         sender: t?.sender,
         txHash: t?.blockchain_txid,
         sourceType: t?.sourceType,
+        market: t?.market,
+        orderType: t?.orderType,
+        orderSide: t?.orderSide,
+        volume: t?.volume,
+        price: t?.price,
+        destinationBankName: t?.destinationBankName,
+        destinationBankAccountName: t?.destinationBankAccountName,
+        destinationBankAccountNumber: t?.destinationBankAccountNumber,
+        destinationBankCode: t?.destinationBankCode,
+        destinationTag: t?.destinationTag,
+        paymentStatus: t?.paymentStatus,
+        fulfilled: t?.fulfilled,
+        ledgerEntryId: t?.ledgerEntryId,
     };
 };
 
