@@ -970,6 +970,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isBvnVerified: true,
+                    isNinVerified: false,
                     bvn: generateId({ type: "numeric" }),
                 },
             });
@@ -1007,6 +1008,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isBvnVerified: true,
+                    isNinVerified: false,
                     bvn: dto.bvn,
                     bvnRegisteredPhone: result.data.entity.phone_number1,
                 },
@@ -1087,6 +1089,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isNinVerified: true,
+                    isBvnVerified: false,
                     nin: generateId({ type: "numeric" }),
                 },
             });
@@ -1124,6 +1127,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isNinVerified: true,
+                    isBvnVerified: false,
                     nin: dto.nin,
                     ninRegisteredPhone: result.data.entity.phone_number,
                 },

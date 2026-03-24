@@ -338,8 +338,8 @@ export class KycService {
             // Update verification status based on type
             if (verificationType) {
                 const verificationMap: Record<string, Prisma.UserUpdateInput> = {
-                    BVN: { isBvnVerified: true },
-                    NIN: { isNinVerified: true },
+                    BVN: { isBvnVerified: true, isNinVerified: false },
+                    NIN: { isNinVerified: true, isBvnVerified: false },
                     DOCUMENT: {
                         isDocumentVerified: true,
                         documentVerificationStatus: "VERIFIED",

@@ -3,7 +3,7 @@
  * Handles Tier 2/3 verification flows: address and income verification
  */
 
-import { HttpException, HttpStatus, Injectable, Logger, Inject, ForbiddenException } from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, Logger, Inject, ForbiddenException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { DocumentVerificationStatus, User } from "@prisma/client";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -519,13 +519,21 @@ export class TierVerificationService {
 
         // Set verification status based on ID type
         if (idType === "bvn") {
+            if (!govData?.idNumber) {
+                throw new BadRequestException("Verified BVN payload is missing ID number");
+            }
             updateData.isBvnVerified = true;
+            updateData.isNinVerified = false;
             updateData.bvn = govData?.idNumber;
             if (govData?.phoneNumber) {
                 updateData.bvnRegisteredPhone = govData.phoneNumber;
             }
         } else if (idType === "nin") {
+            if (!govData?.idNumber) {
+                throw new BadRequestException("Verified NIN payload is missing ID number");
+            }
             updateData.isNinVerified = true;
+            updateData.isBvnVerified = false;
             updateData.nin = govData?.idNumber;
             if (govData?.phoneNumber) {
                 updateData.ninRegisteredPhone = govData.phoneNumber;
