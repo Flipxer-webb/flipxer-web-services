@@ -374,6 +374,43 @@ model BusinessDocument {
   meansOfIdentificationForBeneficialOwnerFileName     String?
   proofOfAddressForBeneficialOwnerFileName            String?
 
+  // Expanded business KYC document set (company-level)
+  certificateOfIncorporationUrl                        String?
+  certificateOfIncorporationFieldId                    String?
+  certificateOfIncorporationFileName                   String?
+  applicationForRegistrationUrl                        String?
+  applicationForRegistrationFieldId                    String?
+  applicationForRegistrationFileName                   String?
+  memartUrl                                            String?
+  memartFieldId                                        String?
+  memartFileName                                       String?
+  companyUtilityBillsUrl                               String?
+  companyUtilityBillsFieldId                           String?
+  companyUtilityBillsFileName                          String?
+  companyAmlPolicyUrl                                  String?
+  companyAmlPolicyFieldId                              String?
+  companyAmlPolicyFileName                             String?
+  scumlCertificateUrl                                  String?
+  scumlCertificateFieldId                              String?
+  scumlCertificateFileName                             String?
+  companyOrganogramUrl                                 String?
+  companyOrganogramFieldId                             String?
+  companyOrganogramFileName                            String?
+  companyLicenseUrl                                    String?
+  companyLicenseFieldId                                String?
+  companyLicenseFileName                               String?
+  flowsBusinessFundsUrl                                String?
+  flowsBusinessFundsFieldId                            String?
+  flowsBusinessFundsFileName                           String?
+
+  // Company info text fields
+  companyWebsite                                       String?
+  companyTaxId                                         String?
+  companyAddress                                       String?
+  natureOfBusiness                                     String?
+  purposeOfTransaction                                 String?
+  purposeOfTransactionOther                            String?
+
   // Dojah CAC Lookup verification
   cacVerified                                         Boolean  @default(false)
   cacVerifiedAt                                       DateTime?
@@ -399,8 +436,57 @@ model BusinessDocument {
   cacOcrRawResponse                                   String?  @db.Text
 
   user                                                User?   @relation(fields: [userId], references: [id])
+  directors                                           BusinessDirector[]
+  shareholders                                        BusinessShareholder[]
 
   @@map("BusinessDocuments")
+}
+
+model BusinessDirector {
+  id                Int              @id @default(autoincrement())
+  businessDocumentId Int
+  fullName          String
+  nationality       String
+  dateOfBirth       DateTime
+  residentialAddress String
+  businessAddress   String
+  nin               String?
+  idDocumentUrl     String?
+  idDocumentFieldId String?
+  idDocumentFileName String?
+  proofOfAddressUrl String?
+  proofOfAddressFieldId String?
+  proofOfAddressFileName String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  businessDocument  BusinessDocument @relation(fields: [businessDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([businessDocumentId])
+  @@map("BusinessDirectors")
+}
+
+model BusinessShareholder {
+  id                Int              @id @default(autoincrement())
+  businessDocumentId Int
+  fullName          String
+  nationality       String
+  dateOfBirth       DateTime
+  residentialAddress String
+  businessAddress   String
+  nin               String?
+  ownershipPercentage Float
+  idDocumentUrl     String?
+  idDocumentFieldId String?
+  idDocumentFileName String?
+  proofOfAddressUrl String?
+  proofOfAddressFieldId String?
+  proofOfAddressFileName String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  businessDocument  BusinessDocument @relation(fields: [businessDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([businessDocumentId])
+  @@map("BusinessShareholders")
 }
 
 model AccountVerificationRequest {

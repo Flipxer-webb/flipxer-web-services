@@ -203,7 +203,12 @@ export class KycService {
             where: { id: userId },
             include: {
                 userDocument: true,
-                businessDocument: true,
+                businessDocument: {
+                    include: {
+                        directors: true,
+                        shareholders: true,
+                    },
+                },
                 businessRecord: true,
                 accountLimit: true,
                 order: {

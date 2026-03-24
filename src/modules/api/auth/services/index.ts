@@ -2260,15 +2260,39 @@ export class AuthService {
         file: Express.Multer.File,
         dto: UploadBusinessDocumentFileDto
     ) {
-        const validFields = [
-            "cacImage",
-            "articleOfAssociationImage",
-            "boardResolutionAuthorizedAcctOpeningImage",
-            "proofOfAddressForBeneficialOwner",
-            "meansOfIdentificationForBeneficialOwner",
-        ];
+        const isValidFieldName = (fieldName: string): boolean => {
+            const companyFields = new Set([
+                // existing
+                "cacImage",
+                "articleOfAssociationImage",
+                "boardResolutionAuthorizedAcctOpeningImage",
+                "proofOfAddressForBeneficialOwner",
+                "meansOfIdentificationForBeneficialOwner",
 
-        if (!validFields.includes(dto.fieldName)) {
+                // expanded company docs
+                "certificateOfIncorporation",
+                "applicationForRegistration",
+                "memart",
+                "companyUtilityBills",
+                "companyAmlPolicy",
+                "scumlCertificate",
+                "companyOrganogram",
+                "companyLicense",
+                "flowsBusinessFunds",
+            ]);
+
+            if (companyFields.has(fieldName)) return true;
+
+            // dynamic people docs
+            if (/^directors\[\d+\]\.(idDocument|proofOfAddress)$/.test(fieldName))
+                return true;
+            if (/^shareholders\[\d+\]\.(idDocument|proofOfAddress)$/.test(fieldName))
+                return true;
+
+            return false;
+        };
+
+        if (!isValidFieldName(dto.fieldName)) {
             throw new VerificationGenericException(
                 `Invalid field name: ${dto.fieldName}`,
                 HttpStatus.BAD_REQUEST
@@ -2324,13 +2348,101 @@ export class AuthService {
         }
 
         const getField = (name: string) => uploadedFiles[name] || null;
+        const getPersonField = (
+            kind: "directors" | "shareholders",
+            index: number,
+            name: "idDocument" | "proofOfAddress"
+        ) => getField(`${kind}[${index}].${name}`);
 
         try {
             await this.prisma.$transaction(
                 async (tx) => {
-                    await tx.businessDocument.upsert({
+                    const businessDocument = await tx.businessDocument.upsert({
                         where: { userId: user.id },
-                        update: {},
+                        update: {
+                            cacDocumentNumber: dto.cacDocumentNumber,
+                            ...(getField("cacImage") ? {
+                                cacImageUrl: getField("cacImage").url,
+                                cacImageUrlFieldId: getField("cacImage").fileId,
+                                cacImageFileName: generateFileName(DocumentMetaMap.cacImage, user.id, getField("cacImage").originalName),
+                            } : {}),
+                            articleOfAssociationNumber: dto.articleOfAssociationNumber || null,
+                            ...(getField("articleOfAssociationImage") ? {
+                                articleOfAssociationImageUrl: getField("articleOfAssociationImage").url,
+                                articleOfAssociationImageUrlFieldId: getField("articleOfAssociationImage").fileId,
+                                articleOfAssociationFileName: generateFileName(DocumentMetaMap.articleOfAssociationImage, user.id, getField("articleOfAssociationImage").originalName),
+                            } : {}),
+                            ...(getField("boardResolutionAuthorizedAcctOpeningImage") ? {
+                                boardResolutionAuthorizedAcctOpeningImageUrl: getField("boardResolutionAuthorizedAcctOpeningImage").url,
+                                boardResolutionAuthorizedAcctOpeningImageUrlFieldId: getField("boardResolutionAuthorizedAcctOpeningImage").fileId,
+                                boardResolutionAuthorizedAcctOpeningFileName: generateFileName(DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage, user.id, getField("boardResolutionAuthorizedAcctOpeningImage").originalName),
+                            } : {}),
+                            ...(getField("meansOfIdentificationForBeneficialOwner") ? {
+                                meansOfIdentificationForBeneficialOwner: getField("meansOfIdentificationForBeneficialOwner").url,
+                                meansOfIdentificationForBeneficialOwnerImageFieldId: getField("meansOfIdentificationForBeneficialOwner").fileId,
+                                meansOfIdentificationForBeneficialOwnerFileName: generateFileName(DocumentMetaMap.meansOfIdentificationForBeneficialOwner, user.id, getField("meansOfIdentificationForBeneficialOwner").originalName),
+                            } : {}),
+                            ...(getField("proofOfAddressForBeneficialOwner") ? {
+                                proofOfAddressForBeneficialOwner: getField("proofOfAddressForBeneficialOwner").url,
+                                proofOfAddressForBeneficialOwnerImageFieldId: getField("proofOfAddressForBeneficialOwner").fileId,
+                                proofOfAddressForBeneficialOwnerFileName: generateFileName(DocumentMetaMap.proofOfAddressForBeneficialOwner, user.id, getField("proofOfAddressForBeneficialOwner").originalName),
+                            } : {}),
+
+                            // expanded company docs (stored on BusinessDocument)
+                            ...(getField("certificateOfIncorporation") ? {
+                                certificateOfIncorporationUrl: getField("certificateOfIncorporation").url,
+                                certificateOfIncorporationFieldId: getField("certificateOfIncorporation").fileId,
+                                certificateOfIncorporationFileName: generateFileName("certificate_of_incorporation", user.id, getField("certificateOfIncorporation").originalName),
+                            } : {}),
+                            ...(getField("applicationForRegistration") ? {
+                                applicationForRegistrationUrl: getField("applicationForRegistration").url,
+                                applicationForRegistrationFieldId: getField("applicationForRegistration").fileId,
+                                applicationForRegistrationFileName: generateFileName("application_for_registration", user.id, getField("applicationForRegistration").originalName),
+                            } : {}),
+                            ...(getField("memart") ? {
+                                memartUrl: getField("memart").url,
+                                memartFieldId: getField("memart").fileId,
+                                memartFileName: generateFileName("memart", user.id, getField("memart").originalName),
+                            } : {}),
+                            ...(getField("companyUtilityBills") ? {
+                                companyUtilityBillsUrl: getField("companyUtilityBills").url,
+                                companyUtilityBillsFieldId: getField("companyUtilityBills").fileId,
+                                companyUtilityBillsFileName: generateFileName("company_utility_bills", user.id, getField("companyUtilityBills").originalName),
+                            } : {}),
+                            ...(getField("companyAmlPolicy") ? {
+                                companyAmlPolicyUrl: getField("companyAmlPolicy").url,
+                                companyAmlPolicyFieldId: getField("companyAmlPolicy").fileId,
+                                companyAmlPolicyFileName: generateFileName("company_aml_policy", user.id, getField("companyAmlPolicy").originalName),
+                            } : {}),
+                            ...(getField("scumlCertificate") ? {
+                                scumlCertificateUrl: getField("scumlCertificate").url,
+                                scumlCertificateFieldId: getField("scumlCertificate").fileId,
+                                scumlCertificateFileName: generateFileName("scuml_certificate", user.id, getField("scumlCertificate").originalName),
+                            } : {}),
+                            ...(getField("companyOrganogram") ? {
+                                companyOrganogramUrl: getField("companyOrganogram").url,
+                                companyOrganogramFieldId: getField("companyOrganogram").fileId,
+                                companyOrganogramFileName: generateFileName("company_organogram", user.id, getField("companyOrganogram").originalName),
+                            } : {}),
+                            ...(getField("companyLicense") ? {
+                                companyLicenseUrl: getField("companyLicense").url,
+                                companyLicenseFieldId: getField("companyLicense").fileId,
+                                companyLicenseFileName: generateFileName("company_license", user.id, getField("companyLicense").originalName),
+                            } : {}),
+                            ...(getField("flowsBusinessFunds") ? {
+                                flowsBusinessFundsUrl: getField("flowsBusinessFunds").url,
+                                flowsBusinessFundsFieldId: getField("flowsBusinessFunds").fileId,
+                                flowsBusinessFundsFileName: generateFileName("flows_business_funds", user.id, getField("flowsBusinessFunds").originalName),
+                            } : {}),
+
+                            // company info text fields
+                            companyWebsite: dto.companyWebsite ?? null,
+                            companyTaxId: dto.companyTaxId ?? null,
+                            companyAddress: dto.companyAddress ?? null,
+                            natureOfBusiness: dto.natureOfBusiness ?? null,
+                            purposeOfTransaction: dto.purposeOfTransaction ?? null,
+                            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
+                        },
                         create: {
                             userId: user.id,
                             cacDocumentNumber: dto.cacDocumentNumber,
@@ -2419,8 +2531,124 @@ export class AuthService {
                                     )?.originalName
                                 )
                                 : null,
+
+                            // expanded company docs
+                            certificateOfIncorporationUrl: getField("certificateOfIncorporation")?.url || null,
+                            certificateOfIncorporationFieldId: getField("certificateOfIncorporation")?.fileId || null,
+                            certificateOfIncorporationFileName: getField("certificateOfIncorporation")
+                                ? generateFileName("certificate_of_incorporation", user.id, getField("certificateOfIncorporation")?.originalName)
+                                : null,
+                            applicationForRegistrationUrl: getField("applicationForRegistration")?.url || null,
+                            applicationForRegistrationFieldId: getField("applicationForRegistration")?.fileId || null,
+                            applicationForRegistrationFileName: getField("applicationForRegistration")
+                                ? generateFileName("application_for_registration", user.id, getField("applicationForRegistration")?.originalName)
+                                : null,
+                            memartUrl: getField("memart")?.url || null,
+                            memartFieldId: getField("memart")?.fileId || null,
+                            memartFileName: getField("memart")
+                                ? generateFileName("memart", user.id, getField("memart")?.originalName)
+                                : null,
+                            companyUtilityBillsUrl: getField("companyUtilityBills")?.url || null,
+                            companyUtilityBillsFieldId: getField("companyUtilityBills")?.fileId || null,
+                            companyUtilityBillsFileName: getField("companyUtilityBills")
+                                ? generateFileName("company_utility_bills", user.id, getField("companyUtilityBills")?.originalName)
+                                : null,
+                            companyAmlPolicyUrl: getField("companyAmlPolicy")?.url || null,
+                            companyAmlPolicyFieldId: getField("companyAmlPolicy")?.fileId || null,
+                            companyAmlPolicyFileName: getField("companyAmlPolicy")
+                                ? generateFileName("company_aml_policy", user.id, getField("companyAmlPolicy")?.originalName)
+                                : null,
+                            scumlCertificateUrl: getField("scumlCertificate")?.url || null,
+                            scumlCertificateFieldId: getField("scumlCertificate")?.fileId || null,
+                            scumlCertificateFileName: getField("scumlCertificate")
+                                ? generateFileName("scuml_certificate", user.id, getField("scumlCertificate")?.originalName)
+                                : null,
+                            companyOrganogramUrl: getField("companyOrganogram")?.url || null,
+                            companyOrganogramFieldId: getField("companyOrganogram")?.fileId || null,
+                            companyOrganogramFileName: getField("companyOrganogram")
+                                ? generateFileName("company_organogram", user.id, getField("companyOrganogram")?.originalName)
+                                : null,
+                            companyLicenseUrl: getField("companyLicense")?.url || null,
+                            companyLicenseFieldId: getField("companyLicense")?.fileId || null,
+                            companyLicenseFileName: getField("companyLicense")
+                                ? generateFileName("company_license", user.id, getField("companyLicense")?.originalName)
+                                : null,
+                            flowsBusinessFundsUrl: getField("flowsBusinessFunds")?.url || null,
+                            flowsBusinessFundsFieldId: getField("flowsBusinessFunds")?.fileId || null,
+                            flowsBusinessFundsFileName: getField("flowsBusinessFunds")
+                                ? generateFileName("flows_business_funds", user.id, getField("flowsBusinessFunds")?.originalName)
+                                : null,
+
+                            // company info text fields
+                            companyWebsite: dto.companyWebsite ?? null,
+                            companyTaxId: dto.companyTaxId ?? null,
+                            companyAddress: dto.companyAddress ?? null,
+                            natureOfBusiness: dto.natureOfBusiness ?? null,
+                            purposeOfTransaction: dto.purposeOfTransaction ?? null,
+                            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
                         },
                     });
+
+                    // Directors/shareholders are stored as structured rows tied to BusinessDocument
+                    const directors = Array.isArray(dto.directors) ? dto.directors : [];
+                    const shareholders = Array.isArray(dto.shareholders) ? dto.shareholders : [];
+
+                    await tx.businessDirector.deleteMany({
+                        where: { businessDocumentId: businessDocument.id },
+                    });
+                    await tx.businessShareholder.deleteMany({
+                        where: { businessDocumentId: businessDocument.id },
+                    });
+
+                    if (directors.length > 0) {
+                        await tx.businessDirector.createMany({
+                            data: directors.map((d, i) => ({
+                                businessDocumentId: businessDocument.id,
+                                fullName: d.fullName,
+                                nationality: d.nationality,
+                                dateOfBirth: new Date(d.dateOfBirth),
+                                residentialAddress: d.residentialAddress,
+                                businessAddress: d.businessAddress,
+                                nin: d.nin || null,
+                                idDocumentUrl: getPersonField("directors", i, "idDocument")?.url || null,
+                                idDocumentFieldId: getPersonField("directors", i, "idDocument")?.fileId || null,
+                                idDocumentFileName: getPersonField("directors", i, "idDocument")
+                                    ? generateFileName("director_id_document", user.id, getPersonField("directors", i, "idDocument")?.originalName)
+                                    : null,
+                                proofOfAddressUrl: getPersonField("directors", i, "proofOfAddress")?.url || null,
+                                proofOfAddressFieldId: getPersonField("directors", i, "proofOfAddress")?.fileId || null,
+                                proofOfAddressFileName: getPersonField("directors", i, "proofOfAddress")
+                                    ? generateFileName("director_proof_of_address", user.id, getPersonField("directors", i, "proofOfAddress")?.originalName)
+                                    : null,
+                            })),
+                        });
+                    }
+
+                    if (shareholders.length > 0) {
+                        await tx.businessShareholder.createMany({
+                            data: shareholders.map((s, i) => ({
+                                businessDocumentId: businessDocument.id,
+                                fullName: s.fullName,
+                                nationality: s.nationality,
+                                dateOfBirth: new Date(s.dateOfBirth),
+                                residentialAddress: s.residentialAddress,
+                                businessAddress: s.businessAddress,
+                                nin: s.nin || null,
+                                ownershipPercentage: s.ownershipPercentage,
+                                idDocumentUrl: getPersonField("shareholders", i, "idDocument")?.url || null,
+                                idDocumentFieldId: getPersonField("shareholders", i, "idDocument")?.fileId || null,
+                                idDocumentFileName: getPersonField("shareholders", i, "idDocument")
+                                    ? generateFileName("shareholder_id_document", user.id, getPersonField("shareholders", i, "idDocument")?.originalName)
+                                    : null,
+                                proofOfAddressUrl: getPersonField("shareholders", i, "proofOfAddress")?.url || null,
+                                proofOfAddressFieldId: getPersonField("shareholders", i, "proofOfAddress")?.fileId || null,
+                                proofOfAddressFileName: getPersonField("shareholders", i, "proofOfAddress")
+                                    ? generateFileName("shareholder_proof_of_address", user.id, getPersonField("shareholders", i, "proofOfAddress")?.originalName)
+                                    : null,
+                            })),
+                        });
+                    }
+                    
 
                     await tx.user.update({
                         where: { id: user.id },
