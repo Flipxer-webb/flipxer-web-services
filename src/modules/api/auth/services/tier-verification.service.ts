@@ -751,6 +751,7 @@ export class TierVerificationService {
             updateData.isAddressVerified = true;
         } else if (documentType === "business") {
             updateData.businessDocumentVerificationStatus = DocumentVerificationStatus.VERIFIED;
+            updateData.isDocumentVerified = true;
         } else {
             updateData.incomeVerificationStatus = DocumentVerificationStatus.VERIFIED;
             updateData.isIncomeVerified = true;

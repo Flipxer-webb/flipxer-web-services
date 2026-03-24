@@ -348,6 +348,7 @@ export class KycService {
                         incomeVerificationStatus: "VERIFIED",
                     },
                     BUSINESS_DOCUMENT: {
+                        isDocumentVerified: true,
                         businessDocumentVerificationStatus: "VERIFIED",
                     },
                 };
