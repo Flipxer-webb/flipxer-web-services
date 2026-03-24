@@ -22,7 +22,7 @@ import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/feature-flags")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 export class AdminFeatureFlagController {
     constructor(private readonly flagService: FeatureFlagService) {}
 

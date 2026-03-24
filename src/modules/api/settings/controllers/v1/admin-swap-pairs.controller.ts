@@ -12,7 +12,7 @@ import { SUPPORTED_ASSETS } from "../../../trade/constants";
 @ApiTags("Admin Swap Pairs")
 @Controller("admin/swap-pairs")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiBearerAuth()
 export class AdminSwapPairController {
     constructor(private readonly prisma: PrismaService) { }

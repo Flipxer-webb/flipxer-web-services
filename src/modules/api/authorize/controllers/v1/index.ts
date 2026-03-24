@@ -9,7 +9,7 @@ import { UserTypes } from "../../decorator";
     path: "authz",
 })
 @UseGuards(AuthGuard, RoleGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 export default class AuthorizationController {
     constructor(private readonly authorizationService: AuthorizationService) {}
 }

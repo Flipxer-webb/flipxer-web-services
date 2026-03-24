@@ -31,7 +31,7 @@ import {
 
 @ApiTags("admin")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiBearerAuth("access-token")
 @Controller({
     path: "admin/settings",

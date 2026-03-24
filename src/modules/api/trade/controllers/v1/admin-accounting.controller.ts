@@ -13,16 +13,17 @@ import {
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
 import { UserTypes } from "@/modules/api/authorize/decorator";
-import { UserType, LedgerType, EntryStatus, OrderCategory } from "@prisma/client";
+import { UserType, LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { SolvencyService } from "../../services/ledger/solvency.service";
+import { RateService } from "../../services/rate.service";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiTags("admin-accounting")
 @ApiBearerAuth("access-token")
 @Controller({
@@ -34,6 +35,7 @@ export class AdminAccountingController {
     constructor(
         private readonly prisma: PrismaService,
         private readonly solvencyService: SolvencyService,
+        private readonly rateService: RateService,
     ) {}
 
     // =========================================================================
@@ -157,6 +159,14 @@ export class AdminAccountingController {
                         const totalCredit = Number(creditDebit._sum.credit ?? 0);
                         const totalDebit = Number(creditDebit._sum.debit ?? 0);
 
+                        // Get USDT price for this currency
+                        let usdtPrice = 1;
+                        try {
+                            usdtPrice = await this.rateService.getAssetUsdtPrice(entry.currency);
+                        } catch {
+                            usdtPrice = entry.currency === "USDT" ? 1 : 0;
+                        }
+
                         return {
                             currency: entry.currency,
                             available,
@@ -164,12 +174,13 @@ export class AdminAccountingController {
                             total: totalBalance,
                             totalCredit,
                             totalDebit,
+                            availableInUsdt: available * usdtPrice,
                             lastActivity: entry.updatedAt,
                         };
                     })
                 );
 
-                const totalBalanceUsdt = balances.reduce((sum, b) => sum + b.total, 0);
+                const totalBalanceUsdt = balances.reduce((sum, b) => sum + (b.availableInUsdt ?? 0), 0);
 
                 return {
                     userId,
@@ -239,46 +250,80 @@ export class AdminAccountingController {
             ];
         }
 
-        const [orders, total] = await Promise.all([
-            this.prisma.order.findMany({
-                where,
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            email: true,
-                            firstName: true,
-                            lastName: true,
-                        },
+        // Get distinct users with matching swap orders (paginate by user, not by entry)
+        const distinctUsers = await this.prisma.order.findMany({
+            where,
+            select: { userId: true },
+            distinct: ["userId"],
+            orderBy: { createdAt: "desc" },
+        });
+        const totalUsers = distinctUsers.length;
+
+        // Paginate user IDs
+        const paginatedUserIds = distinctUsers
+            .slice((pageNumber - 1) * pageSize, pageNumber * pageSize)
+            .map((u) => u.userId);
+
+        // Fetch all swap orders for paginated users
+        const orders = await this.prisma.order.findMany({
+            where: {
+                ...where,
+                userId: { in: paginatedUserIds },
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
                     },
                 },
-                orderBy: { createdAt: "desc" },
-                skip: (pageNumber - 1) * pageSize,
-                take: pageSize,
-            }),
-            this.prisma.order.count({ where }),
-        ]);
+            },
+            orderBy: { createdAt: "desc" },
+        });
 
-        const items = orders.map((order) => ({
-            id: order.id,
-            userId: order.userId,
-            userName: order.user
-                ? `${order.user.firstName ?? ""} ${order.user.lastName ?? ""}`.trim()
-                : "Unknown",
-            fromCurrency: order.fromCurrency,
-            toCurrency: order.toCurrency,
-            fromAmount: order.fromAmount,
-            toAmount: order.toAmount,
-            rate: order.executionPrice ?? order.quoted_price,
-            status: order.streamlinedStatus,
-            createdAt: order.createdAt,
+        // Group orders by user
+        const userMap = new Map<number, { userName: string; entries: any[] }>();
+        for (const order of orders) {
+            const entry = {
+                id: order.id,
+                userId: order.userId,
+                userName: order.user
+                    ? `${order.user.firstName ?? ""} ${order.user.lastName ?? ""}`.trim()
+                    : "Unknown",
+                fromCurrency: order.fromCurrency,
+                toCurrency: order.toCurrency,
+                fromAmount: order.fromAmount,
+                toAmount: order.toAmount,
+                rate: order.executionPrice ?? order.quoted_price,
+                status: order.streamlinedStatus,
+                createdAt: order.createdAt,
+            };
+
+            const existing = userMap.get(order.userId);
+            if (existing) {
+                existing.entries.push(entry);
+            } else {
+                userMap.set(order.userId, {
+                    userName: entry.userName,
+                    entries: [entry],
+                });
+            }
+        }
+
+        const records = Array.from(userMap.entries()).map(([userId, group]) => ({
+            userId,
+            userName: group.userName,
+            swapCount: group.entries.length,
+            entries: group.entries,
         }));
 
         return buildResponse({
             message: "Swap log retrieved",
             data: {
-                meta: buildPaginationMeta(pageNumber, pageSize, total, items.length),
-                records: items,
+                meta: buildPaginationMeta(pageNumber, pageSize, totalUsers, records.length),
+                records,
             },
         });
     }
@@ -301,27 +346,35 @@ export class AdminAccountingController {
     ) {
         this.logger.log("Admin fetching deposit/withdrawal summary");
 
-        // Build where clause for ledger entries
-        const where: any = {
-            type: { in: [LedgerType.DEPOSIT, LedgerType.WITHDRAWAL] },
-            status: EntryStatus.SETTLED,
-        };
-        if (currency) {
-            where.currency = currency.toUpperCase();
-        }
+        // Get aggregated data grouped by userId, currency, type, and network (from metadata)
+        const aggregations: Array<{
+            userId: number;
+            currency: string;
+            type: string;
+            network: string | null;
+            total_credit: number;
+            total_debit: number;
+            entry_count: number;
+        }> = await this.prisma.$queryRaw`
+            SELECT
+                "userId",
+                "currency",
+                "type"::text,
+                "metadata"->>'network' AS "network",
+                COALESCE(SUM("credit"), 0)::float AS "total_credit",
+                COALESCE(SUM("debit"), 0)::float AS "total_debit",
+                COUNT(*)::int AS "entry_count"
+            FROM "LedgerEntries"
+            WHERE "type" IN ('DEPOSIT', 'WITHDRAWAL')
+              AND "status" = 'SETTLED'
+              ${currency ? Prisma.sql`AND "currency" = ${currency.toUpperCase()}` : Prisma.empty}
+            GROUP BY "userId", "currency", "type", "metadata"->>'network'
+        `;
 
-        // Get aggregated data grouped by userId, currency, and type
-        const aggregations = await this.prisma.ledgerEntry.groupBy({
-            by: ["userId", "currency", "type"],
-            where,
-            _sum: { credit: true, debit: true },
-            _count: true,
-        });
-
-        // Build a map: userId -> { currencies: { currency -> { deposits, withdrawals } } }
+        // Build a map: userId -> { currencies: { "currency|network" -> { deposits, withdrawals } } }
         const userMap = new Map<number, {
             userId: number;
-            currencies: Map<string, { totalDeposits: number; depositCount: number; totalWithdrawals: number; withdrawalCount: number }>;
+            currencies: Map<string, { currency: string; network: string | null; totalDeposits: number; depositCount: number; totalWithdrawals: number; withdrawalCount: number }>;
         }>();
 
         for (const agg of aggregations) {
@@ -329,16 +382,17 @@ export class AdminAccountingController {
                 userMap.set(agg.userId, { userId: agg.userId, currencies: new Map() });
             }
             const user = userMap.get(agg.userId)!;
-            if (!user.currencies.has(agg.currency)) {
-                user.currencies.set(agg.currency, { totalDeposits: 0, depositCount: 0, totalWithdrawals: 0, withdrawalCount: 0 });
+            const key = `${agg.currency}|${agg.network ?? "unknown"}`;
+            if (!user.currencies.has(key)) {
+                user.currencies.set(key, { currency: agg.currency, network: agg.network ?? null, totalDeposits: 0, depositCount: 0, totalWithdrawals: 0, withdrawalCount: 0 });
             }
-            const curr = user.currencies.get(agg.currency)!;
-            if (agg.type === LedgerType.DEPOSIT) {
-                curr.totalDeposits = Number(agg._sum.credit ?? 0);
-                curr.depositCount = agg._count;
-            } else if (agg.type === LedgerType.WITHDRAWAL) {
-                curr.totalWithdrawals = Number(agg._sum.debit ?? 0);
-                curr.withdrawalCount = agg._count;
+            const curr = user.currencies.get(key)!;
+            if (agg.type === "DEPOSIT") {
+                curr.totalDeposits = Number(agg.total_credit);
+                curr.depositCount = Number(agg.entry_count);
+            } else if (agg.type === "WITHDRAWAL") {
+                curr.totalWithdrawals = Number(agg.total_debit);
+                curr.withdrawalCount = Number(agg.entry_count);
             }
         }
 
@@ -376,8 +430,9 @@ export class AdminAccountingController {
         const records = paginatedIds.map((uid) => {
             const entry = userMap.get(uid)!;
             const user = userDetailMap.get(uid);
-            const currencies = Array.from(entry.currencies.entries()).map(([curr, data]) => ({
-                currency: curr,
+            const currencies = Array.from(entry.currencies.entries()).map(([_key, data]) => ({
+                currency: data.currency,
+                network: data.network,
                 totalDeposits: data.totalDeposits,
                 depositCount: data.depositCount,
                 totalWithdrawals: data.totalWithdrawals,
@@ -413,10 +468,19 @@ export class AdminAccountingController {
         this.logger.log("Admin fetching on-chain summary");
         const report = await this.solvencyService.generateReport();
 
+        // Fetch default networks for each currency from AssetWallet
+        const assetWallets = await this.prisma.assetWallet.findMany({
+            select: { assetCurrency: true, defaultNetwork: true },
+            distinct: ["assetCurrency"],
+        });
+        const networkMap = new Map(
+            assetWallets.map((w) => [w.assetCurrency.toUpperCase(), w.defaultNetwork]),
+        );
+
         // Transform solvency report into the frontend-expected format
         const wallets = (report.currencies ?? []).map((c: any) => ({
             currency: c.currency,
-            network: null,
+            network: networkMap.get(c.currency?.toUpperCase()) ?? null,
             onChainBalance: Number(c.platformReserves ?? 0),
             ledgerBalance: Number(c.userLiabilities ?? 0),
             walletAddress: null,

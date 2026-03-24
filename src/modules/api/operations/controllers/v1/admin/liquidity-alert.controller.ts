@@ -24,7 +24,7 @@ import {
 
 @Controller("admin/liquidity-alerts")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 export class AdminLiquidityAlertController {
     constructor(private readonly alertService: LiquidityAlertService) {}
 

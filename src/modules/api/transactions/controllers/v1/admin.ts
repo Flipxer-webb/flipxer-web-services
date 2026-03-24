@@ -47,7 +47,7 @@ import { PermissionName } from "@/modules/api/authorize/enums/role";
 
 @ApiTags("admin")
 @UseGuards(CountryBlockGuard, AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiBearerAuth("access-token")
 @Controller({
     path: "admin/transactions",

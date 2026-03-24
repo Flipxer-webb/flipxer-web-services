@@ -8,7 +8,7 @@ import { UserTypes } from "../decorator";
 
 @Injectable()
 @UseGuards(AuthGuard, RoleGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 export default class AuthorizationService {
     constructor(private readonly prismaService: PrismaService) {}
 }

@@ -18,7 +18,7 @@ import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/reports")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 export class AdminReportsController {
     constructor(private readonly reportsService: ReportsService) { }
 

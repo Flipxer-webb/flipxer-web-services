@@ -49,7 +49,7 @@ import { buildResponse } from "@/utils/api-response-util";
  * - User Balance: Query user ledger balances
  */
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiTags("admin-ledger")
 @ApiBearerAuth("access-token")
 @Controller({

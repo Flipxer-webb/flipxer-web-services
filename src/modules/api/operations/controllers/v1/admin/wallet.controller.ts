@@ -21,7 +21,7 @@ import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/wallets")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 export class AdminWalletController {
     constructor(private readonly walletService: WalletManagementService) {}
 

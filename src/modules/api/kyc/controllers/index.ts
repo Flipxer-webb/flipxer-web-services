@@ -31,7 +31,7 @@ import {
 } from "../dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiTags("admin/kyc")
 @Controller({ path: "admin/kyc" })
 export class KycController {

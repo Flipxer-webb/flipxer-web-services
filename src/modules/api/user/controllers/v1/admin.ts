@@ -23,7 +23,7 @@ import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../../dtos"; // Adde
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiTags("admin")
 @Controller({
     path: "admin/user",
@@ -75,6 +75,7 @@ export class AdminUserController {
 
     @ApiOperation({ summary: "Admin unflags a user account" })
     @ApiBearerAuth("access-token")
+    @UserTypes([UserType.SUPER_ADMIN])
     @Post("unflag")
     async unflagUser(@Body() dto: UnflagUserDto) {
         return await this.adminService.unflagUser(dto);
@@ -82,6 +83,7 @@ export class AdminUserController {
 
     @ApiOperation({ summary: "Admin flags a user account" })
     @ApiBearerAuth("access-token")
+    @UserTypes([UserType.SUPER_ADMIN])
     @Post("flag")
     async flagUser(@Body() dto: FlagUserDto) {
         return await this.adminService.flagUser(dto);

@@ -33,7 +33,7 @@ import {
 } from "../dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 @ApiTags("admin/rbac")
 @Controller({ path: "admin/rbac" })
 export class RbacController {

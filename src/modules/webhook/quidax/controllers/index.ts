@@ -49,7 +49,7 @@ export class QuidaxWebhookController {
     }
 
     @UseGuards(AuthGuard, RoleGuard)
-    @UserTypes([UserType.ADMIN])
+    @UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
     @ApiBearerAuth()
     @Get("metrics")
     @ApiOperation({ summary: "Get webhook processing metrics (Admin only)" })

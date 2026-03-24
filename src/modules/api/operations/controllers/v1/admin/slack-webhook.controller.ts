@@ -20,7 +20,7 @@ import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/slack-webhooks")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
 export class AdminSlackWebhookController {
     constructor(private readonly slackService: SlackWebhookService) {}
 
