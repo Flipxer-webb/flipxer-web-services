@@ -268,6 +268,7 @@ export class AdminUserService {
                 phone: true,
                 photo: true,
                 bvn: true,
+                nin: true,
                 accountLimit: true,
                 gender: true,
                 country: true,
