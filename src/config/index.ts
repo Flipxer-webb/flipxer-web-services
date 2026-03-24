@@ -127,6 +127,12 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "NOMBA_WEBHOOK_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
+     // FRONTEND_URL is required - used for CORS, email links, and redirect URLs.
+    // Hardcoded fallback removed to prevent accidental cross-environment leakage.
+    {
+        name: "FRONTEND_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
 
     // Note: The following are now OPTIONAL (not validated at startup):
     // - Cloudinary (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET)
@@ -179,7 +185,7 @@ export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
 export const isProduction: boolean = process.env.ENVIRONMENT === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
-export const frontendUrl = process.env.FRONTEND_URL || "https://resolve-web-app-cyan.vercel.app";
+export const frontendUrl = process.env.FRONTEND_URL;
 // JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
