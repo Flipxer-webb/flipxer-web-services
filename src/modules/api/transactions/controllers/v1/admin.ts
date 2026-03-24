@@ -99,8 +99,10 @@ export class AdminTransactionController {
         @Query("period") period?: string,
         @Query("status") status?: string,
         @Query("type") type?: string,
+        @Query("startDate") startDate?: string,
+        @Query("endDate") endDate?: string,
     ) {
-        return this.adminTransactionService.getTransactionStats(period, status, type);
+        return this.adminTransactionService.getTransactionStats(period, status, type, startDate, endDate);
     }
 
     @HttpCode(HttpStatus.OK)

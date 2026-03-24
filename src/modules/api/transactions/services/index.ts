@@ -60,28 +60,6 @@ export class TransactionService {
                 ...(user && { userId: user.id }),
                 ...(query.type && { orderCategory: query.type }),
                 ...(query.status && { streamlinedStatus: query.status }),
-                ...(query.asset && {
-                    OR: [
-                        {
-                            currency: {
-                                contains: query.asset,
-                                mode: "insensitive",
-                            },
-                        },
-                        {
-                            fromCurrency: {
-                                contains: query.asset,
-                                mode: "insensitive",
-                            },
-                        },
-                        {
-                            toCurrency: {
-                                contains: query.asset,
-                                mode: "insensitive",
-                            },
-                        },
-                    ],
-                }),
                 ...(query.startDate || query.endDate
                     ? {
                           createdAt: {
@@ -94,7 +72,27 @@ export class TransactionService {
                           },
                       }
                     : {}),
-                ...(query.searchText && { transactionId: query.searchText }),
+                AND: [
+                    ...(query.asset
+                        ? [{
+                            OR: [
+                                { currency: { contains: query.asset, mode: "insensitive" as const } },
+                                { fromCurrency: { contains: query.asset, mode: "insensitive" as const } },
+                                { toCurrency: { contains: query.asset, mode: "insensitive" as const } },
+                            ],
+                        }]
+                        : []),
+                    ...(query.searchText
+                        ? [{
+                            OR: [
+                                { transactionId: { contains: query.searchText, mode: "insensitive" as const } },
+                                { user: { firstName: { contains: query.searchText, mode: "insensitive" as const } } },
+                                { user: { lastName: { contains: query.searchText, mode: "insensitive" as const } } },
+                                { user: { email: { contains: query.searchText, mode: "insensitive" as const } } },
+                            ],
+                        }]
+                        : []),
+                ],
             },
             include: {
                 user: { select: { firstName: true, lastName: true } },

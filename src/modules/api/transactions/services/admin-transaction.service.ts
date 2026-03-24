@@ -119,8 +119,10 @@ export class AdminTransactionService {
 
     // ==================== TRANSACTION STATS ====================
 
-    async getTransactionStats(period: string = "month", status?: string, type?: string): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(period);
+    async getTransactionStats(period: string = "month", status?: string, type?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
+        const { startDate, endDate } = startDateStr && endDateStr
+            ? { startDate: new Date(startDateStr), endDate: endOfDay(new Date(endDateStr)) }
+            : this.getDateRange(period);
 
         // Base date+type filter — no streamlinedStatus here to avoid field conflicts
         const baseWhere = {

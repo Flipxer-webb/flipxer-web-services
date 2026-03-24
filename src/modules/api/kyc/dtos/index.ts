@@ -121,6 +121,16 @@ export class GetKycStatsDto {
     @IsOptional()
     @IsString()
     period?: string;
+
+    @ApiPropertyOptional({ description: "Start date (ISO string) - overrides period" })
+    @IsOptional()
+    @IsString()
+    startDate?: string;
+
+    @ApiPropertyOptional({ description: "End date (ISO string) - overrides period" })
+    @IsOptional()
+    @IsString()
+    endDate?: string;
 }
 
 export class ApproveDocumentDto {

@@ -643,7 +643,9 @@ export class KycService {
     // ==================== KYC STATISTICS ====================
 
     async getKycStats(query: GetKycStatsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
 
         const nonAdminWhere = { userType: { not: UserType.ADMIN } } as const;
 
