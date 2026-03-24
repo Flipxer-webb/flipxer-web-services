@@ -11,9 +11,7 @@ export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
     include: {
         user: { select: { firstName: true; lastName: true } };
     };
-}> & {
-    user: { email?: string };
-};
+}>;
 
 export const shapeTransaction = (
     t: TransactionIncludeOptions,
@@ -29,7 +27,7 @@ export const shapeTransaction = (
         userId: t.userId,
         transactionId: t.transactionId,
         name: `${t.user.lastName} ${t.user.firstName}`,
-        email: t.user.email,
+        email: (t.user as any).email as string | undefined,
         walletAddress: t?.recipient,
         transactionType: t.orderCategory,
         amount: displayAmount,
