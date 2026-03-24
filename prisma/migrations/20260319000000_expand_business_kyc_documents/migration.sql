@@ -26,7 +26,13 @@ ALTER TABLE "BusinessDocuments"
   ADD COLUMN "companyLicenseFileName" TEXT,
   ADD COLUMN "flowsBusinessFundsUrl" TEXT,
   ADD COLUMN "flowsBusinessFundsFieldId" TEXT,
-  ADD COLUMN "flowsBusinessFundsFileName" TEXT;
+  ADD COLUMN "flowsBusinessFundsFileName" TEXT,
+  ADD COLUMN "companyWebsite" TEXT,
+  ADD COLUMN "companyTaxId" TEXT,
+  ADD COLUMN "companyAddress" TEXT,
+  ADD COLUMN "natureOfBusiness" TEXT,
+  ADD COLUMN "purposeOfTransaction" TEXT,
+  ADD COLUMN "purposeOfTransactionOther" TEXT;
 
 -- Directors (structured)
 CREATE TABLE "BusinessDirectors" (

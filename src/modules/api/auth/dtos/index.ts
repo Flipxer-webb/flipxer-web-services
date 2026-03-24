@@ -12,6 +12,7 @@ import {
     IsPhoneNumber,
     IsString,
     IsArray,
+    IsDateString,
     ValidateNested,
     Min,
     Max,
@@ -470,7 +471,7 @@ export class BusinessDirectorDto {
 
     @ApiProperty({ description: "Date of birth (YYYY-MM-DD)" })
     @IsNotEmpty()
-    @IsString()
+    @IsDateString()
     dateOfBirth: string;
 
     @ApiProperty({ description: "Residential address" })
@@ -502,7 +503,7 @@ export class BusinessShareholderDto {
 
     @ApiProperty({ description: "Date of birth (YYYY-MM-DD)" })
     @IsNotEmpty()
-    @IsString()
+    @IsDateString()
     dateOfBirth: string;
 
     @ApiProperty({ description: "Residential address" })
@@ -524,7 +525,7 @@ export class BusinessShareholderDto {
     @IsNotEmpty()
     @IsNumber()
     @Type(() => Number)
-    @Min(0)
+    @Min(5)
     @Max(100)
     ownershipPercentage: number;
 }

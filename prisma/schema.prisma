@@ -403,6 +403,14 @@ model BusinessDocument {
   flowsBusinessFundsFieldId                            String?
   flowsBusinessFundsFileName                           String?
 
+  // Company info text fields
+  companyWebsite                                       String?
+  companyTaxId                                         String?
+  companyAddress                                       String?
+  natureOfBusiness                                     String?
+  purposeOfTransaction                                 String?
+  purposeOfTransactionOther                            String?
+
   // Dojah CAC Lookup verification
   cacVerified                                         Boolean  @default(false)
   cacVerifiedAt                                       DateTime?
