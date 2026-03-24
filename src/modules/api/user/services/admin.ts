@@ -256,7 +256,7 @@ export class AdminUserService {
 
             // Re-sort to match the balance order
             const userMap = new Map(usersRaw.map((u) => [u.id, u]));
-            const users = paginatedIds.map((id) => userMap.get(id)).filter(Boolean);
+            const users = paginatedIds.map((id) => userMap.get(id)).filter(Boolean) as User[];
 
             const responseData: DataWithPagination<User> = {
                 ...(query.paginated === "true" && {
