@@ -36,9 +36,11 @@ export class AdminUserService {
         private emailService: EmailService
     ) {}
 
-    async getAnalyticsOverview(period?: string): Promise<ApiResponse> {
+    async getAnalyticsOverview(period?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
         const now = new Date();
-        const { startDate, endDate } = this.getDateRange(period || "month");
+        const { startDate, endDate } = startDateStr && endDateStr
+            ? { startDate: new Date(startDateStr), endDate: endOfDay(new Date(endDateStr)) }
+            : this.getDateRange(period || "month");
 
         const [totalUsers, usersInPeriod] = await Promise.all([
             // Exclude admin users from total count
