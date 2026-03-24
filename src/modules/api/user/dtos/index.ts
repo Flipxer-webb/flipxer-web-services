@@ -163,6 +163,14 @@ export class GetUserListDto extends PaginationQueryDto {
     @IsOptional()
     @IsString()
     tier?: string;
+
+    @ApiProperty({
+        description: "filter/sort users by balance: has_balance, zero_balance, highest_first, lowest_first",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    balanceFilter?: string;
 }
 export class UpdateProfilePasswordDto {
     @ApiProperty({

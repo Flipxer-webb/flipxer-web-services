@@ -20,7 +20,7 @@ import {
     endOfYear,
 } from "date-fns";
 import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../dtos"; // Added FlagUserDto
-import { Prisma, User, UserType } from "@prisma/client";
+import { Prisma, User, UserType, EntryStatus } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
 import {
     shapeTransaction,
@@ -172,6 +172,109 @@ export class AdminUserService {
                 },
             },
         };
+
+        // Handle balance-based filtering/sorting
+        if (query.balanceFilter === "has_balance" || query.balanceFilter === "zero_balance") {
+            // Filter users who have/don't have ledger balance
+            const usersWithBalance = await this.prisma.ledgerEntry.findMany({
+                where: {
+                    userId: { gt: 0 },
+                    status: { in: [EntryStatus.SETTLED, EntryStatus.HOLD] },
+                },
+                select: { userId: true, balanceAfter: true },
+                orderBy: { sequenceNumber: "desc" },
+                distinct: ["userId", "currency"],
+            });
+
+            // Aggregate total balance per user
+            const userBalanceMap = new Map<number, number>();
+            for (const entry of usersWithBalance) {
+                const current = userBalanceMap.get(entry.userId) || 0;
+                userBalanceMap.set(entry.userId, current + Number(entry.balanceAfter));
+            }
+
+            const userIdsWithBalance = Array.from(userBalanceMap.entries())
+                .filter(([, total]) => total > 0)
+                .map(([id]) => id);
+
+            if (query.balanceFilter === "has_balance") {
+                dbQuery.where = { ...dbQuery.where, id: { in: userIdsWithBalance } };
+            } else {
+                dbQuery.where = { ...dbQuery.where, id: { notIn: userIdsWithBalance } };
+            }
+        }
+
+        if (query.balanceFilter === "highest_first" || query.balanceFilter === "lowest_first") {
+            // Get all user balances for sorting
+            const usersWithBalance = await this.prisma.ledgerEntry.findMany({
+                where: {
+                    userId: { gt: 0 },
+                    status: { in: [EntryStatus.SETTLED, EntryStatus.HOLD] },
+                },
+                select: { userId: true, balanceAfter: true },
+                orderBy: { sequenceNumber: "desc" },
+                distinct: ["userId", "currency"],
+            });
+
+            const userBalanceMap = new Map<number, number>();
+            for (const entry of usersWithBalance) {
+                const current = userBalanceMap.get(entry.userId) || 0;
+                userBalanceMap.set(entry.userId, current + Number(entry.balanceAfter));
+            }
+
+            // Get filtered user count and IDs
+            const allFilteredUsers = await this.prisma.user.findMany({
+                where: dbQuery.where,
+                select: { id: true },
+            });
+
+            // Sort by balance
+            const sortedUserIds = allFilteredUsers
+                .map((u) => ({ id: u.id, balance: userBalanceMap.get(u.id) || 0 }))
+                .sort((a, b) =>
+                    query.balanceFilter === "highest_first"
+                        ? b.balance - a.balance
+                        : a.balance - b.balance
+                )
+                .map((u) => u.id);
+
+            const count = sortedUserIds.length;
+
+            // Apply pagination to sorted IDs
+            const paginatedIds = query.paginated === "true"
+                ? sortedUserIds.slice(
+                      (resolvedPageNumber - 1) * resolvedPageSize,
+                      resolvedPageNumber * resolvedPageSize,
+                  )
+                : sortedUserIds;
+
+            // Fetch users by IDs preserving sort order
+            const usersRaw = await this.prisma.user.findMany({
+                where: { ...dbQuery.where, id: { in: paginatedIds } },
+                select: dbQuery.select,
+            });
+
+            // Re-sort to match the balance order
+            const userMap = new Map(usersRaw.map((u) => [u.id, u]));
+            const users = paginatedIds.map((id) => userMap.get(id)).filter(Boolean);
+
+            const responseData: DataWithPagination<User> = {
+                ...(query.paginated === "true" && {
+                    meta: buildPaginationMeta(
+                        resolvedPageNumber,
+                        resolvedPageSize,
+                        count,
+                        users.length
+                    ),
+                }),
+                records: users,
+            };
+
+            return buildResponse({
+                message: "Users list retrieved",
+                data: responseData,
+            });
+        }
 
         const [users, count] = await this.prisma.$transaction([
             this.prisma.user.findMany({
