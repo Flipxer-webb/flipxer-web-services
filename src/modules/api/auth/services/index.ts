@@ -3057,6 +3057,7 @@ export class AuthService {
                 data: {
                     accessToken: tokens.accessToken,
                     refreshToken: tokens.refreshToken,
+                    userType: user.userType,
                 },
             });
         }
