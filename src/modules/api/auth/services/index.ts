@@ -411,7 +411,7 @@ export class AuthService {
             throw new UserNotFoundException("User not found");
         }
 
-        const code = crypto.randomBytes(3).toString("hex").toUpperCase();
+        const code = crypto.randomBytes(4).toString("hex").toUpperCase();
 
         await this.prisma.passwordResetRequest.deleteMany({
             where: { userId: user.id },
@@ -3149,11 +3149,15 @@ export class AuthService {
         });
     }
 
+    private hashToken(token: string): string {
+        return crypto.createHash("sha256").update(token).digest("hex");
+    }
+
     async saveRefreshToken(id: number, refreshToken: string, family?: string) {
         return this.prisma.user.update({
             where: { id: id },
             data: {
-                refreshToken,
+                refreshToken: this.hashToken(refreshToken),
                 refreshTokenFamily: family ?? crypto.randomUUID(),
             },
         });
@@ -3168,19 +3172,18 @@ export class AuthService {
             select: { refreshToken: true, refreshTokenFamily: true },
         });
         if (!user || !user.refreshToken) return { valid: false };
-        if (user.refreshToken.length !== refreshToken.length) {
-            // Length mismatch — if user has a family, this could be a reused old token
+        const hashedIncoming = this.hashToken(refreshToken);
+        if (user.refreshToken.length !== hashedIncoming.length) {
             return { valid: false, reuse: !!user.refreshTokenFamily };
         }
         try {
             const matches = crypto.timingSafeEqual(
                 Buffer.from(user.refreshToken, "utf8"),
-                Buffer.from(refreshToken, "utf8")
+                Buffer.from(hashedIncoming, "utf8")
             );
             if (matches) {
                 return { valid: true, family: user.refreshTokenFamily ?? undefined };
             }
-            // Token didn't match but family exists — reuse detected
             return { valid: false, reuse: !!user.refreshTokenFamily };
         } catch {
             return { valid: false };
