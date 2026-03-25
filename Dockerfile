@@ -26,6 +26,9 @@ ENV TZ=Africa/Lagos
 ENV NODE_ENV=production
 WORKDIR /usr/src/app
 RUN npm install -g pnpm
+# SECURITY: Create non-root user
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid nodejs nestjs
 COPY ./package.json .
 COPY ./tsconfig.json .
 COPY ./public ./public
@@ -36,4 +39,6 @@ RUN pnpm prisma generate
 COPY --from=build /usr/src/app/dist ./dist
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
+# SECURITY: Switch to non-root user
+USER nestjs
 CMD ["./docker-entrypoint.sh"]

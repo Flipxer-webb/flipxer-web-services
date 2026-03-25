@@ -56,14 +56,14 @@ export class NombaWebhookController {
             timestamp || "",
         ].join(":");
 
-        this.logger.log(`[SIG] Hashing payload: ${hashingPayload}`);
+        this.logger.debug(`[SIG] Hashing payload: ${hashingPayload}`);
 
         const expectedSignature = crypto
             .createHmac("sha256", webhookSecret)
             .update(hashingPayload)
             .digest("base64");
 
-        this.logger.log(`[SIG] Expected: ${expectedSignature.substring(0, 16)}... Received: ${signature.substring(0, 16)}...`);
+        this.logger.debug(`[SIG] Expected: ${expectedSignature.substring(0, 16)}... Received: ${signature.substring(0, 16)}...`);
 
         // Timing-safe comparison
         const sigBuf = Buffer.from(signature);
@@ -164,8 +164,8 @@ export class NombaWebhookController {
         @Body() body: any,
         @Headers() headers: any,
     ) {
-        this.logger.log(`Raw Webhook Headers: ${JSON.stringify(headers)}`);
-        this.logger.log(`Raw Webhook Body: ${JSON.stringify(body)}`);
+        this.logger.debug(`Raw Webhook Headers: ${JSON.stringify(headers)}`);
+        this.logger.debug(`Raw Webhook Body: ${JSON.stringify(body)}`);
 
         const signature = headers["nomba-signature"]
             || headers["nomba-sig-value"]

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import Redis from "ioredis";
+import { randomBytes } from "crypto";
 import { redisConfig } from "@/config";
 
 /**
@@ -123,7 +124,7 @@ export class DistributedLockService {
         } = options;
 
         const lockKey = `${this.LOCK_PREFIX}${key}`;
-        const lockToken = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+        const lockToken = `${Date.now()}-${randomBytes(16).toString('hex')}`;
         const startTime = Date.now();
 
         // do-while ensures at least one acquisition attempt even when maxWaitMs=0

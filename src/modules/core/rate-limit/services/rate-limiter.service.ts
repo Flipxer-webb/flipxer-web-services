@@ -92,7 +92,7 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
     const windowSeconds = config?.windowSeconds ?? this.options.windowSeconds;
     const keyPrefix = config?.keyPrefix ?? this.options.keyPrefix;
     const fullKey = `${keyPrefix}${key}`;
-    const failOpen = config?.failOpen ?? true;
+    const failOpen = config?.failOpen ?? false;
 
     try {
       if (this.options.useRedis && this.client && this.isRedisConnected) {

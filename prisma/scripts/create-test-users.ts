@@ -35,7 +35,7 @@ const TEST_USER = {
 };
 // ─────────────────────────────────────────────────────────────────
 
-async function upsertTestUser(config: typeof TEST_ADMIN) {
+async function upsertTestUser(config: typeof TEST_ADMIN | typeof TEST_USER) {
     const role = await prisma.role.findUnique({
         where: { slug: config.roleSlug },
     });

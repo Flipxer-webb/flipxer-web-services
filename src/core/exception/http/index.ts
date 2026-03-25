@@ -44,7 +44,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
                     multerCode,
                     field: exception?.field,
                 },
-                stack: isProdEnvironment ? undefined : exception?.stack,
             };
 
             if (!isProdEnvironment) {
@@ -95,7 +94,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
                 message: "Validation Failed",
                 code: ErrorCode.VALIDATION_ERROR,
                 errors: exceptionResponse,
-                stack: isProdEnvironment ? undefined : exception.stack,
             };
             return httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
         }
@@ -105,11 +103,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
             success: false,
             message: httpStatus === 500 ? "Something went wrong" : errorMessage,
             code: errorCode || this.inferErrorCodeFromStatus(httpStatus),
-            stack: isProdEnvironment ? undefined : exception.stack,
         };
 
         // Log 500 errors for debugging
-        if (httpStatus >= 500 && !isProdEnvironment) {
+        if (httpStatus >= 500) {
             console.error("[AllExceptionsFilter] Server Error:", exception);
         }
 
