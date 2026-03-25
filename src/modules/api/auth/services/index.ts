@@ -238,12 +238,11 @@ export class AuthService {
         userType: UserType,
         loginPlatform: LoginPlatform
     ): void {
-        const adminUserTypes: UserType[] = [UserType.ADMIN, UserType.SUPER_ADMIN];
         const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
 
         switch (loginPlatform) {
             case LoginPlatform.ADMIN:
-                if (!adminUserTypes.includes(userType)) {
+                if (userTypes.includes(userType)) {
                     throw new InvalidCredentialException(
                         "Incorrect email or password",
                         HttpStatus.UNAUTHORIZED
