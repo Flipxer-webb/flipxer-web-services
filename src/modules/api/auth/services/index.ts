@@ -238,7 +238,7 @@ export class AuthService {
         userType: UserType,
         loginPlatform: LoginPlatform
     ): void {
-        const adminUserTypes: UserType[] = [UserType.ADMIN];
+        const adminUserTypes: UserType[] = [UserType.ADMIN, UserType.SUPER_ADMIN];
         const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
 
         switch (loginPlatform) {
