@@ -20,6 +20,7 @@ import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { CountryBlockGuard, AuthGuard, EnabledAccountGuard } from "../../guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { RateLimiterGuard, RateLimit } from "@/modules/core/rate-limit";
 
 @UseGuards(CountryBlockGuard)
 @ApiTags("admin")
@@ -35,6 +36,8 @@ export class AdminAuthController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "admin login" })
+    @UseGuards(RateLimiterGuard)
+    @RateLimit({ limit: 10, windowSeconds: 600, errorMessage: "Too many login attempts. Please try again later." })
     @Post("login")
     async signIn(
         @Body(ValidationPipe) signInDto: SignInDto,

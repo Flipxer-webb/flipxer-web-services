@@ -23,6 +23,7 @@ import {
     AdminUserAlreadyExistsException,
     AdminUserNotFoundException,
     CannotModifySuperAdminException,
+    PrivilegeEscalationException,
 } from "../errors";
 import { PermissionNames, RoleTemplates } from "../enums";
 import { ADMIN_USER_TYPES } from "../../authorize/decorator";
@@ -112,7 +113,7 @@ export class RbacService {
         });
     }
 
-    async createRole(dto: CreateRoleDto, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
+    async createRole(dto: CreateRoleDto, auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const slug = dto.name.toLowerCase().replace(/\s+/g, "-");
 
         const existingRole = await this.prisma.role.findFirst({
@@ -155,12 +156,12 @@ export class RbacService {
             },
         });
 
-        // Log audit trail
         await this.createAuditLog({
             action: "CREATE_ROLE",
             resource: "role",
             resourceId: role.id.toString(),
             details: { roleName: role.name, permissionCount: dto.permissionIds.length },
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });
@@ -180,7 +181,7 @@ export class RbacService {
         });
     }
 
-    async updateRole(roleId: number, dto: UpdateRoleDto, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
+    async updateRole(roleId: number, dto: UpdateRoleDto, auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const role = await this.prisma.role.findUnique({
             where: { id: roleId },
         });
@@ -234,6 +235,7 @@ export class RbacService {
             resource: "role",
             resourceId: roleId.toString(),
             details: { changes: dto },
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });
@@ -244,7 +246,7 @@ export class RbacService {
         });
     }
 
-    async deleteRole(roleId: number, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
+    async deleteRole(roleId: number, auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const role = await this.prisma.role.findUnique({
             where: { id: roleId },
             include: { _count: { select: { users: true } } },
@@ -281,6 +283,7 @@ export class RbacService {
             resource: "role",
             resourceId: roleId.toString(),
             details: { roleName: role.name },
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });
@@ -294,7 +297,7 @@ export class RbacService {
     async assignPermissionsToRole(
         roleId: number,
         dto: AssignPermissionsDto,
-        auditContext?: { ipAddress?: string; userAgent?: string },
+        auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string },
     ): Promise<ApiResponse> {
         const role = await this.prisma.role.findUnique({
             where: { id: roleId },
@@ -330,6 +333,7 @@ export class RbacService {
             resource: "role",
             resourceId: roleId.toString(),
             details: { permissionCount: dto.permissionIds.length },
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });
@@ -373,6 +377,7 @@ export class RbacService {
 
         const where: Prisma.UserWhereInput = {
             userType: { in: ADMIN_USER_TYPES },
+            status: "ACTIVE",
             ...(roleId && { roleId }),
             ...(searchText && {
                 OR: [
@@ -473,7 +478,7 @@ export class RbacService {
         });
     }
 
-    async createAdminUser(dto: CreateAdminUserDto, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
+    async createAdminUser(dto: CreateAdminUserDto, auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         // Check if email already exists
         const existingUser = await this.prisma.user.findUnique({
             where: { email: dto.email },
@@ -490,6 +495,17 @@ export class RbacService {
 
         if (!role || !role.isAdmin) {
             throw new RoleNotFoundException("Admin role not found");
+        }
+
+        // Prevent privilege escalation: only SUPER_ADMIN can assign super-admin role
+        if (role.slug === "super-admin" && auditContext?.adminId) {
+            const requestingUser = await this.prisma.user.findUnique({
+                where: { id: auditContext.adminId },
+                select: { userType: true },
+            });
+            if (requestingUser?.userType !== UserType.SUPER_ADMIN) {
+                throw new PrivilegeEscalationException();
+            }
         }
 
         const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -524,6 +540,7 @@ export class RbacService {
             resource: "admin_user",
             resourceId: admin.id.toString(),
             details: { email: admin.email, role: role.name },
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });
@@ -537,7 +554,7 @@ export class RbacService {
     async updateAdminUser(
         adminId: number,
         dto: UpdateAdminUserDto,
-        auditContext?: { ipAddress?: string; userAgent?: string },
+        auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string },
     ): Promise<ApiResponse> {
         const admin = await this.prisma.user.findFirst({
             where: { id: adminId, userType: { in: ADMIN_USER_TYPES } },
@@ -588,6 +605,7 @@ export class RbacService {
             resource: "admin_user",
             resourceId: adminId.toString(),
             details: { changes: dto },
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });
@@ -598,7 +616,7 @@ export class RbacService {
         });
     }
 
-    async deleteAdminUser(adminId: number, auditContext?: { ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
+    async deleteAdminUser(adminId: number, auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
         const admin = await this.prisma.user.findFirst({
             where: { id: adminId, userType: { in: ADMIN_USER_TYPES } },
             include: { role: true },
@@ -612,8 +630,10 @@ export class RbacService {
             throw new CannotModifySuperAdminException();
         }
 
-        await this.prisma.user.delete({
+        // Soft delete: deactivate instead of hard-deleting to preserve audit trail
+        await this.prisma.user.update({
             where: { id: adminId },
+            data: { status: "BLOCKED" },
         });
 
         await this.createAuditLog({
@@ -621,12 +641,13 @@ export class RbacService {
             resource: "admin_user",
             resourceId: adminId.toString(),
             details: { email: admin.email },
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });
 
         return buildResponse({
-            message: "Admin user deleted successfully",
+            message: "Admin user deactivated successfully",
             data: null,
         });
     }
@@ -634,7 +655,7 @@ export class RbacService {
     async changeAdminPassword(
         adminId: number,
         dto: ChangeAdminPasswordDto,
-        auditContext?: { ipAddress?: string; userAgent?: string },
+        auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string },
     ): Promise<ApiResponse> {
         const admin = await this.prisma.user.findFirst({
             where: { id: adminId, userType: { in: ADMIN_USER_TYPES } },
@@ -656,6 +677,7 @@ export class RbacService {
             resource: "admin_user",
             resourceId: adminId.toString(),
             details: {},
+            adminId: auditContext?.adminId,
             ipAddress: auditContext?.ipAddress,
             userAgent: auditContext?.userAgent,
         });

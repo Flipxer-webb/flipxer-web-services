@@ -62,7 +62,7 @@ export class RbacController {
     @Permissions([PermissionName.ROLES_CREATE])
     @Post("roles")
     async createRole(@Body() dto: CreateRoleDto, @Req() req: Request) {
-        return await this.rbacService.createRole(dto, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.createRole(dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Update a role" })
@@ -74,7 +74,7 @@ export class RbacController {
         @Body() dto: UpdateRoleDto,
         @Req() req: Request,
     ) {
-        return await this.rbacService.updateRole(roleId, dto, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.updateRole(roleId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Delete a role" })
@@ -82,7 +82,7 @@ export class RbacController {
     @Permissions([PermissionName.ROLES_DELETE])
     @Delete("roles/:roleId")
     async deleteRole(@Param("roleId", ParseIntPipe) roleId: number, @Req() req: Request) {
-        return await this.rbacService.deleteRole(roleId, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.deleteRole(roleId, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Assign permissions to a role" })
@@ -94,7 +94,7 @@ export class RbacController {
         @Body() dto: AssignPermissionsDto,
         @Req() req: Request,
     ) {
-        return await this.rbacService.assignPermissionsToRole(roleId, dto, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.assignPermissionsToRole(roleId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     // ==================== PERMISSIONS ====================
@@ -130,7 +130,7 @@ export class RbacController {
     @Permissions([PermissionName.ROLES_CREATE])
     @Post("admins")
     async createAdminUser(@Body() dto: CreateAdminUserDto, @Req() req: Request) {
-        return await this.rbacService.createAdminUser(dto, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.createAdminUser(dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Update an admin user" })
@@ -142,7 +142,7 @@ export class RbacController {
         @Body() dto: UpdateAdminUserDto,
         @Req() req: Request,
     ) {
-        return await this.rbacService.updateAdminUser(adminId, dto, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.updateAdminUser(adminId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Delete an admin user" })
@@ -150,7 +150,7 @@ export class RbacController {
     @Permissions([PermissionName.ROLES_DELETE])
     @Delete("admins/:adminId")
     async deleteAdminUser(@Param("adminId", ParseIntPipe) adminId: number, @Req() req: Request) {
-        return await this.rbacService.deleteAdminUser(adminId, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.deleteAdminUser(adminId, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Change admin user password" })
@@ -162,7 +162,7 @@ export class RbacController {
         @Body() dto: ChangeAdminPasswordDto,
         @Req() req: Request,
     ) {
-        return await this.rbacService.changeAdminPassword(adminId, dto, { ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+        return await this.rbacService.changeAdminPassword(adminId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     // ==================== AUDIT LOGS ====================
