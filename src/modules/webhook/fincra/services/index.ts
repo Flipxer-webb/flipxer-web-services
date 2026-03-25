@@ -20,7 +20,7 @@ export class FincraWebhookService {
         const reference = (payload.data as any)?.customerReference || (payload.data as any)?.merchantReference || (payload.data as any)?.reference;
 
         this.logger.log(`Processing Fincra webhook: event=${eventType}, reference=${reference}`);
-        this.logger.debug(`Full payload: ${JSON.stringify(payload)}`);
+        this.logger.debug(`Webhook data keys: ${Object.keys(payload?.data || {}).join(', ')}`);
 
         try {
             // Handle payout/transfer events

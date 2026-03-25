@@ -64,6 +64,8 @@ export class BankController {
         );
     }
 
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @Get("nomba/checkout/:reference")
     @ApiOperation({
@@ -75,7 +77,10 @@ export class BankController {
         description: "Order reference from checkout creation",
         type: String,
     })
-    async verifyNombaCheckout(@Param("reference") reference: string) {
+    async verifyNombaCheckout(
+        @User() user: UserModel,
+        @Param("reference") reference: string
+    ) {
         return await this.bankService.verifyNombaCheckout(reference);
     }
 

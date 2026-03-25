@@ -48,6 +48,7 @@ model User {
   isPhoneVerified                    Boolean                           @default(false)
   cryptoSubAccountId                 String?                           @unique
   refreshToken                       String?
+  refreshTokenFamily                 String?                           // UUID family for token rotation/reuse detection
   businessDocumentsUploaded          Boolean                           @default(false)
   recoveryEmail                      String?
   photoFileId                        String?

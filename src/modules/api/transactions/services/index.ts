@@ -135,13 +135,20 @@ export class TransactionService {
         });
     }
 
-    async getTransactionDetail(transactionId: string) {
+    async getTransactionDetail(transactionId: string, userId: number) {
         const transDetail = await this.prisma.order.findUnique({
             where: { transactionId: transactionId },
             include: {
                 user: { select: { firstName: true, lastName: true, email: true } },
             },
         });
+
+        if (transDetail && transDetail.userId !== userId) {
+            throw new TransactionNotFoundException(
+                "Transaction not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
 
         if (!transDetail) {
             throw new TransactionNotFoundException(

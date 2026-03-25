@@ -35,6 +35,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import * as requestIp from "request-ip";
 import { GeoIPService } from "@/modules/core/geoip/geoip.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { decryptField } from "@/utils";
 import { Socket } from "socket.io";
 import {
     WsAuthTokenValidationException,
@@ -303,7 +304,7 @@ export class FincraWebhookGuard implements CanActivate {
         }
 
         const computed = createHmac("sha512", secret)
-            .update(JSON.stringify(request.body))
+            .update(((request as any).rawBody ? (Buffer.isBuffer((request as any).rawBody) ? (request as any).rawBody : Buffer.from((request as any).rawBody)) : Buffer.from(JSON.stringify(request.body))))
             .digest("hex");
 
         // Use timing-safe comparison to prevent timing attacks
@@ -818,7 +819,7 @@ export class TwoFactorGuard implements CanActivate {
         // Try TOTP code first
         let isValid = authenticator.verify({
             token: code,
-            secret: secret,
+            secret: decryptField(secret),
         });
 
         // If TOTP fails and settingService available, try backup code

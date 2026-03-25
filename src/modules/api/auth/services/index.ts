@@ -28,7 +28,7 @@ import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
-import { generateFileName, generateId, generateRandomNum } from "@/utils";
+import { generateFileName, generateId, generateRandomNum, decryptField } from "@/utils";
 import { customAlphabet } from "nanoid";
 import { DuplicateUserException } from "../../user";
 import {
@@ -471,7 +471,13 @@ export class AuthService {
             );
         }
 
-        if (user.passwordResetRequest.code !== dto.resetCode) {
+        const resetCodeMatch =
+            user.passwordResetRequest.code.length === dto.resetCode.length &&
+            crypto.timingSafeEqual(
+                Buffer.from(user.passwordResetRequest.code, "utf8"),
+                Buffer.from(dto.resetCode, "utf8")
+            );
+        if (!resetCodeMatch) {
             throw new InvalidResetCodeException("Invalid reset code");
         }
 
@@ -3096,12 +3102,20 @@ export class AuthService {
             secret: jwt_refresh_secret,
         }) as DataStoredInToken;
 
-        const isValid = await this.validateRefreshToken(
+        const validationResult = await this.validateRefreshToken(
             payload.sub,
             options.refreshToken
         );
 
-        if (!isValid) {
+        if (!validationResult.valid) {
+            if (validationResult.reuse) {
+                // Token reuse detected — possible theft. Invalidate entire family.
+                Logger.warn(`SECURITY: Refresh token reuse detected for user ${payload.sub}. Invalidating all tokens.`);
+                await this.prisma.user.update({
+                    where: { id: payload.sub },
+                    data: { refreshToken: null, refreshTokenFamily: null },
+                });
+            }
             throw new InvalidRefreshToken(
                 "Invalid refresh token",
                 HttpStatus.UNAUTHORIZED
@@ -3126,7 +3140,8 @@ export class AuthService {
             ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
         });
 
-        await this.saveRefreshToken(payload.sub, newTokens.refreshToken);
+        // Rotate token but keep the same family
+        await this.saveRefreshToken(payload.sub, newTokens.refreshToken, validationResult.family);
 
         return buildResponse({
             message: `Refresh token generated`,
@@ -3134,18 +3149,42 @@ export class AuthService {
         });
     }
 
-    async saveRefreshToken(id: number, refreshToken: string) {
+    async saveRefreshToken(id: number, refreshToken: string, family?: string) {
         return this.prisma.user.update({
             where: { id: id },
-            data: { refreshToken },
+            data: {
+                refreshToken,
+                refreshTokenFamily: family ?? crypto.randomUUID(),
+            },
         });
     }
 
-    async validateRefreshToken(id: number, refreshToken: string) {
+    async validateRefreshToken(
+        id: number,
+        refreshToken: string
+    ): Promise<{ valid: boolean; reuse?: boolean; family?: string }> {
         const user = await this.prisma.user.findUnique({
             where: { id: id },
+            select: { refreshToken: true, refreshTokenFamily: true },
         });
-        return user && user.refreshToken === refreshToken;
+        if (!user || !user.refreshToken) return { valid: false };
+        if (user.refreshToken.length !== refreshToken.length) {
+            // Length mismatch — if user has a family, this could be a reused old token
+            return { valid: false, reuse: !!user.refreshTokenFamily };
+        }
+        try {
+            const matches = crypto.timingSafeEqual(
+                Buffer.from(user.refreshToken, "utf8"),
+                Buffer.from(refreshToken, "utf8")
+            );
+            if (matches) {
+                return { valid: true, family: user.refreshTokenFamily ?? undefined };
+            }
+            // Token didn't match but family exists — reuse detected
+            return { valid: false, reuse: !!user.refreshTokenFamily };
+        } catch {
+            return { valid: false };
+        }
     }
 
     /**
@@ -3200,7 +3239,7 @@ export class AuthService {
         // Try TOTP code first (verify before checking rate limit - correct code bypasses lockout)
         let isValid = authenticator.verify({
             token: dto.code,
-            secret: user.twoFactorSecret,
+            secret: decryptField(user.twoFactorSecret),
         });
 
         // If TOTP fails, try backup code

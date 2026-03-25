@@ -64,7 +64,10 @@ export class TransactionController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "user get transaction detail" })
     @Get(":transactionId")
-    async getTransactionDetail(@Param("transactionId") transactionId: string) {
-        return this.transactionService.getTransactionDetail(transactionId);
+    async getTransactionDetail(
+        @User() user: UserModel,
+        @Param("transactionId") transactionId: string
+    ) {
+        return this.transactionService.getTransactionDetail(transactionId, user.id);
     }
 }

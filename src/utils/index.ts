@@ -10,6 +10,7 @@ import {
     shapeTransaction,
     TransactionIncludeOptions,
 } from "@/modules/api/transactions/types";
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 
 export * from "./api-response-util";
 export * from "./interfaces";
@@ -57,6 +58,26 @@ export const encrypt = (data: any) => {
     return AES.encrypt(JSON.stringify(data), encryptSecret).toString();
 };
 
+const _fieldEncryptionKey = scryptSync(encryptSecret, "flipxer-field-salt", 32);
+
+export const encryptField = (plaintext: string): string => {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", _fieldEncryptionKey, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
+};
+
+export const decryptField = (ciphertext: string): string => {
+    if (!ciphertext.includes(":")) return ciphertext;
+    const parts = ciphertext.split(":");
+    if (parts.length !== 3) return ciphertext;
+    const [ivHex, tagHex, encryptedHex] = parts;
+    const decipher = createDecipheriv("aes-256-gcm", _fieldEncryptionKey, Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    return decipher.update(Buffer.from(encryptedHex, "hex"), undefined, "utf8") + decipher.final("utf8");
+};
+
 export const generateSlug = (input: string) => {
     const options = {
         strict: true,
@@ -78,10 +99,10 @@ export function groupBy<TData extends Record<string, any>>(
 }
 
 export const generateRandomNum = (size: number): string => {
+    const { randomInt } = require("crypto");
     let str = "";
     for (let i = 0; i < size; i++) {
-        const rand = Math.floor(Math.random() * 10);
-        str += rand;
+        str += randomInt(0, 10).toString();
     }
     return str;
 };
