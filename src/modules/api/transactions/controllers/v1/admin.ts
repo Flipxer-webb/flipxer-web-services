@@ -42,12 +42,12 @@ import {
     GetTransactionAuditLogsDto,
     BulkTransactionActionDto,
 } from "../../dtos";
-import { UserTypes, Permissions } from "@/modules/api/authorize/decorator";
+import { UserTypes, Permissions, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
 
 @ApiTags("admin")
 @UseGuards(CountryBlockGuard, AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth("access-token")
 @Controller({
     path: "admin/transactions",

@@ -14,7 +14,7 @@ import {
 import { Request } from "express";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
@@ -33,7 +33,7 @@ import {
 } from "../dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiTags("admin/rbac")
 @Controller({ path: "admin/rbac" })
 export class RbacController {

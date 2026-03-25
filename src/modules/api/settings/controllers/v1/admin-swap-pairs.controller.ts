@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards, HttpS
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse } from "@/utils/api-response-util";
@@ -12,7 +12,7 @@ import { SUPPORTED_ASSETS } from "../../../trade/constants";
 @ApiTags("Admin Swap Pairs")
 @Controller("admin/swap-pairs")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth()
 export class AdminSwapPairController {
     constructor(private readonly prisma: PrismaService) { }

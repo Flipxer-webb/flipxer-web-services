@@ -13,14 +13,14 @@ import { SlackWebhookService } from "../../../services/slack-webhook.service";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { CreateSlackWebhookDto, UpdateSlackWebhookDto } from "../../../types";
 import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/slack-webhooks")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 export class AdminSlackWebhookController {
     constructor(private readonly slackService: SlackWebhookService) {}
 

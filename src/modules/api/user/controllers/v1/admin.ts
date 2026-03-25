@@ -15,7 +15,7 @@ import {
     CountryBlockGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
@@ -23,7 +23,7 @@ import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../../dtos"; // Adde
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN, UserType.SUPER_ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiTags("admin")
 @Controller({
     path: "admin/user",

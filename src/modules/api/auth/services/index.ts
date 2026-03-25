@@ -61,6 +61,7 @@ import {
     Country,
 } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
+import { ADMIN_USER_TYPES } from "../../authorize/decorator";
 import {
     emailTemplateConfig,
     frontendDevUrl,
@@ -238,11 +239,9 @@ export class AuthService {
         userType: UserType,
         loginPlatform: LoginPlatform
     ): void {
-        const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
-
         switch (loginPlatform) {
             case LoginPlatform.ADMIN:
-                if (userTypes.includes(userType)) {
+                if (!ADMIN_USER_TYPES.includes(userType)) {
                     throw new InvalidCredentialException(
                         "Incorrect email or password",
                         HttpStatus.UNAUTHORIZED
@@ -250,7 +249,7 @@ export class AuthService {
                 }
                 break;
             case LoginPlatform.USER:
-                if (!userTypes.includes(userType)) {
+                if (ADMIN_USER_TYPES.includes(userType)) {
                     throw new InvalidCredentialException(
                         "Incorrect email or password",
                         HttpStatus.UNAUTHORIZED
