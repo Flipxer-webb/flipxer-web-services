@@ -175,6 +175,7 @@ export class AdminAccountingController {
                             totalCredit,
                             totalDebit,
                             availableInUsdt: available * usdtPrice,
+                            totalInUsdt: totalBalance * usdtPrice,
                             lastActivity: entry.updatedAt,
                         };
                     })
