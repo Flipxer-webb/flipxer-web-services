@@ -32,6 +32,7 @@ import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.
 import { LedgerService } from "./ledger/ledger.service";
 import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 
 /**
  * Sell Order Service
@@ -56,7 +57,8 @@ export class SellOrderService {
         private readonly transactionMonitorService: TransactionMonitorService,
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
-        private readonly slackWebhookService: SlackWebhookService
+        private readonly slackWebhookService: SlackWebhookService,
+        private readonly distributedLockService: DistributedLockService
     ) { }
 
 
@@ -193,6 +195,9 @@ export class SellOrderService {
      * Places a sell order for crypto
      */
     async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {
+        return this.distributedLockService.withLock(
+            `trade:sell:${user.id}`,
+            async () => {
         const responseData = await this.calculateSellQuote(user, dto, true);
 
         // IDEMPOTENCY CHECK (TASK-008)
@@ -498,6 +503,9 @@ export class SellOrderService {
             }
             throw error;
         }
+            },
+            { ttlMs: 30000, maxWaitMs: 5000, strict: true },
+        );
     }
 
     /**

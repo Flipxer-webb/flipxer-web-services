@@ -216,7 +216,7 @@ export default async (
         )
         .build();
     const document = SwaggerModule.createDocument(app, config);
-    if (!isProdEnvironment) {
+    if (!isProdEnvironment && process.env.NODE_ENV !== "production") {
         SwaggerModule.setup("api", app, document);
     }
 

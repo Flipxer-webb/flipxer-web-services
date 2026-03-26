@@ -104,6 +104,7 @@ import { KycStateMachineService } from "./kyc-state-machine.service";
 import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
@@ -225,6 +226,7 @@ export class AuthService {
         private readonly settingService: SettingService,
         private readonly tierService: TierService,
         private readonly redisCacheService: RedisCacheService,
+        private readonly distributedLockService: DistributedLockService,
         private readonly kycStateMachine: KycStateMachineService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly wsGateway: WsGateway,
@@ -3102,51 +3104,58 @@ export class AuthService {
             secret: jwt_refresh_secret,
         }) as DataStoredInToken;
 
-        const validationResult = await this.validateRefreshToken(
-            payload.sub,
-            options.refreshToken
-        );
-
-        if (!validationResult.valid) {
-            if (validationResult.reuse) {
-                // Token reuse detected — possible theft. Invalidate entire family.
-                Logger.warn(`SECURITY: Refresh token reuse detected for user ${payload.sub}. Invalidating all tokens.`);
-                await this.prisma.user.update({
-                    where: { id: payload.sub },
-                    data: { refreshToken: null, refreshTokenFamily: null },
-                });
-            }
-            throw new InvalidRefreshToken(
-                "Invalid refresh token",
-                HttpStatus.UNAUTHORIZED
-            );
-        }
-
-        if (payload.sessionId) {
-            const isSessionValid = await this.sessionService.validateSession(
-                payload.sessionId
-            );
-
-            if (!isSessionValid) {
-                throw new InvalidRefreshToken(
-                    "Session expired or invalid",
-                    HttpStatus.UNAUTHORIZED
+        // SECURITY: Distributed lock prevents concurrent refresh token rotation race condition
+        return this.distributedLockService.withLock(
+            `refresh:${payload.sub}`,
+            async () => {
+                const validationResult = await this.validateRefreshToken(
+                    payload.sub,
+                    options.refreshToken
                 );
-            }
-        }
 
-        const newTokens = await this.generateTokens({
-            sub: payload.sub,
-            ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
-        });
+                if (!validationResult.valid) {
+                    if (validationResult.reuse) {
+                        // Token reuse detected — possible theft. Invalidate entire family.
+                        Logger.warn(`SECURITY: Refresh token reuse detected for user ${payload.sub}. Invalidating all tokens.`);
+                        await this.prisma.user.update({
+                            where: { id: payload.sub },
+                            data: { refreshToken: null, refreshTokenFamily: null },
+                        });
+                    }
+                    throw new InvalidRefreshToken(
+                        "Invalid refresh token",
+                        HttpStatus.UNAUTHORIZED
+                    );
+                }
 
-        // Rotate token but keep the same family
-        await this.saveRefreshToken(payload.sub, newTokens.refreshToken, validationResult.family);
+                if (payload.sessionId) {
+                    const isSessionValid = await this.sessionService.validateSession(
+                        payload.sessionId
+                    );
 
-        return buildResponse({
-            message: `Refresh token generated`,
-            data: newTokens,
-        });
+                    if (!isSessionValid) {
+                        throw new InvalidRefreshToken(
+                            "Session expired or invalid",
+                            HttpStatus.UNAUTHORIZED
+                        );
+                    }
+                }
+
+                const newTokens = await this.generateTokens({
+                    sub: payload.sub,
+                    ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
+                });
+
+                // Rotate token but keep the same family
+                await this.saveRefreshToken(payload.sub, newTokens.refreshToken, validationResult.family);
+
+                return buildResponse({
+                    message: `Refresh token generated`,
+                    data: newTokens,
+                });
+            },
+            { ttlMs: 10000, maxWaitMs: 5000 }
+        );
     }
 
     private hashToken(token: string): string {

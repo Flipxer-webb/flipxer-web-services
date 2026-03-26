@@ -39,6 +39,7 @@ import {
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
 } from "../constants";
 import { generateUssdCode } from "@/libs/nomba/ussd-codes";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 
 /**
  * Buy Order Service
@@ -63,7 +64,8 @@ export class BuyOrderService {
         private readonly slackWebhookService: SlackWebhookService,
         private readonly ledgerService: LedgerService,
         private readonly rateService: RateService,
-        private readonly notificationDispatcher: NotificationDispatcher
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly distributedLockService: DistributedLockService
     ) { }
 
     /**
@@ -254,6 +256,9 @@ export class BuyOrderService {
      * of a checkout redirect URL.
      */
     async buyCryptoOrder(user: User, dto: BuyCryptoOrderDto) {
+        return this.distributedLockService.withLock(
+            `trade:buy:${user.id}`,
+            async () => {
         // IDEMPOTENCY CHECK: Return existing order if same idempotencyKey was already used
         if (dto.idempotencyKey) {
             const existingPayment = await this.prisma.payment.findUnique({
@@ -453,6 +458,9 @@ export class BuyOrderService {
                 },
             },
         });
+            },
+            { ttlMs: 30000, maxWaitMs: 5000, strict: true },
+        );
     }
 
     /**

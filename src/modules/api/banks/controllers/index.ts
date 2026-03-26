@@ -18,6 +18,7 @@ import {
     ApiParam,
 } from "@nestjs/swagger";
 import { AuthGuard } from "../../auth/guard";
+import { RateLimiterGuard, RateLimit } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { BankService } from "../services";
 import {
     CreateBankDetailDto,
@@ -40,6 +41,8 @@ export class BankController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @UseGuards(RateLimiterGuard)
+    @RateLimit({ limit: 10, windowSeconds: 60, errorMessage: "Too many account verification attempts. Please try again later." })
     @Post("verify-account")
     async verifyBankAccount(@Body() dto: VerifyBankAccountDto) {
         return await this.bankService.verifyBankAccount(dto);

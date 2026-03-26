@@ -31,6 +31,7 @@ import { SlackWebhookService } from "@/modules/api/operations/services/slack-web
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { getStreamlinedStatus } from "../interfaces/trade";
 import { FailedRollbackQueueService } from "./failed-rollback-queue.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 
 /**
  * Swap Service
@@ -58,7 +59,8 @@ export class SwapService {
         private readonly walletManagementService: WalletManagementService,
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
-        private readonly failedRollbackQueueService: FailedRollbackQueueService
+        private readonly failedRollbackQueueService: FailedRollbackQueueService,
+        private readonly distributedLockService: DistributedLockService
     ) { }
 
     /**
@@ -213,6 +215,9 @@ export class SwapService {
      * Confirms and executes a swap quote using the "Order-First" Atomic Pattern.
      */
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
+        return this.distributedLockService.withLock(
+            `trade:swap:${user.id}`,
+            async () => {
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
                 "Please complete your account setup or contact admin for support",
@@ -468,6 +473,9 @@ export class SwapService {
                 HttpStatus.INTERNAL_SERVER_ERROR
             );
         }
+            },
+            { ttlMs: 30000, maxWaitMs: 5000, strict: true },
+        );
     }
 
     private emitTransactionUpdate(userId: number, order: any) {

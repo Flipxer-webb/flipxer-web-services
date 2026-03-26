@@ -98,16 +98,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
             return httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
         }
 
-        // Build response body
+        // Build response body — SECURITY: never include stack traces
         const responseBody: Record<string, unknown> = {
             success: false,
             message: httpStatus === 500 ? "Something went wrong" : errorMessage,
             code: errorCode || this.inferErrorCodeFromStatus(httpStatus),
         };
 
-        // Log 500 errors for debugging
+        // Log server errors for debugging (server-side only, never in response)
         if (httpStatus >= 500) {
             console.error("[AllExceptionsFilter] Server Error:", exception);
+        } else if (!isProdEnvironment && httpStatus >= 400) {
+            console.error(`[AllExceptionsFilter] ${httpStatus}:`, exception?.message);
         }
 
         httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);

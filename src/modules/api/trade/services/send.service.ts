@@ -28,6 +28,7 @@ import { DEFAULT_TRANSACTION_TIMEOUT_MS } from "../constants";
 import { RateLimiterService } from "@/modules/core/rate-limit/services/rate-limiter.service";
 import { LedgerService } from "./ledger/ledger.service";
 import { WithdrawalQueueService } from "./ledger/withdrawal-queue.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { SweepService } from "./ledger/sweep.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -79,7 +80,8 @@ export class SendService {
         private readonly slackWebhookService: SlackWebhookService,
         private readonly rateService: RateService,
         private readonly transactionMonitor: TransactionMonitorService,
-        private readonly notificationDispatcher: NotificationDispatcher
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly distributedLockService: DistributedLockService
     ) { }
 
     /**
@@ -460,6 +462,9 @@ export class SendService {
      * 6. If insufficient: add to queue (shows as pending to user)
      */
     async withdrawerRequest(user: User, dto: WithdrawerRequestDto) {
+        return this.distributedLockService.withLock(
+            `trade:withdraw:${user.id}`,
+            async () => {
         this.logger.log(
             `withdrawerRequest called | userId: ${user.id}, currency: ${dto.currency}, amount: ${dto.amount}, recipient: ${dto.recipientWalletAddress?.slice(0, 10)}...`
         );
@@ -824,6 +829,9 @@ export class SendService {
                 },
             });
         }
+            },
+            { ttlMs: 30000, maxWaitMs: 5000, strict: true },
+        );
     }
 
     /**
