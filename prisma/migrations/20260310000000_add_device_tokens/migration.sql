@@ -24,4 +24,4 @@ ALTER TABLE "DeviceTokens" ADD CONSTRAINT "DeviceTokens_userId_fkey" FOREIGN KEY
 INSERT INTO "DeviceTokens" ("userId", "token", "platform", "updatedAt")
 SELECT "id", "notificationToken", 'web', NOW()
 FROM "Users"
-WHERE "notificationToken" IS NOT NULL AND "notificationToken" != '';
+WHERE "notificationToken" IS NOT NULL AND "notificationToken" <> '';
