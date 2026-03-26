@@ -90,26 +90,7 @@ export class BuyOrderService {
         }
 
         if (data.type === "range" && Array.isArray(data.fee)) {
-            for (const range of data.fee) {
-                if (amount >= range.min && amount < range.max) {
-                    if (range.type === "percentage") {
-                        return {
-                            fee: (amount * range.value) / 100,
-                            type: "percentage",
-                        };
-                    } else {
-                        return {
-                            fee: range.value,
-                            type: "flat",
-                        };
-                    }
-                }
-            }
-
-            throw new IncompleteAccountSetupException(
-                "Amount is out of range.",
-                HttpStatus.BAD_REQUEST
-            );
+            return this.calculateRangeFee(amount, data.fee);
         }
 
         // Fallback for simple fee structures
@@ -120,6 +101,24 @@ export class BuyOrderService {
         throw new IncompleteAccountSetupException(
             "Unknown fee structure",
             HttpStatus.INTERNAL_SERVER_ERROR
+        );
+    }
+
+    private calculateRangeFee(
+        amount: number,
+        ranges: { min: number; max: number; type: string; value: number }[],
+    ): { fee: number; type: string } {
+        for (const range of ranges) {
+            if (amount >= range.min && amount < range.max) {
+                return range.type === "percentage"
+                    ? { fee: (amount * range.value) / 100, type: "percentage" }
+                    : { fee: range.value, type: "flat" };
+            }
+        }
+
+        throw new IncompleteAccountSetupException(
+            "Amount is out of range.",
+            HttpStatus.BAD_REQUEST
         );
     }
 
@@ -764,14 +763,12 @@ export class BuyOrderService {
         }
 
         const order = payment.order;
-        const status =
-            payment.status === TransactionStatus.SUCCESS
-                ? "completed"
-                : payment.status === TransactionStatus.FAILED
-                ? "failed"
-                : payment.status === TransactionStatus.APPROVED
-                ? "processing"
-                : "pending";
+        const statusMap: Record<string, string> = {
+            [TransactionStatus.SUCCESS]: "completed",
+            [TransactionStatus.FAILED]: "failed",
+            [TransactionStatus.APPROVED]: "processing",
+        };
+        const status = statusMap[payment.status] ?? "pending";
 
         return buildResponse({
             message: "Buy order status retrieved",

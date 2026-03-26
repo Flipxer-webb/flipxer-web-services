@@ -267,7 +267,7 @@ export class OrphanedHoldService {
         try {
             // Execute resolution based on type
             switch (resolution) {
-                case HoldResolution.REFUND:
+                case HoldResolution.REFUND: {
                     // Release hold without debit - funds return to available
                     const refundResult = await this.ledgerService.releaseHold(
                         review.ledgerEntry.reference,
@@ -278,8 +278,9 @@ export class OrphanedHoldService {
                         return { success: false, error: refundResult.error };
                     }
                     break;
+                }
 
-                case HoldResolution.SETTLE:
+                case HoldResolution.SETTLE: {
                     // Convert hold to debit - execute the original operation
                     const settleResult = await this.ledgerService.releaseHold(
                         review.ledgerEntry.reference,
@@ -290,6 +291,7 @@ export class OrphanedHoldService {
                         return { success: false, error: settleResult.error };
                     }
                     break;
+                }
 
                 case HoldResolution.DISMISS:
                     // No ledger action - just mark as reviewed

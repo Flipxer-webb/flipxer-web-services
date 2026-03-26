@@ -157,45 +157,10 @@ export class TransactionSecurityGuard implements CanActivate {
 
         for (const token of tokens) {
             try {
-                const payload = await this.jwtService.verifyAsync<TransactionVerificationPayload>(token);
-
-                if (payload.type !== "transaction_verification") {
-                    this.logger.warn(`Invalid token type: ${payload.type}`);
-                    continue;
+                const method = await this.validateSingleToken(token, userId, expectedContextHash);
+                if (method) {
+                    verifiedMethods.add(method);
                 }
-
-                if (payload.userId !== userId) {
-                    this.logger.warn(`Token user ${payload.userId} doesn't match request user ${userId}`);
-                    continue;
-                }
-
-                const tokenAgeMs = Date.now() - payload.verifiedAt;
-                if (tokenAgeMs > 5 * 60 * 1000) {
-                    this.logger.warn(`Token for method ${payload.method} expired`);
-                    continue;
-                }
-
-                if (!payload.contextHash) {
-                    this.logger.error(`SECURITY: Token for user ${userId} missing contextHash - REJECTING`);
-                    throw new ForbiddenException({
-                        message: "Verification token must be bound to transaction context",
-                        code: "CONTEXT_HASH_REQUIRED",
-                    });
-                }
-
-                if (payload.contextHash !== expectedContextHash) {
-                    this.logger.error(
-                        `SECURITY: Context hash mismatch for user ${userId}! ` +
-                        `Token hash: ${payload.contextHash.substring(0, 16)}... ` +
-                        `Expected: ${expectedContextHash.substring(0, 16)}...`
-                    );
-                    throw new ForbiddenException({
-                        message: "Verification token was not issued for this transaction",
-                        code: "CONTEXT_MISMATCH",
-                    });
-                }
-
-                verifiedMethods.add(payload.method);
             } catch (error) {
                 if (error instanceof ForbiddenException) throw error;
                 this.logger.error(`Token verification failed: ${error.message}`);
@@ -203,5 +168,51 @@ export class TransactionSecurityGuard implements CanActivate {
         }
 
         return verifiedMethods;
+    }
+
+    private async validateSingleToken(
+        token: string,
+        userId: number,
+        expectedContextHash: string,
+    ): Promise<string | null> {
+        const payload = await this.jwtService.verifyAsync<TransactionVerificationPayload>(token);
+
+        if (payload.type !== "transaction_verification") {
+            this.logger.warn(`Invalid token type: ${payload.type}`);
+            return null;
+        }
+
+        if (payload.userId !== userId) {
+            this.logger.warn(`Token user ${payload.userId} doesn't match request user ${userId}`);
+            return null;
+        }
+
+        const tokenAgeMs = Date.now() - payload.verifiedAt;
+        if (tokenAgeMs > 5 * 60 * 1000) {
+            this.logger.warn(`Token for method ${payload.method} expired`);
+            return null;
+        }
+
+        if (!payload.contextHash) {
+            this.logger.error(`SECURITY: Token for user ${userId} missing contextHash - REJECTING`);
+            throw new ForbiddenException({
+                message: "Verification token must be bound to transaction context",
+                code: "CONTEXT_HASH_REQUIRED",
+            });
+        }
+
+        if (payload.contextHash !== expectedContextHash) {
+            this.logger.error(
+                `SECURITY: Context hash mismatch for user ${userId}! ` +
+                `Token hash: ${payload.contextHash.substring(0, 16)}... ` +
+                `Expected: ${expectedContextHash.substring(0, 16)}...`
+            );
+            throw new ForbiddenException({
+                message: "Verification token was not issued for this transaction",
+                code: "CONTEXT_MISMATCH",
+            });
+        }
+
+        return payload.method;
     }
 }

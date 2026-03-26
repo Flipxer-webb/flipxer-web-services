@@ -227,13 +227,9 @@ export class PriceAlertService {
                 return;
             }
 
-            let shouldTrigger = false;
-
-            if (alert.direction === PriceDirection.ABOVE && currentPrice >= alert.targetPrice) {
-                shouldTrigger = true;
-            } else if (alert.direction === PriceDirection.BELOW && currentPrice <= alert.targetPrice) {
-                shouldTrigger = true;
-            }
+            const shouldTrigger =
+                (alert.direction === PriceDirection.ABOVE && currentPrice >= alert.targetPrice) ||
+                (alert.direction === PriceDirection.BELOW && currentPrice <= alert.targetPrice);
 
             if (shouldTrigger) {
                 await this.triggerAlert(alert, currentPrice);

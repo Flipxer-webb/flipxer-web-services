@@ -256,7 +256,7 @@ export function extractDocumentDate(text: string): Date | null {
     };
 
     // Pattern 1: DD/MM/YYYY or DD-MM-YYYY
-    const dmyRegex = /\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/g;
+    const dmyRegex = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/g;
     let match: RegExpExecArray | null;
     while ((match = dmyRegex.exec(text)) !== null) {
         const day = parseInt(match[1], 10);
@@ -275,7 +275,8 @@ export function extractDocumentDate(text: string): Date | null {
     }
 
     // Pattern 3: "DD Month YYYY" (e.g. "15 January 2025")
-    const dMyRegex = /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{4})\b/gi;
+    // Use broad [a-z]+ match — MONTH_MAP lookup validates the month name
+    const dMyRegex = /\b(\d{1,2})\s+([a-z]+)\s+(\d{4})\b/gi;
     while ((match = dMyRegex.exec(text)) !== null) {
         const day = parseInt(match[1], 10);
         const monthStr = match[2].toLowerCase();
@@ -287,7 +288,8 @@ export function extractDocumentDate(text: string): Date | null {
     }
 
     // Pattern 4: "Month DD, YYYY" (e.g. "January 15, 2025")
-    const mDyRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\b/gi;
+    // Use broad [a-z]+ match — MONTH_MAP lookup validates the month name
+    const mDyRegex = /\b([a-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/gi;
     while ((match = mDyRegex.exec(text)) !== null) {
         const monthStr = match[1].toLowerCase();
         const day = parseInt(match[2], 10);

@@ -91,25 +91,7 @@ export class SwapService {
      * Refreshes an existing swap quote
      */
     async refreshInstantSwap(user: User, dto: RefreshInstantSwapRequestDto) {
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        // Just regenerate a new quote
-        const quote = await this.generateInternalQuote(
-            user,
-            dto.from_currency,
-            dto.to_currency,
-            dto.from_amount ? parseFloat(dto.from_amount.toString()) : 0
-        );
-
-        return buildResponse({
-            message: "Swap request quote retrieved successfully",
-            data: quote,
-        });
+        return this.createInstantSwap(user, dto);
     }
 
     /**
