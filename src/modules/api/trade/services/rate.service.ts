@@ -5,6 +5,7 @@ import { LiveCoinWatchService } from "@/modules/factory/trading/providers/liveco
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import { HttpStatus } from "@nestjs/common";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 
 export interface AssetRate {
     currency: string;
@@ -45,7 +46,8 @@ export class RateService {
         private readonly prisma: PrismaService,
         private readonly redisCacheService: RedisCacheService,
         @Inject(TradingInjectionToken.LIVECOINWATCH)
-        private readonly liveCoinWatchService: LiveCoinWatchService
+        private readonly liveCoinWatchService: LiveCoinWatchService,
+        private readonly slackWebhookService: SlackWebhookService
     ) {}
 
     /**
@@ -87,7 +89,17 @@ export class RateService {
 
         if (!usdtRate || usdtRate.buyRate <= 0 || usdtRate.sellRate <= 0) {
             this.logger.error("CRITICAL: USDT rate not configured or invalid");
-            // TODO: Send Slack alert here
+            this.slackWebhookService.sendSystemAlert(
+                "rate-service",
+                "USDT Rate Missing/Invalid",
+                "CRITICAL: USDT base rate is not configured or invalid. All dynamic rate calculations are broken. Please update the USDT rate in the admin panel immediately.",
+                {
+                    buyRate: usdtRate?.buyRate ?? null,
+                    sellRate: usdtRate?.sellRate ?? null,
+                    timestamp: new Date().toISOString(),
+                },
+                "error"
+            ).catch((e) => this.logger.error(`Failed to send Slack alert: ${e.message}`));
             throw new GeneralTransactionException(
                 "USDT rate not configured. Please contact support.",
                 HttpStatus.SERVICE_UNAVAILABLE

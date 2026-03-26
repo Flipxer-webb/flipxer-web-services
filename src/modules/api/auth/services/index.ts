@@ -28,7 +28,7 @@ import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
-import { generateFileName, generateId, generateRandomNum } from "@/utils";
+import { generateFileName, generateId, generateRandomNum, decryptField } from "@/utils";
 import { customAlphabet } from "nanoid";
 import { DuplicateUserException } from "../../user";
 import {
@@ -61,6 +61,7 @@ import {
     Country,
 } from "@prisma/client";
 import { RoleNotFoundException } from "../../authorize/error";
+import { ADMIN_USER_TYPES } from "../../authorize/decorator";
 import {
     emailTemplateConfig,
     frontendDevUrl,
@@ -82,6 +83,7 @@ import { IdentityComplianceInjectionToken } from "@/modules/factory/identityComp
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import {
     DocumentMetaMap,
+    DataStoredInToken,
     DocumentVerificationFileInterface,
     LoginPlatform,
     SignInOptions,
@@ -102,6 +104,7 @@ import { KycStateMachineService } from "./kyc-state-machine.service";
 import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
@@ -223,6 +226,7 @@ export class AuthService {
         private readonly settingService: SettingService,
         private readonly tierService: TierService,
         private readonly redisCacheService: RedisCacheService,
+        private readonly distributedLockService: DistributedLockService,
         private readonly kycStateMachine: KycStateMachineService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly wsGateway: WsGateway,
@@ -237,12 +241,9 @@ export class AuthService {
         userType: UserType,
         loginPlatform: LoginPlatform
     ): void {
-        const adminUserTypes: UserType[] = [UserType.ADMIN];
-        const userTypes: UserType[] = [UserType.INDIVIDUAL, UserType.BUSINESS];
-
         switch (loginPlatform) {
             case LoginPlatform.ADMIN:
-                if (!adminUserTypes.includes(userType)) {
+                if (!ADMIN_USER_TYPES.includes(userType)) {
                     throw new InvalidCredentialException(
                         "Incorrect email or password",
                         HttpStatus.UNAUTHORIZED
@@ -250,7 +251,7 @@ export class AuthService {
                 }
                 break;
             case LoginPlatform.USER:
-                if (!userTypes.includes(userType)) {
+                if (ADMIN_USER_TYPES.includes(userType)) {
                     throw new InvalidCredentialException(
                         "Incorrect email or password",
                         HttpStatus.UNAUTHORIZED
@@ -412,7 +413,7 @@ export class AuthService {
             throw new UserNotFoundException("User not found");
         }
 
-        const code = crypto.randomBytes(3).toString("hex").toUpperCase();
+        const code = crypto.randomBytes(4).toString("hex").toUpperCase();
 
         await this.prisma.passwordResetRequest.deleteMany({
             where: { userId: user.id },
@@ -472,7 +473,13 @@ export class AuthService {
             );
         }
 
-        if (user.passwordResetRequest.code !== dto.resetCode) {
+        const resetCodeMatch =
+            user.passwordResetRequest.code.length === dto.resetCode.length &&
+            crypto.timingSafeEqual(
+                Buffer.from(user.passwordResetRequest.code, "utf8"),
+                Buffer.from(dto.resetCode, "utf8")
+            );
+        if (!resetCodeMatch) {
             throw new InvalidResetCodeException("Invalid reset code");
         }
 
@@ -969,6 +976,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isBvnVerified: true,
+                    isNinVerified: false,
                     bvn: generateId({ type: "numeric" }),
                 },
             });
@@ -1006,6 +1014,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isBvnVerified: true,
+                    isNinVerified: false,
                     bvn: dto.bvn,
                     bvnRegisteredPhone: result.data.entity.phone_number1,
                 },
@@ -1086,6 +1095,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isNinVerified: true,
+                    isBvnVerified: false,
                     nin: generateId({ type: "numeric" }),
                 },
             });
@@ -1123,6 +1133,7 @@ export class AuthService {
                 where: { id: user.id },
                 data: {
                     isNinVerified: true,
+                    isBvnVerified: false,
                     nin: dto.nin,
                     ninRegisteredPhone: result.data.entity.phone_number,
                 },
@@ -1376,6 +1387,7 @@ export class AuthService {
                 userId: user.id,
                 title: "Document Submitted",
                 body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+                category: "security",
             });
 
             return buildResponse({
@@ -1407,6 +1419,22 @@ export class AuthService {
 
         const date = Date.now();
         const body = file[0].buffer;
+        const mimetype = file[0].mimetype?.toLowerCase() || "";
+
+        // PDFs cannot be processed by Sharp — upload directly without compression
+        const isPdf =
+            mimetype === "application/pdf" ||
+            file[0].originalname?.toLowerCase().endsWith(".pdf");
+
+        if (isPdf) {
+            const result = await this.uploadService.uploadImage({
+                dir: storageDirConfig.document,
+                name: `document-${date}-${generateRandomNum(5)}.pdf`,
+                format: "png",
+                body: body,
+            });
+            return result;
+        }
 
         const result = await this.uploadService.uploadCompressedImage({
             dir: storageDirConfig.document,
@@ -1762,6 +1790,7 @@ export class AuthService {
                     userId: user.id,
                     title: "Document Submitted",
                     body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+                    category: "security",
                 });
 
                 return buildResponse({
@@ -2044,6 +2073,7 @@ export class AuthService {
                 userId: user.id,
                 title: "Document Submitted",
                 body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+                category: "security",
             });
 
             return buildResponse({
@@ -2212,6 +2242,7 @@ export class AuthService {
             userId: user.id,
             title: "Business Documents Submitted",
             body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
+            category: "security",
         });
 
         // Fire-and-forget: Run Dojah business verification in background
@@ -2239,15 +2270,39 @@ export class AuthService {
         file: Express.Multer.File,
         dto: UploadBusinessDocumentFileDto
     ) {
-        const validFields = [
-            "cacImage",
-            "articleOfAssociationImage",
-            "boardResolutionAuthorizedAcctOpeningImage",
-            "proofOfAddressForBeneficialOwner",
-            "meansOfIdentificationForBeneficialOwner",
-        ];
+        const isValidFieldName = (fieldName: string): boolean => {
+            const companyFields = new Set([
+                // existing
+                "cacImage",
+                "articleOfAssociationImage",
+                "boardResolutionAuthorizedAcctOpeningImage",
+                "proofOfAddressForBeneficialOwner",
+                "meansOfIdentificationForBeneficialOwner",
 
-        if (!validFields.includes(dto.fieldName)) {
+                // expanded company docs
+                "certificateOfIncorporation",
+                "applicationForRegistration",
+                "memart",
+                "companyUtilityBills",
+                "companyAmlPolicy",
+                "scumlCertificate",
+                "companyOrganogram",
+                "companyLicense",
+                "flowsBusinessFunds",
+            ]);
+
+            if (companyFields.has(fieldName)) return true;
+
+            // dynamic people docs
+            if (/^directors\[\d+\]\.(idDocument|proofOfAddress)$/.test(fieldName))
+                return true;
+            if (/^shareholders\[\d+\]\.(idDocument|proofOfAddress)$/.test(fieldName))
+                return true;
+
+            return false;
+        };
+
+        if (!isValidFieldName(dto.fieldName)) {
             throw new VerificationGenericException(
                 `Invalid field name: ${dto.fieldName}`,
                 HttpStatus.BAD_REQUEST
@@ -2303,13 +2358,101 @@ export class AuthService {
         }
 
         const getField = (name: string) => uploadedFiles[name] || null;
+        const getPersonField = (
+            kind: "directors" | "shareholders",
+            index: number,
+            name: "idDocument" | "proofOfAddress"
+        ) => getField(`${kind}[${index}].${name}`);
 
         try {
             await this.prisma.$transaction(
                 async (tx) => {
-                    await tx.businessDocument.upsert({
+                    const businessDocument = await tx.businessDocument.upsert({
                         where: { userId: user.id },
-                        update: {},
+                        update: {
+                            cacDocumentNumber: dto.cacDocumentNumber,
+                            ...(getField("cacImage") ? {
+                                cacImageUrl: getField("cacImage").url,
+                                cacImageUrlFieldId: getField("cacImage").fileId,
+                                cacImageFileName: generateFileName(DocumentMetaMap.cacImage, user.id, getField("cacImage").originalName),
+                            } : {}),
+                            articleOfAssociationNumber: dto.articleOfAssociationNumber || null,
+                            ...(getField("articleOfAssociationImage") ? {
+                                articleOfAssociationImageUrl: getField("articleOfAssociationImage").url,
+                                articleOfAssociationImageUrlFieldId: getField("articleOfAssociationImage").fileId,
+                                articleOfAssociationFileName: generateFileName(DocumentMetaMap.articleOfAssociationImage, user.id, getField("articleOfAssociationImage").originalName),
+                            } : {}),
+                            ...(getField("boardResolutionAuthorizedAcctOpeningImage") ? {
+                                boardResolutionAuthorizedAcctOpeningImageUrl: getField("boardResolutionAuthorizedAcctOpeningImage").url,
+                                boardResolutionAuthorizedAcctOpeningImageUrlFieldId: getField("boardResolutionAuthorizedAcctOpeningImage").fileId,
+                                boardResolutionAuthorizedAcctOpeningFileName: generateFileName(DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage, user.id, getField("boardResolutionAuthorizedAcctOpeningImage").originalName),
+                            } : {}),
+                            ...(getField("meansOfIdentificationForBeneficialOwner") ? {
+                                meansOfIdentificationForBeneficialOwner: getField("meansOfIdentificationForBeneficialOwner").url,
+                                meansOfIdentificationForBeneficialOwnerImageFieldId: getField("meansOfIdentificationForBeneficialOwner").fileId,
+                                meansOfIdentificationForBeneficialOwnerFileName: generateFileName(DocumentMetaMap.meansOfIdentificationForBeneficialOwner, user.id, getField("meansOfIdentificationForBeneficialOwner").originalName),
+                            } : {}),
+                            ...(getField("proofOfAddressForBeneficialOwner") ? {
+                                proofOfAddressForBeneficialOwner: getField("proofOfAddressForBeneficialOwner").url,
+                                proofOfAddressForBeneficialOwnerImageFieldId: getField("proofOfAddressForBeneficialOwner").fileId,
+                                proofOfAddressForBeneficialOwnerFileName: generateFileName(DocumentMetaMap.proofOfAddressForBeneficialOwner, user.id, getField("proofOfAddressForBeneficialOwner").originalName),
+                            } : {}),
+
+                            // expanded company docs (stored on BusinessDocument)
+                            ...(getField("certificateOfIncorporation") ? {
+                                certificateOfIncorporationUrl: getField("certificateOfIncorporation").url,
+                                certificateOfIncorporationFieldId: getField("certificateOfIncorporation").fileId,
+                                certificateOfIncorporationFileName: generateFileName("certificate_of_incorporation", user.id, getField("certificateOfIncorporation").originalName),
+                            } : {}),
+                            ...(getField("applicationForRegistration") ? {
+                                applicationForRegistrationUrl: getField("applicationForRegistration").url,
+                                applicationForRegistrationFieldId: getField("applicationForRegistration").fileId,
+                                applicationForRegistrationFileName: generateFileName("application_for_registration", user.id, getField("applicationForRegistration").originalName),
+                            } : {}),
+                            ...(getField("memart") ? {
+                                memartUrl: getField("memart").url,
+                                memartFieldId: getField("memart").fileId,
+                                memartFileName: generateFileName("memart", user.id, getField("memart").originalName),
+                            } : {}),
+                            ...(getField("companyUtilityBills") ? {
+                                companyUtilityBillsUrl: getField("companyUtilityBills").url,
+                                companyUtilityBillsFieldId: getField("companyUtilityBills").fileId,
+                                companyUtilityBillsFileName: generateFileName("company_utility_bills", user.id, getField("companyUtilityBills").originalName),
+                            } : {}),
+                            ...(getField("companyAmlPolicy") ? {
+                                companyAmlPolicyUrl: getField("companyAmlPolicy").url,
+                                companyAmlPolicyFieldId: getField("companyAmlPolicy").fileId,
+                                companyAmlPolicyFileName: generateFileName("company_aml_policy", user.id, getField("companyAmlPolicy").originalName),
+                            } : {}),
+                            ...(getField("scumlCertificate") ? {
+                                scumlCertificateUrl: getField("scumlCertificate").url,
+                                scumlCertificateFieldId: getField("scumlCertificate").fileId,
+                                scumlCertificateFileName: generateFileName("scuml_certificate", user.id, getField("scumlCertificate").originalName),
+                            } : {}),
+                            ...(getField("companyOrganogram") ? {
+                                companyOrganogramUrl: getField("companyOrganogram").url,
+                                companyOrganogramFieldId: getField("companyOrganogram").fileId,
+                                companyOrganogramFileName: generateFileName("company_organogram", user.id, getField("companyOrganogram").originalName),
+                            } : {}),
+                            ...(getField("companyLicense") ? {
+                                companyLicenseUrl: getField("companyLicense").url,
+                                companyLicenseFieldId: getField("companyLicense").fileId,
+                                companyLicenseFileName: generateFileName("company_license", user.id, getField("companyLicense").originalName),
+                            } : {}),
+                            ...(getField("flowsBusinessFunds") ? {
+                                flowsBusinessFundsUrl: getField("flowsBusinessFunds").url,
+                                flowsBusinessFundsFieldId: getField("flowsBusinessFunds").fileId,
+                                flowsBusinessFundsFileName: generateFileName("flows_business_funds", user.id, getField("flowsBusinessFunds").originalName),
+                            } : {}),
+
+                            // company info text fields
+                            companyWebsite: dto.companyWebsite ?? null,
+                            companyTaxId: dto.companyTaxId ?? null,
+                            companyAddress: dto.companyAddress ?? null,
+                            natureOfBusiness: dto.natureOfBusiness ?? null,
+                            purposeOfTransaction: dto.purposeOfTransaction ?? null,
+                            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
+                        },
                         create: {
                             userId: user.id,
                             cacDocumentNumber: dto.cacDocumentNumber,
@@ -2398,8 +2541,124 @@ export class AuthService {
                                     )?.originalName
                                 )
                                 : null,
+
+                            // expanded company docs
+                            certificateOfIncorporationUrl: getField("certificateOfIncorporation")?.url || null,
+                            certificateOfIncorporationFieldId: getField("certificateOfIncorporation")?.fileId || null,
+                            certificateOfIncorporationFileName: getField("certificateOfIncorporation")
+                                ? generateFileName("certificate_of_incorporation", user.id, getField("certificateOfIncorporation")?.originalName)
+                                : null,
+                            applicationForRegistrationUrl: getField("applicationForRegistration")?.url || null,
+                            applicationForRegistrationFieldId: getField("applicationForRegistration")?.fileId || null,
+                            applicationForRegistrationFileName: getField("applicationForRegistration")
+                                ? generateFileName("application_for_registration", user.id, getField("applicationForRegistration")?.originalName)
+                                : null,
+                            memartUrl: getField("memart")?.url || null,
+                            memartFieldId: getField("memart")?.fileId || null,
+                            memartFileName: getField("memart")
+                                ? generateFileName("memart", user.id, getField("memart")?.originalName)
+                                : null,
+                            companyUtilityBillsUrl: getField("companyUtilityBills")?.url || null,
+                            companyUtilityBillsFieldId: getField("companyUtilityBills")?.fileId || null,
+                            companyUtilityBillsFileName: getField("companyUtilityBills")
+                                ? generateFileName("company_utility_bills", user.id, getField("companyUtilityBills")?.originalName)
+                                : null,
+                            companyAmlPolicyUrl: getField("companyAmlPolicy")?.url || null,
+                            companyAmlPolicyFieldId: getField("companyAmlPolicy")?.fileId || null,
+                            companyAmlPolicyFileName: getField("companyAmlPolicy")
+                                ? generateFileName("company_aml_policy", user.id, getField("companyAmlPolicy")?.originalName)
+                                : null,
+                            scumlCertificateUrl: getField("scumlCertificate")?.url || null,
+                            scumlCertificateFieldId: getField("scumlCertificate")?.fileId || null,
+                            scumlCertificateFileName: getField("scumlCertificate")
+                                ? generateFileName("scuml_certificate", user.id, getField("scumlCertificate")?.originalName)
+                                : null,
+                            companyOrganogramUrl: getField("companyOrganogram")?.url || null,
+                            companyOrganogramFieldId: getField("companyOrganogram")?.fileId || null,
+                            companyOrganogramFileName: getField("companyOrganogram")
+                                ? generateFileName("company_organogram", user.id, getField("companyOrganogram")?.originalName)
+                                : null,
+                            companyLicenseUrl: getField("companyLicense")?.url || null,
+                            companyLicenseFieldId: getField("companyLicense")?.fileId || null,
+                            companyLicenseFileName: getField("companyLicense")
+                                ? generateFileName("company_license", user.id, getField("companyLicense")?.originalName)
+                                : null,
+                            flowsBusinessFundsUrl: getField("flowsBusinessFunds")?.url || null,
+                            flowsBusinessFundsFieldId: getField("flowsBusinessFunds")?.fileId || null,
+                            flowsBusinessFundsFileName: getField("flowsBusinessFunds")
+                                ? generateFileName("flows_business_funds", user.id, getField("flowsBusinessFunds")?.originalName)
+                                : null,
+
+                            // company info text fields
+                            companyWebsite: dto.companyWebsite ?? null,
+                            companyTaxId: dto.companyTaxId ?? null,
+                            companyAddress: dto.companyAddress ?? null,
+                            natureOfBusiness: dto.natureOfBusiness ?? null,
+                            purposeOfTransaction: dto.purposeOfTransaction ?? null,
+                            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
                         },
                     });
+
+                    // Directors/shareholders are stored as structured rows tied to BusinessDocument
+                    const directors = Array.isArray(dto.directors) ? dto.directors : [];
+                    const shareholders = Array.isArray(dto.shareholders) ? dto.shareholders : [];
+
+                    await tx.businessDirector.deleteMany({
+                        where: { businessDocumentId: businessDocument.id },
+                    });
+                    await tx.businessShareholder.deleteMany({
+                        where: { businessDocumentId: businessDocument.id },
+                    });
+
+                    if (directors.length > 0) {
+                        await tx.businessDirector.createMany({
+                            data: directors.map((d, i) => ({
+                                businessDocumentId: businessDocument.id,
+                                fullName: d.fullName,
+                                nationality: d.nationality,
+                                dateOfBirth: new Date(d.dateOfBirth),
+                                residentialAddress: d.residentialAddress,
+                                businessAddress: d.businessAddress,
+                                nin: d.nin || null,
+                                idDocumentUrl: getPersonField("directors", i, "idDocument")?.url || null,
+                                idDocumentFieldId: getPersonField("directors", i, "idDocument")?.fileId || null,
+                                idDocumentFileName: getPersonField("directors", i, "idDocument")
+                                    ? generateFileName("director_id_document", user.id, getPersonField("directors", i, "idDocument")?.originalName)
+                                    : null,
+                                proofOfAddressUrl: getPersonField("directors", i, "proofOfAddress")?.url || null,
+                                proofOfAddressFieldId: getPersonField("directors", i, "proofOfAddress")?.fileId || null,
+                                proofOfAddressFileName: getPersonField("directors", i, "proofOfAddress")
+                                    ? generateFileName("director_proof_of_address", user.id, getPersonField("directors", i, "proofOfAddress")?.originalName)
+                                    : null,
+                            })),
+                        });
+                    }
+
+                    if (shareholders.length > 0) {
+                        await tx.businessShareholder.createMany({
+                            data: shareholders.map((s, i) => ({
+                                businessDocumentId: businessDocument.id,
+                                fullName: s.fullName,
+                                nationality: s.nationality,
+                                dateOfBirth: new Date(s.dateOfBirth),
+                                residentialAddress: s.residentialAddress,
+                                businessAddress: s.businessAddress,
+                                nin: s.nin || null,
+                                ownershipPercentage: s.ownershipPercentage,
+                                idDocumentUrl: getPersonField("shareholders", i, "idDocument")?.url || null,
+                                idDocumentFieldId: getPersonField("shareholders", i, "idDocument")?.fileId || null,
+                                idDocumentFileName: getPersonField("shareholders", i, "idDocument")
+                                    ? generateFileName("shareholder_id_document", user.id, getPersonField("shareholders", i, "idDocument")?.originalName)
+                                    : null,
+                                proofOfAddressUrl: getPersonField("shareholders", i, "proofOfAddress")?.url || null,
+                                proofOfAddressFieldId: getPersonField("shareholders", i, "proofOfAddress")?.fileId || null,
+                                proofOfAddressFileName: getPersonField("shareholders", i, "proofOfAddress")
+                                    ? generateFileName("shareholder_proof_of_address", user.id, getPersonField("shareholders", i, "proofOfAddress")?.originalName)
+                                    : null,
+                            })),
+                        });
+                    }
+                    
 
                     await tx.user.update({
                         where: { id: user.id },
@@ -2428,6 +2687,7 @@ export class AuthService {
             userId: user.id,
             title: "Business Documents Submitted",
             body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
+            category: "security",
         });
 
         // For Dojah verification we need the CAC image buffer.
@@ -2756,13 +3016,6 @@ export class AuthService {
             });
         }
 
-        const tokens = await this.generateTokens({
-            sub: user.id,
-            platform: loginPlatform,
-        });
-
-        await this.saveRefreshToken(user.id, tokens.refreshToken);
-
         // Create session for user logins with error handling
         // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
@@ -2787,6 +3040,16 @@ export class AuthService {
             }
         }
 
+        const tokenPayload: Record<string, any> = {
+            sub: user.id,
+            platform: loginPlatform,
+            ...(sessionId ? { sessionId } : {}),
+        };
+
+        const tokens = await this.generateTokens(tokenPayload);
+
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
+
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
@@ -2802,6 +3065,7 @@ export class AuthService {
                 data: {
                     accessToken: tokens.accessToken,
                     refreshToken: tokens.refreshToken,
+                    userType: user.userType,
                 },
             });
         }
@@ -2838,42 +3102,101 @@ export class AuthService {
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
         const payload = await this.jwtService.verify(options.refreshToken, {
             secret: jwt_refresh_secret,
-        });
+        }) as DataStoredInToken;
 
-        const isValid = await this.validateRefreshToken(
-            payload.sub,
-            options.refreshToken
+        // SECURITY: Distributed lock prevents concurrent refresh token rotation race condition
+        return this.distributedLockService.withLock(
+            `refresh:${payload.sub}`,
+            async () => {
+                const validationResult = await this.validateRefreshToken(
+                    payload.sub,
+                    options.refreshToken
+                );
+
+                if (!validationResult.valid) {
+                    if (validationResult.reuse) {
+                        // Token reuse detected — possible theft. Invalidate entire family.
+                        Logger.warn(`SECURITY: Refresh token reuse detected for user ${payload.sub}. Invalidating all tokens.`);
+                        await this.prisma.user.update({
+                            where: { id: payload.sub },
+                            data: { refreshToken: null, refreshTokenFamily: null },
+                        });
+                    }
+                    throw new InvalidRefreshToken(
+                        "Invalid refresh token",
+                        HttpStatus.UNAUTHORIZED
+                    );
+                }
+
+                if (payload.sessionId) {
+                    const isSessionValid = await this.sessionService.validateSession(
+                        payload.sessionId
+                    );
+
+                    if (!isSessionValid) {
+                        throw new InvalidRefreshToken(
+                            "Session expired or invalid",
+                            HttpStatus.UNAUTHORIZED
+                        );
+                    }
+                }
+
+                const newTokens = await this.generateTokens({
+                    sub: payload.sub,
+                    ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
+                });
+
+                // Rotate token but keep the same family
+                await this.saveRefreshToken(payload.sub, newTokens.refreshToken, validationResult.family);
+
+                return buildResponse({
+                    message: `Refresh token generated`,
+                    data: newTokens,
+                });
+            },
+            { ttlMs: 10000, maxWaitMs: 5000 }
         );
-
-        if (!isValid) {
-            throw new InvalidRefreshToken(
-                "Invalid refresh token",
-                HttpStatus.UNAUTHORIZED
-            );
-        }
-
-        const newTokens = await this.generateTokens({ sub: payload.sub });
-
-        await this.saveRefreshToken(payload.sub, newTokens.refreshToken);
-
-        return buildResponse({
-            message: `Refresh token generated`,
-            data: newTokens,
-        });
     }
 
-    async saveRefreshToken(id: number, refreshToken: string) {
+    private hashToken(token: string): string {
+        return crypto.createHash("sha256").update(token).digest("hex");
+    }
+
+    async saveRefreshToken(id: number, refreshToken: string, family?: string) {
         return this.prisma.user.update({
             where: { id: id },
-            data: { refreshToken },
+            data: {
+                refreshToken: this.hashToken(refreshToken),
+                refreshTokenFamily: family ?? crypto.randomUUID(),
+            },
         });
     }
 
-    async validateRefreshToken(id: number, refreshToken: string) {
+    async validateRefreshToken(
+        id: number,
+        refreshToken: string
+    ): Promise<{ valid: boolean; reuse?: boolean; family?: string }> {
         const user = await this.prisma.user.findUnique({
             where: { id: id },
+            select: { refreshToken: true, refreshTokenFamily: true },
         });
-        return user && user.refreshToken === refreshToken;
+        if (!user || !user.refreshToken) return { valid: false };
+        const hashedIncoming = this.hashToken(refreshToken);
+        if (user.refreshToken.length !== hashedIncoming.length) {
+            return { valid: false, reuse: !!user.refreshTokenFamily };
+        }
+        try {
+            const matches = crypto.timingSafeEqual(
+                Buffer.from(user.refreshToken, "utf8"),
+                Buffer.from(hashedIncoming, "utf8")
+            );
+            if (matches) {
+                return { valid: true, family: user.refreshTokenFamily ?? undefined };
+            }
+            return { valid: false, reuse: !!user.refreshTokenFamily };
+        } catch {
+            return { valid: false };
+        }
     }
 
     /**
@@ -2928,7 +3251,7 @@ export class AuthService {
         // Try TOTP code first (verify before checking rate limit - correct code bypasses lockout)
         let isValid = authenticator.verify({
             token: dto.code,
-            secret: user.twoFactorSecret,
+            secret: decryptField(user.twoFactorSecret),
         });
 
         // If TOTP fails, try backup code
@@ -2974,14 +3297,6 @@ export class AuthService {
             );
         }
 
-        // Generate actual tokens
-        const tokens = await this.generateTokens({
-            sub: user.id,
-            platform: payload.platform,
-        });
-
-        await this.saveRefreshToken(user.id, tokens.refreshToken);
-
         // Create session for user logins (2FA complete) with error handling
         // Session creation failure should NOT prevent login
         let sessionId: string | undefined;
@@ -3005,6 +3320,14 @@ export class AuthService {
                 // Session creation is non-critical, login should still succeed
             }
         }
+
+        const tokens = await this.generateTokens({
+            sub: user.id,
+            platform: payload.platform,
+            ...(sessionId ? { sessionId } : {}),
+        });
+
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
 
         await this.prisma.user.update({
             where: { id: user.id },

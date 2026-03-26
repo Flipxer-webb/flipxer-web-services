@@ -3,10 +3,11 @@ import { QuidaxWebhookController } from "./controllers";
 import { QuidaxWebhookEvent } from "./events";
 import { QuidaxWebhookService } from "./services";
 import { TradingModule } from "@/modules/api/trade";
+import { SessionModule } from "@/modules/api/session";
 export * from "./interfaces";
 
 @Module({
-    imports: [TradingModule],
+    imports: [TradingModule, SessionModule],
     providers: [QuidaxWebhookService, QuidaxWebhookEvent],
     controllers: [QuidaxWebhookController],
 })

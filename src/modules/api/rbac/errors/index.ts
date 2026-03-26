@@ -84,3 +84,15 @@ export class CannotModifySuperAdminException extends HttpException {
         );
     }
 }
+
+export class PrivilegeEscalationException extends HttpException {
+    constructor() {
+        super(
+            {
+                success: false,
+                message: "Only a super admin can assign the super-admin role",
+            },
+            HttpStatus.FORBIDDEN
+        );
+    }
+}

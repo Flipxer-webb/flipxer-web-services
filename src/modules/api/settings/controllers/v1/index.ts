@@ -34,6 +34,7 @@ import {
     // UpdateAllowedIpDto,
 } from "../../dtos";
 import { AuthGuard } from "@/modules/api/auth/guard";
+import { RateLimiterGuard } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 
@@ -41,6 +42,7 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "settings",
 })
+@UseGuards(RateLimiterGuard)
 export class SettingController {
     constructor(
         private settingService: SettingService,

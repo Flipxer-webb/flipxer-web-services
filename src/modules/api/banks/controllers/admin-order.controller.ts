@@ -12,7 +12,9 @@ import {
     ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { AuthGuard } from '../../auth/guard';
+import { AuthGuard, EnabledAccountGuard } from '../../auth/guard';
+import { RoleGuard } from '../../authorize/guards/role.guard';
+import { UserTypes, ADMIN_USER_TYPES } from '../../authorize/decorator';
 import { BankService } from '../services';
 import { SwapService } from '../../trade/services/swap.service';
 import { BuyOrderService } from '../../trade/services/buy-order.service';
@@ -32,7 +34,8 @@ import { User as UserModel, OrderCategory, OrderStatus, TransactionStatus } from
  */
 @ApiTags('Admin - Orders')
 @Controller('admin/orders')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, EnabledAccountGuard, RoleGuard)
+@UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth('access-token')
 export class AdminOrderController {
     private readonly logger = new Logger('AdminOrderController');

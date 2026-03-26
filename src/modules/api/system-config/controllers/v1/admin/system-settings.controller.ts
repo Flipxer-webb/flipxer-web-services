@@ -14,7 +14,7 @@ import { MaintenanceModeService } from "../../../services/maintenance-mode.servi
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { User } from "@/modules/api/user";
 import { User as UserModel, UserType } from "@prisma/client";
 import { SystemSettingDto, MaintenanceModeConfig } from "../../../types";
@@ -22,7 +22,7 @@ import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/settings/system")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 export class AdminSystemSettingsController {
     constructor(
         private readonly settingsService: SystemSettingsService,

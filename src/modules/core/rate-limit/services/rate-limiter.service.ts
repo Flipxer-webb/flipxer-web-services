@@ -20,6 +20,7 @@ export interface RateLimitConfig {
   limit: number;
   windowSeconds: number;
   keyPrefix: string;
+  failOpen?: boolean;
 }
 
 @Injectable()
@@ -91,6 +92,7 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
     const windowSeconds = config?.windowSeconds ?? this.options.windowSeconds;
     const keyPrefix = config?.keyPrefix ?? this.options.keyPrefix;
     const fullKey = `${keyPrefix}${key}`;
+    const failOpen = config?.failOpen ?? false;
 
     try {
       if (this.options.useRedis && this.client && this.isRedisConnected) {
@@ -98,9 +100,11 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
       }
       return this.checkInMemoryLimit(fullKey, limit, windowSeconds);
     } catch (error) {
-      this.logger.error(`Rate limit check failed for key ${key}:`, error);
-      // Fail open - allow the request if rate limiting fails
-      return { allowed: true, remaining: limit, resetTime: Date.now() + windowSeconds * 1000 };
+      this.logger.error(`SECURITY: Rate limit check failed for key ${key}:`, error);
+      if (failOpen) {
+        return { allowed: true, remaining: limit, resetTime: Date.now() + windowSeconds * 1000 };
+      }
+      return { allowed: false, remaining: 0, resetTime: Date.now() + windowSeconds * 1000, retryAfter: windowSeconds };
     }
   }
 

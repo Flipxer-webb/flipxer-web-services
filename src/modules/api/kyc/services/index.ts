@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta, defaultPagination } from "@/utils";
@@ -7,7 +7,6 @@ import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfDay, endOfDay,
 import {
     GetKycQueueDto,
     KycDecisionDto,
-    BulkKycDecisionDto,
     UpdateUserTierDto,
     UpdateUserVerificationDto,
     GetKycStatsDto,
@@ -15,6 +14,7 @@ import {
     RejectDocumentDto,
 } from "../dtos";
 import { TierService } from "@/modules/api/auth/services/tier.service";
+import { KycStateMachineService } from "@/modules/api/auth/services/kyc-state-machine.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { EmailService } from "@/modules/core/email/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -26,13 +26,10 @@ export class KycService {
     private readonly logger = new Logger(KycService.name);
     private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
-    // FIX: KC-005 concurrency limit for bulk operations to prevent
-    // database and notification service overload on large userIds arrays.
-    private readonly BULK_CONCURRENCY_LIMIT = 10;
-
     constructor(
         private readonly prisma: PrismaService,
         private readonly tierService: TierService,
+        private readonly kycStateMachine: KycStateMachineService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly emailService: EmailService,
         private readonly redisCacheService: RedisCacheService,
@@ -65,9 +62,37 @@ export class KycService {
                     { businessDocumentsUploaded: true, businessDocumentVerificationStatus: { not: "VERIFIED" } },
                 ],
             };
+        } else if (status === "APPROVED") {
+            // Users who have completed all core verifications
+            verificationFilter = {
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: true,
+            };
+        } else if (status === "REJECTED") {
+            // Users who have any active rejected KycVerification record
+            verificationFilter = {
+                kycVerifications: {
+                    some: {
+                        status: "REJECTED",
+                        isActive: true,
+                    } as any,
+                },
+            };
+        } else if (status === "ESCALATED") {
+            // Users who have any active escalated KycVerification record
+            verificationFilter = {
+                kycVerifications: {
+                    some: {
+                        status: "ESCALATED",
+                        isActive: true,
+                    } as any,
+                },
+            };
         }
 
-        // Build verification type specific filter
+        // Build verification type specific filter — keep separate to avoid OR key collisions
+        const typeConditions: Prisma.UserWhereInput[] = [];
         if (verificationType && verificationType !== "all") {
             const typeMap: Record<string, Prisma.UserWhereInput> = {
                 BVN: { isBvnVerified: false, bvn: { not: null } },
@@ -77,21 +102,28 @@ export class KycService {
                 INCOME: { isIncomeVerified: false },
                 BUSINESS_DOCUMENT: { businessDocumentsUploaded: true, businessDocumentVerificationStatus: { not: "VERIFIED" } },
             };
-            verificationFilter = { ...verificationFilter, ...typeMap[verificationType] };
+            if (typeMap[verificationType]) typeConditions.push(typeMap[verificationType]);
         }
 
-        const where: Prisma.UserWhereInput = {
-            userType: { not: UserType.ADMIN },
-            ...verificationFilter,
-            ...(tier !== undefined && { tier }),
-            ...(searchText && {
+        // AND-compose all filters so OR clauses in different sub-filters never overwrite each other
+        const andConditions: Prisma.UserWhereInput[] = [];
+        if (Object.keys(verificationFilter).length > 0) andConditions.push(verificationFilter);
+        if (typeConditions.length > 0) andConditions.push(...typeConditions);
+        if (tier !== undefined) andConditions.push({ tier });
+        if (searchText) {
+            andConditions.push({
                 OR: [
                     { firstName: { contains: searchText, mode: "insensitive" } },
                     { lastName: { contains: searchText, mode: "insensitive" } },
                     { email: { contains: searchText, mode: "insensitive" } },
                     { phone: { contains: searchText, mode: "insensitive" } },
                 ],
-            }),
+            });
+        }
+
+        const where: Prisma.UserWhereInput = {
+            userType: { not: UserType.ADMIN },
+            ...(andConditions.length > 0 ? { AND: andConditions } : {}),
         };
 
         const [users, count] = await this.prisma.$transaction([
@@ -157,10 +189,6 @@ export class KycService {
             pendingVerifications: this.getPendingVerifications(user),
         }));
 
-        // FIX: KC-003 removed DEBUG logs that exposed full businessDocument
-        // object on every KYC queue call. Business documents may contain sensitive
-        // fields and should never be logged in production at INFO level.
-
         return buildResponse({
             message: "KYC queue retrieved successfully",
             data: {
@@ -175,7 +203,12 @@ export class KycService {
             where: { id: userId },
             include: {
                 userDocument: true,
-                businessDocument: true,
+                businessDocument: {
+                    include: {
+                        directors: true,
+                        shareholders: true,
+                    },
+                },
                 businessRecord: true,
                 accountLimit: true,
                 order: {
@@ -269,31 +302,44 @@ export class KycService {
             return buildResponse({ message: "User not found", data: null });
         }
 
-        // FIX: KC-006 idempotency guard now also covers ESCALATE path to prevent
-        // duplicate KycVerification records and duplicate audit log entries when
-        // the same escalation is submitted more than once.
+        // Validate/record transition first so illegal transitions do not mutate user flags.
+        if (verificationType) {
+            const kycStatusMap: Record<string, "APPROVED" | "REJECTED" | "ESCALATED"> = {
+                APPROVE: "APPROVED",
+                REJECT: "REJECTED",
+                ESCALATE: "ESCALATED",
+            };
 
-        const alreadyFinal = action === "ESCALATE" ? await this.isEscalationAlreadyActive(userId, verificationType) : this.isVerificationAlreadyFinal(user, verificationType, action);
-
-        if (verificationType && alreadyFinal) {
-            return buildResponse({
-                message: `KYC ${action.toLowerCase()} already processed for ${verificationType}`,
-                data: {
+            try {
+                await this.kycStateMachine.transition(
                     userId,
-                    verificationType,
-                    action,
-                },
-            });
+                    verificationType as any,
+                    kycStatusMap[action],
+                    {
+                        reviewerId: adminId,
+                        reviewNote: note,
+                    },
+                );
+            } catch (error) {
+                if (error instanceof BadRequestException) {
+                    this.logger.warn(`KYC state transition rejected: ${error.message}`);
+                    return buildResponse({
+                        message: error.message,
+                        data: { userId, verificationType, action },
+                    });
+                }
+                throw error;
+            }
         }
 
         let updateData: Prisma.UserUpdateInput = {};
 
         if (action === "APPROVE") {
-            // Update verification status based on type or all pending
+            // Update verification status based on type
             if (verificationType) {
                 const verificationMap: Record<string, Prisma.UserUpdateInput> = {
-                    BVN: { isBvnVerified: true },
-                    NIN: { isNinVerified: true },
+                    BVN: { isBvnVerified: true, isNinVerified: false },
+                    NIN: { isNinVerified: true, isBvnVerified: false },
                     DOCUMENT: {
                         isDocumentVerified: true,
                         documentVerificationStatus: "VERIFIED",
@@ -307,16 +353,13 @@ export class KycService {
                         incomeVerificationStatus: "VERIFIED",
                     },
                     BUSINESS_DOCUMENT: {
+                        isDocumentVerified: true,
                         businessDocumentVerificationStatus: "VERIFIED",
                     },
                 };
                 updateData = verificationMap[verificationType] || {};
             }
-
-            // Tier is always derived from verification flags via syncTierAndCache below.
-            // Manual tier overrides removed to enforce verification-gated tier advancement.
         } else if (action === "REJECT") {
-            // For rejection, update status to DECLINED and clear document URL
             if (verificationType) {
                 const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
                     DOCUMENT: {
@@ -337,33 +380,8 @@ export class KycService {
                 };
                 updateData = rejectionMap[verificationType] || {};
             }
-        } else if (action === "ESCALATE") {
-            // Mark for senior review — no user-facing status change,
-            // but record escalation metadata on the active KycVerification
-            const activeVerification = verificationType
-                ? await this.prisma.kycVerification.findFirst({
-                    where: {
-                        userId,
-                        verificationType: (verificationType === "BUSINESS_DOCUMENT"
-                            ? "BUSINESS_DOCUMENT"
-                            : verificationType) as any,
-                        isActive: true,
-                    } as any,
-                    orderBy: { createdAt: "desc" },
-                })
-                : null;
-
-            if (activeVerification) {
-                await this.prisma.kycVerification.update({
-                    where: { id: activeVerification.id },
-                    data: {
-                        status: "ESCALATED",
-                        escalatedAt: new Date(),
-                        escalatedById: adminId,
-                    } as any,
-                });
-            }
         }
+        // ESCALATE: no user-facing status change
 
         const updatedUser = await this.prisma.user.update({
             where: { id: userId },
@@ -386,26 +404,6 @@ export class KycService {
         // Recalculate tier from verification flags and flush profile cache
         const syncedUser = await this.tierService.syncTierAndCache(userId);
 
-        // Create KycVerification record for audit trail
-        if (verificationType) {
-            const kycStatusMap: Record<string, "APPROVED" | "REJECTED" | "ESCALATED"> = {
-                APPROVE: "APPROVED",
-                REJECT: "REJECTED",
-                ESCALATE: "ESCALATED",
-            };
-
-            await this.prisma.kycVerification.create({
-                data: {
-                    userId,
-                    verificationType: verificationType as any,
-                    status: kycStatusMap[action] || "PENDING",
-                    reviewerId: adminId,
-                    reviewNote: note,
-                    reviewedAt: new Date(),
-                },
-            });
-        }
-
         // Create audit log — use syncedUser.tier (post-recalculation) for accuracy
         await this.prisma.auditLog.create({
             data: {
@@ -423,12 +421,6 @@ export class KycService {
         });
 
         // Send notification to user about KYC status
-
-
-        // FIX: KC-002 notification and email are fire-and-forget with catch so
-        // a failure in either does not surface as an unhandled rejection or cause
-        // the response to fail after the decision has already been committed.
-        // The KYC decision is the critical operation; notification is best-effort.
         const notificationType = verificationType ? `${verificationType.toLowerCase()} ` : "";
         const title =
             action === "APPROVE"
@@ -443,10 +435,13 @@ export class KycService {
                     ? `Your ${notificationType}verification was rejected. Reason: ${note || "No reason provided."}`
                     : `Your ${notificationType}verification has been escalated for additional review.`;
 
+        // KC-002: fire-and-forget — notification/email failure should not
+        // block the response after the KYC decision has been committed.
         this.notificationDispatcher.notify({
             userId,
             title,
             body,
+            category: "security",
             enablePush: true,
         }).catch((e) => this.logger.error(`Failed to send KYC push notification to user ${userId}: ${e.message}`));
 
@@ -512,48 +507,6 @@ export class KycService {
         } catch (error) {
             this.logger.error(`Failed to send KYC email to ${user.email}: ${error.message}`);
         }
-    }
-
-    /**
-     * Process KYC decisions for multiple users.
-     *
-     * FIX: KC-005 replaced unbounded Promise.allSettled over all userIds with
-     * a chunked executor that processes BULK_CONCURRENCY_LIMIT users at a time.
-     * The original implementation fired all processKycDecision calls simultaneously,
-     * each of which hits the database multiple times, calls syncTierAndCache, sends
-     * a push notification, and sends an email. On large arrays (e.g. 500 users) this
-     * saturates the DB connection pool and notification service concurrently.
-     */
-    async processBulkKycDecision(dto: BulkKycDecisionDto, adminId?: number): Promise<ApiResponse> {
-        const { userIds, action, note } = dto;
-
-        let successful = 0;
-        let failed = 0;
-
-        // Process in chunks of BULK_CONCURRENCY_LIMIT to avoid overwhelming
-        // the DB connection pool, notification service, and email service.
-        for (let i = 0; i < userIds.length; i += this.BULK_CONCURRENCY_LIMIT) {
-            const chunk = userIds.slice(i, i + this.BULK_CONCURRENCY_LIMIT);
-            const results = await Promise.allSettled(
-                chunk.map((userId) =>
-                    this.processKycDecision(
-                        { userId, action, note },
-                        adminId
-                    )
-                )
-            );
-            successful += results.filter((r) => r.status === "fulfilled").length;
-            failed += results.filter((r) => r.status === "rejected").length;
-        }
-
-        return buildResponse({
-            message: `Bulk KYC ${action.toLowerCase()} completed`,
-            data: {
-                total: userIds.length,
-                successful,
-                failed,
-            },
-        });
     }
 
     // ==================== USER TIER MANAGEMENT ====================
@@ -692,59 +645,34 @@ export class KycService {
     // ==================== KYC STATISTICS ====================
 
     async getKycStats(query: GetKycStatsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
 
-        // Fetch all non-admin users — use DB tier (single source of truth)
-        const allUsers = await this.prisma.user.findMany({
-            where: { userType: { not: UserType.ADMIN } },
-            select: {
-                id: true,
-                userType: true,
-                tier: true,
-                isEmailVerified: true,
-                isPhoneVerified: true,
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
-                isAddressVerified: true,
-                isIncomeVerified: true,
-                businessRecordCompleted: true,
-                businessDocumentsUploaded: true,
-                createdAt: true,
-                updatedAt: true,
-            },
-        });
+        const nonAdminWhere = { userType: { not: UserType.ADMIN } } as const;
 
-        const totalUsers = allUsers.length;
-
-        // Use stored DB tier instead of recalculating
-        let tier0Count = 0;
-        let tier1Count = 0;
-        let tier2Count = 0;
-        let tier3Count = 0;
-        let tier4Count = 0;
-
-        for (const user of allUsers) {
-            const storedTier = (user as any).tier ?? 0;
-            switch (storedTier) {
-                case 0: tier0Count++; break;
-                case 1: tier1Count++; break;
-                case 2: tier2Count++; break;
-                case 3: tier3Count++; break;
-                case 4: tier4Count++; break;
-            }
-        }
-
+        // Run all aggregate queries in parallel — no findMany needed
         const [
+            totalUsers,
+            tierGroups,
             pendingKyc,
             bvnVerified,
             ninVerified,
             documentVerified,
             newUsersInPeriod,
+            usersUpdatedInPeriod,
         ] = await Promise.all([
+            this.prisma.user.count({ where: nonAdminWhere }),
+
+            this.prisma.user.groupBy({
+                by: ["tier"],
+                where: nonAdminWhere,
+                _count: { _all: true },
+            }),
+
             this.prisma.user.count({
                 where: {
-                    userType: { not: UserType.ADMIN },
+                    ...nonAdminWhere,
                     OR: [
                         { isBvnVerified: false },
                         { isNinVerified: false },
@@ -753,28 +681,31 @@ export class KycService {
                 },
             }),
 
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isBvnVerified: true } }),
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isNinVerified: true } }),
-            this.prisma.user.count({ where: { userType: { not: UserType.ADMIN }, isDocumentVerified: true } }),
+            this.prisma.user.count({ where: { ...nonAdminWhere, isBvnVerified: true } }),
+            this.prisma.user.count({ where: { ...nonAdminWhere, isNinVerified: true } }),
+            this.prisma.user.count({ where: { ...nonAdminWhere, isDocumentVerified: true } }),
+
+            this.prisma.user.count({
+                where: { ...nonAdminWhere, createdAt: { gte: startDate, lte: endDate } },
+            }),
 
             this.prisma.user.count({
                 where: {
-                    userType: { not: UserType.ADMIN },
-                    createdAt: { gte: startDate, lte: endDate },
+                    ...nonAdminWhere,
+                    tier: { gte: 2 },
+                    updatedAt: { gte: startDate, lte: endDate },
                 },
             }),
         ]);
 
-        // Calculate KYC completed in period (users at tier >= 2 updated in period)
-        const usersUpdatedInPeriod = allUsers.filter(
-            (u) => u.updatedAt >= startDate && u.updatedAt <= endDate && ((u as any).tier ?? 0) >= 2
-        ).length;
-
-        // FIX: KC-001 guard against division by zero when totalUsers is 0.
-        // Without this, every percentage calculation produces NaN on an empty
-        // database (fresh environment, staging reset, etc.), corrupting the
-        // stats response. Returns "0.00" consistently when there are no users.
-        const safePct = (count: number): string =>
+        // Build tier distribution from groupBy result
+        const tierCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+        for (const group of tierGroups) {
+            const t = group.tier ?? 0;
+            if (t in tierCounts) tierCounts[t] = group._count._all;
+        }
+        const { 0: tier0Count, 1: tier1Count, 2: tier2Count, 3: tier3Count, 4: tier4Count } = tierCounts;
+        const percentage = (count: number): string =>
             totalUsers > 0 ? ((count / totalUsers) * 100).toFixed(2) : "0.00";
 
         return buildResponse({
@@ -788,16 +719,16 @@ export class KycService {
                         : "0.00",
                 },
                 tierDistribution: {
-                    tier0: { count: tier0Count, percentage: safePct(tier0Count) },
-                    tier1: { count: tier1Count, percentage: safePct(tier1Count) },
-                    tier2: { count: tier2Count, percentage: safePct(tier2Count) },
-                    tier3: { count: tier3Count, percentage: safePct(tier3Count) },
-                    tier4: { count: tier4Count, percentage: safePct(tier4Count) },
+                    tier0: { count: tier0Count, percentage: percentage(tier0Count) },
+                    tier1: { count: tier1Count, percentage: percentage(tier1Count) },
+                    tier2: { count: tier2Count, percentage: percentage(tier2Count) },
+                    tier3: { count: tier3Count, percentage: percentage(tier3Count) },
+                    tier4: { count: tier4Count, percentage: percentage(tier4Count) },
                 },
                 verificationBreakdown: {
-                    bvn: { verified: bvnVerified, rate: safePct(bvnVerified) },
-                    nin: { verified: ninVerified, rate: safePct(ninVerified) },
-                    document: { verified: documentVerified, rate: safePct(documentVerified) },
+                    bvn: { verified: bvnVerified, rate: percentage(bvnVerified) },
+                    nin: { verified: ninVerified, rate: percentage(ninVerified) },
+                    document: { verified: documentVerified, rate: percentage(documentVerified) },
                 },
                 periodMetrics: {
                     newUsers: newUsersInPeriod,
@@ -825,27 +756,6 @@ export class KycService {
         return pending;
     }
 
-    /**
-    * @deprecated Limits are derived from shared tier constants and enforced
-    * via Redis aggregate checks in transaction flows.
-    */
-    private async updateAccountLimits(userId: number, tier: number): Promise<void> {
-        const tierLimits: Record<number, Prisma.AccountLimitUpdateInput> = {
-            0: { sellTokenFiat: 50000, sendToken: 50000 },
-            1: { sellTokenFiat: 200000, sendToken: 200000 },
-            2: { sellTokenFiat: 1000000, sendToken: 1000000 },
-            3: { sellTokenFiat: 10000000, sendToken: 10000000 },
-        };
-
-        const limits = tierLimits[tier] || tierLimits[0];
-
-        await this.prisma.accountLimit.upsert({
-            where: { userId },
-            update: limits,
-            create: { userId, ...limits as any },
-        });
-    }
-
     private getDateRange(period: string): { startDate: Date; endDate: Date } {
         const now = new Date();
         switch (period) {
@@ -859,6 +769,8 @@ export class KycService {
                 return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
             case "year":
                 return { startDate: startOfYear(now), endDate: endOfYear(now) };
+            case "all":
+                return { startDate: new Date(0), endDate: now };
             default:
                 return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
         }
@@ -900,58 +812,4 @@ export class KycService {
         return map[documentType] || "DOCUMENT";
     }
 
-
-
-    /**
-     * Check if a verification action has already been finalised to prevent
-     * duplicate processing.
-     *
-     * FIX: KC-006 — ESCALATE is no longer unconditionally excluded from the
-     * idempotency check. The method now checks whether an active KycVerification
-     * record with status ESCALATED already exists for this user and verificationType.
-     * Previously, returning false for ESCALATE meant every repeated escalation call
-     * created a duplicate KycVerification record and a duplicate audit log entry.
-     */
-    private async isEscalationAlreadyActive(
-        userId: number,
-        verificationType?: string
-    ): Promise<boolean> {
-        if (!verificationType) return false;
-        const existing = await this.prisma.kycVerification.findFirst({
-            where: {
-                userId,
-                verificationType: verificationType as any,
-                status: "ESCALATED",
-            },
-            orderBy: { createdAt: "desc" },
-        });
-        return !!existing;
-    }
-
-    private isVerificationAlreadyFinal(
-        user: any,
-        verificationType: string,
-        action: "APPROVE" | "REJECT"
-    ): boolean {
-        const approvedChecks: Record<string, boolean> = {
-            BVN: user.isBvnVerified === true,
-            NIN: user.isNinVerified === true,
-            DOCUMENT: user.documentVerificationStatus === "VERIFIED",
-            ADDRESS: user.addressVerificationStatus === "VERIFIED",
-            INCOME: user.incomeVerificationStatus === "VERIFIED",
-            BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "VERIFIED",
-        };
-
-        const rejectedChecks: Record<string, boolean> = {
-            DOCUMENT: user.documentVerificationStatus === "DECLINED",
-            ADDRESS: user.addressVerificationStatus === "DECLINED",
-            INCOME: user.incomeVerificationStatus === "DECLINED",
-            BUSINESS_DOCUMENT: user.businessDocumentVerificationStatus === "DECLINED",
-        };
-
-        if (action === "APPROVE") return approvedChecks[verificationType] === true;
-        if (action === "REJECT") return rejectedChecks[verificationType] === true;
-
-        return false;
-    }
 }

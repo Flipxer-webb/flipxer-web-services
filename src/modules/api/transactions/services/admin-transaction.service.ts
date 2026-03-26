@@ -120,68 +120,70 @@ export class AdminTransactionService {
 
     // ==================== TRANSACTION STATS ====================
 
-    async getTransactionStats(period: string = "month"): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(period);
+    async getTransactionStats(period: string = "month", status?: string, type?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
+        const { startDate, endDate } = startDateStr && endDateStr
+            ? { startDate: new Date(startDateStr), endDate: endOfDay(new Date(endDateStr)) }
+            : this.getDateRange(period);
 
-        const [
-            totalCount,
-            completedCount,
-            pendingCount,
-            failedCount,
-            totalVolume,
-            completedOrdersForFees,
-            volumeByCategory,
-        ] = await Promise.all([
-            this.prisma.order.count({
-                where: { createdAt: { gte: startDate, lte: endDate } },
-            }),
-            this.prisma.order.count({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                },
-            }),
-            this.prisma.order.count({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.pending,
-                },
-            }),
-            this.prisma.order.count({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.failed,
-                },
-            }),
-            this.prisma.order.aggregate({
-                _sum: { amountInFiat: true },
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                },
-            }),
-            // Fetch completed orders with fee and rate to calculate fees in fiat
-            this.prisma.order.findMany({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                    fee: { not: null },
-                },
-                select: {
-                    fee: true,
-                    rateAtConversion: true,
-                },
-            }),
-            this.prisma.order.groupBy({
-                by: ["orderCategory"],
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                },
-                _sum: { amountInFiat: true },
-                _count: true,
-            }),
-        ]);
+        // Base date+type filter — no streamlinedStatus here to avoid field conflicts
+        const baseWhere = {
+            createdAt: { gte: startDate, lte: endDate },
+            ...(type && { orderCategory: type as any }),
+        };
+
+        // Filter that includes the optional status
+        const filteredWhere = {
+            ...baseWhere,
+            ...(status && { streamlinedStatus: status as OrderStreamlinedStatus }),
+        };
+
+        // Total is always against the fully filtered WHERE
+        const totalCount = await this.prisma.order.count({ where: filteredWhere });
+
+        // Per-status breakdown: when status filter is set, derive trivially to avoid field conflicts
+        let completedCount: number;
+        let pendingCount: number;
+        let failedCount: number;
+
+        if (status) {
+            completedCount = status === OrderStreamlinedStatus.completed ? totalCount : 0;
+            pendingCount   = status === OrderStreamlinedStatus.pending   ? totalCount : 0;
+            failedCount    = status === OrderStreamlinedStatus.failed    ? totalCount : 0;
+        } else {
+            [completedCount, pendingCount, failedCount] = await Promise.all([
+                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.completed } }),
+                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.pending } }),
+                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.failed } }),
+            ]);
+        }
+
+        // Volume & fees only apply when we might have completed orders
+        const showVolume = !status || status === OrderStreamlinedStatus.completed;
+        const completedBaseWhere = { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.completed };
+
+        let totalVolume: { _sum: { amountInFiat: number | null } };
+        let completedOrdersForFees: { fee: any; rateAtConversion: any }[];
+        let volumeByCategory: any[];
+
+        if (showVolume) {
+            [totalVolume, completedOrdersForFees, volumeByCategory] = await Promise.all([
+                this.prisma.order.aggregate({ _sum: { amountInFiat: true }, where: completedBaseWhere }),
+                this.prisma.order.findMany({
+                    where: { ...completedBaseWhere, fee: { not: null } },
+                    select: { fee: true, rateAtConversion: true },
+                }),
+                this.prisma.order.groupBy({
+                    by: ["orderCategory"],
+                    where: completedBaseWhere,
+                    _sum: { amountInFiat: true },
+                    _count: true,
+                }),
+            ]);
+        } else {
+            totalVolume = { _sum: { amountInFiat: null } };
+            completedOrdersForFees = [];
+            volumeByCategory = [];
+        }
 
         // Calculate total fees in fiat (fee * rateAtConversion for each order)
         const totalFeesInFiat = completedOrdersForFees.reduce((sum, order) => {
@@ -800,6 +802,8 @@ export class AdminTransactionService {
                 return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
             case "year":
                 return { startDate: startOfYear(now), endDate: endOfYear(now) };
+            case "all":
+                return { startDate: new Date(0), endDate: now };
             default:
                 return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
         }

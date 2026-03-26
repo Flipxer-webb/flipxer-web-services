@@ -1,4 +1,4 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Country, DocumentType } from "@prisma/client";
 import {
     IsAlphanumeric,
@@ -11,6 +11,11 @@ import {
     IsOptional,
     IsPhoneNumber,
     IsString,
+    IsArray,
+    IsDateString,
+    ValidateNested,
+    Min,
+    Max,
     Length,
     Matches,
     MaxLength,
@@ -453,6 +458,78 @@ export class UploadBusinessDocumentFileFormDto {
     file: any;
 }
 
+export class BusinessDirectorDto {
+    @ApiProperty({ description: "Director full name" })
+    @IsNotEmpty()
+    @IsString()
+    fullName: string;
+
+    @ApiProperty({ description: "Nationality" })
+    @IsNotEmpty()
+    @IsString()
+    nationality: string;
+
+    @ApiProperty({ description: "Date of birth (YYYY-MM-DD)" })
+    @IsNotEmpty()
+    @IsDateString()
+    dateOfBirth: string;
+
+    @ApiProperty({ description: "Residential address" })
+    @IsNotEmpty()
+    @IsString()
+    residentialAddress: string;
+
+    @ApiProperty({ description: "Business address" })
+    @IsNotEmpty()
+    @IsString()
+    businessAddress: string;
+
+    @ApiPropertyOptional({ description: "National Identification Number (NIN)", required: false })
+    @IsOptional()
+    @IsString()
+    nin?: string;
+}
+
+export class BusinessShareholderDto {
+    @ApiProperty({ description: "Shareholder full name" })
+    @IsNotEmpty()
+    @IsString()
+    fullName: string;
+
+    @ApiProperty({ description: "Nationality" })
+    @IsNotEmpty()
+    @IsString()
+    nationality: string;
+
+    @ApiProperty({ description: "Date of birth (YYYY-MM-DD)" })
+    @IsNotEmpty()
+    @IsDateString()
+    dateOfBirth: string;
+
+    @ApiProperty({ description: "Residential address" })
+    @IsNotEmpty()
+    @IsString()
+    residentialAddress: string;
+
+    @ApiProperty({ description: "Business address" })
+    @IsNotEmpty()
+    @IsString()
+    businessAddress: string;
+
+    @ApiPropertyOptional({ description: "National Identification Number (NIN)", required: false })
+    @IsOptional()
+    @IsString()
+    nin?: string;
+
+    @ApiProperty({ description: "Ownership percentage (>5)" })
+    @IsNotEmpty()
+    @IsNumber()
+    @Type(() => Number)
+    @Min(5)
+    @Max(100)
+    ownershipPercentage: number;
+}
+
 export class SubmitBusinessDocumentsDto {
     @ApiProperty({ description: "A valid CAC document number" })
     @IsNotEmpty()
@@ -464,6 +541,67 @@ export class SubmitBusinessDocumentsDto {
     })
     @IsOptional()
     articleOfAssociationNumber?: string;
+
+    @ApiPropertyOptional({ description: "Company website URL", required: false })
+    @IsOptional()
+    @IsString()
+    companyWebsite?: string;
+
+    @ApiPropertyOptional({ description: "Company tax ID (TIN) as text value", required: false })
+    @IsOptional()
+    @IsString()
+    companyTaxId?: string;
+
+    @ApiPropertyOptional({ description: "Company registered address", required: false })
+    @IsOptional()
+    @IsString()
+    companyAddress?: string;
+
+    @ApiPropertyOptional({
+        description: "Nature of business (one of the supported categories)",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    natureOfBusiness?: string;
+
+    @ApiPropertyOptional({
+        description: "Purpose of transaction / end use",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    purposeOfTransaction?: string;
+
+    @ApiPropertyOptional({
+        description: "If purposeOfTransaction is 'Other', specify here",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    purposeOfTransactionOther?: string;
+
+    @ApiPropertyOptional({
+        description: "Directors list (with per-director KYC details)",
+        required: false,
+        type: () => [BusinessDirectorDto],
+    })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => BusinessDirectorDto)
+    directors?: BusinessDirectorDto[];
+
+    @ApiPropertyOptional({
+        description: "Shareholders (>5%) list (with per-shareholder KYC details)",
+        required: false,
+        type: () => [BusinessShareholderDto],
+    })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => BusinessShareholderDto)
+    shareholders?: BusinessShareholderDto[];
 
     @ApiProperty({
         description:

@@ -189,7 +189,7 @@ async function main() {
             create: {
                 email: "hello@flipxer.com",
                 phone: "09010000000",
-                userType: UserType.ADMIN,
+                userType: UserType.SUPER_ADMIN,
                 identifier: "8jhPCbsdSKxKwfgi",
                 password: hashedAdminPassword,
                 roleId: adminRole.id,

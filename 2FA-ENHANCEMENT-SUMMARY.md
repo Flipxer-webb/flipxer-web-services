@@ -3,15 +3,15 @@
 ## Completed Features (December 19, 2025)
 
 ### 1. Database Schema Enhancement
-**File**: [prisma/schema.prisma](resolve-web-services/prisma/schema.prisma)
-**Migration**: [20251219000001_add_two_factor_backup_codes](resolve-web-services/prisma/migrations/20251219000001_add_two_factor_backup_codes/migration.sql)
+**File**: [prisma/schema.prisma](flipxer-web-services/prisma/schema.prisma)
+**Migration**: [20251219000001_add_two_factor_backup_codes](flipxer-web-services/prisma/migrations/20251219000001_add_two_factor_backup_codes/migration.sql)
 
 - Added `twoFactorBackupCodes String?` field to User model
 - Stores JSON array of hashed backup codes for account recovery
 - Migration ready to deploy
 
 ### 2. Rate Limiting with Exponential Backoff
-**File**: [two-factor-rate-limit.service.ts](resolve-web-services/src/modules/api/auth/services/two-factor-rate-limit.service.ts)
+**File**: [two-factor-rate-limit.service.ts](flipxer-web-services/src/modules/api/auth/services/two-factor-rate-limit.service.ts)
 
 **Features**:
 - Exponential backoff delays:
@@ -32,8 +32,8 @@
 
 ### 3. Backup Codes System
 **Files**: 
-- [backup-codes.util.ts](resolve-web-services/src/modules/api/auth/utils/backup-codes.util.ts)
-- [settings/services/index.ts](resolve-web-services/src/modules/api/settings/services/index.ts) (enhanced)
+- [backup-codes.util.ts](flipxer-web-services/src/modules/api/auth/utils/backup-codes.util.ts)
+- [settings/services/index.ts](flipxer-web-services/src/modules/api/settings/services/index.ts) (enhanced)
 
 **Features**:
 - Generates 10 backup codes in format `XXXX-XXXX-XX` (e.g., `ABCD-1234-EF`)
@@ -52,8 +52,8 @@
 
 ### 4. Tier-Based Transaction Thresholds
 **Files**:
-- [tier-threshold.util.ts](resolve-web-services/src/modules/api/auth/utils/tier-threshold.util.ts)
-- [auth/guard/index.ts](resolve-web-services/src/modules/api/auth/guard/index.ts) (TwoFactorGuard enhanced)
+- [tier-threshold.util.ts](flipxer-web-services/src/modules/api/auth/utils/tier-threshold.util.ts)
+- [auth/guard/index.ts](flipxer-web-services/src/modules/api/auth/guard/index.ts) (TwoFactorGuard enhanced)
 
 **Thresholds** (amounts converted to NGN):
 - **Tier 0** (Basic): All transactions require 2FA if enabled (≥ ₦0)
@@ -69,8 +69,8 @@
 
 ### 5. Integrated Rate Limiting in Verification Flows
 **Files**:
-- [auth/services/index.ts](resolve-web-services/src/modules/api/auth/services/index.ts) - `verify2FALogin()` enhanced
-- [auth/guard/index.ts](resolve-web-services/src/modules/api/auth/guard/index.ts) - `TwoFactorGuard` enhanced
+- [auth/services/index.ts](flipxer-web-services/src/modules/api/auth/services/index.ts) - `verify2FALogin()` enhanced
+- [auth/guard/index.ts](flipxer-web-services/src/modules/api/auth/guard/index.ts) - `TwoFactorGuard` enhanced
 
 **Login Flow** (`verify2FALogin`):
 1. Check rate limit before verification
@@ -95,9 +95,9 @@
 
 ### 6. Admin Reset Endpoint
 **Files**:
-- [auth/dtos/index.ts](resolve-web-services/src/modules/api/auth/dtos/index.ts) - `Reset2FARateLimitDto`
-- [auth/services/index.ts](resolve-web-services/src/modules/api/auth/services/index.ts) - `reset2FARateLimit()`
-- [auth/controllers/v1/admin.ts](resolve-web-services/src/modules/api/auth/controllers/v1/admin.ts) - `POST /admin/auth/reset-2fa-rate-limit`
+- [auth/dtos/index.ts](flipxer-web-services/src/modules/api/auth/dtos/index.ts) - `Reset2FARateLimitDto`
+- [auth/services/index.ts](flipxer-web-services/src/modules/api/auth/services/index.ts) - `reset2FARateLimit()`
+- [auth/controllers/v1/admin.ts](flipxer-web-services/src/modules/api/auth/controllers/v1/admin.ts) - `POST /admin/auth/reset-2fa-rate-limit`
 
 **Endpoint**: `POST /api/v1/admin/auth/reset-2fa-rate-limit`
 
@@ -122,7 +122,7 @@
 ```
 
 ### 7. Module Configuration
-**File**: [auth/index.ts](resolve-web-services/src/modules/api/auth/index.ts)
+**File**: [auth/index.ts](flipxer-web-services/src/modules/api/auth/index.ts)
 
 **Changes**:
 - Imported `TwoFactorRateLimitService` 
@@ -220,7 +220,7 @@ COMMENT ON COLUMN "Users"."twoFactorBackupCodes" IS 'JSON array of hashed backup
 
 ### Option 2: Use Prisma Migrate (Development)
 ```bash
-cd resolve-web-services
+cd flipxer-web-services
 npx prisma migrate deploy
 npx prisma generate
 ```

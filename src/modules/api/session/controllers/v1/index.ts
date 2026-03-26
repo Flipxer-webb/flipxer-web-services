@@ -81,6 +81,20 @@ export class SessionController {
         return this.sessionService.extendSession(req.user, dto.sessionId);
     }
 
+    @Post("invalidate-current")
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Invalidate current session (logout)" })
+    async invalidateCurrentSession(
+        @Req() req: RequestWithUser,
+        @Body() dto: ExtendSessionDto
+    ): Promise<ApiResponse> {
+        return this.sessionService.invalidateCurrentSession(
+            req.user,
+            dto.sessionId
+        );
+    }
+
     @Get("count")
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)

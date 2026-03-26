@@ -35,6 +35,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import * as requestIp from "request-ip";
 import { GeoIPService } from "@/modules/core/geoip/geoip.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import { decryptField } from "@/utils";
 import { Socket } from "socket.io";
 import {
     WsAuthTokenValidationException,
@@ -54,12 +55,14 @@ import {
     jwtSecret,
     quidaxConfig,
 } from "@/config";
+import { SessionService } from "@/modules/api/session/services";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
     constructor(
         private jwtService: JwtService,
-        private prisma: PrismaService
+        private prisma: PrismaService,
+        private sessionService: SessionService
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -74,8 +77,9 @@ export class AuthGuard implements CanActivate {
         }
 
         try {
-            const user = await this.verifyAndFetchUser(token);
+            const { user, payload } = await this.verifyAndFetchUser(token);
             request.user = user;
+            request.sessionId = payload.sessionId;
             return true;
         } catch (error) {
             this.handleAuthError(error);
@@ -107,7 +111,23 @@ export class AuthGuard implements CanActivate {
             );
         }
 
-        return user;
+        // Backward compatibility: legacy tokens may not include sessionId.
+        if (payload.sessionId) {
+            const isSessionValid = await this.sessionService.validateSession(
+                payload.sessionId
+            );
+
+            if (!isSessionValid) {
+                throw new InvalidAuthTokenException(
+                    "Your session is unauthorized or expired",
+                    HttpStatus.UNAUTHORIZED
+                );
+            }
+
+            await this.sessionService.touchSessionActivity(payload.sessionId);
+        }
+
+        return { user, payload };
     }
 
     private handleAuthError(error: any): never {
@@ -166,6 +186,11 @@ export class QuidaxWebhookGuard implements CanActivate {
         const request = context
             .switchToHttp()
             .getRequest() as RequestFromQuidax;
+
+        if (!quidaxConfig.webhook_key) {
+            this.logger.error("[WEBHOOK AUTH] SECURITY: QUIDAX_WEBHOOK_KEY not configured - rejecting all webhooks");
+            return false;
+        }
 
         const quidaxSignature = request.headers["quidax-signature"] as string;
 
@@ -279,7 +304,7 @@ export class FincraWebhookGuard implements CanActivate {
         }
 
         const computed = createHmac("sha512", secret)
-            .update(JSON.stringify(request.body))
+            .update(((request as any).rawBody ? (Buffer.isBuffer((request as any).rawBody) ? (request as any).rawBody : Buffer.from((request as any).rawBody)) : Buffer.from(JSON.stringify(request.body))))
             .digest("hex");
 
         // Use timing-safe comparison to prevent timing attacks
@@ -794,7 +819,7 @@ export class TwoFactorGuard implements CanActivate {
         // Try TOTP code first
         let isValid = authenticator.verify({
             token: code,
-            secret: secret,
+            secret: decryptField(secret),
         });
 
         // If TOTP fails and settingService available, try backup code

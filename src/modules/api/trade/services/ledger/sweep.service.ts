@@ -4,7 +4,9 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { LedgerService } from "./ledger.service";
+import { quidaxConfig } from "@/config";
 import { Decimal } from "@prisma/client/runtime/library";
 import { randomUUID } from "crypto";
 
@@ -44,11 +46,17 @@ export interface PendingSweep {
  * Sweep flow:
  * 1. Deposit webhook credits user ledger (sweepStatus = PENDING)
  * 2. Sweep cron picks up pending sweeps
- * 3. Initiates transfer from sub-account to main wallet
+ * 3. Initiates internal transfer from sub-account to main wallet (fund_uid: mainAccountId)
  * 4. Updates sweepStatus to IN_PROGRESS, stores sweepTxId for webhook correlation
- * 5. Quidax webhook calls handleSweepConfirmation()
+ * 5. Quidax fires withdraw.successful webhook → routed by reference prefix "sweep-"
+ *    to handleSweepConfirmation() via TradingService facade
  * 6. sweepStatus updated to COMPLETED or FAILED
  * 7. User can now withdraw
+ *
+ * Internal transfer (fund_uid: mainAccountId) vs on-chain withdrawal:
+ * - Fee-free: no blockchain network fees
+ * - Instant: no block confirmation wait
+ * - fund_uid must be the main account UUID — "me" is rejected as invalid_address (SW-012)
  *
  * Fix notes:
  * - SW-001: handleSweepConfirmation() fully implemented. sweepTxId column on
@@ -58,7 +66,7 @@ export interface PendingSweep {
  *   backoff, and caps retries at MAX_LIFETIME_RETRIES.
  * - SW-003: updateSweepStatus() is now private with a state machine transition
  *   guard. External callers use purpose-built public methods.
- * - SW-004: getMainWalletAddress() pre-fetched per currency before sweep loop.
+ * - SW-004: (removed) Wallet address pre-fetch no longer needed — internal transfer.
  * - SW-005: processPendingSweeps() protected by a distributed job lock.
  * - SW-006: MIN_SWEEP_AMOUNTS unknown currency throws instead of defaulting to 0.
  * - SW-007: sweepReference uses randomUUID() suffix instead of Date.now().
@@ -81,16 +89,23 @@ export class SweepService {
     // Stale sweep window — entries older than this are auto-failed
     private readonly SWEEP_BLOCK_WINDOW_HOURS = 2;
 
+    // SW-009: Stale IN_PROGRESS window — entries stuck in IN_PROGRESS longer
+    // than this are considered abandoned and eligible for retry.
+    // 15 minutes is well beyond the normal Quidax transfer time (seconds–minutes).
+    private readonly STALE_IN_PROGRESS_MINUTES = 15;
+
     // Minimum amount to sweep (avoid dust)
     // FIX: SW-006 — unknown currencies are explicitly rejected rather than
     // silently defaulting to Decimal(0) which would sweep any dust amount
+    // Thresholds lowered: internal transfers are fee-free,
+    // so we only need to guard against true dust rather than covering network fees.
     private readonly MIN_SWEEP_AMOUNTS: Record<string, Decimal> = {
-        BTC: new Decimal(0.0001),
-        ETH: new Decimal(0.001),
-        USDT: new Decimal(1),
-        USDC: new Decimal(1),
-        BNB: new Decimal(0.01),
-        SOL: new Decimal(0.1),
+        BTC: new Decimal(0.00001),
+        ETH: new Decimal(0.0001),
+        USDT: new Decimal(0.01),
+        USDC: new Decimal(0.01),
+        BNB: new Decimal(0.001),
+        SOL: new Decimal(0.01),
     };
 
     // FIX: SW-003 — valid state machine transitions.
@@ -98,17 +113,28 @@ export class SweepService {
     // transition throws to prevent callers from corrupting sweep state.
     private readonly VALID_TRANSITIONS: Partial<Record<SweepStatus, SweepStatus[]>> = {
         [SweepStatus.PENDING]: [SweepStatus.IN_PROGRESS, SweepStatus.NOT_APPLICABLE, SweepStatus.COMPLETED],
-        [SweepStatus.IN_PROGRESS]: [SweepStatus.COMPLETED, SweepStatus.FAILED],
-        [SweepStatus.FAILED]: [SweepStatus.PENDING],
+        [SweepStatus.IN_PROGRESS]: [SweepStatus.COMPLETED, SweepStatus.FAILED, SweepStatus.PENDING],
+        [SweepStatus.FAILED]: [SweepStatus.PENDING, SweepStatus.NOT_APPLICABLE],
         // COMPLETED and NOT_APPLICABLE are terminal — no valid next state
     };
+
+    // Quidax error messages that indicate a non-retryable condition.
+    // Sweeps matching these patterns are marked NOT_APPLICABLE instead of FAILED
+    // because retrying will never succeed.
+    private readonly NON_RETRYABLE_ERRORS: RegExp[] = [
+        /insufficient balance/i,
+        /account.*not found/i,
+        /account.*disabled/i,
+        /account.*suspended/i,
+    ];
 
     constructor(
         private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
         private readonly lockService: DistributedLockService,
-        private readonly ledgerService: LedgerService
+        private readonly ledgerService: LedgerService,
+        private readonly slackWebhookService: SlackWebhookService
     ) { }
 
     /**
@@ -154,19 +180,16 @@ export class SweepService {
      *
      * @param ledgerEntryId Ledger entry ID
      * @returns Sweep result
-     * FIX: SW-004 — accepts optional pre-fetched wallet address to avoid
-     * redundant Quidax API calls when processing a batch of same-currency sweeps.
      */
     async initiateSweep(
-        ledgerEntryId: string,
-        cachedWalletAddress?: string
+        ledgerEntryId: string
     ): Promise<SweepResult> {
         const lockKey = `sweep:${ledgerEntryId}`;
 
         try {
             return await this.lockService.withLock(
                 lockKey,
-                async () => this.executeSweep(ledgerEntryId, cachedWalletAddress),
+                async () => this.executeSweep(ledgerEntryId),
                 { ttlMs: 30000, maxWaitMs: 5000, strict: true }
             );
         } catch (error) {
@@ -198,16 +221,17 @@ export class SweepService {
     /**
      * Executes sweep within distributed lock
      *
+     * Uses Quidax internal transfer (fund_uid: mainAccountId) to move funds from
+     * sub-account to main wallet. This is fee-free and instant compared
+     * to on-chain withdrawals.
+     *
      * FIX: SW-006 — unknown currencies fail explicitly rather than defaulting
      * to a zero minimum and sweeping dust amounts.
      * FIX: SW-007 — sweepReference uses randomUUID() suffix instead of
      * Date.now() to guarantee collision resistance across retries.
-     * FIX: SW-004 — wallet address accepted as parameter; only fetched from
-     * Quidax if not pre-supplied by the caller (processPendingSweeps).
      */
     private async executeSweep(
-        ledgerEntryId: string,
-        cachedWalletAddress?: string
+        ledgerEntryId: string
     ): Promise<SweepResult> {
         // Get the ledger entry
         const entry = await this.prisma.ledgerEntry.findUnique({
@@ -279,27 +303,37 @@ export class SweepService {
         try {
             // Mark as in progress
             await this.updateSweepStatus(ledgerEntryId, SweepStatus.IN_PROGRESS);
-            // Get main wallet deposit address for this currency
-            // FIX: SW-004 — use pre-fetched address if provided, otherwise fetch
-            const mainWalletAddress = cachedWalletAddress
-                ?? await this.getMainWalletAddress(entry.currency);
 
-            if (!mainWalletAddress) {
-                throw new Error(
-                    `Could not get main wallet address for ${entry.currency}`
-                );
-            }
             // Generate unique reference for this sweep
             // FIX: SW-007 — randomUUID() suffix is collision-resistant across
             // retries and clock drift, unlike Date.now() which is not monotonic
             const sweepReference = `sweep-${ledgerEntryId}-${randomUUID().slice(0, 8)}`;
-            // Initiate withdrawal from sub-account to main wallet address
-            // This is essentially an internal transfer using the withdrawal API
+
+            // FIX: SW-010 — log the full Quidax request for debugging sweep failures
+            this.logger.log(
+                `Initiating sweep Quidax transfer | ${JSON.stringify({
+                    ledgerEntryId,
+                    userId: entry.userId,
+                    subAccountId: entry.user.cryptoSubAccountId,
+                    currency: entry.currency.toLowerCase(),
+                    amount: entry.credit.toString(),
+                    reference: sweepReference,
+                })}`
+            );
+
+            // Initiate internal transfer from sub-account to main wallet.
+            // fund_uid must be the main account UUID — Quidax treats "me" as a
+            // literal address string, causing invalid_address rejection (SW-012).
+            const mainAccountId = quidaxConfig.mainAccountId;
+            if (!mainAccountId) {
+                throw new Error("QUIDAX_MAIN_ACCOUNT_ID not configured — cannot sweep");
+            }
+
             const transferResult = await this.quidaxService.createWithdrawerRequest({
                 user_id: entry.user.cryptoSubAccountId,
                 currency: entry.currency.toLowerCase(),
                 amount: entry.credit.toString(),
-                fund_uid: mainWalletAddress,
+                fund_uid: mainAccountId,
                 transaction_note: `Sweep from sub-account to main wallet`,
                 narration: `Ledger sweep: ${ledgerEntryId}`,
                 reference: sweepReference,
@@ -336,44 +370,54 @@ export class SweepService {
                 transactionId: transferResult.data.id,
             };
         } catch (error) {
+            const errorMsg = error.message || String(error);
+            const isNonRetryable = this.NON_RETRYABLE_ERRORS.some(re => re.test(errorMsg));
+
+            // FIX: SW-010 — log full error details including Quidax response
+            this.logger.error(
+                `Sweep Quidax API call failed | ${JSON.stringify({
+                    ledgerEntryId,
+                    userId: entry.userId,
+                    currency: entry.currency,
+                    error: errorMsg,
+                    errorName: error.name || error.constructor?.name,
+                    isNonRetryable,
+                    status: error.status ?? error.getStatus?.() ?? 'unknown',
+                })}`
+            );
+
+            if (isNonRetryable) {
+                this.logger.warn(
+                    `Sweep permanently failed (non-retryable) | ${JSON.stringify({
+                        ledgerEntryId,
+                        error: errorMsg,
+                    })}`
+                );
+                // FIX: SW-010 — mark as FAILED only, do NOT auto-transition to
+                // NOT_APPLICABLE. Non-retryable errors like "insufficient balance"
+                // may be transient (e.g., deposit still confirming on Quidax side).
+                // The retry mechanism will eventually exhaust MAX_LIFETIME_RETRIES (3)
+                // and stop retrying, but the entry stays FAILED for manual review
+                // rather than silently being swept under the rug as NOT_APPLICABLE.
+                await this.updateSweepStatus(
+                    ledgerEntryId,
+                    SweepStatus.FAILED,
+                    `non-retryable: ${errorMsg}`
+                );
+                return { success: false, ledgerEntryId, error: errorMsg };
+            }
+
             this.logger.error(
                 `Sweep failed | ${JSON.stringify({
                     ledgerEntryId,
-                    error: error.message,
+                    error: errorMsg,
                 })}`
             );
 
-            // Mark as failed
+            // Mark as failed (retryable)
             await this.updateSweepStatus(ledgerEntryId, SweepStatus.FAILED);
 
-            return { success: false, ledgerEntryId, error: error.message };
-        }
-    }
-
-    /**
-     * Gets the main wallet deposit address for a currency
-     *
-     * @param currency Currency symbol
-     * @returns Deposit address for main wallet
-     */
-    private async getMainWalletAddress(currency: string): Promise<string | null> {
-        try {
-            // Get main account ("me") wallet for this currency
-            // The wallet contains deposit_address
-            const walletData = await this.quidaxService.getUserWallet({
-                user_id: "me",
-                currency: currency.toLowerCase(),
-            });
-
-            return walletData?.data?.deposit_address ?? null;
-        } catch (error) {
-            this.logger.error(
-                `Failed to get main wallet address | ${JSON.stringify({
-                    currency,
-                    error: error.message,
-                })}`
-            );
-            return null;
+            return { success: false, ledgerEntryId, error: errorMsg };
         }
     }
 
@@ -451,10 +495,11 @@ export class SweepService {
 
     /**
      * Marks a sweep as not applicable (terminal)
-     * Called when a user has no sub-account to sweep from.
+     * Called when a user has no sub-account to sweep from,
+     * or by admin to resolve permanently-failed sweeps.
      */
-    async markNotApplicable(ledgerEntryId: string): Promise<void> {
-        await this.updateSweepStatus(ledgerEntryId, SweepStatus.NOT_APPLICABLE);
+    async markNotApplicable(ledgerEntryId: string, reason?: string): Promise<void> {
+        await this.updateSweepStatus(ledgerEntryId, SweepStatus.NOT_APPLICABLE, reason);
     }
 
     /**
@@ -475,7 +520,8 @@ export class SweepService {
      */
     async handleSweepConfirmation(
         transactionId: string,
-        status: "completed" | "failed"
+        status: "completed" | "failed",
+        reason?: string
     ): Promise<void> {
         const lockKey = `sweep-confirm:${transactionId}`;
 
@@ -521,7 +567,9 @@ export class SweepService {
                     await this.updateSweepStatus(
                         entry.id,
                         newStatus,
-                        `quidax webhook: ${status}`
+                        reason
+                            ? `quidax webhook: ${status} — ${reason}`
+                            : `quidax webhook: ${status}`
                     );
 
                     this.logger.log(
@@ -531,6 +579,7 @@ export class SweepService {
                             currency: entry.currency,
                             transactionId,
                             status: newStatus,
+                            reason: reason ?? null,
                         })}`
                     );
                 },
@@ -553,10 +602,6 @@ export class SweepService {
      * FIX: SW-005 — protected by a distributed Redis job lock so only one
      * pod runs the batch per cron cycle. Per-entry locks in initiateSweep()
      * are retained as a secondary safety net for direct calls.
-     *
-     * FIX: SW-004 — wallet addresses pre-fetched per unique currency before
-     * the sweep loop. One Quidax API call per currency per run instead of
-     * one call per entry.
      */
     async processPendingSweeps(): Promise<number> {
         // FIX: SW-005 — job-level lock prevents concurrent pod execution.
@@ -577,31 +622,12 @@ export class SweepService {
 
                     this.logger.log(`Processing ${pending.length} pending sweeps`);
 
-                    // FIX: SW-004 — pre-fetch one wallet address per unique currency
-                    const uniqueCurrencies = [...new Set(pending.map(s => s.currency))];
-                    const addressCache = new Map<string, string>();
-
-                    await Promise.all(
-                        uniqueCurrencies.map(async (currency) => {
-                            const addr = await this.getMainWalletAddress(currency);
-                            if (addr) {
-                                addressCache.set(currency, addr);
-                            } else {
-                                this.logger.warn(
-                                    `Could not pre-fetch wallet address for ${currency} — affected sweeps will be skipped`
-                                );
-                            }
-                        })
-                    );
-
                     let processed = 0;
 
                     for (const sweep of pending) {
                         try {
-                            // Pass cached address — no Quidax call inside the loop
                             const result = await this.initiateSweep(
-                                sweep.ledgerEntryId,
-                                addressCache.get(sweep.currency)
+                                sweep.ledgerEntryId
                             );
                             if (result.success) {
                                 processed++;
@@ -619,8 +645,10 @@ export class SweepService {
                     return processed;
                 },
                 // ttlMs covers worst-case batch: BATCH_SIZE(10) * per-sweep max(30s) + margin
+                // Reduced from 360s to 120s to avoid stale lock overlapping the 5-min cron interval.
+                // Actual execution typically completes in <30s for 10 entries.
                 // strict: false — do not wait if another pod holds the lock, skip instead
-                { ttlMs: 360000, maxWaitMs: 0, strict: false }
+                { ttlMs: 120000, maxWaitMs: 0, strict: false }
             );
         } catch (error) {
             if (error.message?.includes("Failed to acquire lock")) {
@@ -677,8 +705,88 @@ export class SweepService {
      *   Retry 2 (sweepRetryCount = 1): eligible after 4 min
      *   Retry 3 (sweepRetryCount = 2): eligible after 8 min
      *   Beyond MAX_LIFETIME_RETRIES (3): permanently skipped
+     *
+     * FIX: SW-009 — also recovers stale IN_PROGRESS entries.
+     * If an entry has been IN_PROGRESS longer than STALE_IN_PROGRESS_MINUTES
+     * (default 15 min), the transfer is presumed lost. The entry is reset
+     * to PENDING (via the state machine) with an incremented retry count,
+     * then immediately re-initiated. An optimistic concurrency gate
+     * (sweepStatus must still be IN_PROGRESS) prevents racing with a
+     * legitimate late-arriving completion webhook.
+     *
+     * FIX: SW-013 — protected by a distributed Redis job lock (like
+     * processPendingSweeps) to prevent multi-pod race conditions.
      */
     async retryFailedSweeps(maxRetries = 5): Promise<number> {
+        const jobLockKey = "job:sweep:retry_failed";
+
+        try {
+            return await this.lockService.withLock(
+                jobLockKey,
+                async () => this._retryFailedSweepsInner(maxRetries),
+                { ttlMs: 120000, maxWaitMs: 0, strict: false }
+            );
+        } catch (error) {
+            if (error.message?.includes("Failed to acquire lock")) {
+                this.logger.debug("Retry job already running on another pod — skipping");
+                return 0;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Inner implementation of retryFailedSweeps, called within the job lock.
+     */
+    private async _retryFailedSweepsInner(maxRetries: number): Promise<number> {
+        let retried = 0;
+
+        // ── Phase 0: Alert on permanently exhausted entries (SW-014) ────
+        // Find FAILED entries that have hit the retry cap and are silently
+        // stuck. We alert once per cron cycle so admins take manual action.
+        const exhausted = await this.prisma.ledgerEntry.findMany({
+            where: {
+                type: LedgerType.DEPOSIT,
+                sweepStatus: SweepStatus.FAILED,
+                status: EntryStatus.SETTLED,
+                sweepRetryCount: { gte: this.MAX_LIFETIME_RETRIES },
+            },
+            select: {
+                id: true,
+                userId: true,
+                currency: true,
+                credit: true,
+                sweepRetryCount: true,
+                updatedAt: true,
+            },
+        });
+
+        if (exhausted.length > 0) {
+            this.logger.warn(
+                `${exhausted.length} sweep(s) permanently failed after ${this.MAX_LIFETIME_RETRIES} retries — manual intervention required`
+            );
+
+            await this.slackWebhookService.sendSystemAlert(
+                "sweep",
+                "Sweep Retries Exhausted",
+                `${exhausted.length} deposit sweep(s) have exhausted all ${this.MAX_LIFETIME_RETRIES} retries and are permanently stuck. ` +
+                `Affected users cannot withdraw until these are resolved manually.`,
+                {
+                    count: exhausted.length,
+                    entries: exhausted.map((e) => ({
+                        ledgerEntryId: e.id,
+                        userId: e.userId,
+                        currency: e.currency,
+                        amount: e.credit?.toString(),
+                        retries: e.sweepRetryCount,
+                        lastAttempt: e.updatedAt.toISOString(),
+                    })),
+                },
+                "error"
+            );
+        }
+
+        // ── Phase 1: retry FAILED entries (existing behaviour) ──────────
         const failed = await this.prisma.ledgerEntry.findMany({
             where: {
                 type: LedgerType.DEPOSIT,
@@ -696,13 +804,9 @@ export class SweepService {
             },
         });
 
-        if (failed.length === 0) {
-            return 0;
+        if (failed.length > 0) {
+            this.logger.log(`Checking ${failed.length} failed sweeps for retry eligibility`);
         }
-
-        this.logger.log(`Checking ${failed.length} failed sweeps for retry eligibility`);
-
-        let retried = 0;
 
         for (const entry of failed) {
             const retryCount = entry.sweepRetryCount;
@@ -748,7 +852,71 @@ export class SweepService {
             }
 
             this.logger.log(
-                `Retrying sweep | ledgerEntryId: ${entry.id} | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
+                `Retrying failed sweep | ledgerEntryId: ${entry.id} | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
+            );
+
+            const result = await this.initiateSweep(entry.id);
+            if (result.success) {
+                retried++;
+            }
+        }
+
+        // ── Phase 2: recover stale IN_PROGRESS entries (SW-009) ─────────
+        const staleCutoff = new Date(
+            Date.now() - this.STALE_IN_PROGRESS_MINUTES * 60 * 1000
+        );
+
+        const staleInProgress = await this.prisma.ledgerEntry.findMany({
+            where: {
+                type: LedgerType.DEPOSIT,
+                sweepStatus: SweepStatus.IN_PROGRESS,
+                status: EntryStatus.SETTLED,
+                updatedAt: { lt: staleCutoff },
+                sweepRetryCount: { lt: this.MAX_LIFETIME_RETRIES },
+            },
+            orderBy: { updatedAt: "asc" },
+            take: maxRetries,
+            select: {
+                id: true,
+                sweepRetryCount: true,
+                updatedAt: true,
+                currency: true,
+            },
+        });
+
+        if (staleInProgress.length > 0) {
+            this.logger.log(
+                `Found ${staleInProgress.length} stale IN_PROGRESS sweeps (>${this.STALE_IN_PROGRESS_MINUTES}min) — recovering`
+            );
+        }
+
+        for (const entry of staleInProgress) {
+            const retryCount = entry.sweepRetryCount;
+
+            // Optimistic concurrency gate: only reset if still IN_PROGRESS.
+            // If a late webhook moved it to COMPLETED between our SELECT and
+            // this UPDATE, the count will be 0 and we skip safely.
+            const updateResult = await this.prisma.ledgerEntry.updateMany({
+                where: {
+                    id: entry.id,
+                    sweepStatus: SweepStatus.IN_PROGRESS, // gate
+                },
+                data: {
+                    sweepStatus: SweepStatus.PENDING,
+                    sweepRetryCount: retryCount + 1,
+                },
+            });
+
+            if (updateResult.count === 0) {
+                // Webhook arrived or another process handled it
+                this.logger.debug(
+                    `Stale sweep already resolved | ledgerEntryId: ${entry.id}`
+                );
+                continue;
+            }
+
+            this.logger.log(
+                `Recovering stale IN_PROGRESS sweep | ledgerEntryId: ${entry.id} | staleFor: ${Math.round((Date.now() - entry.updatedAt.getTime()) / 60000)}min | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
             );
 
             const result = await this.initiateSweep(entry.id);
@@ -817,12 +985,6 @@ export class SweepService {
                 this.logger.log(
                     `Auto-resolving ${staleEntries.length} stale sweep entries for omnibus user ${userId} (${currency})`
                 );
-                // FIX: SW-008 — route through updateSweepStatus for audit trail
-                // Note: IN_PROGRESS → NOT_APPLICABLE is not a standard transition
-                // so we go via FAILED for IN_PROGRESS entries, then could re-mark
-                // but for omnibus users the simplest correct path is direct prisma
-                // update since this is an exceptional cleanup, not a normal flow.
-                // We document the reason explicitly.
                 await this.prisma.ledgerEntry.updateMany({
                     where: {
                         userId,
@@ -842,19 +1004,23 @@ export class SweepService {
             return false;
         }
 
-        // Sub-account user — auto-fail stale entries beyond the window
+        // Sub-account user — only auto-fail entries that are truly stale
+        // FIX: SW-010 — use updatedAt instead of createdAt for the cutoff.
+        // createdAt reflects when the deposit arrived; updatedAt reflects
+        // the last sweep attempt. A deposit may be old but the sweep was
+        // retried recently (e.g., 5 min ago). Using createdAt would kill
+        // legitimate in-flight retries.
         const cutoff = new Date();
         cutoff.setHours(cutoff.getHours() - this.SWEEP_BLOCK_WINDOW_HOURS);
 
-        // FIX: SW-008 — fetch stale entries first, then update each through
-        // updateSweepStatus() so every transition is validated and logged
+        // FIX: SW-010 — use updatedAt for staleness (not createdAt)
         const staleEntries = await this.prisma.ledgerEntry.findMany({
             where: {
                 userId,
                 currency: currency.toUpperCase(),
                 type: LedgerType.DEPOSIT,
                 sweepStatus: { in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS] },
-                createdAt: { lt: cutoff },
+                updatedAt: { lt: cutoff },
             },
             select: { id: true, sweepStatus: true },
         });
@@ -881,7 +1047,9 @@ export class SweepService {
             );
         }
 
-        // Count only recent blocking sweeps
+        // FIX: SW-010 — use updatedAt for the pending count too, so that
+        // recently-retried sweeps still block withdrawal (they're active),
+        // while truly ancient ones have already been auto-failed above.
         const pendingCount = await this.prisma.ledgerEntry.count({
             where: {
                 userId,
@@ -890,7 +1058,6 @@ export class SweepService {
                 sweepStatus: {
                     in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS],
                 },
-                createdAt: { gte: cutoff },
             },
         });
 

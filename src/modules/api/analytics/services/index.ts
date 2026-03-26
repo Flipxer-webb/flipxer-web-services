@@ -38,7 +38,9 @@ export class AnalyticsService {
     // ==================== DASHBOARD OVERVIEW ====================
 
     async getDashboardOverview(query: GetAnalyticsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
 
         const [
             totalUsers,
@@ -99,15 +101,11 @@ export class AnalyticsService {
                 },
             }),
 
-            // KYC pending count
+            // KYC pending count (Tier 0 users - not yet KYC verified)
             this.prisma.user.count({
                 where: {
                     userType: { not: UserType.ADMIN },
-                    OR: [
-                        { isBvnVerified: false },
-                        { isNinVerified: false },
-                        { isDocumentVerified: false },
-                    ],
+                    tier: 0,
                 },
             }),
         ]);
@@ -169,13 +167,11 @@ export class AnalyticsService {
         );
         const usersChange = this.calculatePercentageChange(prevNewUsers, newUsersCount);
 
-        // Count verified users (tier >= 2 or all verifications complete)
+        // Count KYC verified users (tier >= 1, i.e. completed at least one KYC tier)
         const verifiedUsers = await this.prisma.user.count({
             where: {
                 userType: { not: UserType.ADMIN },
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
+                tier: { gte: 1 },
             },
         });
 
@@ -226,7 +222,9 @@ export class AnalyticsService {
     // ==================== TRANSACTION ANALYTICS ====================
 
     async getTransactionVolume(query: GetChartDataDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
         const granularity = query.granularity || "daily";
 
         const categoryFilter = query.category && query.category !== "all"
@@ -306,7 +304,9 @@ export class AnalyticsService {
     }
 
     async getTransactionsByStatus(query: GetAnalyticsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
 
         const statusCounts = await this.prisma.order.groupBy({
             by: ["streamlinedStatus"],
@@ -336,7 +336,9 @@ export class AnalyticsService {
     // ==================== USER ANALYTICS ====================
 
     async getUserGrowth(query: GetUserGrowthDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
         const granularity = "daily";
 
         const userTypeFilter = query.userType && query.userType !== "all"
@@ -419,7 +421,9 @@ export class AnalyticsService {
     }
 
     async getUserActivity(query: GetAnalyticsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
 
         // Users with transactions
         const activeUserIds = await this.prisma.order.groupBy({
@@ -489,7 +493,9 @@ export class AnalyticsService {
     // ==================== REVENUE ANALYTICS ====================
 
     async getRevenueAnalytics(query: GetRevenueAnalyticsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
         const granularity = "daily";
 
         const transactions = await this.prisma.order.findMany({
@@ -652,7 +658,9 @@ export class AnalyticsService {
     // ==================== CONVERSION FUNNEL ====================
 
     async getConversionFunnel(query: GetAnalyticsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(query.period || "month");
+        const { startDate, endDate } = query.startDate && query.endDate
+            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
+            : this.getDateRange(query.period || "month");
 
         // Funnel stages
         const [

@@ -115,6 +115,25 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
 
+     // SECURITY: QUIDAX_WEBHOOK_KEY is required - without it, all Quidax webhooks
+     // are rejected and crypto deposits/withdrawals/swaps will never fulfill.
+    {
+        name: "QUIDAX_WEBHOOK_KEY",
+        type: RequiredEnvironmentTypes.String,
+    },
+    // SECURITY: NOMBA_WEBHOOK_SECRET is required - without it, all Nomba webhooks
+    // are rejected and fiat payment confirmations will never fulfill BUY orders.
+    {
+        name: "NOMBA_WEBHOOK_SECRET",
+        type: RequiredEnvironmentTypes.String,
+    },
+     // FRONTEND_URL is required - used for CORS, email links, and redirect URLs.
+    // Hardcoded fallback removed to prevent accidental cross-environment leakage.
+    {
+        name: "FRONTEND_URL",
+        type: RequiredEnvironmentTypes.String,
+    },
+
     // Note: The following are now OPTIONAL (not validated at startup):
     // - Cloudinary (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET)
     // - ImageKit (IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, IMAGEKIT_URL)
@@ -163,10 +182,10 @@ try {
 export const allowedDomains =
     process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
 export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
-export const isProduction: boolean = process.env.NODE_ENV === "production";
+export const isProduction: boolean = process.env.ENVIRONMENT === "production";
 export const port: number = parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
-export const frontendUrl = process.env.FRONTEND_URL || "https://resolve-web-app-cyan.vercel.app";
+export const frontendUrl = process.env.FRONTEND_URL;
 // JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
@@ -282,6 +301,7 @@ export interface QuidaxConfig {
     api_public: string;
     api_secret: string;
     webhook_key: string;
+    mainAccountId: string;
 }
 export const quidaxConfig: QuidaxConfig = {
     baseUrl: process.env.QUIDAX_BASE_URL || "",
@@ -289,6 +309,7 @@ export const quidaxConfig: QuidaxConfig = {
     api_public: process.env.QUIDAX_API_PUBLIC || "",
     api_secret: process.env.QUIDAX_API_SECRET || "",
     webhook_key: process.env.QUIDAX_WEBHOOK_KEY || "",
+    mainAccountId: process.env.QUIDAX_MAIN_ACCOUNT_ID || "",
 };
 
 export interface TradingConfig {

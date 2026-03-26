@@ -420,6 +420,30 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         // Log the withdrawal event status for debugging
         this.logger.log(`[WITHDRAWAL] Processing withdrawal: ${eventData.reference} | Status: ${eventData.status}`);
 
+        // Route sweep webhooks to SweepService via TradingService facade.
+        // Sweep references are prefixed with "sweep-" and should never hit
+        // the Order lookup path (which would throw TransactionNotFoundException).
+        if (eventData.reference?.startsWith('sweep-')) {
+            const sweepStatus =
+                normalizedStatus === 'done' ||
+                normalizedStatus === 'successful' ||
+                normalizedStatus === 'success' ||
+                normalizedStatus === 'completed'
+                    ? 'completed' as const
+                    : 'failed' as const;
+
+            this.logger.log(
+                `[WITHDRAWAL] Routing sweep webhook | txId: ${eventData.id} | reference: ${eventData.reference} | status: ${sweepStatus} | reason: ${eventData.reason ?? 'none'}`
+            );
+
+            await this.tradingService.handleSweepConfirmation(
+                eventData.id,
+                sweepStatus,
+                eventData.reason ?? undefined
+            );
+            return;
+        }
+
         switch (true) {
             case normalizedStatus === OrderStatus.done:
             case normalizedStatus === "successful":
@@ -428,6 +452,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
                     status: OrderStatus.done,
+                    txid: eventData.txid,
                 });
                 break;
 
@@ -436,6 +461,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
                     status: OrderStatus.failed, // Map rejected/failed to OrderStatus.failed
+                    txid: eventData.txid,
                 });
                 break;
 

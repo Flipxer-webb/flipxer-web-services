@@ -10,9 +10,10 @@ import { TradingFactoryModule } from "@/modules/factory/trading";
 import { MessageModule } from "@/modules/core/messages/message.module";
 import { TradingModule } from "../trade";
 import { OperationsModule } from "../operations";
+import { SessionModule } from "../session";
 
 @Module({
-    imports: [BankFactoryModule, TradingFactoryModule, MessageModule, forwardRef(() => TradingModule), OperationsModule],
+    imports: [BankFactoryModule, TradingFactoryModule, MessageModule, forwardRef(() => TradingModule), OperationsModule, SessionModule],
     providers: [BankService, PrismaService],
     controllers: [BankController, FincraWebhookController, NombaWebhookController, AdminOrderController],
     exports: [BankService],
