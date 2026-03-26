@@ -242,6 +242,7 @@ export class DepositWebhookHandler {
                 rateAtConversion: amtFiat?.rate,
                 createdAt: depositCreatedAt,
                 updatedAt: depositCompletedAt || depositCreatedAt,
+                network: options.network ?? undefined,
             },
         });
 

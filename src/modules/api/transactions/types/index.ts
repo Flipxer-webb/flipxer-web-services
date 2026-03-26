@@ -13,6 +13,23 @@ export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
     };
 }>;
 
+/**
+ * Derives payment method / sender name for receipt display.
+ * Buy: from Order.paymentMethod if set (e.g. from Nomba); Sell: bank name or platform.
+ */
+function getPaymentMethodForReceipt(
+    orderCategory: OrderCategory,
+    order: TransactionIncludeOptions
+): string | null {
+    if (orderCategory === OrderCategory.SELL) {
+        return order.destinationBankName ?? order.paymentMethod ?? "Flipxer";
+    }
+    if (orderCategory === OrderCategory.BUY) {
+        return order.paymentMethod ?? null;
+    }
+    return null;
+}
+
 export const shapeTransaction = (
     t: TransactionIncludeOptions,
     filter = false
@@ -21,6 +38,9 @@ export const shapeTransaction = (
     const isSwap = t.orderCategory === OrderCategory.SWAP;
     const displayAmount = isSwap ? (t?.fromAmount ?? t?.amount) : t?.amount;
     const displayCurrency = isSwap ? (t?.fromCurrency ?? t?.currency) : t?.currency;
+
+    const isSend = t.orderCategory === OrderCategory.SEND;
+    const isReceive = t.orderCategory === OrderCategory.RECEIVE;
 
     return {
         orderId: t.id,
@@ -58,6 +78,7 @@ export const shapeTransaction = (
         recipient: t?.recipient,
         fee: t?.fee,
         total: t?.total,
+        // Receipt fields (aligned with ITransaction on frontend)
         amountInFiat: t?.amountInFiat,
         rateAtConversion: t?.rateAtConversion,
         totalToReceiveInFiat: t?.totalToReceiveInFiat,
@@ -66,8 +87,12 @@ export const shapeTransaction = (
         orderReference: t?.orderReference,
         providerOrderId: t?.providerOrderId,
         sender: t?.sender,
+        network: t?.network ?? undefined,
         txHash: t?.blockchain_txid,
         sourceType: t?.sourceType,
+        paymentMethod: getPaymentMethodForReceipt(t.orderCategory, t) ?? undefined,
+        senderWallet: isReceive ? (t?.sender ?? undefined) : undefined,
+        receiverWallet: isSend ? (t?.recipient ?? undefined) : isReceive ? (t?.recipient ?? undefined) : undefined,
         market: t?.market,
         orderType: t?.orderType,
         orderSide: t?.orderSide,

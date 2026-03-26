@@ -724,6 +724,7 @@ export class SendService {
                 sender: user.email,
                 sourceType: resolvedNetwork || currency,
                 ledgerEntryId: holdResult.entryId,
+                network: dto.network ?? undefined,
             },
         });
 
