@@ -92,18 +92,18 @@ export class NombaWebhookController {
 
         // Extract Standard Fields
         // 1. Reference: Must match what we stored in Payment.reference
-        //    - order.orderReference              → checkout/order flow
-        //    - data.reference                    → generic events
+        //    - transaction.aliasAccountReference → actual Nomba VA payment_success field (prod)
         //    - data.accountRef                   → virtual-account credit events (VA buy flow)
         //    - transaction.accountRef            → payment_success with nested transaction
-        //    - transaction.aliasAccountReference → actual Nomba VA payment_success field (prod)
+        //    - order.orderReference              → checkout/order flow
+        //    - data.reference                    → generic events
         //    - transaction.reference             → alternative transaction-level ref
         //    - transaction.merchantTxRef         → last-resort fallback (Nomba's own ref)
-        const reference = order.orderReference
-            || data.reference
+        const reference = transaction.aliasAccountReference
             || data.accountRef
             || transaction.accountRef
-            || transaction.aliasAccountReference
+            || order.orderReference
+            || data.reference
             || transaction.reference
             || transaction.merchantTxRef;
 
