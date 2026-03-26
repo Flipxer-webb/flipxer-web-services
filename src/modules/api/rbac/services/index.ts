@@ -577,7 +577,7 @@ export class RbacService {
         if (dto.roleId) {
             // Sync userType when role changes
             const newRole = await this.prisma.role.findUnique({ where: { id: dto.roleId } });
-            if (!newRole || !newRole.isAdmin) {
+            if (!newRole?.isAdmin) {
                 throw new RoleNotFoundException("Admin role not found");
             }
             updateData.role = { connect: { id: dto.roleId } };

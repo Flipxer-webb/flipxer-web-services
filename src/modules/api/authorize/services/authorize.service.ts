@@ -1,6 +1,5 @@
 import { PrismaService } from "@/modules/core/prisma/services";
 import { Injectable, UseGuards } from "@nestjs/common";
-import { UserType } from "@prisma/client";
 
 import { AuthGuard } from "../../auth/guard";
 import { RoleGuard } from "../guards/role.guard";

@@ -61,7 +61,7 @@ async function createBackup() {
         }
 
         // pg_dump is available — use execFile to avoid shell injection
-        const { execFile } = require('child_process');
+        const { execFile } = require('node:child_process');
 
         execFile('pg_dump', [DATABASE_URL, '-f', backupFile], (error, stdout, stderr) => {
             if (error) {

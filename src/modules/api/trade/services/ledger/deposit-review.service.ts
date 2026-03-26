@@ -1,10 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { DepositReviewStatus, LedgerType, SweepStatus } from "@prisma/client";
+import { DepositReviewStatus, LedgerType, SweepStatus, Prisma } from "@prisma/client";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { LedgerService } from "./ledger.service";
 import { Decimal } from "@prisma/client/runtime/library";
-import { Prisma } from "@prisma/client";
 
 /**
  * Result of deposit float check

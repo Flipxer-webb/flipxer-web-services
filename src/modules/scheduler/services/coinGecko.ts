@@ -159,7 +159,7 @@ export class PriceCacheSchedulerService implements OnModuleInit {
 
         for (const coin of this.coins) {
             if (coin.toLowerCase() === "usdt") {
-                prices["usdt"] = 1.0;
+                prices["usdt"] = 1;
                 continue;
             }
             try {

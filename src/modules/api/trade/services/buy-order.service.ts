@@ -4,7 +4,7 @@ import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
-import { COMPANY_NAME, frontendUrl } from "@/config";
+import { COMPANY_NAME } from "@/config";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
@@ -265,7 +265,7 @@ export class BuyOrderService {
                 include: { order: true },
             });
 
-            if (existingPayment && existingPayment.order) {
+            if (existingPayment?.order) {
                 if (existingPayment.userId !== user.id) {
                     throw new BadRequestException(
                         "Idempotency key belongs to a different user"
@@ -317,7 +317,7 @@ export class BuyOrderService {
             },
         });
 
-        if (existingPendingPayment && existingPendingPayment.order) {
+        if (existingPendingPayment?.order) {
             this.logger.warn(
                 `User ${user.id} already has a pending buy order for ${dto.asset.toUpperCase()} (Order: ${existingPendingPayment.orderId}) - Returning existing order`
             );

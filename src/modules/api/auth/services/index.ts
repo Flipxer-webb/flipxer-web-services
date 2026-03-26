@@ -3075,7 +3075,7 @@ export class AuthService {
             where: { id: id },
             select: { refreshToken: true, refreshTokenFamily: true },
         });
-        if (!user || !user.refreshToken) return { valid: false };
+        if (!user?.refreshToken) return { valid: false };
         const hashedIncoming = this.hashToken(refreshToken);
         if (user.refreshToken.length !== hashedIncoming.length) {
             return { valid: false, reuse: !!user.refreshTokenFamily };

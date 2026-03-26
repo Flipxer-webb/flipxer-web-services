@@ -12,7 +12,6 @@ import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { UserType } from "@prisma/client";
 import { ReportConfig, ReportFilters } from "../../../types";
 import { buildResponse } from "@/utils/api-response-util";
 

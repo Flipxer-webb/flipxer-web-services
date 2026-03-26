@@ -17,6 +17,18 @@ import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { TierService, TierInfo } from "./tier.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 
+interface RedisLimitCheckOptions {
+    user: User;
+    amount: number;
+    currency: string;
+    amountUSD: number;
+    key: string;
+    limit: number;
+    tierInfo: TierInfo;
+    path: string;
+    dailyKey?: string | null;
+}
+
 @Injectable()
 export class TransactionService {
     private readonly logger = new Logger(TransactionService.name);
@@ -147,15 +159,15 @@ export class TransactionService {
         // Try atomic Redis increment for daily limit
         if (!hasUnlimitedWithdrawal) {
             const dailyLimit = tierWithdrawalLimit as number;
-            const consumed = await this.checkRedisDailyLimit(user, amount, currency, amountUSD, dailyKey, dailyLimit, tierInfo, path);
+            const consumed = await this.checkRedisDailyLimit({ user, amount, currency, amountUSD, key: dailyKey, limit: dailyLimit, tierInfo, path });
             if (consumed) usedRedis = true;
         }
 
         // Try atomic Redis increment for monthly limit
-        const monthlyConsumed = await this.checkRedisMonthlyLimit(
-            user, amount, currency, amountUSD, monthlyKey, monthlyLimit,
-            hasUnlimitedWithdrawal ? null : dailyKey, path
-        );
+        const monthlyConsumed = await this.checkRedisMonthlyLimit({
+            user, amount, currency, amountUSD, key: monthlyKey, limit: monthlyLimit,
+            tierInfo, dailyKey: hasUnlimitedWithdrawal ? null : dailyKey, path,
+        });
         if (monthlyConsumed) usedRedis = true;
 
         // ==================== DB FALLBACK (if Redis unavailable) ====================
@@ -166,10 +178,8 @@ export class TransactionService {
     }
 
     /** Atomic Redis daily limit check. Returns true if Redis responded (regardless of pass/fail). */
-    private async checkRedisDailyLimit(
-        user: User, amount: number, currency: string, amountUSD: number,
-        dailyKey: string, dailyLimit: number, tierInfo: TierInfo, path: string,
-    ): Promise<boolean> {
+    private async checkRedisDailyLimit(opts: RedisLimitCheckOptions): Promise<boolean> {
+        const { user, amount, currency, amountUSD, key: dailyKey, limit: dailyLimit, tierInfo, path } = opts;
         const newDailyTotal = await this.redisCacheService.incrbyfloat(dailyKey, amountUSD, 86400);
         if (newDailyTotal === null) return false;
 
@@ -189,10 +199,8 @@ export class TransactionService {
     }
 
     /** Atomic Redis monthly limit check. Returns true if Redis responded. */
-    private async checkRedisMonthlyLimit(
-        user: User, amount: number, currency: string, amountUSD: number,
-        monthlyKey: string, monthlyLimit: number, dailyKey: string | null, path: string,
-    ): Promise<boolean> {
+    private async checkRedisMonthlyLimit(opts: RedisLimitCheckOptions): Promise<boolean> {
+        const { user, amount, currency, amountUSD, key: monthlyKey, limit: monthlyLimit, dailyKey, path } = opts;
         const newMonthlyTotal = await this.redisCacheService.incrbyfloat(monthlyKey, amountUSD, 2678400);
         if (newMonthlyTotal === null) return false;
 

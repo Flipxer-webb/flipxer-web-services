@@ -9,7 +9,7 @@ import {
     FeatureFlagAuditEntry,
 } from "../types";
 import { FeatureFlagAction } from "@prisma/client";
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 
 const FLAG_CACHE_PREFIX = "system:feature_flag:";
 const FLAG_CACHE_TTL = 60; // 1 minute
@@ -203,11 +203,11 @@ export class FeatureFlagService {
     }
 
     private isUserExcluded(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
-        return !!conditions.excludeUserIds?.includes(context.userId!);
+        return !!conditions.excludeUserIds?.includes(context.userId);
     }
 
     private isUserWhitelisted(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
-        return !!conditions.allowedUserIds?.includes(context.userId!);
+        return !!conditions.allowedUserIds?.includes(context.userId);
     }
 
     private isOutsideDateRange(conditions: FeatureFlagConditions): boolean {
@@ -247,7 +247,7 @@ export class FeatureFlagService {
      */
     private getUserPercentage(userId: number): number {
         const hash = crypto.createHash("sha256").update(String(userId)).digest("hex");
-        const num = parseInt(hash.substring(0, 8), 16);
+        const num = Number.parseInt(hash.substring(0, 8), 16);
         return num % 100;
     }
 

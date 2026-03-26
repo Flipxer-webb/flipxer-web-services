@@ -259,18 +259,18 @@ export function extractDocumentDate(text: string): Date | null {
     const dmyRegex = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/g;
     let match: RegExpExecArray | null;
     while ((match = dmyRegex.exec(text)) !== null) {
-        const day = parseInt(match[1], 10);
-        const month = parseInt(match[2], 10) - 1; // 0-indexed
-        const year = parseInt(match[3], 10);
+        const day = Number.parseInt(match[1], 10);
+        const month = Number.parseInt(match[2], 10) - 1; // 0-indexed
+        const year = Number.parseInt(match[3], 10);
         tryAddDate(year, month, day);
     }
 
     // Pattern 2: YYYY-MM-DD (ISO) — only match if not already captured by DMY
     const isoRegex = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
     while ((match = isoRegex.exec(text)) !== null) {
-        const year = parseInt(match[1], 10);
-        const month = parseInt(match[2], 10) - 1;
-        const day = parseInt(match[3], 10);
+        const year = Number.parseInt(match[1], 10);
+        const month = Number.parseInt(match[2], 10) - 1;
+        const day = Number.parseInt(match[3], 10);
         tryAddDate(year, month, day);
     }
 
@@ -278,9 +278,9 @@ export function extractDocumentDate(text: string): Date | null {
     // Use broad [a-z]+ match — MONTH_MAP lookup validates the month name
     const dMyRegex = /\b(\d{1,2})\s+([a-z]+)\s+(\d{4})\b/gi;
     while ((match = dMyRegex.exec(text)) !== null) {
-        const day = parseInt(match[1], 10);
+        const day = Number.parseInt(match[1], 10);
         const monthStr = match[2].toLowerCase();
-        const year = parseInt(match[3], 10);
+        const year = Number.parseInt(match[3], 10);
         const month = MONTH_MAP[monthStr];
         if (month !== undefined) {
             tryAddDate(year, month, day);
@@ -292,8 +292,8 @@ export function extractDocumentDate(text: string): Date | null {
     const mDyRegex = /\b([a-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/gi;
     while ((match = mDyRegex.exec(text)) !== null) {
         const monthStr = match[1].toLowerCase();
-        const day = parseInt(match[2], 10);
-        const year = parseInt(match[3], 10);
+        const day = Number.parseInt(match[2], 10);
+        const year = Number.parseInt(match[3], 10);
         const month = MONTH_MAP[monthStr];
         if (month !== undefined) {
             tryAddDate(year, month, day);

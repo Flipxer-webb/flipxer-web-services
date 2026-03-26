@@ -16,7 +16,7 @@ import {
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
 import { UserTypes, Permissions, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { UserType, User as UserEntity } from "@prisma/client";
+import { User as UserEntity } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PermissionName } from "@/modules/api/authorize/enums/role";

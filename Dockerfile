@@ -33,9 +33,8 @@ FROM node:18.18.2 AS production
 ENV TZ=Africa/Lagos
 ENV NODE_ENV=production
 WORKDIR /usr/src/app
-RUN npm install -g pnpm
-# SECURITY: Create non-root user
-RUN groupadd --system --gid 1001 nodejs && \
+RUN npm install -g pnpm && \
+    groupadd --system --gid 1001 nodejs && \
     useradd --system --uid 1001 --gid nodejs nestjs
 COPY ./package.json .
 COPY ./tsconfig.json .

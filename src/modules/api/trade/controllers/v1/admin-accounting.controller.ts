@@ -13,7 +13,7 @@ import {
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { UserType, LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
+import { LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -379,15 +379,17 @@ export class AdminAccountingController {
         }>();
 
         for (const agg of aggregations) {
-            if (!userMap.has(agg.userId)) {
-                userMap.set(agg.userId, { userId: agg.userId, currencies: new Map() });
+            let user = userMap.get(agg.userId);
+            if (!user) {
+                user = { userId: agg.userId, currencies: new Map() };
+                userMap.set(agg.userId, user);
             }
-            const user = userMap.get(agg.userId)!;
             const key = `${agg.currency}|${agg.network ?? "unknown"}`;
-            if (!user.currencies.has(key)) {
-                user.currencies.set(key, { currency: agg.currency, network: agg.network ?? null, totalDeposits: 0, depositCount: 0, totalWithdrawals: 0, withdrawalCount: 0 });
+            let curr = user.currencies.get(key);
+            if (!curr) {
+                curr = { currency: agg.currency, network: agg.network ?? null, totalDeposits: 0, depositCount: 0, totalWithdrawals: 0, withdrawalCount: 0 };
+                user.currencies.set(key, curr);
             }
-            const curr = user.currencies.get(key)!;
             if (agg.type === "DEPOSIT") {
                 curr.totalDeposits = Number(agg.total_credit);
                 curr.depositCount = Number(agg.entry_count);
@@ -429,7 +431,8 @@ export class AdminAccountingController {
         const userDetailMap = new Map(userDetails.map((u) => [u.id, u]));
 
         const records = paginatedIds.map((uid) => {
-            const entry = userMap.get(uid)!;
+            const entry = userMap.get(uid);
+            if (!entry) return null;
             const user = userDetailMap.get(uid);
             const currencies = Array.from(entry.currencies.entries()).map(([_key, data]) => ({
                 currency: data.currency,
@@ -448,7 +451,7 @@ export class AdminAccountingController {
                 totalDeposits: currencies.reduce((s, c) => s + c.totalDeposits, 0),
                 totalWithdrawals: currencies.reduce((s, c) => s + c.totalWithdrawals, 0),
             };
-        });
+        }).filter(Boolean);
 
         return buildResponse({
             message: "Deposit/withdrawal summary retrieved",

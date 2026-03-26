@@ -92,7 +92,7 @@ export const shapeTransaction = (
         sourceType: t?.sourceType,
         paymentMethod: getPaymentMethodForReceipt(t.orderCategory, t) ?? undefined,
         senderWallet: isReceive ? (t?.sender ?? undefined) : undefined,
-        receiverWallet: isSend ? (t?.recipient ?? undefined) : isReceive ? (t?.recipient ?? undefined) : undefined,
+        receiverWallet: (isSend || isReceive) ? (t?.recipient ?? undefined) : undefined,
         market: t?.market,
         orderType: t?.orderType,
         orderSide: t?.orderSide,

@@ -12,9 +12,9 @@ export class ManageOrdersSchedulerService {
     private mutex = new Mutex(); // Create a Mutex instance
 
     constructor(
-        private prisma: PrismaService,
-        private tradingService: TradingService,
-        private buyOrderService: BuyOrderService
+        private readonly prisma: PrismaService,
+        private readonly tradingService: TradingService,
+        private readonly buyOrderService: BuyOrderService
     ) {}
 
     //every 1hr "0 */1 * * *"

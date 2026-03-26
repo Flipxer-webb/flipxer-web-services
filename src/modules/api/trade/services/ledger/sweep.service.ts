@@ -8,7 +8,7 @@ import { SlackWebhookService } from "@/modules/api/operations/services/slack-web
 import { LedgerService } from "./ledger.service";
 import { quidaxConfig } from "@/config";
 import { Decimal } from "@prisma/client/runtime/library";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 
 /**
  * Sweep operation result

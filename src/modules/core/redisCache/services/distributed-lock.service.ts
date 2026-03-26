@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import Redis from "ioredis";
-import { randomBytes } from "crypto";
+import { randomBytes } from "node:crypto";
 import { redisConfig } from "@/config";
 
 /**

@@ -165,8 +165,9 @@ export class LiveCoinWatchService {
             return cachedPrice;
         }
 
-        if (this.inFlightUsdtPriceRequests.has(normalizedAsset)) {
-            return this.inFlightUsdtPriceRequests.get(normalizedAsset)!;
+        const inflightUsdt = this.inFlightUsdtPriceRequests.get(normalizedAsset);
+        if (inflightUsdt) {
+            return inflightUsdt;
         }
 
         const requestPromise = (async () => {

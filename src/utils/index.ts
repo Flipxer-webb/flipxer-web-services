@@ -10,7 +10,7 @@ import {
     shapeTransaction,
     TransactionIncludeOptions,
 } from "@/modules/api/transactions/types";
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 
 export * from "./api-response-util";
 export * from "./interfaces";
@@ -99,7 +99,7 @@ export function groupBy<TData extends Record<string, any>>(
 }
 
 export const generateRandomNum = (size: number): string => {
-    const { randomInt } = require("crypto");
+    const { randomInt } = require("node:crypto");
     let str = "";
     for (let i = 0; i < size; i++) {
         str += randomInt(0, 10).toString();

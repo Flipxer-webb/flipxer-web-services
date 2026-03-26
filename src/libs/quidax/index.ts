@@ -80,7 +80,8 @@ export class QuidaxLib {
         if (userId === "me") return;
         if (!QuidaxLib.UUID_REGEX.test(userId)) {
             const logger = new Logger("QuidaxLib");
-            logger.error(`Invalid Quidax user_id detected: "${userId}"${context ? ` in ${context}` : ""}. Expected a UUID.`);
+            const contextSuffix = context ? ` in ${context}` : "";
+            logger.error(`Invalid Quidax user_id detected: "${userId}"${contextSuffix}. Expected a UUID.`);
             throw new e.QuidaxValidationError(
                 `Invalid sub-account ID: "${userId}". Expected a valid UUID.`,
                 "INVALID_SUB_ACCOUNT_ID"

@@ -2,7 +2,6 @@ import {
     checkNameInText,
     extractDocumentDate,
     isDocumentRecent,
-    checkAddressIndicators,
 } from "../index";
 
 describe("OCR Name Matching (checkNameInText)", () => {
@@ -70,18 +69,18 @@ describe("Document Date Extraction (extractDocumentDate)", () => {
             const text = "Bill dated 15/01/2025 for electricity";
             const result = extractDocumentDate(text);
             expect(result).not.toBeNull();
-            expect(result!.getFullYear()).toBe(2025);
-            expect(result!.getMonth()).toBe(0); // January = 0
-            expect(result!.getDate()).toBe(15);
+            expect(result?.getFullYear()).toBe(2025);
+            expect(result?.getMonth()).toBe(0); // January = 0
+            expect(result?.getDate()).toBe(15);
         });
 
         it("should parse DD-MM-YYYY", () => {
             const text = "Statement: 08-06-2025";
             const result = extractDocumentDate(text);
             expect(result).not.toBeNull();
-            expect(result!.getFullYear()).toBe(2025);
-            expect(result!.getMonth()).toBe(5); // June = 5
-            expect(result!.getDate()).toBe(8);
+            expect(result?.getFullYear()).toBe(2025);
+            expect(result?.getMonth()).toBe(5); // June = 5
+            expect(result?.getDate()).toBe(8);
         });
     });
 
@@ -90,9 +89,9 @@ describe("Document Date Extraction (extractDocumentDate)", () => {
             const text = "Issued: 2025-03-20";
             const result = extractDocumentDate(text);
             expect(result).not.toBeNull();
-            expect(result!.getFullYear()).toBe(2025);
-            expect(result!.getMonth()).toBe(2); // March = 2
-            expect(result!.getDate()).toBe(20);
+            expect(result?.getFullYear()).toBe(2025);
+            expect(result?.getMonth()).toBe(2); // March = 2
+            expect(result?.getDate()).toBe(20);
         });
     });
 

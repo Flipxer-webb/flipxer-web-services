@@ -33,7 +33,7 @@ import {
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { User } from "@/modules/api/user";
-import { User as UserModel, UserType } from "@prisma/client";
+import { User as UserModel } from "@prisma/client";
 import {
     GetUserTransactionListDto,
     UpdateTransactionStatusDto,

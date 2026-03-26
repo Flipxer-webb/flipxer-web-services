@@ -37,12 +37,12 @@ import { GeneralTransactionException } from "../errors";
 
 // Withdrawal rate limits: configurable via environment variables
 // Default: 5 withdrawals per hour per user
-const WITHDRAWAL_RATE_LIMIT = parseInt(process.env.WITHDRAWAL_RATE_LIMIT || "5", 10);
-const WITHDRAWAL_RATE_WINDOW_SECONDS = parseInt(process.env.WITHDRAWAL_RATE_WINDOW_SECONDS || "3600", 10); // 1 hour default
+const WITHDRAWAL_RATE_LIMIT = Number.parseInt(process.env.WITHDRAWAL_RATE_LIMIT || "5", 10);
+const WITHDRAWAL_RATE_WINDOW_SECONDS = Number.parseInt(process.env.WITHDRAWAL_RATE_WINDOW_SECONDS || "3600", 10); // 1 hour default
 
 // Stuck order thresholds: auto-fail orders older than these durations
-const STUCK_ORDER_SUBMITTED_THRESHOLD_MS = parseInt(process.env.STUCK_ORDER_SUBMITTED_THRESHOLD_MS || String(30 * 60 * 1000), 10); // 30 min
-const STUCK_ORDER_PROCESSING_THRESHOLD_MS = parseInt(process.env.STUCK_ORDER_PROCESSING_THRESHOLD_MS || String(2 * 60 * 60 * 1000), 10); // 2 hours
+const STUCK_ORDER_SUBMITTED_THRESHOLD_MS = Number.parseInt(process.env.STUCK_ORDER_SUBMITTED_THRESHOLD_MS || String(30 * 60 * 1000), 10); // 30 min
+const STUCK_ORDER_PROCESSING_THRESHOLD_MS = Number.parseInt(process.env.STUCK_ORDER_PROCESSING_THRESHOLD_MS || String(2 * 60 * 60 * 1000), 10); // 2 hours
 
 /**
  * Send Service
@@ -224,8 +224,8 @@ export class SendService {
                 },
                 { alertKey: `stuck_withdrawal:${order.id}` }
             );
-        } catch (_) {
-            // Slack notification is best-effort
+        } catch (err) {
+            this.logger.debug(`Slack notification failed for stuck withdrawal: ${err}`);
         }
     }
 
@@ -777,11 +777,11 @@ export class SendService {
 
         if (hasLiquidity) {
             // Execute withdrawal from main wallet immediately
-            return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId!, resolvedNetwork);
+            return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId as string, resolvedNetwork);
         } else {
             // Add to queue - withdrawal will be processed when liquidity is available
             const queueResult = await this.withdrawalQueueService.addToQueue({
-                holdEntryId: holdResult.entryId!,
+                holdEntryId: holdResult.entryId as string,
                 userId: user.id,
                 currency: currency,
                 amount: totalAmount,

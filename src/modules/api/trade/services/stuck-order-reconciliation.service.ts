@@ -354,7 +354,7 @@ export class StuckOrderReconciliationService {
                 transactionId: order.transactionId,
                 category: order.orderCategory,
                 ledgerEntryId: order.ledgerEntryId,
-                ledgerStatus: failedEntryMap.get(order.ledgerEntryId!) ?? null,
+                ledgerStatus: failedEntryMap.get(order.ledgerEntryId) ?? null,
             });
         }
 
@@ -457,8 +457,9 @@ export class StuckOrderReconciliationService {
         }
 
         if (result.errors.length > 0) {
+            const errorLines = result.errors.map((e) => `  ❌ ${e}`).join("\n");
             sections.push(
-                `*Errors:*\n${result.errors.map((e) => `  ❌ ${e}`).join("\n")}`,
+                `*Errors:*\n${errorLines}`,
             );
         }
 
@@ -473,9 +474,11 @@ export class StuckOrderReconciliationService {
             `  - Skipped (no webhook proof): ${data.skippedNoWebhook}`,
         ];
         for (const d of data.details) {
-            const status = d.action === "retried" ? "\u2705" : d.action === "skipped_no_webhook" ? "\u26A0\uFE0F" : "\u274C";
+            const statusMap: Record<string, string> = { retried: "\u2705", skipped_no_webhook: "\u26A0\uFE0F" };
+            const status = statusMap[d.action] ?? "\u274C";
+            const errorSuffix = d.error ? ` — ${d.error}` : "";
             lines.push(
-                `  ${status} Order #${d.orderId} — ${d.amount} ${d.currency} (${d.reference})${d.error ? ` — ${d.error}` : ""}`,
+                `  ${status} Order #${d.orderId} — ${d.amount} ${d.currency} (${d.reference})${errorSuffix}`,
             );
         }
         return lines.join("\n");

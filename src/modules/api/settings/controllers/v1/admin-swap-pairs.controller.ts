@@ -3,7 +3,6 @@ import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagg
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { UserType } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { CreateSwapPairDto, BulkUpdateSwapPairDto } from "../../../trade/dtos/create-swap-pair.dto";

@@ -242,7 +242,7 @@ export class SessionService {
                 data: { lastActiveAt: new Date() },
             });
         } catch (error) {
-            this.logger.warn(`Failed to touch session activity: ${sessionId}`);
+            this.logger.warn(`Failed to touch session activity: ${sessionId} - ${error}`);
         }
     }
 

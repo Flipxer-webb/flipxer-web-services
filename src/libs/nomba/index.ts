@@ -238,7 +238,7 @@ export class NombaLib {
         }
 
         try {
-            const copy = JSON.parse(JSON.stringify(payload)) as any;
+            const copy: any = structuredClone(payload);
 
             if (copy?.client_secret) {
                 copy.client_secret = "[REDACTED]";

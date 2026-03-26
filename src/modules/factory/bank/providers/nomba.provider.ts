@@ -319,7 +319,7 @@ export class NombaBank implements TNomba.INombaBank {
                 "****INITIALIZE VA PAYMENT RESPONSE****** NOMBA"
             );
 
-            if (!result || result.code !== "00") {
+            if (result?.code !== "00") {
                 throw new e.NombaWorkflowException(
                     result?.description ||
                         "Failed to create payment virtual account",
@@ -429,7 +429,7 @@ export class NombaBank implements TNomba.INombaBank {
     async verifyTransferStatus(reference: string) {
         try {
             const resp = await this.nomba.getTransferByMerchantRef(reference);
-            if (!resp || !resp.data) {
+            if (!resp?.data) {
                 throw new e.NombaVerifyTransactionException(
                     "Unable to verify transfer status",
                     HttpStatus.NOT_IMPLEMENTED

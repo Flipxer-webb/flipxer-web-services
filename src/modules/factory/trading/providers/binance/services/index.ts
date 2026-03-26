@@ -158,7 +158,7 @@ export class BinanceService {
             const priceMap = new Map<string, number>();
             for (const ticker of response.data) {
                 if (ticker.symbol.endsWith("USDT")) {
-                    priceMap.set(ticker.symbol.replace("USDT", ""), parseFloat(ticker.price));
+                    priceMap.set(ticker.symbol.replace("USDT", ""), Number.parseFloat(ticker.price));
                 }
             }
 
@@ -193,7 +193,7 @@ export class BinanceService {
             const normalizedAsset = asset.toUpperCase();
 
             if (normalizedAsset === "USDT") {
-                cached.set(normalizedAsset, 1.0);
+                cached.set(normalizedAsset, 1);
                 continue;
             }
 

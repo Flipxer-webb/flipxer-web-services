@@ -1,7 +1,6 @@
 import { QuidaxWebhookGuard, AuthGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { UserType } from "@prisma/client";
 import {
     Body,
     Controller,

@@ -37,7 +37,6 @@ export class AdminUserService {
     ) {}
 
     async getAnalyticsOverview(period?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
-        const now = new Date();
         const { startDate, endDate } = startDateStr && endDateStr
             ? { startDate: new Date(startDateStr), endDate: endOfDay(new Date(endDateStr)) }
             : this.getDateRange(period || "month");
@@ -111,7 +110,7 @@ export class AdminUserService {
             };
         }
         if (query.tier !== undefined && query.tier !== '') {
-            where.tier = parseInt(query.tier as any, 10);
+            where.tier = Number.parseInt(query.tier as any, 10);
         }
         return where;
     }
@@ -314,7 +313,7 @@ export class AdminUserService {
         total: number,
     ): Promise<{ verified: number; pendingKyc: number }> {
         if (query.tier !== undefined && query.tier !== "") {
-            const tierNum = parseInt(query.tier as any, 10);
+            const tierNum = Number.parseInt(query.tier as any, 10);
             return { verified: tierNum >= 1 ? total : 0, pendingKyc: tierNum === 0 ? total : 0 };
         }
         const [verified, pendingKyc] = await Promise.all([

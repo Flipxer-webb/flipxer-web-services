@@ -10,7 +10,6 @@ import {
     SwapTransactionHandlerOptions,
 } from "../../interfaces/trade";
 import {
-    OrderCategory,
     OrderStatus,
     User,
 } from "@prisma/client";
@@ -130,7 +129,11 @@ export class SwapWebhookHandler {
 
         this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
-        const statusLabel = status === OrderStatus.reversed ? 'reversed' : status === OrderStatus.cancelled ? 'cancelled' : 'failed';
+        const statusLabelMap: Record<string, string> = {
+            [OrderStatus.reversed]: 'reversed',
+            [OrderStatus.cancelled]: 'cancelled',
+        };
+        const statusLabel = statusLabelMap[status] ?? 'failed';
         const message = `\u274C Your swap of ${transaction.fromAmount} ${transaction.fromCurrency?.toUpperCase()} to ${transaction.toCurrency?.toUpperCase()} has ${statusLabel}. Transaction ID: ${transaction.transactionId}.`;
 
         await this.notificationDispatcher.notify({

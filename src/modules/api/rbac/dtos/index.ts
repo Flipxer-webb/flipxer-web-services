@@ -73,7 +73,7 @@ export class CreateAdminUserDto {
     @IsString()
     @MinLength(12)
     @Matches(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~])/,
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])/,
         { message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character" },
     )
     password: string;
@@ -140,7 +140,7 @@ export class ChangeAdminPasswordDto {
     @IsString()
     @MinLength(12)
     @Matches(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~])/,
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])/,
         { message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character" },
     )
     newPassword: string;

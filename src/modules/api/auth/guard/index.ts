@@ -60,9 +60,9 @@ import { SessionService } from "@/modules/api/session/services";
 @Injectable()
 export class AuthGuard implements CanActivate {
     constructor(
-        private jwtService: JwtService,
-        private prisma: PrismaService,
-        private sessionService: SessionService
+        private readonly jwtService: JwtService,
+        private readonly prisma: PrismaService,
+        private readonly sessionService: SessionService
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -239,7 +239,12 @@ export class QuidaxWebhookGuard implements CanActivate {
 
         // Use raw body if available (NestJS rawBody:true provides a Buffer), otherwise fallback
         const rawBuf = (request as any).rawBody;
-        const requestBody = rawBuf ? (Buffer.isBuffer(rawBuf) ? rawBuf.toString() : rawBuf) : JSON.stringify(request.body);
+        let requestBody: string;
+        if (rawBuf) {
+            requestBody = Buffer.isBuffer(rawBuf) ? rawBuf.toString() : rawBuf;
+        } else {
+            requestBody = JSON.stringify(request.body);
+        }
         const payload = `${timestamp}.${requestBody}`;
 
         const expectedSignature = crypto
@@ -303,8 +308,16 @@ export class FincraWebhookGuard implements CanActivate {
             return false;
         }
 
+        const rawBody = (request as any).rawBody;
+        let bodyBuffer: Buffer;
+        if (rawBody) {
+            bodyBuffer = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody);
+        } else {
+            bodyBuffer = Buffer.from(JSON.stringify(request.body));
+        }
+
         const computed = createHmac("sha512", secret)
-            .update(((request as any).rawBody ? (Buffer.isBuffer((request as any).rawBody) ? (request as any).rawBody : Buffer.from((request as any).rawBody)) : Buffer.from(JSON.stringify(request.body))))
+            .update(bodyBuffer)
             .digest("hex");
 
         // Use timing-safe comparison to prevent timing attacks

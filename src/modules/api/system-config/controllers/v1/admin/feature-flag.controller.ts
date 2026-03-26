@@ -16,7 +16,7 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { User } from "@/modules/api/user";
-import { User as UserModel, UserType } from "@prisma/client";
+import { User as UserModel } from "@prisma/client";
 import { FeatureFlagDto, UpdateFeatureFlagDto, FeatureFlagEvaluationContext } from "../../../types";
 import { buildResponse } from "@/utils/api-response-util";
 

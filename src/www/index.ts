@@ -1,6 +1,6 @@
 import helmet from "helmet";
 import compression from "compression";
-import { randomBytes } from "crypto";
+import { randomBytes } from "node:crypto";
 import { INestApplication, Logger, VersioningType } from "@nestjs/common";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "@/modules";

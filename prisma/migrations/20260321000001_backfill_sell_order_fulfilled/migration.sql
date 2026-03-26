@@ -5,4 +5,4 @@ UPDATE "Orders"
 SET fulfilled = true
 WHERE "orderCategory" = 'SELL'
   AND status = 'done'
-  AND fulfilled = false;
+  AND NOT fulfilled;
