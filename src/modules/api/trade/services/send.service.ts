@@ -166,7 +166,7 @@ export class SendService {
     private async autoFailStuckOrder(
         userId: number,
         currency: string,
-        order: { id: string; orderReference: string; amount: any; status: string },
+        order: { id: number; orderReference: string; amount: any; status: string },
         orderAgeMs: number,
         threshold: number
     ): Promise<void> {
@@ -391,10 +391,10 @@ export class SendService {
      */
     private resolveNetwork(
         userId: number, 
-        explicitNetwork: NetworkTypes | undefined, 
+        explicitNetwork: NetworkTypes | string | undefined, 
         address: string
     ): NetworkTypes | undefined {
-        if (explicitNetwork) return explicitNetwork;
+        if (explicitNetwork) return explicitNetwork as NetworkTypes;
         const family = this.inferAddressFamily(address);
         if (family === "unknown") return undefined;
 

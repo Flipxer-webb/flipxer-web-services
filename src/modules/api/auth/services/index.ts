@@ -113,13 +113,13 @@ import { WsGateway } from "@/modules/api/trade/gateway/v1";
  * Returns an empty object if the file is not present, avoiding inline ternaries.
  */
 function fileFieldUpdate(
-    file: { url: string; fileId: string; originalName: string } | null,
+    file: { url: string; fileId: string; originalName?: string } | null,
     urlProp: string,
     fieldIdProp: string,
     fileNameProp: string,
     metaKey: string,
     userId: number,
-): Record<string, string> {
+): any {
     if (!file) return {};
     return {
         [urlProp]: file.url,
@@ -133,13 +133,13 @@ function fileFieldUpdate(
  * Returns null values if no file, avoiding inline ternaries.
  */
 function fileFieldCreate(
-    file: { url: string; fileId: string; originalName: string } | null,
+    file: { url: string; fileId: string; originalName?: string } | null,
     urlProp: string,
     fieldIdProp: string,
     fileNameProp: string,
     metaKey: string,
     userId: number,
-): Record<string, string | null> {
+): any {
     return {
         [urlProp]: file?.url || null,
         [fieldIdProp]: file?.fileId || null,
