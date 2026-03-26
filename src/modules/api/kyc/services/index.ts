@@ -435,16 +435,18 @@ export class KycService {
                     ? `Your ${notificationType}verification was rejected. Reason: ${note || "No reason provided."}`
                     : `Your ${notificationType}verification has been escalated for additional review.`;
 
-        await this.notificationDispatcher.notify({
+        // KC-002: fire-and-forget — notification/email failure should not
+        // block the response after the KYC decision has been committed.
+        this.notificationDispatcher.notify({
             userId,
             title,
             body,
             category: "security",
             enablePush: true,
-        });
+        }).catch((e) => this.logger.error(`Failed to send KYC push notification to user ${userId}: ${e.message}`));
 
         // Send Email
-        await this.sendKycEmail(user, action, verificationType, note);
+        this.sendKycEmail(user, action, verificationType, note).catch((e) => this.logger.error(`Failed to send KYC email to user ${userId}: ${e.message}`));
 
         // Push real-time profile update to connected client
         this.wsGateway.notifyProfileUpdate(userId);
