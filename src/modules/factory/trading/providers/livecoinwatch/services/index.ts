@@ -166,7 +166,7 @@ export class LiveCoinWatchService {
         }
 
         const inflightUsdt = this.inFlightUsdtPriceRequests.get(normalizedAsset);
-        if (inflightUsdt) {
+        if (inflightUsdt !== undefined) {
             return inflightUsdt;
         }
 

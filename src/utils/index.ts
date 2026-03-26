@@ -142,7 +142,7 @@ export const waitForRedis = (config: RedisConfig) => {
     };
 
     const client = new Redis(redisOptions);
-    new Promise((resolve) => client.once("connect", resolve));
+    client.once("connect", () => {});
 };
 
 export function formatLocalPhoneToIntlWithoutPlus(phone: string) {
