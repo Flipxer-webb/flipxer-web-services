@@ -60,10 +60,10 @@ async function createBackup() {
             return;
         }
 
-        // pg_dump is available
-        const command = `pg_dump "${DATABASE_URL}" -f "${backupFile}"`;
+        // pg_dump is available — use execFile to avoid shell injection
+        const { execFile } = require('child_process');
 
-        exec(command, (error, stdout, stderr) => {
+        execFile('pg_dump', [DATABASE_URL, '-f', backupFile], (error, stdout, stderr) => {
             if (error) {
                 console.error('❌ Backup failed:', error.message);
                 process.exit(1);
@@ -89,7 +89,7 @@ function listBackups() {
 
     const files = fs.readdirSync(BACKUP_DIR)
         .filter(f => f.endsWith('.sql') || f.endsWith('.sql.gz'))
-        .sort()
+        .sort((a, b) => a.localeCompare(b))
         .reverse();
 
     if (files.length === 0) {

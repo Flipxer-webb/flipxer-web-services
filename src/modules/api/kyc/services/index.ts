@@ -291,6 +291,34 @@ export class KycService {
 
     // ==================== KYC DECISIONS ====================
 
+    private buildKycUpdateData(action: string, verificationType?: string): Prisma.UserUpdateInput {
+        if (!verificationType) return {};
+
+        if (action === "APPROVE") {
+            const verificationMap: Record<string, Prisma.UserUpdateInput> = {
+                BVN: { isBvnVerified: true, isNinVerified: false },
+                NIN: { isNinVerified: true, isBvnVerified: false },
+                DOCUMENT: { isDocumentVerified: true, documentVerificationStatus: "VERIFIED" },
+                ADDRESS: { isAddressVerified: true, addressVerificationStatus: "VERIFIED" },
+                INCOME: { isIncomeVerified: true, incomeVerificationStatus: "VERIFIED" },
+                BUSINESS_DOCUMENT: { isDocumentVerified: true, businessDocumentVerificationStatus: "VERIFIED" },
+            };
+            return verificationMap[verificationType] || {};
+        }
+
+        if (action === "REJECT") {
+            const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
+                DOCUMENT: { documentVerificationStatus: "DECLINED" },
+                ADDRESS: { addressVerificationStatus: "DECLINED", addressDocumentUrl: null },
+                INCOME: { incomeVerificationStatus: "DECLINED", incomeDocumentUrl: null },
+                BUSINESS_DOCUMENT: { businessDocumentVerificationStatus: "DECLINED", businessDocumentsUploaded: false },
+            };
+            return rejectionMap[verificationType] || {};
+        }
+
+        return {};
+    }
+
     async processKycDecision(dto: KycDecisionDto, adminId?: number): Promise<ApiResponse> {
         const { userId, action, note, verificationType } = dto;
 
@@ -332,56 +360,7 @@ export class KycService {
             }
         }
 
-        let updateData: Prisma.UserUpdateInput = {};
-
-        if (action === "APPROVE") {
-            // Update verification status based on type
-            if (verificationType) {
-                const verificationMap: Record<string, Prisma.UserUpdateInput> = {
-                    BVN: { isBvnVerified: true, isNinVerified: false },
-                    NIN: { isNinVerified: true, isBvnVerified: false },
-                    DOCUMENT: {
-                        isDocumentVerified: true,
-                        documentVerificationStatus: "VERIFIED",
-                    },
-                    ADDRESS: {
-                        isAddressVerified: true,
-                        addressVerificationStatus: "VERIFIED",
-                    },
-                    INCOME: {
-                        isIncomeVerified: true,
-                        incomeVerificationStatus: "VERIFIED",
-                    },
-                    BUSINESS_DOCUMENT: {
-                        isDocumentVerified: true,
-                        businessDocumentVerificationStatus: "VERIFIED",
-                    },
-                };
-                updateData = verificationMap[verificationType] || {};
-            }
-        } else if (action === "REJECT") {
-            if (verificationType) {
-                const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
-                    DOCUMENT: {
-                        documentVerificationStatus: "DECLINED",
-                    },
-                    ADDRESS: {
-                        addressVerificationStatus: "DECLINED",
-                        addressDocumentUrl: null,
-                    },
-                    INCOME: {
-                        incomeVerificationStatus: "DECLINED",
-                        incomeDocumentUrl: null,
-                    },
-                    BUSINESS_DOCUMENT: {
-                        businessDocumentVerificationStatus: "DECLINED",
-                        businessDocumentsUploaded: false,
-                    },
-                };
-                updateData = rejectionMap[verificationType] || {};
-            }
-        }
-        // ESCALATE: no user-facing status change
+        let updateData: Prisma.UserUpdateInput = this.buildKycUpdateData(action, verificationType);
 
         const updatedUser = await this.prisma.user.update({
             where: { id: userId },

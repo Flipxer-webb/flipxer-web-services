@@ -1,10 +1,11 @@
 // Test the sync deposits endpoint
+require('dotenv').config();
 const https = require('https');
 
 const USER_ID = 6;
 
-// Use the token directly
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+// Use the token from environment
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 
 // Call sync deposits endpoint directly
 console.log(`Calling sync-deposits for user ${USER_ID}...`);

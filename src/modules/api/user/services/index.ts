@@ -206,51 +206,51 @@ export class UserService {
      * Crucial for Business accounts to avoid being asked for BVN/NIN.
      */
     private getVerificationRequirements(profile: any) {
-        const requirements = {
-            nextStep: "COMPLETE",
-            details: null as string | null
-        };
-
         if (profile.userType === UserType.BUSINESS) {
-            if (!profile.businessRecordCompleted) {
-                requirements.nextStep = "BUSINESS_RECORD";
-            } else if (!profile.businessDocumentsUploaded) {
-                requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
-            } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.PENDING) {
-                requirements.nextStep = "WAIT_FOR_VERIFICATION";
-            } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.DECLINED) {
-                requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD"; // Needs re-upload
-                requirements.details = "Previous documents were declined";
-            } else if (profile.businessDocumentVerificationStatus !== DocumentVerificationStatus.VERIFIED && !profile.isDocumentVerified) {
-                // Fallback: Documents uploaded but not verified/declined/pending (shouldn't happen often)
-                // or manually reset. 
-                requirements.nextStep = "WAIT_FOR_VERIFICATION";
+            return this.getBusinessVerificationRequirements(profile);
+        }
+        return this.getIndividualVerificationRequirements(profile);
+    }
+
+    private getBusinessVerificationRequirements(profile: any) {
+        const requirements = { nextStep: "COMPLETE", details: null as string | null };
+        if (!profile.businessRecordCompleted) {
+            requirements.nextStep = "BUSINESS_RECORD";
+        } else if (!profile.businessDocumentsUploaded) {
+            requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
+        } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.PENDING) {
+            requirements.nextStep = "WAIT_FOR_VERIFICATION";
+        } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.DECLINED) {
+            requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
+            requirements.details = "Previous documents were declined";
+        } else if (profile.businessDocumentVerificationStatus !== DocumentVerificationStatus.VERIFIED && !profile.isDocumentVerified) {
+            requirements.nextStep = "WAIT_FOR_VERIFICATION";
+        }
+        return requirements;
+    }
+
+    private getIndividualVerificationRequirements(profile: any) {
+        const requirements = { nextStep: "COMPLETE", details: null as string | null };
+        if (!profile.isEmailVerified) {
+            requirements.nextStep = "EMAIL_VERIFICATION";
+        } else if (!profile.isBvnVerified && !profile.isNinVerified) {
+            requirements.nextStep = "GOVERNMENT_ID";
+        } else if (!profile.isDocumentVerified) {
+            requirements.nextStep = "IDENTITY_DOCUMENT";
+            if (profile.documentVerificationStatus === DocumentVerificationStatus.DECLINED) {
+                requirements.details = "Document verification was declined";
             }
-        } else {
-            // Individual Flow
-            // Priority: Email -> Phone -> BVN/NIN -> Document -> Address -> Income
-            if (!profile.isEmailVerified) {
-                requirements.nextStep = "EMAIL_VERIFICATION";
-            } else if (!profile.isBvnVerified && !profile.isNinVerified) {
-                requirements.nextStep = "GOVERNMENT_ID";
-            } else if (!profile.isDocumentVerified) {
-                requirements.nextStep = "IDENTITY_DOCUMENT";
-                if (profile.documentVerificationStatus === DocumentVerificationStatus.DECLINED) {
-                    requirements.details = "Document verification was declined";
-                }
-            } else if (!profile.isAddressVerified) {
-                requirements.nextStep = "ADDRESS_VERIFICATION";
-                if (profile.addressVerificationStatus === DocumentVerificationStatus.DECLINED) {
-                    requirements.details = "Address verification was declined";
-                }
-            } else if (!profile.isIncomeVerified) {
-                requirements.nextStep = "INCOME_VERIFICATION";
-                if (profile.incomeVerificationStatus === DocumentVerificationStatus.DECLINED) {
-                    requirements.details = "Income verification was declined";
-                }
+        } else if (!profile.isAddressVerified) {
+            requirements.nextStep = "ADDRESS_VERIFICATION";
+            if (profile.addressVerificationStatus === DocumentVerificationStatus.DECLINED) {
+                requirements.details = "Address verification was declined";
+            }
+        } else if (!profile.isIncomeVerified) {
+            requirements.nextStep = "INCOME_VERIFICATION";
+            if (profile.incomeVerificationStatus === DocumentVerificationStatus.DECLINED) {
+                requirements.details = "Income verification was declined";
             }
         }
-
         return requirements;
     }
 

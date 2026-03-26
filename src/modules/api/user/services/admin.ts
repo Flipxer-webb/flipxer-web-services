@@ -90,6 +90,122 @@ export class AdminUserService {
         });
     }
 
+    private buildUserListWhere(query: GetUserListDto): Prisma.UserWhereInput {
+        const where: Prisma.UserWhereInput = {
+            userType: { not: UserType.ADMIN },
+        };
+        if (query.status) where.status = query.status;
+        if (query.accountType) where.userType = query.accountType;
+        if (query.searchText) {
+            where.OR = [
+                { firstName: { contains: query.searchText, mode: "insensitive" } },
+                { lastName: { contains: query.searchText, mode: "insensitive" } },
+                { email: { contains: query.searchText, mode: "insensitive" } },
+                { phone: { contains: query.searchText, mode: "insensitive" } },
+            ];
+        }
+        if (query.startDate || query.endDate) {
+            where.createdAt = {
+                ...(query.startDate && { gte: new Date(query.startDate) }),
+                ...(query.endDate && { lte: new Date(query.endDate) }),
+            };
+        }
+        if (query.tier !== undefined && query.tier !== '') {
+            where.tier = parseInt(query.tier as any, 10);
+        }
+        return where;
+    }
+
+    /** Aggregate user balances from ledger, returning a userId→totalBalance map. */
+    private async getUserBalanceMap(): Promise<Map<number, number>> {
+        const usersWithBalance = await this.prisma.ledgerEntry.findMany({
+            where: {
+                userId: { gt: 0 },
+                status: { in: [EntryStatus.SETTLED, EntryStatus.HOLD] },
+            },
+            select: { userId: true, balanceAfter: true },
+            orderBy: { sequenceNumber: "desc" },
+            distinct: ["userId", "currency"],
+        });
+        const map = new Map<number, number>();
+        for (const entry of usersWithBalance) {
+            const current = map.get(entry.userId) || 0;
+            map.set(entry.userId, current + Number(entry.balanceAfter));
+        }
+        return map;
+    }
+
+    /** Mutates dbQuery.where to filter by has_balance / zero_balance. */
+    private async applyBalanceFilter(
+        dbQuery: Prisma.UserFindManyArgs,
+        filter: "has_balance" | "zero_balance"
+    ): Promise<void> {
+        const balanceMap = await this.getUserBalanceMap();
+        const userIdsWithBalance = Array.from(balanceMap.entries())
+            .filter(([, total]) => total > 0)
+            .map(([id]) => id);
+
+        dbQuery.where = {
+            ...dbQuery.where,
+            id: filter === "has_balance"
+                ? { in: userIdsWithBalance }
+                : { notIn: userIdsWithBalance },
+        };
+    }
+
+    /** Return paginated user list sorted by ledger balance. */
+    private async getUserListSortedByBalance(
+        dbQuery: Prisma.UserFindManyArgs,
+        query: GetUserListDto,
+        pageNumber: number,
+        pageSize: number,
+    ) {
+        const balanceMap = await this.getUserBalanceMap();
+
+        const allFilteredUsers = await this.prisma.user.findMany({
+            where: dbQuery.where,
+            select: { id: true },
+        });
+
+        const sortedUserIds = allFilteredUsers
+            .map((u) => ({ id: u.id, balance: balanceMap.get(u.id) || 0 }))
+            .sort((a, b) =>
+                query.balanceFilter === "highest_first"
+                    ? b.balance - a.balance
+                    : a.balance - b.balance
+            )
+            .map((u) => u.id);
+
+        const count = sortedUserIds.length;
+
+        const paginatedIds = query.paginated === "true"
+            ? sortedUserIds.slice(
+                  (pageNumber - 1) * pageSize,
+                  pageNumber * pageSize,
+              )
+            : sortedUserIds;
+
+        const usersRaw = await this.prisma.user.findMany({
+            where: { ...dbQuery.where, id: { in: paginatedIds } },
+            select: dbQuery.select,
+        });
+
+        const userMap = new Map(usersRaw.map((u) => [u.id, u]));
+        const users = paginatedIds.map((id) => userMap.get(id)).filter(Boolean) as User[];
+
+        const responseData: DataWithPagination<User> = {
+            ...(query.paginated === "true" && {
+                meta: buildPaginationMeta(pageNumber, pageSize, count, users.length),
+            }),
+            records: users,
+        };
+
+        return buildResponse({
+            message: "Users list retrieved",
+            data: responseData,
+        });
+    }
+
     async getUserList(query: GetUserListDto) {
         const { pageNumber, pageSize, sortBy } = query;
 
@@ -103,56 +219,11 @@ export class AdminUserService {
                 ? defaultPagination.pageSize
                 : query.pageSize;
 
+        const where = this.buildUserListWhere(query);
+
         const dbQuery: Prisma.UserFindManyArgs = {
             orderBy: { createdAt: sortBy },
-            where: {
-                userType: { not: UserType.ADMIN },
-                ...(query.status && { status: query.status }),
-                ...(query.accountType && { userType: query.accountType }),
-                ...(query.searchText && {
-                    OR: [
-                        {
-                            firstName: {
-                                contains: query.searchText,
-                                mode: "insensitive",
-                            },
-                        },
-                        {
-                            lastName: {
-                                contains: query.searchText,
-                                mode: "insensitive",
-                            },
-                        },
-                        {
-                            email: {
-                                contains: query.searchText,
-                                mode: "insensitive",
-                            },
-                        },
-                        {
-                            phone: {
-                                contains: query.searchText,
-                                mode: "insensitive",
-                            },
-                        },
-                    ],
-                }),
-                ...(query.startDate || query.endDate
-                    ? {
-                          createdAt: {
-                              ...(query.startDate && {
-                                  gte: new Date(query.startDate),
-                              }),
-                              ...(query.endDate && {
-                                  lte: new Date(query.endDate),
-                              }),
-                          },
-                      }
-                    : {}),
-                ...(query.tier !== undefined && query.tier !== '' && {
-                    tier: parseInt(query.tier as any, 10),
-                }),
-            },
+            where,
             select: {
                 id: true,
                 firstName: true,
@@ -175,105 +246,13 @@ export class AdminUserService {
 
         // Handle balance-based filtering/sorting
         if (query.balanceFilter === "has_balance" || query.balanceFilter === "zero_balance") {
-            // Filter users who have/don't have ledger balance
-            const usersWithBalance = await this.prisma.ledgerEntry.findMany({
-                where: {
-                    userId: { gt: 0 },
-                    status: { in: [EntryStatus.SETTLED, EntryStatus.HOLD] },
-                },
-                select: { userId: true, balanceAfter: true },
-                orderBy: { sequenceNumber: "desc" },
-                distinct: ["userId", "currency"],
-            });
-
-            // Aggregate total balance per user
-            const userBalanceMap = new Map<number, number>();
-            for (const entry of usersWithBalance) {
-                const current = userBalanceMap.get(entry.userId) || 0;
-                userBalanceMap.set(entry.userId, current + Number(entry.balanceAfter));
-            }
-
-            const userIdsWithBalance = Array.from(userBalanceMap.entries())
-                .filter(([, total]) => total > 0)
-                .map(([id]) => id);
-
-            if (query.balanceFilter === "has_balance") {
-                dbQuery.where = { ...dbQuery.where, id: { in: userIdsWithBalance } };
-            } else {
-                dbQuery.where = { ...dbQuery.where, id: { notIn: userIdsWithBalance } };
-            }
+            await this.applyBalanceFilter(dbQuery, query.balanceFilter);
         }
 
         if (query.balanceFilter === "highest_first" || query.balanceFilter === "lowest_first") {
-            // Get all user balances for sorting
-            const usersWithBalance = await this.prisma.ledgerEntry.findMany({
-                where: {
-                    userId: { gt: 0 },
-                    status: { in: [EntryStatus.SETTLED, EntryStatus.HOLD] },
-                },
-                select: { userId: true, balanceAfter: true },
-                orderBy: { sequenceNumber: "desc" },
-                distinct: ["userId", "currency"],
-            });
-
-            const userBalanceMap = new Map<number, number>();
-            for (const entry of usersWithBalance) {
-                const current = userBalanceMap.get(entry.userId) || 0;
-                userBalanceMap.set(entry.userId, current + Number(entry.balanceAfter));
-            }
-
-            // Get filtered user count and IDs
-            const allFilteredUsers = await this.prisma.user.findMany({
-                where: dbQuery.where,
-                select: { id: true },
-            });
-
-            // Sort by balance
-            const sortedUserIds = allFilteredUsers
-                .map((u) => ({ id: u.id, balance: userBalanceMap.get(u.id) || 0 }))
-                .sort((a, b) =>
-                    query.balanceFilter === "highest_first"
-                        ? b.balance - a.balance
-                        : a.balance - b.balance
-                )
-                .map((u) => u.id);
-
-            const count = sortedUserIds.length;
-
-            // Apply pagination to sorted IDs
-            const paginatedIds = query.paginated === "true"
-                ? sortedUserIds.slice(
-                      (resolvedPageNumber - 1) * resolvedPageSize,
-                      resolvedPageNumber * resolvedPageSize,
-                  )
-                : sortedUserIds;
-
-            // Fetch users by IDs preserving sort order
-            const usersRaw = await this.prisma.user.findMany({
-                where: { ...dbQuery.where, id: { in: paginatedIds } },
-                select: dbQuery.select,
-            });
-
-            // Re-sort to match the balance order
-            const userMap = new Map(usersRaw.map((u) => [u.id, u]));
-            const users = paginatedIds.map((id) => userMap.get(id)).filter(Boolean) as User[];
-
-            const responseData: DataWithPagination<User> = {
-                ...(query.paginated === "true" && {
-                    meta: buildPaginationMeta(
-                        resolvedPageNumber,
-                        resolvedPageSize,
-                        count,
-                        users.length
-                    ),
-                }),
-                records: users,
-            };
-
-            return buildResponse({
-                message: "Users list retrieved",
-                data: responseData,
-            });
+            return this.getUserListSortedByBalance(
+                dbQuery, query, resolvedPageNumber, resolvedPageSize
+            );
         }
 
         const [users, count] = await this.prisma.$transaction([
@@ -306,58 +285,43 @@ export class AdminUserService {
     }
 
     async getUserFilteredStats(query: GetUserListDto): Promise<ApiResponse> {
-        const baseWhere: Prisma.UserWhereInput = {
-            userType: { not: UserType.ADMIN },
-            ...(query.status && { status: query.status }),
-            ...(query.accountType && { userType: query.accountType }),
-            ...(query.searchText && {
-                OR: [
-                    { firstName: { contains: query.searchText, mode: "insensitive" } },
-                    { lastName:  { contains: query.searchText, mode: "insensitive" } },
-                    { email:     { contains: query.searchText, mode: "insensitive" } },
-                    { phone:     { contains: query.searchText, mode: "insensitive" } },
-                ],
-            }),
-            ...(query.startDate || query.endDate
-                ? {
-                      createdAt: {
-                          ...(query.startDate && { gte: new Date(query.startDate) }),
-                          ...(query.endDate   && { lte: new Date(query.endDate)   }),
-                      },
-                  }
-                : {}),
-            ...(query.tier !== undefined && query.tier !== "" && {
-                tier: parseInt(query.tier as any, 10),
-            }),
-        };
+        const baseWhere = this.buildUserListWhere(query);
 
         const total = await this.prisma.user.count({ where: baseWhere });
-
-        // Short-circuit sub-counts to avoid Prisma field conflicts when filters are already applied
-        let active: number;
-        if (query.status) {
-            active = query.status === "ACTIVE" ? total : 0;
-        } else {
-            active = await this.prisma.user.count({ where: { ...baseWhere, status: "ACTIVE" } });
-        }
-
-        let verified: number;
-        let pendingKyc: number;
-        if (query.tier !== undefined && query.tier !== "") {
-            const tierNum = parseInt(query.tier as any, 10);
-            verified   = tierNum >= 1 ? total : 0;
-            pendingKyc = tierNum === 0 ? total : 0;
-        } else {
-            [verified, pendingKyc] = await Promise.all([
-                this.prisma.user.count({ where: { ...baseWhere, tier: { gte: 1 } } }),
-                this.prisma.user.count({ where: { ...baseWhere, tier: 0 } }),
-            ]);
-        }
+        const active = await this.countActive(query, baseWhere, total);
+        const { verified, pendingKyc } = await this.countKycStats(query, baseWhere, total);
 
         return buildResponse({
             message: "User filtered stats retrieved",
             data: { total, active, verified, pendingKyc },
         });
+    }
+
+    private async countActive(
+        query: GetUserListDto,
+        baseWhere: Prisma.UserWhereInput,
+        total: number,
+    ): Promise<number> {
+        if (query.status) {
+            return query.status === "ACTIVE" ? total : 0;
+        }
+        return this.prisma.user.count({ where: { ...baseWhere, status: "ACTIVE" } });
+    }
+
+    private async countKycStats(
+        query: GetUserListDto,
+        baseWhere: Prisma.UserWhereInput,
+        total: number,
+    ): Promise<{ verified: number; pendingKyc: number }> {
+        if (query.tier !== undefined && query.tier !== "") {
+            const tierNum = parseInt(query.tier as any, 10);
+            return { verified: tierNum >= 1 ? total : 0, pendingKyc: tierNum === 0 ? total : 0 };
+        }
+        const [verified, pendingKyc] = await Promise.all([
+            this.prisma.user.count({ where: { ...baseWhere, tier: { gte: 1 } } }),
+            this.prisma.user.count({ where: { ...baseWhere, tier: 0 } }),
+        ]);
+        return { verified, pendingKyc };
     }
 
     async getUserInfo(userId: number) {

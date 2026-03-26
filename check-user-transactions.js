@@ -1,8 +1,9 @@
 // Check wallet addresses and deposits via API
+require('dotenv').config();
 const https = require('https');
 
 const USER_ID = 6;
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 
 // First get user transactions
 console.log(`Fetching transactions for user ${USER_ID}...`);

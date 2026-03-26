@@ -18,7 +18,7 @@ const generatePhone = customAlphabet("0123456789", 10);
 // ─── Test credentials ───────────────────────────────────────────
 const TEST_ADMIN = {
     email: "audit-admin@flipxer.test",
-    password: "AuditAdmin@2026!",
+    password: process.env.TEST_ADMIN_PASSWORD || "AuditAdmin@2026!",
     firstName: "Audit",
     lastName: "Admin",
     userType: UserType.ADMIN,
@@ -27,7 +27,7 @@ const TEST_ADMIN = {
 
 const TEST_USER = {
     email: "audit-user@flipxer.test",
-    password: "AuditUser@2026!",
+    password: process.env.TEST_USER_PASSWORD || "AuditUser@2026!",
     firstName: "Audit",
     lastName: "User",
     userType: UserType.INDIVIDUAL,

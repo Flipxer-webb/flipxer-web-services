@@ -1,12 +1,13 @@
+require('dotenv').config();
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const NEW_PASSWORD = 'FlipxerAdmin2025!';
-const ADMIN_EMAIL = 'hello@flipxer.com';
+const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD || 'FlipxerAdmin2025!';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@flipxer.com';
 
 // Try internal Render connection (without -a suffix)
 const client = new Client({
-    connectionString: 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d538qter433s73c6evk0-a.oregon-postgres.render.com/resolve_db_4a8l',
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 30000,
     query_timeout: 30000,

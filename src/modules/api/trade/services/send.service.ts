@@ -144,64 +144,7 @@ export class SendService {
                 : STUCK_ORDER_PROCESSING_THRESHOLD_MS;
 
             if (orderAgeMs > threshold) {
-                this.logger.warn(
-                    `Auto-failing stuck withdrawal order | userId: ${userId} | currency: ${currency} | orderId: ${pendingWithdrawal.id} | ref: ${pendingWithdrawal.orderReference} | status: ${pendingWithdrawal.status} | age: ${Math.round(orderAgeMs / 60000)}min | threshold: ${Math.round(threshold / 60000)}min`
-                );
-
-                await this.prisma.order.update({
-                    where: { id: pendingWithdrawal.id },
-                    data: {
-                        status: OrderStatus.failed,
-                        reason: `Auto-failed: stuck in ${pendingWithdrawal.status} for ${Math.round(orderAgeMs / 60000)} min (threshold: ${Math.round(threshold / 60000)} min) at ${new Date().toISOString()}`,
-                    },
-                });
-
-                // Release the held funds back to available balance
-                try {
-                    const releaseResult = await this.ledgerService.releaseHold(
-                        `withdrawal:${pendingWithdrawal.orderReference}`,
-                        false,
-                        "Stuck order auto-failed"
-                    );
-                    if (releaseResult.success) {
-                        this.logger.log(
-                            `Released held funds for stuck order | userId: ${userId} | currency: ${currency} | amount: ${pendingWithdrawal.amount} | ref: ${pendingWithdrawal.orderReference}`
-                        );
-                    } else {
-                        this.logger.warn(
-                            `No hold entry found to release for stuck order (may have been released already or order predates ledger holds) | userId: ${userId} | orderId: ${pendingWithdrawal.id} | ref: ${pendingWithdrawal.orderReference} | error: ${releaseResult.error}`
-                        );
-                    }
-                } catch (releaseError) {
-                    // Log but don't block — the order is already marked failed.
-                    // Manual reconciliation may be needed if hold release fails.
-                    this.logger.error(
-                        `Failed to release hold for auto-failed order | userId: ${userId} | orderId: ${pendingWithdrawal.id} | error: ${releaseError.message}`
-                    );
-                }
-
-                // Notify ops via Slack
-                try {
-                    await this.slackWebhookService.sendAlert(
-                        "STUCK_WITHDRAWAL",
-                        {
-                            text: `⚠️ Stuck Withdrawal Auto-Failed`,
-                            blocks: [
-                                {
-                                    type: "section",
-                                    text: {
-                                        type: "mrkdwn",
-                                        text: `*Order:* ${pendingWithdrawal.orderReference}\n*User:* ${userId}\n*Currency:* ${currency}\n*Status:* ${pendingWithdrawal.status}\n*Stuck for:* ${Math.round(orderAgeMs / 60000)} min\n*Action:* Auto-failed, held funds released.`,
-                                    },
-                                },
-                            ],
-                        },
-                        { alertKey: `stuck_withdrawal:${pendingWithdrawal.id}` }
-                    );
-                } catch (_) {
-                    // Slack notification is best-effort
-                }
-
+                await this.autoFailStuckOrder(userId, currency, pendingWithdrawal, orderAgeMs, threshold);
                 // Order resolved — allow the new withdrawal to proceed
             } else {
                 this.logger.warn(
@@ -218,6 +161,75 @@ export class SendService {
     }
 
     /**
+     * Auto-fails a stuck withdrawal order and releases held funds.
+     */
+    private async autoFailStuckOrder(
+        userId: number,
+        currency: string,
+        order: { id: string; orderReference: string; amount: any; status: string },
+        orderAgeMs: number,
+        threshold: number
+    ): Promise<void> {
+        this.logger.warn(
+            `Auto-failing stuck withdrawal order | userId: ${userId} | currency: ${currency} | orderId: ${order.id} | ref: ${order.orderReference} | status: ${order.status} | age: ${Math.round(orderAgeMs / 60000)}min | threshold: ${Math.round(threshold / 60000)}min`
+        );
+
+        await this.prisma.order.update({
+            where: { id: order.id },
+            data: {
+                status: OrderStatus.failed,
+                reason: `Auto-failed: stuck in ${order.status} for ${Math.round(orderAgeMs / 60000)} min (threshold: ${Math.round(threshold / 60000)} min) at ${new Date().toISOString()}`,
+            },
+        });
+
+        // Release the held funds back to available balance
+        try {
+            const releaseResult = await this.ledgerService.releaseHold(
+                `withdrawal:${order.orderReference}`,
+                false,
+                "Stuck order auto-failed"
+            );
+            if (releaseResult.success) {
+                this.logger.log(
+                    `Released held funds for stuck order | userId: ${userId} | currency: ${currency} | amount: ${order.amount} | ref: ${order.orderReference}`
+                );
+            } else {
+                this.logger.warn(
+                    `No hold entry found to release for stuck order (may have been released already or order predates ledger holds) | userId: ${userId} | orderId: ${order.id} | ref: ${order.orderReference} | error: ${releaseResult.error}`
+                );
+            }
+        } catch (releaseError) {
+            // Log but don't block — the order is already marked failed.
+            // Manual reconciliation may be needed if hold release fails.
+            this.logger.error(
+                `Failed to release hold for auto-failed order | userId: ${userId} | orderId: ${order.id} | error: ${releaseError.message}`
+            );
+        }
+
+        // Notify ops via Slack
+        try {
+            await this.slackWebhookService.sendAlert(
+                "STUCK_WITHDRAWAL",
+                {
+                    text: `⚠️ Stuck Withdrawal Auto-Failed`,
+                    blocks: [
+                        {
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: `*Order:* ${order.orderReference}\n*User:* ${userId}\n*Currency:* ${currency}\n*Status:* ${order.status}\n*Stuck for:* ${Math.round(orderAgeMs / 60000)} min\n*Action:* Auto-failed, held funds released.`,
+                            },
+                        },
+                    ],
+                },
+                { alertKey: `stuck_withdrawal:${order.id}` }
+            );
+        } catch (_) {
+            // Slack notification is best-effort
+        }
+    }
+
+    /**
      * Gets a fee based on amount and fee data structure
      */
     private async getFee(
@@ -225,40 +237,15 @@ export class SendService {
         data: any
     ): Promise<{ fee: number; type: string }> {
         if (data.type === "flat" && typeof data.fee === "number") {
-            return {
-                fee: data.fee,
-                type: "flat",
-            };
+            return { fee: data.fee, type: "flat" };
         }
 
         if (data.type === "percentage" && typeof data.fee === "number") {
-            return {
-                fee: (amount * data.fee) / 100,
-                type: "percentage",
-            };
+            return { fee: (amount * data.fee) / 100, type: "percentage" };
         }
 
         if (data.type === "range" && Array.isArray(data.fee)) {
-            for (const range of data.fee) {
-                if (amount >= range.min && amount < range.max) {
-                    if (range.type === "percentage") {
-                        return {
-                            fee: (amount * range.value) / 100,
-                            type: "percentage",
-                        };
-                    } else {
-                        return {
-                            fee: range.value,
-                            type: "flat",
-                        };
-                    }
-                }
-            }
-
-            throw new IncompleteAccountSetupException(
-                "Amount is out of range.",
-                HttpStatus.BAD_REQUEST
-            );
+            return this.getRangeFee(amount, data.fee);
         }
 
         // Fallback for simple fee structures
@@ -270,6 +257,56 @@ export class SendService {
             "Unknown fee structure",
             HttpStatus.INTERNAL_SERVER_ERROR
         );
+    }
+
+    /**
+     * Resolves fee from a range-based fee schedule.
+     */
+    private getRangeFee(
+        amount: number,
+        ranges: Array<{ min: number; max: number; type: string; value: number }>
+    ): { fee: number; type: string } {
+        for (const range of ranges) {
+            if (amount >= range.min && amount < range.max) {
+                return range.type === "percentage"
+                    ? { fee: (amount * range.value) / 100, type: "percentage" }
+                    : { fee: range.value, type: "flat" };
+            }
+        }
+
+        throw new IncompleteAccountSetupException(
+            "Amount is out of range.",
+            HttpStatus.BAD_REQUEST
+        );
+    }
+
+    /**
+     * Fetches the withdrawal fee from the provider, wrapping 429 errors
+     * into a user-friendly rate-limit message.
+     */
+    private async fetchWithdrawalFee(
+        userId: number,
+        amount: number,
+        currency: string,
+        network: string
+    ) {
+        try {
+            return await this.getCryptoWithdrawerFee({
+                amount,
+                currency: currency as any,
+                network: network as any,
+            });
+        } catch (feeError) {
+            if (feeError?.status === 429 || feeError?.name === "DojahTooManyRequestError") {
+                this.logger.warn(
+                    `Quidax 429 during fee fetch | userId: ${userId} | currency: ${currency} | error: ${feeError.message}`
+                );
+                throw new RateLimitExceededException(
+                    "Our withdrawal service is temporarily busy. Please try again in a few seconds."
+                );
+            }
+            throw feeError;
+        }
     }
 
     /**
@@ -344,6 +381,90 @@ export class SendService {
             );
             throw new IncompleteAccountSetupException(
                 "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    /**
+     * Resolve the network type from the address format when not explicitly provided.
+     */
+    private resolveNetwork(
+        userId: number, 
+        explicitNetwork: NetworkTypes | undefined, 
+        address: string
+    ): NetworkTypes | undefined {
+        if (explicitNetwork) return explicitNetwork;
+        const family = this.inferAddressFamily(address);
+        if (family === "unknown") return undefined;
+
+        const familyToNetwork: Record<string, NetworkTypes> = {
+            evm: NetworkTypes.erc20,
+            trc20: NetworkTypes.trc20,
+            btc: NetworkTypes.btc,
+            ltc: NetworkTypes.ltc,
+            doge: NetworkTypes.doge,
+            dash: NetworkTypes.dash,
+            bch: NetworkTypes.bch,
+            ripple: NetworkTypes.ripple,
+            stellar: NetworkTypes.stellar,
+            cardano: NetworkTypes.cardano,
+            solana: NetworkTypes.solana,
+            ton: NetworkTypes.ton,
+        };
+        const resolved = familyToNetwork[family];
+        this.logger.log(
+            `Auto-detected network from address | userId: ${userId} | family: ${family} | resolvedNetwork: ${resolved}`
+        );
+        return resolved;
+    }
+
+    /**
+     * Verify a wallet address with the provider, falling back to local regex validation
+     * if the provider rejects a locally-valid address format.
+     */
+    private async validateWalletAddress(
+        userId: number,
+        address: string,
+        currency: string,
+        network: NetworkTypes | undefined,
+    ): Promise<void> {
+        const addressFamily = this.inferAddressFamily(address);
+
+        try {
+            const verification = await this.walletAddressService.verifyWalletAddress({
+                currency: currency.toLowerCase() as any,
+                address,
+                network,
+            });
+
+            if (!verification?.data?.valid) {
+                if (addressFamily !== "unknown") {
+                    this.logger.warn(
+                        `Quidax rejected address but local validation passed — proceeding | userId: ${userId} | currency: ${currency} | network: ${network} | family: ${addressFamily} | address: ${address.slice(0, 10)}...`
+                    );
+                    return;
+                }
+                this.logger.warn(
+                    `Address validation returned invalid | userId: ${userId} | currency: ${currency} | network: ${network} | address: ${address.slice(0, 10)}...`
+                );
+                throw new IncompleteAccountSetupException(
+                    "Invalid wallet address for selected currency",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+        } catch (error) {
+            if (error instanceof IncompleteAccountSetupException) throw error;
+
+            if (addressFamily !== "unknown") {
+                this.logger.warn(
+                    `Address verification API failed but local validation passed — proceeding | userId: ${userId} | currency: ${currency} | network: ${network} | family: ${addressFamily} | error: ${error.message}`
+                );
+                return;
+            }
+            this.logger.warn(`Address verification failed | userId: ${userId} | currency: ${currency} | network: ${network} | error: ${error.message}`);
+            throw new IncompleteAccountSetupException(
+                "Unable to verify wallet address. Please check the address and try again.",
                 HttpStatus.BAD_REQUEST
             );
         }
@@ -490,32 +611,7 @@ export class SendService {
         await this.assertNotOwnDepositAddress(user.id, recipientWalletAddress, currency);
 
         // Auto-detect network from address format when not provided by the client.
-        // Without the network param, Quidax validates against the currency's default
-        // network (e.g. ERC20 for USDT), which rejects valid TRC20 addresses.
-        let resolvedNetwork = dto.network;
-        if (!resolvedNetwork && recipientWalletAddress) {
-            const family = this.inferAddressFamily(recipientWalletAddress);
-            if (family !== "unknown") {
-                const familyToNetwork: Record<string, NetworkTypes> = {
-                    evm: NetworkTypes.erc20,
-                    trc20: NetworkTypes.trc20,
-                    btc: NetworkTypes.btc,
-                    ltc: NetworkTypes.ltc,
-                    doge: NetworkTypes.doge,
-                    dash: NetworkTypes.dash,
-                    bch: NetworkTypes.bch,
-                    ripple: NetworkTypes.ripple,
-                    stellar: NetworkTypes.stellar,
-                    cardano: NetworkTypes.cardano,
-                    solana: NetworkTypes.solana,
-                    ton: NetworkTypes.ton,
-                };
-                resolvedNetwork = familyToNetwork[family];
-                this.logger.log(
-                    `Auto-detected network from address | userId: ${user.id} | family: ${family} | resolvedNetwork: ${resolvedNetwork}`
-                );
-            }
-        }
+        const resolvedNetwork = this.resolveNetwork(user.id, dto.network, recipientWalletAddress);
 
         this.logger.debug(
             `Withdrawal validation | userId: ${user.id} | currency: ${currency} | dto.network: ${dto.network} | resolvedNetwork: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`
@@ -528,54 +624,8 @@ export class SendService {
             );
         }
 
-        // Verify address with Quidax, but fall back to local regex validation
-        // if the provider rejects a locally-valid address format.
-        // Quidax has been observed returning valid=false for legitimate TRC20 addresses.
-        const addressFamily = this.inferAddressFamily(recipientWalletAddress);
-
-        try {
-            const verification = await this.walletAddressService.verifyWalletAddress({
-                currency: currency.toLowerCase() as any,
-                address: recipientWalletAddress,
-                network: resolvedNetwork,
-            });
-
-            if (!verification?.data?.valid) {
-                // If Quidax says invalid but our local regex matched a known family,
-                // trust the local check and proceed with a warning.
-                if (addressFamily !== "unknown") {
-                    this.logger.warn(
-                        `Quidax rejected address but local validation passed — proceeding | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | family: ${addressFamily} | address: ${recipientWalletAddress.slice(0, 10)}...`
-                    );
-                } else {
-                    this.logger.warn(
-                        `Address validation returned invalid | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`
-                    );
-                    throw new IncompleteAccountSetupException(
-                        "Invalid wallet address for selected currency",
-                        HttpStatus.BAD_REQUEST
-                    );
-                }
-            }
-        } catch (error) {
-            if (error instanceof IncompleteAccountSetupException) {
-                throw error;
-            }
-
-            // Quidax API call itself failed (network error, timeout, etc.)
-            // If local validation passed, allow the withdrawal to proceed.
-            if (addressFamily !== "unknown") {
-                this.logger.warn(
-                    `Address verification API failed but local validation passed — proceeding | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | family: ${addressFamily} | error: ${error.message}`
-                );
-            } else {
-                this.logger.warn(`Address verification failed | userId: ${user.id} | currency: ${currency} | network: ${resolvedNetwork} | error: ${error.message}`);
-                throw new IncompleteAccountSetupException(
-                    "Unable to verify wallet address. Please check the address and try again.",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-        }
+        // Verify address with provider, falling back to local regex validation.
+        await this.validateWalletAddress(user.id, recipientWalletAddress, currency, resolvedNetwork);
 
         // Check rate limits FIRST (cheap local check before any external API calls)
         const rateLimitCheck = await this.checkWithdrawalRateLimits(user.id, currency);
@@ -589,26 +639,7 @@ export class SendService {
         // 1. Calculate Fees (External Only)
         // We must fetch the authoritative fee from the provider/admin settings
         // to ensure the user has enough balance for Amount + Fee.
-        let feeDataRes;
-        try {
-            feeDataRes = await this.getCryptoWithdrawerFee({
-                amount: dto.amount,
-                currency: currency as any,
-                network: resolvedNetwork as any,
-            });
-        } catch (feeError) {
-            // If Quidax returns 429, give the user a friendlier message
-            // instead of propagating a raw upstream rate-limit error.
-            if (feeError?.status === 429 || feeError?.name === "DojahTooManyRequestError") {
-                this.logger.warn(
-                    `Quidax 429 during fee fetch | userId: ${user.id} | currency: ${currency} | error: ${feeError.message}`
-                );
-                throw new RateLimitExceededException(
-                    "Our withdrawal service is temporarily busy. Please try again in a few seconds."
-                );
-            }
-            throw feeError;
-        }
+        const feeDataRes = await this.fetchWithdrawalFee(user.id, dto.amount, currency, resolvedNetwork);
 
         const networkFee = new Decimal(feeDataRes.data.totalFee || 0);
         const amount = new Decimal(dto.amount);

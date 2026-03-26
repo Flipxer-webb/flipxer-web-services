@@ -1,6 +1,7 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
-const connStr = 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d5v3gcnpm1nc73c9q6fg-a.oregon-postgres.render.com/resolve_db_4a8l_b6ra_o5el_m1sw_p0r2_x75k_ayye';
+const connStr = process.env.DATABASE_URL;
 
 async function main() {
   const c = new Client({ connectionString: connStr, ssl: { rejectUnauthorized: false } });

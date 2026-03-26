@@ -30,7 +30,7 @@ interface TestUser {
 const testUsers: TestUser[] = [
     {
         email: "tier0.test@flipxer.com",
-        password: "TierZero@2024!",
+        password: process.env.TEST_TIER0_PASSWORD || "TierZero@2024!",
         firstName: "Tier0",
         lastName: "TestUser",
         phone: "09088880000",
@@ -45,7 +45,7 @@ const testUsers: TestUser[] = [
     },
     {
         email: "tier1.test@flipxer.com",
-        password: "TierOne@2024!",
+        password: process.env.TEST_TIER1_PASSWORD || "TierOne@2024!",
         firstName: "Tier1",
         lastName: "TestUser",
         phone: "09088881111",
@@ -61,7 +61,7 @@ const testUsers: TestUser[] = [
     },
     {
         email: "tier2.test@flipxer.com",
-        password: "TierTwo@2024!",
+        password: process.env.TEST_TIER2_PASSWORD || "TierTwo@2024!",
         firstName: "Tier2",
         lastName: "TestUser",
         phone: "09088882222",

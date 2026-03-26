@@ -32,6 +32,21 @@ export class TransactionService {
         private readonly redisCacheService: RedisCacheService,
     ) { }
 
+    /** Sum order amounts in USD, optionally filtering by a cutoff date. */
+    private sumOrdersInUsd(
+        orders: Array<{ amount: number | null; currency: string | null; createdAt: Date }>,
+        since: Date | null,
+        rateCache: Record<string, number>,
+    ): number {
+        let total = 0;
+        for (const order of orders) {
+            if (!order.amount || !order.currency) continue;
+            if (since && order.createdAt < since) continue;
+            total += order.amount * (rateCache[order.currency] || 0);
+        }
+        return total;
+    }
+
     async validateTransaction(
         user: User,
         amount: number,
@@ -128,66 +143,76 @@ export class TransactionService {
         const amountUSD = amountInUSD.amount;
 
         let usedRedis = false;
-        let transactionId: string | undefined;
-        let reason: string | undefined;
 
         // Try atomic Redis increment for daily limit
         if (!hasUnlimitedWithdrawal) {
             const dailyLimit = tierWithdrawalLimit as number;
-            const newDailyTotal = await this.redisCacheService.incrbyfloat(dailyKey, amountUSD, 86400); // 24h TTL
-
-            if (newDailyTotal !== null) {
-                usedRedis = true;
-                if (newDailyTotal > dailyLimit) {
-                    // Rollback the increment
-                    await this.redisCacheService.decrbyfloat(dailyKey, amountUSD);
-
-                    transactionId = uuidv4();
-                    reason = `Daily withdrawal limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)} - Transaction ID: ${transactionId}`;
-                    await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-                    await this.sendFlaggedEmail(user, reason, transactionId);
-                    throw new GeneralTransactionException(
-                        `Daily withdrawal limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
-                        HttpStatus.FORBIDDEN
-                    );
-                }
-                this.logger.debug(`Redis daily limit check passed: ${newDailyTotal.toFixed(2)}/${dailyLimit}`);
-            }
+            const consumed = await this.checkRedisDailyLimit(user, amount, currency, amountUSD, dailyKey, dailyLimit, tierInfo, path);
+            if (consumed) usedRedis = true;
         }
 
         // Try atomic Redis increment for monthly limit
-        const newMonthlyTotal = await this.redisCacheService.incrbyfloat(monthlyKey, amountUSD, 2678400); // 31 days TTL
-
-        if (newMonthlyTotal !== null) {
-            usedRedis = true;
-            if (newMonthlyTotal > monthlyLimit) {
-                // Rollback the increment
-                await this.redisCacheService.decrbyfloat(monthlyKey, amountUSD);
-                // Also rollback daily if we incremented it
-                if (!hasUnlimitedWithdrawal) {
-                    await this.redisCacheService.decrbyfloat(dailyKey, amountUSD);
-                }
-
-                transactionId = uuidv4();
-                reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal.toFixed(2)} - Transaction ID: ${transactionId}`;
-                await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-
-                // Flag user for monthly limit violation
-                await this.flagUserForLimitViolation(user, reason);
-                await this.sendFlaggedEmail(user, reason, transactionId);
-                throw new GeneralTransactionException(
-                    `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
-                    HttpStatus.FORBIDDEN
-                );
-            }
-            this.logger.debug(`Redis monthly limit check passed: ${newMonthlyTotal.toFixed(2)}/${monthlyLimit}`);
-        }
+        const monthlyConsumed = await this.checkRedisMonthlyLimit(
+            user, amount, currency, amountUSD, monthlyKey, monthlyLimit,
+            hasUnlimitedWithdrawal ? null : dailyKey, path
+        );
+        if (monthlyConsumed) usedRedis = true;
 
         // ==================== DB FALLBACK (if Redis unavailable) ====================
         if (!usedRedis) {
             this.logger.warn(`Redis unavailable for user ${user.id} - using DB fallback for limit check`);
             await this.validateLimitsWithDbFallback(user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, monthlyLimit, path);
         }
+    }
+
+    /** Atomic Redis daily limit check. Returns true if Redis responded (regardless of pass/fail). */
+    private async checkRedisDailyLimit(
+        user: User, amount: number, currency: string, amountUSD: number,
+        dailyKey: string, dailyLimit: number, tierInfo: TierInfo, path: string,
+    ): Promise<boolean> {
+        const newDailyTotal = await this.redisCacheService.incrbyfloat(dailyKey, amountUSD, 86400);
+        if (newDailyTotal === null) return false;
+
+        if (newDailyTotal > dailyLimit) {
+            await this.redisCacheService.decrbyfloat(dailyKey, amountUSD);
+            const transactionId = uuidv4();
+            const reason = `Daily withdrawal limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)} - Transaction ID: ${transactionId}`;
+            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+            await this.sendFlaggedEmail(user, reason, transactionId);
+            throw new GeneralTransactionException(
+                `Daily withdrawal limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
+                HttpStatus.FORBIDDEN
+            );
+        }
+        this.logger.debug(`Redis daily limit check passed: ${newDailyTotal.toFixed(2)}/${dailyLimit}`);
+        return true;
+    }
+
+    /** Atomic Redis monthly limit check. Returns true if Redis responded. */
+    private async checkRedisMonthlyLimit(
+        user: User, amount: number, currency: string, amountUSD: number,
+        monthlyKey: string, monthlyLimit: number, dailyKey: string | null, path: string,
+    ): Promise<boolean> {
+        const newMonthlyTotal = await this.redisCacheService.incrbyfloat(monthlyKey, amountUSD, 2678400);
+        if (newMonthlyTotal === null) return false;
+
+        if (newMonthlyTotal > monthlyLimit) {
+            await this.redisCacheService.decrbyfloat(monthlyKey, amountUSD);
+            if (dailyKey) {
+                await this.redisCacheService.decrbyfloat(dailyKey, amountUSD);
+            }
+            const transactionId = uuidv4();
+            const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal.toFixed(2)} - Transaction ID: ${transactionId}`;
+            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+            await this.flagUserForLimitViolation(user, reason);
+            await this.sendFlaggedEmail(user, reason, transactionId);
+            throw new GeneralTransactionException(
+                `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
+                HttpStatus.FORBIDDEN
+            );
+        }
+        this.logger.debug(`Redis monthly limit check passed: ${newMonthlyTotal.toFixed(2)}/${monthlyLimit}`);
+        return true;
     }
 
     /**
@@ -224,39 +249,12 @@ export class TransactionService {
                 select: { amount: true, currency: true, createdAt: true },
             });
 
-            // Get USDT rate for NGN to USD conversion
-            const usdtRate = await tx.cryptoRate.findUnique({ where: { currency: 'USDT' } });
-            const ngnToUsd = usdtRate && usdtRate.sellRate > 0 ? 1 / usdtRate.sellRate : 0;
-
-            // Build rate cache for order currencies
-            const uniqueCurrencies = [...new Set(orders.map(order => order.currency))];
-            const rateCache: { [key: string]: number } = {};
-
-            for (const curr of uniqueCurrencies) {
-                if (!curr) continue;
-                const cryptoRate = await tx.cryptoRate.findUnique({
-                    where: { currency: curr.toUpperCase() }
-                });
-                if (cryptoRate && cryptoRate.sellRate > 0 && ngnToUsd > 0) {
-                    rateCache[curr] = cryptoRate.sellRate * ngnToUsd;
-                } else {
-                    rateCache[curr] = 0;
-                }
-            }
-
-            // Calculate daily total
-            let currentDailyTotal = 0;
-            for (const order of orders) {
-                if (order.createdAt >= oneDayAgo && order.amount && order.currency) {
-                    const usdRate = rateCache[order.currency] || 0;
-                    currentDailyTotal += order.amount * usdRate;
-                }
-            }
-            const newDailyTotal = currentDailyTotal + amountUSD;
+            const rateCache = await this.buildRateCache(tx, orders);
 
             // Check daily limit
             if (!hasUnlimitedWithdrawal) {
                 const dailyLimit = tierInfo.withdrawalLimit as number;
+                const newDailyTotal = this.sumOrdersInUsd(orders, oneDayAgo, rateCache) + amountUSD;
                 if (newDailyTotal > dailyLimit) {
                     const transactionId = uuidv4();
                     const reason = `Daily withdrawal limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)}`;
@@ -269,17 +267,8 @@ export class TransactionService {
                 }
             }
 
-            // Calculate monthly total
-            let currentMonthlyTotal = 0;
-            for (const order of orders) {
-                if (order.amount && order.currency) {
-                    const usdRate = rateCache[order.currency] || 0;
-                    currentMonthlyTotal += order.amount * usdRate;
-                }
-            }
-            const newMonthlyTotal = currentMonthlyTotal + amountUSD;
-
             // Check monthly limit
+            const newMonthlyTotal = this.sumOrdersInUsd(orders, null, rateCache) + amountUSD;
             if (newMonthlyTotal > monthlyLimit) {
                 const transactionId = uuidv4();
                 const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal.toFixed(2)}`;
@@ -292,6 +281,30 @@ export class TransactionService {
                 );
             }
         }, { timeout: 10000 });
+    }
+
+    /** Build a currency→USD-rate cache for a set of orders within a transaction. */
+    private async buildRateCache(
+        tx: any,
+        orders: Array<{ currency: string | null }>,
+    ): Promise<Record<string, number>> {
+        const usdtRate = await tx.cryptoRate.findUnique({ where: { currency: 'USDT' } });
+        const ngnToUsd = usdtRate && usdtRate.sellRate > 0 ? 1 / usdtRate.sellRate : 0;
+
+        const uniqueCurrencies = [...new Set(orders.map(o => o.currency))];
+        const rateCache: Record<string, number> = {};
+
+        for (const curr of uniqueCurrencies) {
+            if (!curr) continue;
+            const cryptoRate = await tx.cryptoRate.findUnique({
+                where: { currency: curr.toUpperCase() },
+            });
+            rateCache[curr] = cryptoRate && cryptoRate.sellRate > 0 && ngnToUsd > 0
+                ? cryptoRate.sellRate * ngnToUsd
+                : 0;
+        }
+
+        return rateCache;
     }
 
     /**

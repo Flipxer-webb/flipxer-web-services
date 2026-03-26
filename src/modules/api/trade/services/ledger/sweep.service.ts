@@ -736,6 +736,73 @@ export class SweepService {
     }
 
     /**
+     * Attempts to retry a single sweep entry if eligible:
+     * checks retry cap, backoff cooloff (for FAILED), CAS gate, then initiates sweep.
+     * Returns true if the sweep was successfully re-initiated.
+     */
+    private async retryEligibleEntry(
+        entry: { id: string; sweepRetryCount: number; updatedAt: Date },
+        currentStatus: SweepStatus
+    ): Promise<boolean> {
+        const retryCount = entry.sweepRetryCount;
+
+        if (retryCount >= this.MAX_LIFETIME_RETRIES) {
+            return false;
+        }
+
+        // For FAILED entries, enforce exponential backoff cooloff
+        if (currentStatus === SweepStatus.FAILED) {
+            const backoffMinutes = Math.pow(
+                this.BACKOFF_BASE_MINUTES,
+                retryCount + 1
+            );
+            const cooloffExpiry = new Date(
+                entry.updatedAt.getTime() + backoffMinutes * 60 * 1000
+            );
+
+            if (new Date() < cooloffExpiry) {
+                this.logger.debug(
+                    `Sweep retry deferred | ledgerEntryId: ${entry.id} | retryCount: ${retryCount} | eligibleAt: ${cooloffExpiry.toISOString()}`
+                );
+                return false;
+            }
+        }
+
+        // CAS gate: only update if still in the expected status
+        const updateResult = await this.prisma.ledgerEntry.updateMany({
+            where: {
+                id: entry.id,
+                sweepStatus: currentStatus,
+            },
+            data: {
+                sweepStatus: SweepStatus.PENDING,
+                sweepRetryCount: retryCount + 1,
+            },
+        });
+
+        if (updateResult.count === 0) {
+            if (currentStatus === SweepStatus.IN_PROGRESS) {
+                this.logger.debug(
+                    `Stale sweep already resolved | ledgerEntryId: ${entry.id}`
+                );
+            }
+            return false;
+        }
+
+        const label =
+            currentStatus === SweepStatus.FAILED
+                ? "Retrying failed sweep"
+                : `Recovering stale IN_PROGRESS sweep | staleFor: ${Math.round((Date.now() - entry.updatedAt.getTime()) / 60000)}min`;
+
+        this.logger.log(
+            `${label} | ledgerEntryId: ${entry.id} | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
+        );
+
+        const result = await this.initiateSweep(entry.id);
+        return result.success;
+    }
+
+    /**
      * Inner implementation of retryFailedSweeps, called within the job lock.
      */
     private async _retryFailedSweepsInner(maxRetries: number): Promise<number> {
@@ -809,54 +876,7 @@ export class SweepService {
         }
 
         for (const entry of failed) {
-            const retryCount = entry.sweepRetryCount;
-
-            // Skip entries that have exhausted retries
-            if (retryCount >= this.MAX_LIFETIME_RETRIES) {
-                continue;
-            }
-
-            // FIX: SW-002 — exponential backoff: only retry if the cooloff
-            // window has elapsed since the last failure
-            const backoffMinutes = Math.pow(
-                this.BACKOFF_BASE_MINUTES,
-                retryCount + 1
-            );
-            const cooloffExpiry = new Date(
-                entry.updatedAt.getTime() + backoffMinutes * 60 * 1000
-            );
-
-            if (new Date() < cooloffExpiry) {
-                this.logger.debug(
-                    `Sweep retry deferred | ledgerEntryId: ${entry.id} | retryCount: ${retryCount} | eligibleAt: ${cooloffExpiry.toISOString()}`
-                );
-                continue;
-            }
-
-            // FIX: SW-002 — increment retry count and reset to PENDING atomically.
-            // Uses updateMany with FAILED gate to prevent concurrent retry races.
-            const updateResult = await this.prisma.ledgerEntry.updateMany({
-                where: {
-                    id: entry.id,
-                    sweepStatus: SweepStatus.FAILED, // gate: only if still FAILED
-                },
-                data: {
-                    sweepStatus: SweepStatus.PENDING,
-                    sweepRetryCount: retryCount + 1,
-                },
-            });
-
-            if (updateResult.count === 0) {
-                // Another process already picked this up
-                continue;
-            }
-
-            this.logger.log(
-                `Retrying failed sweep | ledgerEntryId: ${entry.id} | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
-            );
-
-            const result = await this.initiateSweep(entry.id);
-            if (result.success) {
+            if (await this.retryEligibleEntry(entry, SweepStatus.FAILED)) {
                 retried++;
             }
         }
@@ -891,36 +911,7 @@ export class SweepService {
         }
 
         for (const entry of staleInProgress) {
-            const retryCount = entry.sweepRetryCount;
-
-            // Optimistic concurrency gate: only reset if still IN_PROGRESS.
-            // If a late webhook moved it to COMPLETED between our SELECT and
-            // this UPDATE, the count will be 0 and we skip safely.
-            const updateResult = await this.prisma.ledgerEntry.updateMany({
-                where: {
-                    id: entry.id,
-                    sweepStatus: SweepStatus.IN_PROGRESS, // gate
-                },
-                data: {
-                    sweepStatus: SweepStatus.PENDING,
-                    sweepRetryCount: retryCount + 1,
-                },
-            });
-
-            if (updateResult.count === 0) {
-                // Webhook arrived or another process handled it
-                this.logger.debug(
-                    `Stale sweep already resolved | ledgerEntryId: ${entry.id}`
-                );
-                continue;
-            }
-
-            this.logger.log(
-                `Recovering stale IN_PROGRESS sweep | ledgerEntryId: ${entry.id} | staleFor: ${Math.round((Date.now() - entry.updatedAt.getTime()) / 60000)}min | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
-            );
-
-            const result = await this.initiateSweep(entry.id);
-            if (result.success) {
+            if (await this.retryEligibleEntry(entry, SweepStatus.IN_PROGRESS)) {
                 retried++;
             }
         }

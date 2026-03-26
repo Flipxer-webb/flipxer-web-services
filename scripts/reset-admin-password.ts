@@ -12,8 +12,8 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const SALT_ROUNDS = 10;
-const ADMIN_EMAIL = 'hello@flipxer.com';
-const NEW_PASSWORD = 'FlipxerAdmin2025!';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@flipxer.com';
+const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD || 'FlipxerAdmin2025!';
 
 async function main() {
     console.log('🔐 Admin Password Reset Script');

@@ -20,7 +20,7 @@ const prisma = new PrismaClient();
 async function main() {
     const timestamp = Math.floor(Date.now() / 1000);
     const email = `tier1-test-${timestamp}@yjo4y7so.mailosaur.net`;
-    const password = 'TestPassword123!';
+    const password = process.env.TEST_PASSWORD || 'TestPassword123!';
     const hashedPassword = await bcrypt.hash(password, 10);
     const twoFactorSecret = authenticator.generateSecret();
     const identifier = uuidv4();

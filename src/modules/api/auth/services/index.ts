@@ -108,6 +108,45 @@ import { DistributedLockService } from "@/modules/core/redisCache/services/distr
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
+/**
+ * Build a spread-safe object for a file field in update operations.
+ * Returns an empty object if the file is not present, avoiding inline ternaries.
+ */
+function fileFieldUpdate(
+    file: { url: string; fileId: string; originalName: string } | null,
+    urlProp: string,
+    fieldIdProp: string,
+    fileNameProp: string,
+    metaKey: string,
+    userId: number,
+): Record<string, string> {
+    if (!file) return {};
+    return {
+        [urlProp]: file.url,
+        [fieldIdProp]: file.fileId,
+        [fileNameProp]: generateFileName(metaKey, userId, file.originalName),
+    };
+}
+
+/**
+ * Build file field values for create operations.
+ * Returns null values if no file, avoiding inline ternaries.
+ */
+function fileFieldCreate(
+    file: { url: string; fileId: string; originalName: string } | null,
+    urlProp: string,
+    fieldIdProp: string,
+    fileNameProp: string,
+    metaKey: string,
+    userId: number,
+): Record<string, string | null> {
+    return {
+        [urlProp]: file?.url || null,
+        [fieldIdProp]: file?.fileId || null,
+        [fileNameProp]: file ? generateFileName(metaKey, userId, file.originalName) : null,
+    };
+}
+
 @Injectable()
 export class AuthService {
     private readonly logger = new Logger(AuthService.name);
@@ -168,6 +207,96 @@ export class AuthService {
         // Default message with the original error for debugging
         const originalMessage = error.message || 'Unknown error';
         return `Document verification failed: ${originalMessage}. Please try with a clearer image.`;
+    }
+
+    /**
+     * Hard-reject documents that are expired or unsupported.
+     * For other failure reasons, log and allow through for manual review.
+     */
+    private checkHardRejectDocument(
+        reason: string,
+        userId: number,
+        hasExtractedText: boolean | undefined,
+        logger: Logger,
+    ): void {
+        const upper = reason.toUpperCase();
+
+        if (upper.includes("EXPIRED")) {
+            throw new VerificationGenericException(
+                "Document appears to be expired. Please upload a valid, unexpired document.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+        if (upper.includes("NOT_SUPPORTED") || upper.includes("UNSUPPORTED")) {
+            throw new VerificationGenericException(
+                "This document type is not supported. Please upload a valid passport, driver's license, or national ID.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // For NOT_VALID / INVALID / other reasons: allow through for manual review
+        logger.log(
+            `Document for user ${userId} is not auto-verified (reason=${reason}), ` +
+            `hasExtractedText=${hasExtractedText} — saving for manual review`
+        );
+    }
+
+    /**
+     * Call Dojah document verification API with base64 images.
+     * Returns a structured result, never throws.
+     */
+    private async callDojahDocumentVerification(
+        cleanFrontBase64: string,
+        cleanBackBase64: string | undefined,
+        user: User,
+        dto: DocumentVerificationBase64Dto,
+        startTime: number,
+        logger: Logger,
+    ) {
+        try {
+            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
+                {
+                    inputType: "base64",
+                    imageFrontSide: cleanFrontBase64,
+                    ...(cleanBackBase64 && { imageBackSide: cleanBackBase64 }),
+                },
+                user.firstName,
+                user.lastName
+            );
+            logger.log(`Dojah API completed in ${Date.now() - startTime}ms for user ${user.id}`);
+            return {
+                success: true,
+                isValid: verificationResult.isValid,
+                nameMatches: verificationResult.nameMatches,
+                parsed: verificationResult.parsed,
+                raw: JSON.stringify(verificationResult),
+                error: null,
+            };
+        } catch (error) {
+            logger.error(`Dojah document analysis failed for user ${user.id}`, {
+                errorName: error.name,
+                errorMessage: error.message,
+                errorStatus: error.status,
+                errorStack: error.stack,
+                durationMs: Date.now() - startTime,
+                payloadSize: {
+                    frontImage: dto.imageFrontBase64?.length || 0,
+                    backImage: dto.imageBackBase64?.length || 0,
+                },
+            });
+            return {
+                success: false,
+                isValid: false,
+                nameMatches: false,
+                parsed: null,
+                raw: null,
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    status: error.status,
+                },
+            };
+        }
     }
 
     /**
@@ -1610,6 +1739,149 @@ export class AuthService {
         return reason;
     }
 
+    /** Map Dojah/client document type strings to internal DocumentType enum. */
+    private mapDojahToDocumentType(dojahDocTypeRaw?: string, fallbackDocType?: string): DocumentType {
+        const dojahDocType = dojahDocTypeRaw?.toLowerCase();
+        if (dojahDocType?.includes("passport")) return DocumentType.INTERNATIONAL_PASSPORT;
+        if (dojahDocType?.includes("driver") || dojahDocType?.includes("license")) return DocumentType.DRIVER_LICENSE;
+
+        const providedType = fallbackDocType?.toLowerCase();
+        if (providedType?.includes("passport")) return DocumentType.INTERNATIONAL_PASSPORT;
+        if (providedType?.includes("driver") || providedType?.includes("license")) return DocumentType.DRIVER_LICENSE;
+
+        return DocumentType.NIN;
+    }
+
+    /** Persist Dojah widget response + update user status + audit trail. */
+    private async persistWidgetVerification(
+        userId: number,
+        documentType: DocumentType,
+        dto: DojahWidgetVerificationDto,
+        serverVerified: boolean,
+        finalStatus: DocumentVerificationStatus,
+        serverVerificationData: any,
+    ) {
+        const rawResponse = JSON.stringify({
+            verificationId: dto.verificationId,
+            referenceId: dto.referenceId,
+            verificationType: dto.verificationType,
+            idData: dto.idData,
+            liveness: dto.liveness,
+            selfie: dto.selfie,
+            faceMatch: dto.faceMatch,
+            verifiedViaWidget: true,
+            serverVerification: serverVerificationData,
+        });
+
+        const dojahFields = {
+            type: documentType,
+            country: Country.NIGERIA,
+            documentNumber: dto.idData?.document_number || "",
+            verificationStatus: finalStatus,
+            dojahVerified: serverVerified,
+            dojahDocumentType: dto.idData?.document_type || null,
+            dojahCountryCode: dto.idData?.country || null,
+            dojahExtractedFirstName: dto.idData?.first_name || null,
+            dojahExtractedLastName: dto.idData?.last_name || null,
+            dojahExtractedDob: dto.idData?.date_of_birth || null,
+            dojahExtractedDocNumber: dto.idData?.document_number || null,
+            dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
+            dojahNameMatches: serverVerified,
+            dojahVerifiedAt: new Date(),
+            dojahRawResponse: rawResponse,
+        };
+
+        await this.prisma.userDocument.upsert({
+            where: { userId },
+            update: { ...dojahFields, updatedAt: new Date() },
+            create: {
+                userId,
+                ...dojahFields,
+                documentImageUrl: "dojah-widget-verified",
+                documentImageFieldId: `dojah-widget-${dto.verificationId || Date.now()}`,
+            },
+        });
+
+        await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+                isDocumentVerified: serverVerified,
+                documentVerificationStatus: finalStatus,
+            },
+        });
+
+        await this.kycStateMachine.transition(
+            userId,
+            "DOCUMENT",
+            serverVerified ? "APPROVED" : "PENDING",
+            {
+                providerRef: dto.verificationId || dto.referenceId,
+                providerRawResponse: { widget: true, serverVerified, serverVerificationData },
+                reviewNote: serverVerified
+                    ? "Server-side confirmed via Dojah widget"
+                    : "Widget submitted but server-side confirmation failed — pending manual review",
+            }
+        );
+    }
+
+    /** Server-side verification of Dojah widget result. Never throws — returns verified=false on failure. */
+    private async verifyDojahServerSide(
+        verificationId: string | undefined,
+        userId: number,
+        logger: Logger,
+    ): Promise<{ serverVerified: boolean; serverVerificationData: any }> {
+        if (!verificationId) {
+            logger.warn(`No verificationId provided for user ${userId}, cannot perform server-side check`);
+            return { serverVerified: false, serverVerificationData: null };
+        }
+        try {
+            const serverResult = await this.dojahService.getVerificationResult(verificationId);
+            logger.log(`Server-side verification for user ${userId}: verified=${serverResult.verified}, status=${serverResult.status}`);
+            return { serverVerified: serverResult.verified, serverVerificationData: serverResult.data };
+        } catch (error) {
+            logger.warn(`Server-side verification check failed for user ${userId}, falling back to manual review: ${error.message}`);
+            return { serverVerified: false, serverVerificationData: null };
+        }
+    }
+
+    /** Build the API response after Dojah widget verification completes. */
+    private async buildWidgetVerificationResponse(
+        serverVerified: boolean,
+        userId: number,
+        documentType: DocumentType,
+        dto: DojahWidgetVerificationDto,
+        updatedUser: any,
+        logger: Logger,
+    ) {
+        if (serverVerified) {
+            logger.log(`Dojah widget verification completed successfully for user ${userId}, new tier: ${updatedUser.tier ?? 0}`);
+            return buildResponse({
+                message: "Document verified successfully",
+                data: {
+                    verified: true,
+                    documentType,
+                    firstName: dto.idData?.first_name,
+                    lastName: dto.idData?.last_name,
+                    documentNumber: dto.idData?.document_number,
+                    tier: updatedUser.tier ?? 0,
+                    canTransact: (updatedUser.tier ?? 0) > 0,
+                },
+            });
+        }
+
+        logger.warn(`Dojah widget verification for user ${userId} requires manual review (server-side check failed)`);
+        await this.notificationDispatcher.notify({
+            userId,
+            title: "Document Submitted",
+            body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+            category: "security",
+        });
+        return buildResponse({
+            message: "Document submitted for review. You will be notified once verification is complete.",
+            data: { verified: false, documentType, pendingReview: true },
+        });
+    }
+
     /**
      * Submit Dojah Widget verification result
      * Receives verification data from Dojah Widget and saves to database
@@ -1637,171 +1909,31 @@ export class AuthService {
             }
 
             // Map Dojah document type to internal document type
-            const dojahDocType = dto.idData?.document_type?.toLowerCase();
-            let documentType: DocumentType = DocumentType.NIN;
-
-            if (dojahDocType?.includes("passport")) {
-                documentType = DocumentType.INTERNATIONAL_PASSPORT;
-            } else if (dojahDocType?.includes("driver") || dojahDocType?.includes("license")) {
-                documentType = DocumentType.DRIVER_LICENSE;
-            } else if (dto.documentType) {
-                // Use provided document type as fallback
-                const providedType = dto.documentType.toLowerCase();
-                if (providedType.includes("passport")) {
-                    documentType = DocumentType.INTERNATIONAL_PASSPORT;
-                } else if (providedType.includes("driver") || providedType.includes("license")) {
-                    documentType = DocumentType.DRIVER_LICENSE;
-                }
-            }
+            const documentType = this.mapDojahToDocumentType(
+                dto.idData?.document_type,
+                dto.documentType,
+            );
 
             // SECURITY: Server-side verification of widget result
             // Do NOT trust the client-submitted verification data alone
-            let serverVerified = false;
-            let serverVerificationData: any = null;
-
-            if (dto.verificationId) {
-                try {
-                    const serverResult = await this.dojahService.getVerificationResult(dto.verificationId);
-                    serverVerified = serverResult.verified;
-                    serverVerificationData = serverResult.data;
-                    logger.log(`Server-side verification for user ${user.id}: verified=${serverVerified}, status=${serverResult.status}`);
-                } catch (error) {
-                    logger.warn(`Server-side verification check failed for user ${user.id}, falling back to manual review: ${error.message}`);
-                    serverVerified = false;
-                }
-            } else {
-                logger.warn(`No verificationId provided for user ${user.id}, cannot perform server-side check`);
-            }
+            const { serverVerified, serverVerificationData } =
+                await this.verifyDojahServerSide(dto.verificationId, user.id, logger);
 
             const finalStatus = serverVerified
                 ? DocumentVerificationStatus.VERIFIED
                 : DocumentVerificationStatus.PENDING;
 
-            // Store Dojah widget response in userDocument
-            await this.prisma.userDocument.upsert({
-                where: { userId: user.id },
-                update: {
-                    type: documentType,
-                    country: Country.NIGERIA,
-                    documentNumber: dto.idData?.document_number || "",
-                    verificationStatus: finalStatus,
-                    dojahVerified: serverVerified,
-                    dojahDocumentType: dto.idData?.document_type || null,
-                    dojahCountryCode: dto.idData?.country || null,
-                    dojahExtractedFirstName: dto.idData?.first_name || null,
-                    dojahExtractedLastName: dto.idData?.last_name || null,
-                    dojahExtractedDob: dto.idData?.date_of_birth || null,
-                    dojahExtractedDocNumber: dto.idData?.document_number || null,
-                    dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
-                    dojahNameMatches: serverVerified, // Only trust if server-confirmed
-                    dojahVerifiedAt: new Date(),
-                    dojahRawResponse: JSON.stringify({
-                        verificationId: dto.verificationId,
-                        referenceId: dto.referenceId,
-                        verificationType: dto.verificationType,
-                        idData: dto.idData,
-                        liveness: dto.liveness,
-                        selfie: dto.selfie,
-                        faceMatch: dto.faceMatch,
-                        verifiedViaWidget: true,
-                        serverVerification: serverVerificationData,
-                    }),
-                    updatedAt: new Date(),
-                },
-                create: {
-                    userId: user.id,
-                    type: documentType,
-                    country: Country.NIGERIA,
-                    documentNumber: dto.idData?.document_number || "",
-                    // For Dojah Widget, images are stored by Dojah - use placeholder
-                    documentImageUrl: "dojah-widget-verified",
-                    documentImageFieldId: `dojah-widget-${dto.verificationId || Date.now()}`,
-                    verificationStatus: finalStatus,
-                    dojahVerified: serverVerified,
-                    dojahDocumentType: dto.idData?.document_type || null,
-                    dojahCountryCode: dto.idData?.country || null,
-                    dojahExtractedFirstName: dto.idData?.first_name || null,
-                    dojahExtractedLastName: dto.idData?.last_name || null,
-                    dojahExtractedDob: dto.idData?.date_of_birth || null,
-                    dojahExtractedDocNumber: dto.idData?.document_number || null,
-                    dojahExtractedExpiryDate: dto.idData?.expiry_date || null,
-                    dojahNameMatches: serverVerified,
-                    dojahVerifiedAt: new Date(),
-                    dojahRawResponse: JSON.stringify({
-                        verificationId: dto.verificationId,
-                        referenceId: dto.referenceId,
-                        verificationType: dto.verificationType,
-                        idData: dto.idData,
-                        liveness: dto.liveness,
-                        selfie: dto.selfie,
-                        faceMatch: dto.faceMatch,
-                        verifiedViaWidget: true,
-                        serverVerification: serverVerificationData,
-                    }),
-                },
-            });
-
-            // Update user's document verification status
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    isDocumentVerified: serverVerified,
-                    documentVerificationStatus: finalStatus,
-                },
-            });
-
-            // Audit trail via state machine
-            await this.kycStateMachine.transition(
-                user.id,
-                "DOCUMENT",
-                serverVerified ? "APPROVED" : "PENDING",
-                {
-                    providerRef: dto.verificationId || dto.referenceId,
-                    providerRawResponse: { widget: true, serverVerified, serverVerificationData },
-                    reviewNote: serverVerified
-                        ? "Server-side confirmed via Dojah widget"
-                        : "Widget submitted but server-side confirmation failed — pending manual review",
-                }
+            // Persist widget verification data and update user status
+            await this.persistWidgetVerification(
+                user.id, documentType, dto, serverVerified, finalStatus, serverVerificationData,
             );
 
             // Sync tier & flush cache for both branches — flags were written above
             const updatedUser = await this.tierService.syncTierAndCache(user.id);
 
-            if (serverVerified) {
-                logger.log(`Dojah widget verification completed successfully for user ${user.id}, new tier: ${updatedUser.tier ?? 0}`);
-
-                return buildResponse({
-                    message: "Document verified successfully",
-                    data: {
-                        verified: true,
-                        documentType,
-                        firstName: dto.idData?.first_name,
-                        lastName: dto.idData?.last_name,
-                        documentNumber: dto.idData?.document_number,
-                        tier: updatedUser.tier ?? 0,
-                        canTransact: (updatedUser.tier ?? 0) > 0,
-                    },
-                });
-            } else {
-                logger.warn(`Dojah widget verification for user ${user.id} requires manual review (server-side check failed)`);
-
-                // In-app notification for pending review
-                await this.notificationDispatcher.notify({
-                    userId: user.id,
-                    title: "Document Submitted",
-                    body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
-                    category: "security",
-                });
-
-                return buildResponse({
-                    message: "Document submitted for review. You will be notified once verification is complete.",
-                    data: {
-                        verified: false,
-                        documentType,
-                        pendingReview: true,
-                    },
-                });
-            }
+            return this.buildWidgetVerificationResponse(
+                serverVerified, user.id, documentType, dto, updatedUser, logger,
+            );
         } catch (error) {
             logger.error(`Dojah widget verification failed for user ${user.id}`, {
                 error: error.message,
@@ -1863,56 +1995,7 @@ export class AuthService {
         const [documentImage1, documentImage2, dojahResult] = await Promise.all([
             this.uploadBase64Image(dto.imageFrontBase64),
             dto.imageBackBase64 ? this.uploadBase64Image(dto.imageBackBase64) : Promise.resolve(null),
-            // Call Dojah directly with base64 - no need for URL
-            (async () => {
-                try {
-                    const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
-                        {
-                            inputType: "base64",
-                            imageFrontSide: cleanFrontBase64,
-                            ...(cleanBackBase64 && { imageBackSide: cleanBackBase64 }),
-                        },
-                        user.firstName,
-                        user.lastName
-                    );
-                    logger.log(`Dojah API completed in ${Date.now() - startTime}ms for user ${user.id}`);
-                    return {
-                        success: true,
-                        isValid: verificationResult.isValid,
-                        nameMatches: verificationResult.nameMatches,
-                        parsed: verificationResult.parsed,
-                        raw: JSON.stringify(verificationResult),
-                        error: null,
-                    };
-                } catch (error) {
-                    // Enhanced error logging - capture full error details
-                    logger.error(`Dojah document analysis failed for user ${user.id}`, {
-                        errorName: error.name,
-                        errorMessage: error.message,
-                        errorStatus: error.status,
-                        errorStack: error.stack,
-                        durationMs: Date.now() - startTime,
-                        payloadSize: {
-                            frontImage: dto.imageFrontBase64?.length || 0,
-                            backImage: dto.imageBackBase64?.length || 0,
-                        },
-                    });
-
-                    // Return error details for proper handling
-                    return {
-                        success: false,
-                        isValid: false,
-                        nameMatches: false,
-                        parsed: null,
-                        raw: null,
-                        error: {
-                            name: error.name,
-                            message: error.message,
-                            status: error.status,
-                        },
-                    };
-                }
-            })(),
+            this.callDojahDocumentVerification(cleanFrontBase64, cleanBackBase64, user, dto, startTime, logger),
         ]);
 
         let { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse, error: dojahError } = dojahResult;
@@ -1943,32 +2026,9 @@ export class AuthService {
             `reason=${dojahParsed?.reason || "unknown"}`
         );
 
-        // If Dojah says document is NOT valid, check if OCR extracted text
-        // If text was extracted, allow submission for manual review (PENDING status)
-        // Only hard-reject for truly unrecoverable errors (expired, unsupported type)
+        // If Dojah says document is NOT valid, check rejection criteria
         if (!isDocumentValid && dojahParsed?.reason) {
-            const reason = dojahParsed.reason.toUpperCase();
-
-            // Hard-reject only for expired or unsupported documents
-            if (reason.includes("EXPIRED")) {
-                throw new VerificationGenericException(
-                    "Document appears to be expired. Please upload a valid, unexpired document.",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            if (reason.includes("NOT_SUPPORTED") || reason.includes("UNSUPPORTED")) {
-                throw new VerificationGenericException(
-                    "This document type is not supported. Please upload a valid passport, driver's license, or national ID.",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            // For NOT_VALID / INVALID / other reasons: allow through for manual review
-            // The document will be saved with PENDING status
-            logger.log(
-                `Document for user ${user.id} is not auto-verified (reason=${dojahParsed.reason}), ` +
-                `hasExtractedText=${dojahParsed.hasExtractedText} — saving for manual review`
-            );
+            this.checkHardRejectDocument(dojahParsed.reason, user.id, dojahParsed.hasExtractedText, logger);
         }
 
         // Auto-approve if document is valid; otherwise save as PENDING for manual review
@@ -2364,239 +2424,65 @@ export class AuthService {
             name: "idDocument" | "proofOfAddress"
         ) => getField(`${kind}[${index}].${name}`);
 
+        // Pre-build upsert data outside the transaction callback to reduce its cognitive complexity.
+        const updateData = {
+            cacDocumentNumber: dto.cacDocumentNumber,
+            ...fileFieldUpdate(getField("cacImage"), "cacImageUrl", "cacImageUrlFieldId", "cacImageFileName", DocumentMetaMap.cacImage, user.id),
+            articleOfAssociationNumber: dto.articleOfAssociationNumber || null,
+            ...fileFieldUpdate(getField("articleOfAssociationImage"), "articleOfAssociationImageUrl", "articleOfAssociationImageUrlFieldId", "articleOfAssociationFileName", DocumentMetaMap.articleOfAssociationImage, user.id),
+            ...fileFieldUpdate(getField("boardResolutionAuthorizedAcctOpeningImage"), "boardResolutionAuthorizedAcctOpeningImageUrl", "boardResolutionAuthorizedAcctOpeningImageUrlFieldId", "boardResolutionAuthorizedAcctOpeningFileName", DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage, user.id),
+            ...fileFieldUpdate(getField("meansOfIdentificationForBeneficialOwner"), "meansOfIdentificationForBeneficialOwner", "meansOfIdentificationForBeneficialOwnerImageFieldId", "meansOfIdentificationForBeneficialOwnerFileName", DocumentMetaMap.meansOfIdentificationForBeneficialOwner, user.id),
+            ...fileFieldUpdate(getField("proofOfAddressForBeneficialOwner"), "proofOfAddressForBeneficialOwner", "proofOfAddressForBeneficialOwnerImageFieldId", "proofOfAddressForBeneficialOwnerFileName", DocumentMetaMap.proofOfAddressForBeneficialOwner, user.id),
+            ...fileFieldUpdate(getField("certificateOfIncorporation"), "certificateOfIncorporationUrl", "certificateOfIncorporationFieldId", "certificateOfIncorporationFileName", "certificate_of_incorporation", user.id),
+            ...fileFieldUpdate(getField("applicationForRegistration"), "applicationForRegistrationUrl", "applicationForRegistrationFieldId", "applicationForRegistrationFileName", "application_for_registration", user.id),
+            ...fileFieldUpdate(getField("memart"), "memartUrl", "memartFieldId", "memartFileName", "memart", user.id),
+            ...fileFieldUpdate(getField("companyUtilityBills"), "companyUtilityBillsUrl", "companyUtilityBillsFieldId", "companyUtilityBillsFileName", "company_utility_bills", user.id),
+            ...fileFieldUpdate(getField("companyAmlPolicy"), "companyAmlPolicyUrl", "companyAmlPolicyFieldId", "companyAmlPolicyFileName", "company_aml_policy", user.id),
+            ...fileFieldUpdate(getField("scumlCertificate"), "scumlCertificateUrl", "scumlCertificateFieldId", "scumlCertificateFileName", "scuml_certificate", user.id),
+            ...fileFieldUpdate(getField("companyOrganogram"), "companyOrganogramUrl", "companyOrganogramFieldId", "companyOrganogramFileName", "company_organogram", user.id),
+            ...fileFieldUpdate(getField("companyLicense"), "companyLicenseUrl", "companyLicenseFieldId", "companyLicenseFileName", "company_license", user.id),
+            ...fileFieldUpdate(getField("flowsBusinessFunds"), "flowsBusinessFundsUrl", "flowsBusinessFundsFieldId", "flowsBusinessFundsFileName", "flows_business_funds", user.id),
+            companyWebsite: dto.companyWebsite ?? null,
+            companyTaxId: dto.companyTaxId ?? null,
+            companyAddress: dto.companyAddress ?? null,
+            natureOfBusiness: dto.natureOfBusiness ?? null,
+            purposeOfTransaction: dto.purposeOfTransaction ?? null,
+            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
+        };
+
+        const createData = {
+            userId: user.id,
+            cacDocumentNumber: dto.cacDocumentNumber,
+            ...fileFieldCreate(getField("cacImage"), "cacImageUrl", "cacImageUrlFieldId", "cacImageFileName", DocumentMetaMap.cacImage, user.id),
+            articleOfAssociationNumber: dto.articleOfAssociationNumber || null,
+            ...fileFieldCreate(getField("articleOfAssociationImage"), "articleOfAssociationImageUrl", "articleOfAssociationImageUrlFieldId", "articleOfAssociationFileName", DocumentMetaMap.articleOfAssociationImage, user.id),
+            ...fileFieldCreate(getField("boardResolutionAuthorizedAcctOpeningImage"), "boardResolutionAuthorizedAcctOpeningImageUrl", "boardResolutionAuthorizedAcctOpeningImageUrlFieldId", "boardResolutionAuthorizedAcctOpeningFileName", DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage, user.id),
+            ...fileFieldCreate(getField("meansOfIdentificationForBeneficialOwner"), "meansOfIdentificationForBeneficialOwner", "meansOfIdentificationForBeneficialOwnerImageFieldId", "meansOfIdentificationForBeneficialOwnerFileName", DocumentMetaMap.meansOfIdentificationForBeneficialOwner, user.id),
+            ...fileFieldCreate(getField("proofOfAddressForBeneficialOwner"), "proofOfAddressForBeneficialOwner", "proofOfAddressForBeneficialOwnerImageFieldId", "proofOfAddressForBeneficialOwnerFileName", DocumentMetaMap.proofOfAddressForBeneficialOwner, user.id),
+            ...fileFieldCreate(getField("certificateOfIncorporation"), "certificateOfIncorporationUrl", "certificateOfIncorporationFieldId", "certificateOfIncorporationFileName", "certificate_of_incorporation", user.id),
+            ...fileFieldCreate(getField("applicationForRegistration"), "applicationForRegistrationUrl", "applicationForRegistrationFieldId", "applicationForRegistrationFileName", "application_for_registration", user.id),
+            ...fileFieldCreate(getField("memart"), "memartUrl", "memartFieldId", "memartFileName", "memart", user.id),
+            ...fileFieldCreate(getField("companyUtilityBills"), "companyUtilityBillsUrl", "companyUtilityBillsFieldId", "companyUtilityBillsFileName", "company_utility_bills", user.id),
+            ...fileFieldCreate(getField("companyAmlPolicy"), "companyAmlPolicyUrl", "companyAmlPolicyFieldId", "companyAmlPolicyFileName", "company_aml_policy", user.id),
+            ...fileFieldCreate(getField("scumlCertificate"), "scumlCertificateUrl", "scumlCertificateFieldId", "scumlCertificateFileName", "scuml_certificate", user.id),
+            ...fileFieldCreate(getField("companyOrganogram"), "companyOrganogramUrl", "companyOrganogramFieldId", "companyOrganogramFileName", "company_organogram", user.id),
+            ...fileFieldCreate(getField("companyLicense"), "companyLicenseUrl", "companyLicenseFieldId", "companyLicenseFileName", "company_license", user.id),
+            ...fileFieldCreate(getField("flowsBusinessFunds"), "flowsBusinessFundsUrl", "flowsBusinessFundsFieldId", "flowsBusinessFundsFileName", "flows_business_funds", user.id),
+            companyWebsite: dto.companyWebsite ?? null,
+            companyTaxId: dto.companyTaxId ?? null,
+            companyAddress: dto.companyAddress ?? null,
+            natureOfBusiness: dto.natureOfBusiness ?? null,
+            purposeOfTransaction: dto.purposeOfTransaction ?? null,
+            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
+        };
+
         try {
             await this.prisma.$transaction(
                 async (tx) => {
                     const businessDocument = await tx.businessDocument.upsert({
                         where: { userId: user.id },
-                        update: {
-                            cacDocumentNumber: dto.cacDocumentNumber,
-                            ...(getField("cacImage") ? {
-                                cacImageUrl: getField("cacImage").url,
-                                cacImageUrlFieldId: getField("cacImage").fileId,
-                                cacImageFileName: generateFileName(DocumentMetaMap.cacImage, user.id, getField("cacImage").originalName),
-                            } : {}),
-                            articleOfAssociationNumber: dto.articleOfAssociationNumber || null,
-                            ...(getField("articleOfAssociationImage") ? {
-                                articleOfAssociationImageUrl: getField("articleOfAssociationImage").url,
-                                articleOfAssociationImageUrlFieldId: getField("articleOfAssociationImage").fileId,
-                                articleOfAssociationFileName: generateFileName(DocumentMetaMap.articleOfAssociationImage, user.id, getField("articleOfAssociationImage").originalName),
-                            } : {}),
-                            ...(getField("boardResolutionAuthorizedAcctOpeningImage") ? {
-                                boardResolutionAuthorizedAcctOpeningImageUrl: getField("boardResolutionAuthorizedAcctOpeningImage").url,
-                                boardResolutionAuthorizedAcctOpeningImageUrlFieldId: getField("boardResolutionAuthorizedAcctOpeningImage").fileId,
-                                boardResolutionAuthorizedAcctOpeningFileName: generateFileName(DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage, user.id, getField("boardResolutionAuthorizedAcctOpeningImage").originalName),
-                            } : {}),
-                            ...(getField("meansOfIdentificationForBeneficialOwner") ? {
-                                meansOfIdentificationForBeneficialOwner: getField("meansOfIdentificationForBeneficialOwner").url,
-                                meansOfIdentificationForBeneficialOwnerImageFieldId: getField("meansOfIdentificationForBeneficialOwner").fileId,
-                                meansOfIdentificationForBeneficialOwnerFileName: generateFileName(DocumentMetaMap.meansOfIdentificationForBeneficialOwner, user.id, getField("meansOfIdentificationForBeneficialOwner").originalName),
-                            } : {}),
-                            ...(getField("proofOfAddressForBeneficialOwner") ? {
-                                proofOfAddressForBeneficialOwner: getField("proofOfAddressForBeneficialOwner").url,
-                                proofOfAddressForBeneficialOwnerImageFieldId: getField("proofOfAddressForBeneficialOwner").fileId,
-                                proofOfAddressForBeneficialOwnerFileName: generateFileName(DocumentMetaMap.proofOfAddressForBeneficialOwner, user.id, getField("proofOfAddressForBeneficialOwner").originalName),
-                            } : {}),
-
-                            // expanded company docs (stored on BusinessDocument)
-                            ...(getField("certificateOfIncorporation") ? {
-                                certificateOfIncorporationUrl: getField("certificateOfIncorporation").url,
-                                certificateOfIncorporationFieldId: getField("certificateOfIncorporation").fileId,
-                                certificateOfIncorporationFileName: generateFileName("certificate_of_incorporation", user.id, getField("certificateOfIncorporation").originalName),
-                            } : {}),
-                            ...(getField("applicationForRegistration") ? {
-                                applicationForRegistrationUrl: getField("applicationForRegistration").url,
-                                applicationForRegistrationFieldId: getField("applicationForRegistration").fileId,
-                                applicationForRegistrationFileName: generateFileName("application_for_registration", user.id, getField("applicationForRegistration").originalName),
-                            } : {}),
-                            ...(getField("memart") ? {
-                                memartUrl: getField("memart").url,
-                                memartFieldId: getField("memart").fileId,
-                                memartFileName: generateFileName("memart", user.id, getField("memart").originalName),
-                            } : {}),
-                            ...(getField("companyUtilityBills") ? {
-                                companyUtilityBillsUrl: getField("companyUtilityBills").url,
-                                companyUtilityBillsFieldId: getField("companyUtilityBills").fileId,
-                                companyUtilityBillsFileName: generateFileName("company_utility_bills", user.id, getField("companyUtilityBills").originalName),
-                            } : {}),
-                            ...(getField("companyAmlPolicy") ? {
-                                companyAmlPolicyUrl: getField("companyAmlPolicy").url,
-                                companyAmlPolicyFieldId: getField("companyAmlPolicy").fileId,
-                                companyAmlPolicyFileName: generateFileName("company_aml_policy", user.id, getField("companyAmlPolicy").originalName),
-                            } : {}),
-                            ...(getField("scumlCertificate") ? {
-                                scumlCertificateUrl: getField("scumlCertificate").url,
-                                scumlCertificateFieldId: getField("scumlCertificate").fileId,
-                                scumlCertificateFileName: generateFileName("scuml_certificate", user.id, getField("scumlCertificate").originalName),
-                            } : {}),
-                            ...(getField("companyOrganogram") ? {
-                                companyOrganogramUrl: getField("companyOrganogram").url,
-                                companyOrganogramFieldId: getField("companyOrganogram").fileId,
-                                companyOrganogramFileName: generateFileName("company_organogram", user.id, getField("companyOrganogram").originalName),
-                            } : {}),
-                            ...(getField("companyLicense") ? {
-                                companyLicenseUrl: getField("companyLicense").url,
-                                companyLicenseFieldId: getField("companyLicense").fileId,
-                                companyLicenseFileName: generateFileName("company_license", user.id, getField("companyLicense").originalName),
-                            } : {}),
-                            ...(getField("flowsBusinessFunds") ? {
-                                flowsBusinessFundsUrl: getField("flowsBusinessFunds").url,
-                                flowsBusinessFundsFieldId: getField("flowsBusinessFunds").fileId,
-                                flowsBusinessFundsFileName: generateFileName("flows_business_funds", user.id, getField("flowsBusinessFunds").originalName),
-                            } : {}),
-
-                            // company info text fields
-                            companyWebsite: dto.companyWebsite ?? null,
-                            companyTaxId: dto.companyTaxId ?? null,
-                            companyAddress: dto.companyAddress ?? null,
-                            natureOfBusiness: dto.natureOfBusiness ?? null,
-                            purposeOfTransaction: dto.purposeOfTransaction ?? null,
-                            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
-                        },
-                        create: {
-                            userId: user.id,
-                            cacDocumentNumber: dto.cacDocumentNumber,
-                            cacImageUrl: getField("cacImage")?.url || null,
-                            cacImageUrlFieldId:
-                                getField("cacImage")?.fileId || null,
-                            cacImageFileName: getField("cacImage")
-                                ? generateFileName(
-                                    DocumentMetaMap.cacImage,
-                                    user.id,
-                                    getField("cacImage")?.originalName
-                                )
-                                : null,
-                            articleOfAssociationNumber:
-                                dto.articleOfAssociationNumber || null,
-                            articleOfAssociationImageUrl:
-                                getField("articleOfAssociationImage")?.url ||
-                                null,
-                            articleOfAssociationImageUrlFieldId:
-                                getField("articleOfAssociationImage")?.fileId ||
-                                null,
-                            articleOfAssociationFileName: getField(
-                                "articleOfAssociationImage"
-                            )
-                                ? generateFileName(
-                                    DocumentMetaMap.articleOfAssociationImage,
-                                    user.id,
-                                    getField("articleOfAssociationImage")
-                                        ?.originalName
-                                )
-                                : null,
-                            boardResolutionAuthorizedAcctOpeningImageUrl:
-                                getField(
-                                    "boardResolutionAuthorizedAcctOpeningImage"
-                                )?.url || null,
-                            boardResolutionAuthorizedAcctOpeningImageUrlFieldId:
-                                getField(
-                                    "boardResolutionAuthorizedAcctOpeningImage"
-                                )?.fileId || null,
-                            boardResolutionAuthorizedAcctOpeningFileName:
-                                getField(
-                                    "boardResolutionAuthorizedAcctOpeningImage"
-                                )
-                                    ? generateFileName(
-                                        DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
-                                        user.id,
-                                        getField(
-                                            "boardResolutionAuthorizedAcctOpeningImage"
-                                        )?.originalName
-                                    )
-                                    : null,
-                            meansOfIdentificationForBeneficialOwner:
-                                getField(
-                                    "meansOfIdentificationForBeneficialOwner"
-                                )?.url || null,
-                            meansOfIdentificationForBeneficialOwnerImageFieldId:
-                                getField(
-                                    "meansOfIdentificationForBeneficialOwner"
-                                )?.fileId || null,
-                            meansOfIdentificationForBeneficialOwnerFileName:
-                                getField(
-                                    "meansOfIdentificationForBeneficialOwner"
-                                )
-                                    ? generateFileName(
-                                        DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
-                                        user.id,
-                                        getField(
-                                            "meansOfIdentificationForBeneficialOwner"
-                                        )?.originalName
-                                    )
-                                    : null,
-                            proofOfAddressForBeneficialOwner:
-                                getField("proofOfAddressForBeneficialOwner")
-                                    ?.url || null,
-                            proofOfAddressForBeneficialOwnerImageFieldId:
-                                getField("proofOfAddressForBeneficialOwner")
-                                    ?.fileId || null,
-                            proofOfAddressForBeneficialOwnerFileName: getField(
-                                "proofOfAddressForBeneficialOwner"
-                            )
-                                ? generateFileName(
-                                    DocumentMetaMap.proofOfAddressForBeneficialOwner,
-                                    user.id,
-                                    getField(
-                                        "proofOfAddressForBeneficialOwner"
-                                    )?.originalName
-                                )
-                                : null,
-
-                            // expanded company docs
-                            certificateOfIncorporationUrl: getField("certificateOfIncorporation")?.url || null,
-                            certificateOfIncorporationFieldId: getField("certificateOfIncorporation")?.fileId || null,
-                            certificateOfIncorporationFileName: getField("certificateOfIncorporation")
-                                ? generateFileName("certificate_of_incorporation", user.id, getField("certificateOfIncorporation")?.originalName)
-                                : null,
-                            applicationForRegistrationUrl: getField("applicationForRegistration")?.url || null,
-                            applicationForRegistrationFieldId: getField("applicationForRegistration")?.fileId || null,
-                            applicationForRegistrationFileName: getField("applicationForRegistration")
-                                ? generateFileName("application_for_registration", user.id, getField("applicationForRegistration")?.originalName)
-                                : null,
-                            memartUrl: getField("memart")?.url || null,
-                            memartFieldId: getField("memart")?.fileId || null,
-                            memartFileName: getField("memart")
-                                ? generateFileName("memart", user.id, getField("memart")?.originalName)
-                                : null,
-                            companyUtilityBillsUrl: getField("companyUtilityBills")?.url || null,
-                            companyUtilityBillsFieldId: getField("companyUtilityBills")?.fileId || null,
-                            companyUtilityBillsFileName: getField("companyUtilityBills")
-                                ? generateFileName("company_utility_bills", user.id, getField("companyUtilityBills")?.originalName)
-                                : null,
-                            companyAmlPolicyUrl: getField("companyAmlPolicy")?.url || null,
-                            companyAmlPolicyFieldId: getField("companyAmlPolicy")?.fileId || null,
-                            companyAmlPolicyFileName: getField("companyAmlPolicy")
-                                ? generateFileName("company_aml_policy", user.id, getField("companyAmlPolicy")?.originalName)
-                                : null,
-                            scumlCertificateUrl: getField("scumlCertificate")?.url || null,
-                            scumlCertificateFieldId: getField("scumlCertificate")?.fileId || null,
-                            scumlCertificateFileName: getField("scumlCertificate")
-                                ? generateFileName("scuml_certificate", user.id, getField("scumlCertificate")?.originalName)
-                                : null,
-                            companyOrganogramUrl: getField("companyOrganogram")?.url || null,
-                            companyOrganogramFieldId: getField("companyOrganogram")?.fileId || null,
-                            companyOrganogramFileName: getField("companyOrganogram")
-                                ? generateFileName("company_organogram", user.id, getField("companyOrganogram")?.originalName)
-                                : null,
-                            companyLicenseUrl: getField("companyLicense")?.url || null,
-                            companyLicenseFieldId: getField("companyLicense")?.fileId || null,
-                            companyLicenseFileName: getField("companyLicense")
-                                ? generateFileName("company_license", user.id, getField("companyLicense")?.originalName)
-                                : null,
-                            flowsBusinessFundsUrl: getField("flowsBusinessFunds")?.url || null,
-                            flowsBusinessFundsFieldId: getField("flowsBusinessFunds")?.fileId || null,
-                            flowsBusinessFundsFileName: getField("flowsBusinessFunds")
-                                ? generateFileName("flows_business_funds", user.id, getField("flowsBusinessFunds")?.originalName)
-                                : null,
-
-                            // company info text fields
-                            companyWebsite: dto.companyWebsite ?? null,
-                            companyTaxId: dto.companyTaxId ?? null,
-                            companyAddress: dto.companyAddress ?? null,
-                            natureOfBusiness: dto.natureOfBusiness ?? null,
-                            purposeOfTransaction: dto.purposeOfTransaction ?? null,
-                            purposeOfTransactionOther: dto.purposeOfTransactionOther ?? null,
-                        },
+                        update: updateData,
+                        create: createData,
                     });
 
                     // Directors/shareholders are stored as structured rows tied to BusinessDocument

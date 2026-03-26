@@ -3,10 +3,10 @@ import axios from 'axios';
 import { authenticator } from 'otplib';
 
 // Configuration
-const API_URL = 'https://resolve-api-dev.onrender.com/api/v1';
-const EMAIL = 'business_test_check_limits_prod_verify@yjo4y7so.mailosaur.net';
-const PASSWORD = 'Password123!';
-const TOTP_SECRET = 'OAJC6YQPGFZR22YI';
+const API_URL = process.env.API_URL || 'https://resolve-api-dev.onrender.com/api/v1';
+const EMAIL = process.env.TEST_EMAIL || 'business_test_check_limits_prod_verify@yjo4y7so.mailosaur.net';
+const PASSWORD = process.env.TEST_PASSWORD || 'Password123!';
+const TOTP_SECRET = process.env.TOTP_SECRET || 'OAJC6YQPGFZR22YI';
 
 async function main() {
     console.log(`1. Logging in as ${EMAIL}...`);

@@ -1,11 +1,8 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
 const client = new Client({
-    host: 'dpg-d44d3om3jp1c739lgge0-a.oregon-postgres.render.com',
-    port: 5432,
-    user: 'resolve_db_user',
-    password: 'Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc',
-    database: 'resolve_db',
+    connectionString: process.env.DATABASE_URL,
     ssl: true
 });
 

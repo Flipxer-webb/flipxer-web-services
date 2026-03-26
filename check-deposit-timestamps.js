@@ -1,9 +1,10 @@
 // Script to fix deposit timestamps via the deployed API
 // First, we need to delete the existing incorrect deposits and re-sync
+require('dotenv').config();
 const https = require('https');
 
-// Use a valid admin token (you'll need to provide a fresh one)
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+// Use a valid admin token (set via ACCESS_TOKEN env var)
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 
 // User ID for test user
 const USER_ID = 6;

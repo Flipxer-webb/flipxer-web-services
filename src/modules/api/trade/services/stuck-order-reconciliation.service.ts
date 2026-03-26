@@ -416,48 +416,7 @@ export class StuckOrderReconciliationService {
         result: StuckOrderReconciliationResult,
     ): Promise<void> {
         try {
-            const sections: string[] = [];
-
-            if (result.stuckBuyOrders.detected > 0) {
-                const lines = [
-                    `*Stuck BUY Orders:* ${result.stuckBuyOrders.detected} detected`,
-                    `  - Auto-retried: ${result.stuckBuyOrders.autoRetried}`,
-                    `  - Retry failed: ${result.stuckBuyOrders.retryFailed}`,
-                    `  - Skipped (no webhook proof): ${result.stuckBuyOrders.skippedNoWebhook}`,
-                ];
-                for (const d of result.stuckBuyOrders.details) {
-                    const status = d.action === "retried" ? "\u2705" : d.action === "skipped_no_webhook" ? "\u26A0\uFE0F" : "\u274C";
-                    lines.push(
-                        `  ${status} Order #${d.orderId} — ${d.amount} ${d.currency} (${d.reference})${d.error ? ` — ${d.error}` : ""}`,
-                    );
-                }
-                sections.push(lines.join("\n"));
-            }
-
-            if (result.brokenLedgerOrders.detected > 0) {
-                const lines = [
-                    `*Broken Ledger Links:* ${result.brokenLedgerOrders.detected} detected (manual fix required)`,
-                ];
-                for (const d of result.brokenLedgerOrders.details) {
-                    lines.push(
-                        `  ⚠️ Order #${d.orderId} (${d.category}) — ledger ${d.ledgerEntryId} status: ${d.ledgerStatus}`,
-                    );
-                }
-                sections.push(lines.join("\n"));
-            }
-
-            if (result.preLedgerBackfill.fixed > 0) {
-                sections.push(
-                    `*Pre-Ledger Backfill:* ${result.preLedgerBackfill.fixed} orders marked fulfilled`,
-                );
-            }
-
-            if (result.errors.length > 0) {
-                sections.push(
-                    `*Errors:*\n${result.errors.map((e) => `  ❌ ${e}`).join("\n")}`,
-                );
-            }
-
+            const sections = this.buildReconciliationSections(result);
             const text = `🔄 *Stuck Order Reconciliation Report*\n${sections.join("\n\n")}`;
 
             await this.slackWebhookService.sendWebhookFailureAlert(
@@ -478,5 +437,59 @@ export class StuckOrderReconciliationService {
                 `Failed to send reconciliation Slack alert: ${error.message}`,
             );
         }
+    }
+
+    private buildReconciliationSections(result: StuckOrderReconciliationResult): string[] {
+        const sections: string[] = [];
+
+        if (result.stuckBuyOrders.detected > 0) {
+            sections.push(this.buildStuckBuySection(result.stuckBuyOrders));
+        }
+
+        if (result.brokenLedgerOrders.detected > 0) {
+            sections.push(this.buildBrokenLedgerSection(result.brokenLedgerOrders));
+        }
+
+        if (result.preLedgerBackfill.fixed > 0) {
+            sections.push(
+                `*Pre-Ledger Backfill:* ${result.preLedgerBackfill.fixed} orders marked fulfilled`,
+            );
+        }
+
+        if (result.errors.length > 0) {
+            sections.push(
+                `*Errors:*\n${result.errors.map((e) => `  ❌ ${e}`).join("\n")}`,
+            );
+        }
+
+        return sections;
+    }
+
+    private buildStuckBuySection(data: StuckOrderReconciliationResult["stuckBuyOrders"]): string {
+        const lines = [
+            `*Stuck BUY Orders:* ${data.detected} detected`,
+            `  - Auto-retried: ${data.autoRetried}`,
+            `  - Retry failed: ${data.retryFailed}`,
+            `  - Skipped (no webhook proof): ${data.skippedNoWebhook}`,
+        ];
+        for (const d of data.details) {
+            const status = d.action === "retried" ? "\u2705" : d.action === "skipped_no_webhook" ? "\u26A0\uFE0F" : "\u274C";
+            lines.push(
+                `  ${status} Order #${d.orderId} — ${d.amount} ${d.currency} (${d.reference})${d.error ? ` — ${d.error}` : ""}`,
+            );
+        }
+        return lines.join("\n");
+    }
+
+    private buildBrokenLedgerSection(data: StuckOrderReconciliationResult["brokenLedgerOrders"]): string {
+        const lines = [
+            `*Broken Ledger Links:* ${data.detected} detected (manual fix required)`,
+        ];
+        for (const d of data.details) {
+            lines.push(
+                `  ⚠️ Order #${d.orderId} (${d.category}) — ledger ${d.ledgerEntryId} status: ${d.ledgerStatus}`,
+            );
+        }
+        return lines.join("\n");
     }
 }

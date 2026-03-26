@@ -1,7 +1,8 @@
 // Test debug-wallet endpoint
+require('dotenv').config();
 const https = require('https');
 
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 const USER_ID = 6;
 const CURRENCY = 'usdt';
 

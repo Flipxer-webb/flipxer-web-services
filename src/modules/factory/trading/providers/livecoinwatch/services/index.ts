@@ -231,7 +231,7 @@ export class LiveCoinWatchService {
         const normalizedAssets = this.getNormalizedAssets(assets);
         this.logger.debug(`Batch fetching USDT prices for: ${normalizedAssets.join(", ")}`);
 
-        const batchKey = `lcw:batch-usdt:inflight:${[...normalizedAssets].sort().join(",")}`;
+        const batchKey = `lcw:batch-usdt:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
         const inFlightBatch = this.inFlightBatchUsdtRequests.get(batchKey);
         if (inFlightBatch) {
             return inFlightBatch;
@@ -253,18 +253,8 @@ export class LiveCoinWatchService {
             }
 
             // Check cache first for all assets
-            const cachedResults: Record<string, number | null> = {};
-            const uncachedAssets: string[] = [];
-
-            for (const asset of assetsToFetch) {
-                const cacheKey = `lcw:price:${asset.toLowerCase()}:usdt`;
-                const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
-                if (cachedPrice) {
-                    cachedResults[asset.toLowerCase()] = cachedPrice;
-                } else {
-                    uncachedAssets.push(asset);
-                }
-            }
+            const { cached: cachedResults, uncached: uncachedAssets } =
+                await this.partitionCachedAssets(assetsToFetch);
 
             // If all cached, return early
             if (uncachedAssets.length === 0) {
@@ -272,59 +262,10 @@ export class LiveCoinWatchService {
                 return { ...result, ...cachedResults };
             }
 
-            try {
-                const codes = uncachedAssets.map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase());
+            const fetchedResults = await this.fetchUncachedPrices(uncachedAssets);
+            Object.assign(result, fetchedResults);
 
-                this.logger.debug(`Making batch API call for ${codes.length} uncached assets: ${codes.join(", ")}`);
-
-                const response = await this.apiClient.post("/coins/list", {
-                    currency: "USDT",
-                    codes: codes,
-                    sort: "rank",
-                    order: "ascending",
-                    offset: 0,
-                    limit: codes.length,
-                    meta: false,
-                });
-
-                const coins = response.data as LiveCoinWatchCoin[];
-
-                // Cache and collect results
-                for (const coin of coins) {
-                    const assetKey = uncachedAssets.find(
-                        a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
-                    );
-
-                    if (assetKey && coin.rate) {
-                        const key = assetKey.toLowerCase();
-                        result[key] = coin.rate;
-
-                        // Cache for 90s (aligned with cron interval + buffer)
-                        const cacheKey = `lcw:price:${key}:usdt`;
-                        await this.redisCacheService.set(cacheKey, coin.rate, 90);
-                    }
-                }
-
-                // Mark any missing assets as null
-                for (const asset of uncachedAssets) {
-                    if (result[asset.toLowerCase()] === undefined) {
-                        result[asset.toLowerCase()] = null;
-                    }
-                }
-
-                this.logger.debug(`✅ Batch fetched ${coins.length} USDT prices in 1 API call`);
-
-                return { ...result, ...cachedResults };
-            } catch (error) {
-                this.logger.error(`Batch USDT price fetch failed: ${error.message}`);
-
-                // Fill in nulls for failed fetch
-                for (const asset of uncachedAssets) {
-                    result[asset.toLowerCase()] = null;
-                }
-
-                return { ...result, ...cachedResults };
-            }
+            return { ...result, ...cachedResults };
         })();
 
         this.inFlightBatchUsdtRequests.set(batchKey, requestPromise);
@@ -334,6 +275,86 @@ export class LiveCoinWatchService {
         } finally {
             this.inFlightBatchUsdtRequests.delete(batchKey);
         }
+    }
+
+    /**
+     * Partitions assets into cached (with prices) and uncached lists.
+     */
+    private async partitionCachedAssets(
+        assets: string[]
+    ): Promise<{ cached: Record<string, number | null>; uncached: string[] }> {
+        const cached: Record<string, number | null> = {};
+        const uncached: string[] = [];
+
+        for (const asset of assets) {
+            const cacheKey = `lcw:price:${asset.toLowerCase()}:usdt`;
+            const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
+            if (cachedPrice) {
+                cached[asset.toLowerCase()] = cachedPrice;
+            } else {
+                uncached.push(asset);
+            }
+        }
+
+        return { cached, uncached };
+    }
+
+    /**
+     * Fetches prices for uncached assets from the LiveCoinWatch API,
+     * caches them, and returns a result map (null for missing/failed).
+     */
+    private async fetchUncachedPrices(
+        uncachedAssets: string[]
+    ): Promise<Record<string, number | null>> {
+        const result: Record<string, number | null> = {};
+
+        try {
+            const codes = uncachedAssets.map(a => this.symbolMap[a.toLowerCase()] || a.toUpperCase());
+
+            this.logger.debug(`Making batch API call for ${codes.length} uncached assets: ${codes.join(", ")}`);
+
+            const response = await this.apiClient.post("/coins/list", {
+                currency: "USDT",
+                codes: codes,
+                sort: "rank",
+                order: "ascending",
+                offset: 0,
+                limit: codes.length,
+                meta: false,
+            });
+
+            const coins = response.data as LiveCoinWatchCoin[];
+
+            for (const coin of coins) {
+                const assetKey = uncachedAssets.find(
+                    a => (this.symbolMap[a.toLowerCase()] || a.toUpperCase()) === coin.code
+                );
+
+                if (assetKey && coin.rate) {
+                    const key = assetKey.toLowerCase();
+                    result[key] = coin.rate;
+                    const cacheKey = `lcw:price:${key}:usdt`;
+                    await this.redisCacheService.set(cacheKey, coin.rate, 90);
+                }
+            }
+
+            // Mark any missing assets as null
+            for (const asset of uncachedAssets) {
+                if (result[asset.toLowerCase()] === undefined) {
+                    result[asset.toLowerCase()] = null;
+                }
+            }
+
+            this.logger.debug(`✅ Batch fetched ${coins.length} USDT prices in 1 API call`);
+        } catch (error) {
+            this.logger.error(`Batch USDT price fetch failed: ${error.message}`);
+
+            for (const asset of uncachedAssets) {
+                result[asset.toLowerCase()] = null;
+            }
+        }
+
+        return result;
     }
 
     /**
@@ -498,7 +519,7 @@ export class LiveCoinWatchService {
     async getBatchSparklines(assets: string[]): Promise<Record<string, number[]>> {
         this.logger.debug(`Fetching sparklines for: ${assets.join(", ")}`);
 
-        const cacheKey = `lcw:sparklines:${assets.sort().join(",")}`;
+        const cacheKey = `lcw:sparklines:${[...assets].sort((a, b) => a.localeCompare(b)).join(",")}`;
         const cachedData = await this.redisCacheService.get<Record<string, number[]>>(cacheKey);
         if (cachedData) {
             this.logger.debug(`Cache hit for sparklines`);
@@ -535,7 +556,7 @@ export class LiveCoinWatchService {
         const normalizedAssets = this.getNormalizedAssets(assets);
         this.logger.debug(`Batch fetching market data for: ${normalizedAssets.join(", ")}`);
 
-        const batchKey = `lcw:batch-market:inflight:${[...normalizedAssets].sort().join(",")}`;
+        const batchKey = `lcw:batch-market:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
         const inFlightBatch = this.inFlightBatchMarketRequests.get(batchKey);
         if (inFlightBatch) {
             return inFlightBatch;
@@ -543,7 +564,7 @@ export class LiveCoinWatchService {
 
         const requestPromise = (async () => {
             // Check cache first to prevent rate limiting
-            const cacheKey = `lcw:batch-market:${[...normalizedAssets].sort().join(",")}`;
+            const cacheKey = `lcw:batch-market:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
             const cachedData = await this.redisCacheService.get<Record<string, { price: number; change24h: number } | null>>(cacheKey);
             if (cachedData) {
                 this.logger.debug(`Cache hit for batch market data`);

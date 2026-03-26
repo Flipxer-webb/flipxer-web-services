@@ -2,8 +2,8 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
-const email = 'magpiep18@gmail.com';
-const password = 'TestUser@2024!';
+const email = process.env.TEST_EMAIL || 'magpiep18@gmail.com';
+const password = process.env.TEST_PASSWORD || 'TestUser@2024!';
 
 async function main() {
     console.log(`Checking user: ${email}`);
