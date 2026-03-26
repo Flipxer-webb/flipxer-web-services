@@ -8,6 +8,7 @@ import {
     IsBoolean,
     IsEmail,
     MinLength,
+    Matches,
     ArrayMinSize,
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
@@ -68,9 +69,13 @@ export class CreateAdminUserDto {
     @IsOptional()
     phone?: string;
 
-    @ApiProperty({ description: "Password", minLength: 8 })
+    @ApiProperty({ description: "Password (min 12 chars, must include uppercase, lowercase, number, and special character)", minLength: 12 })
     @IsString()
-    @MinLength(8)
+    @MinLength(12)
+    @Matches(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~])/,
+        { message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character" },
+    )
     password: string;
 
     @ApiProperty({ description: "Role ID to assign", example: 1 })
@@ -131,9 +136,13 @@ export class GetAdminUsersDto {
 }
 
 export class ChangeAdminPasswordDto {
-    @ApiProperty({ description: "New password", minLength: 8 })
+    @ApiProperty({ description: "New password (min 12 chars, must include uppercase, lowercase, number, and special character)", minLength: 12 })
     @IsString()
-    @MinLength(8)
+    @MinLength(12)
+    @Matches(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~])/,
+        { message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character" },
+    )
     newPassword: string;
 }
 

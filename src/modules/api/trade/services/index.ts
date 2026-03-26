@@ -91,6 +91,7 @@ import { SellOrderService } from "./sell-order.service";
 import { SwapService } from "./swap.service";
 import { SendService } from "./send.service";
 import { LedgerService } from "./ledger/ledger.service";
+import { SweepService } from "./ledger/sweep.service";
 import { WebhookHandlerService } from "./webhook-handler.service";
 import {
     SUPPORTED_ASSETS,
@@ -168,6 +169,7 @@ export class TradingService {
         private readonly swapService: SwapService,
         private readonly sendService: SendService,
         private readonly ledgerService: LedgerService,
+        private readonly sweepService: SweepService,
         private readonly webhookHandlerService: WebhookHandlerService
     ) { }
 
@@ -1155,6 +1157,20 @@ export class TradingService {
         return this.webhookHandlerService.withdrawerTransactionHandler(options);
     }
 
+    /**
+     * Facade for SweepService.handleSweepConfirmation().
+     * Called by QuidaxWebhookService when a sweep-prefixed withdrawal
+     * webhook arrives, routing it to the sweep pipeline instead of the
+     * order-based withdrawal handler.
+     */
+    async handleSweepConfirmation(
+        transactionId: string,
+        status: "completed" | "failed",
+        reason?: string
+    ) {
+        return this.sweepService.handleSweepConfirmation(transactionId, status, reason);
+    }
+
     async getFee(
         amount: number,
         data: any
@@ -1623,6 +1639,38 @@ export class TradingService {
     }
 
     /**
+     * Lightweight order status check (DB-only, no external provider calls).
+     * Used as a polling fallback when WebSocket is unavailable.
+     */
+    async getOrderStatus(user: User, transactionId: string) {
+        const order = await this.prisma.order.findFirst({
+            where: {
+                transactionId,
+                userId: user.id,
+            },
+            select: {
+                transactionId: true,
+                status: true,
+                streamlinedStatus: true,
+                orderCategory: true,
+                updatedAt: true,
+            },
+        });
+
+        if (!order) {
+            throw new TransactionNotFoundException(
+                "Transaction not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        return buildResponse({
+            message: "Order status retrieved",
+            data: order,
+        });
+    }
+
+    /**
      * Refresh transaction status from Quidax provider
      * This allows users to manually trigger a status check for pending transactions
      */
@@ -1687,6 +1735,7 @@ export class TradingService {
                     await this.withdrawerTransactionHandler({
                         orderReference: transaction.orderReference,
                         status: OrderStatus.done,
+                        txid: response.data?.txid,
                     });
 
                     return buildResponse({
@@ -1701,6 +1750,7 @@ export class TradingService {
                     await this.withdrawerTransactionHandler({
                         orderReference: transaction.orderReference,
                         status: OrderStatus.rejected,
+                        txid: response.data?.txid,
                     });
 
                     return buildResponse({

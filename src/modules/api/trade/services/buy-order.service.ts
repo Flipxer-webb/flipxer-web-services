@@ -39,6 +39,7 @@ import {
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
 } from "../constants";
 import { generateUssdCode } from "@/libs/nomba/ussd-codes";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 
 /**
  * Buy Order Service
@@ -63,7 +64,8 @@ export class BuyOrderService {
         private readonly slackWebhookService: SlackWebhookService,
         private readonly ledgerService: LedgerService,
         private readonly rateService: RateService,
-        private readonly notificationDispatcher: NotificationDispatcher
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly distributedLockService: DistributedLockService
     ) { }
 
     /**
@@ -254,6 +256,9 @@ export class BuyOrderService {
      * of a checkout redirect URL.
      */
     async buyCryptoOrder(user: User, dto: BuyCryptoOrderDto) {
+        return this.distributedLockService.withLock(
+            `trade:buy:${user.id}`,
+            async () => {
         // IDEMPOTENCY CHECK: Return existing order if same idempotencyKey was already used
         if (dto.idempotencyKey) {
             const existingPayment = await this.prisma.payment.findUnique({
@@ -366,6 +371,9 @@ export class BuyOrderService {
                         userId: user.id,
                         amountInFiat: amtFiat?.amount,
                         rateAtConversion: amtFiat?.rate,
+                        narration: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
+                        transaction_note: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
+                        sender: `${user.lastName} ${user.firstName}`,
                     },
                 });
                 await tx.payment.create({
@@ -420,6 +428,7 @@ export class BuyOrderService {
             userId: user.id,
             title: "Buy order initiated",
             body: message,
+            category: "transaction",
             currency: order.currency,
             transactionType: OrderCategory.BUY,
             enablePush: true,
@@ -449,6 +458,9 @@ export class BuyOrderService {
                 },
             },
         });
+            },
+            { ttlMs: 30000, maxWaitMs: 5000, strict: true },
+        );
     }
 
     /**
@@ -627,6 +639,7 @@ export class BuyOrderService {
                 userId: payment.userId,
                 title: "Buy order successful",
                 body: message,
+                category: "transaction",
                 currency: order.currency,
                 transactionType: OrderCategory.BUY,
                 enableEmail: true,
@@ -849,6 +862,7 @@ export class BuyOrderService {
                 userId: userId,
                 title: "Buy order cancelled",
                 body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled. Transaction ID: ${payment.order.transactionId}.`,
+                category: "transaction",
                 currency: payment.order.currency,
                 transactionType: OrderCategory.BUY,
                 enablePush: true,
@@ -886,6 +900,7 @@ export class BuyOrderService {
             userId,
             title: "Buy order still pending",
             body: `\u23F3 Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} is still pending payment. Complete the bank transfer before the account expires. Transaction ID: ${payment.order.transactionId}.`,
+            category: "transaction",
             currency: payment.order.currency,
             transactionType: OrderCategory.BUY,
             enablePush: true,
@@ -1094,6 +1109,7 @@ export class BuyOrderService {
                         userId: payment.userId,
                         title: "Buy order expired",
                         body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled because the payment window expired. Transaction ID: ${payment.order.transactionId}.`,
+                        category: "transaction",
                         currency: payment.order.currency,
                         transactionType: OrderCategory.BUY,
                         enableEmail: true,
@@ -1123,6 +1139,138 @@ export class BuyOrderService {
         return expiredPayments.length;
     }
 
+    /**
+     * Cancel underpaid buy orders after a 2-hour grace period.
+     * When a user pays less than the expected amount, the order stays PENDING.
+     * After 2 hours this cron cancels the order and notifies the user + ops.
+     * Ops must process the refund manually using the captured sender details.
+     */
+    async cancelUnderpaidBuyOrders() {
+        const underpaidPayments = await this.prisma.payment.findMany({
+            where: {
+                paymentMethod: PaymentMethod.NOMBA,
+                orderId: { not: null },
+                receivedAmount: { not: null },
+                status: TransactionStatus.PENDING,
+                // 2-hour grace period for underpayments
+                createdAt: {
+                    lt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+                },
+            },
+            include: {
+                order: true,
+                user: { select: { id: true, email: true } },
+            },
+        });
+
+        // Filter to those that are actually underpaid (receivedAmount < 99% of totalAmount)
+        const toCancel = underpaidPayments.filter((p) => {
+            const expected = Number(p.totalAmount);
+            const received = Number(p.receivedAmount);
+            return expected > 0 && received < expected * 0.99 && p.order?.status === OrderStatus.pending;
+        });
+
+        this.logger.log(
+            `Found ${toCancel.length} underpaid buy orders to auto-cancel`,
+        );
+
+        for (const payment of toCancel) {
+            try {
+                const didCancel = await this.prisma.$transaction(async (tx) => {
+                    const updated = await tx.payment.updateMany({
+                        where: { id: payment.id, status: TransactionStatus.PENDING },
+                        data: {
+                            status: TransactionStatus.FAILED,
+                            paymentStatus: TransactionStatus.FAILED,
+                        },
+                    });
+
+                    if (updated.count === 0) return false;
+
+                    if (payment.orderId) {
+                        await tx.order.update({
+                            where: { id: payment.orderId },
+                            data: {
+                                status: OrderStatus.cancelled,
+                                streamlinedStatus: getStreamlinedStatus(
+                                    OrderStatus.cancelled,
+                                ),
+                                paymentStatus: TransactionStatus.FAILED,
+                            },
+                        });
+                    }
+
+                    return true;
+                });
+
+                if (!didCancel) continue;
+
+                if (payment.order) {
+                    this.emitTransactionUpdate(payment.userId, {
+                        ...payment.order,
+                        status: OrderStatus.cancelled,
+                        streamlinedStatus: getStreamlinedStatus(
+                            OrderStatus.cancelled,
+                        ),
+                    });
+                }
+                this.wsGateway.notifyWalletUpdate(payment.userId);
+
+                // Send underpayment cancellation notification
+                if (payment.order) {
+                    const expected = Number(payment.totalAmount);
+                    const received = Number(payment.receivedAmount);
+                    await this.notificationDispatcher.notify({
+                        userId: payment.userId,
+                        title: "Buy order cancelled - underpayment",
+                        body: `⚠️ Your payment of ₦${received} was less than the required ₦${expected}. Order #${payment.order.transactionId} has been cancelled. Our team will process your refund shortly.`,
+                        category: "transaction",
+                        currency: payment.order.currency,
+                        transactionType: OrderCategory.BUY,
+                        enableEmail: true,
+                        emailPayload: {
+                            email: payment.user?.email || '',
+                            transactionType: 'buy',
+                            transactionId: payment.order.transactionId,
+                            amount: String(payment.order.amount),
+                            currency: payment.order.currency.toUpperCase(),
+                            status: 'cancelled',
+                            date: new Date().toISOString(),
+                        },
+                        enablePush: true,
+                    });
+                }
+
+                // Slack alert with sender details for ops refund
+                await this.slackWebhookService.sendWebhookFailureAlert(
+                    'nomba',
+                    payment.reference,
+                    `Underpaid buy order auto-cancelled after 2h grace period. ` +
+                    `Expected ₦${Number(payment.totalAmount)}, received ₦${Number(payment.receivedAmount)}. ` +
+                    `Sender: ${payment.senderAccountName || 'N/A'} (${payment.senderAccountNumber || 'N/A'}) @ ${payment.senderBankName || 'N/A'}. ` +
+                    `Ops must process refund of ₦${Number(payment.receivedAmount)}.`,
+                    {
+                        orderId: payment.orderId,
+                        userId: payment.userId,
+                        receivedAmount: Number(payment.receivedAmount),
+                        senderAccountNumber: payment.senderAccountNumber,
+                        senderAccountName: payment.senderAccountName,
+                        senderBankName: payment.senderBankName,
+                    },
+                );
+
+                this.logger.log(
+                    `Cancelled underpaid buy order | Payment: ${payment.id} | Ref: ${payment.reference} | Received: ₦${Number(payment.receivedAmount)} of ₦${Number(payment.totalAmount)}`,
+                );
+            } catch (error) {
+                this.logger.error(
+                    `Failed to cancel underpaid payment ${payment.id}: ${error.message}`,
+                );
+            }
+        }
+
+        return toCancel.length;
+    }
 
 
     /**

@@ -253,7 +253,7 @@ export class SolvencyService {
                 WHERE currency = ${currency}
                   AND status != 'FAILED'
                   AND "userId" > 0
-                ORDER BY "userId", "createdAt" DESC
+                ORDER BY "userId", "sequenceNumber" DESC
             ) as latest
         `;
 

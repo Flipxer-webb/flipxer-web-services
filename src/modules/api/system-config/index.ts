@@ -5,9 +5,10 @@ import { MaintenanceModeService } from "./services/maintenance-mode.service";
 import { AdminSystemSettingsController } from "./controllers/v1/admin/system-settings.controller";
 import { AdminFeatureFlagController } from "./controllers/v1/admin/feature-flag.controller";
 import { MaintenanceMiddleware } from "./middleware/maintenance.middleware";
+import { SessionModule } from "../session";
 
 @Module({
-    imports: [],
+    imports: [SessionModule],
     controllers: [
         AdminSystemSettingsController,
         AdminFeatureFlagController,

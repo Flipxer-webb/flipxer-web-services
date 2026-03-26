@@ -5,6 +5,9 @@ export interface NormalizedPaymentEvent {
     providerReference?: string; // The provider's internal transaction ID
     amount?: number;
     currency?: string;
+    senderAccountNumber?: string;
+    senderAccountName?: string;
+    senderBankName?: string;
     raw: any; // Keep raw payload for logging/debugging
     metadata?: {
         accountRef?: string;

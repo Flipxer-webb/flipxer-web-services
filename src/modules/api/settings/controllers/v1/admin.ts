@@ -22,7 +22,7 @@ import {
 } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import {
     CreateOrUpdateCryptoRateDto,
@@ -31,7 +31,7 @@ import {
 
 @ApiTags("admin")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth("access-token")
 @Controller({
     path: "admin/settings",

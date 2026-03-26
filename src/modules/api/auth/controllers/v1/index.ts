@@ -494,6 +494,8 @@ export class AuthController {
         return await this.authService.resetPassword(dto);
     }
 
+    @UseGuards(RateLimiterGuard)
+    @RateLimit({ limit: 10, windowSeconds: 60, failOpen: false })
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "refresh user access token" })
     @Post("refresh-token")

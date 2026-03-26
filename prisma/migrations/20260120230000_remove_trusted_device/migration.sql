@@ -1,7 +1,7 @@
--- Drop columns from "Session" table
-ALTER TABLE "Session" DROP COLUMN IF EXISTS "isTrusted";
-ALTER TABLE "Session" DROP COLUMN IF EXISTS "trustedAt";
-ALTER TABLE "Session" DROP COLUMN IF EXISTS "deviceToken";
+-- Drop columns from "Sessions" table
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "isTrusted";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "trustedAt";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "deviceToken";
 
--- Drop column from "User" table
-ALTER TABLE "User" DROP COLUMN IF EXISTS "skipTwoFactorForTrustedDevices";
+-- Drop column from "Users" table
+ALTER TABLE "Users" DROP COLUMN IF EXISTS "skipTwoFactorForTrustedDevices";

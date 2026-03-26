@@ -23,6 +23,12 @@ export class GetNotificationsDto extends PaginationQueryDto {
     @IsOptional()
     @IsString()
     searchText?: string;
+
+    @ApiPropertyOptional({ description: "Filter by category", enum: ["transaction", "security", "price_alert", "marketing"] })
+    @IsOptional()
+    @IsString()
+    @IsIn(["transaction", "security", "price_alert", "marketing"])
+    category?: string;
 }
 
 // ==================== NEW ADMIN NOTIFICATION DTOs ====================

@@ -109,6 +109,23 @@ function transferFailed(merchantTxRef: string) {
     };
 }
 
+/** Build a payment_success webhook with transaction.accountRef (the shape that was failing in prod). */
+function paymentSuccessViaTransaction(accountRef: string, amount = 1500) {
+    return {
+        event_type: 'payment_success',
+        data: {
+            merchant: { id: 'merchant-1' },
+            terminal: { id: 'terminal-1' },
+            transaction: {
+                accountRef,
+                transactionAmount: amount,
+                transactionId: 'txn-ps-001',
+            },
+            customer: { id: 'cust-1' },
+        },
+    };
+}
+
 // ─── test suite ──────────────────────────────────────────────
 
 describe('NombaWebhookController', () => {
@@ -229,6 +246,34 @@ describe('NombaWebhookController', () => {
             await expect(controller.handleWebhook(body, {})).rejects.toThrow(
                 'Cannot process payment webhook: no reference could be extracted from the payload'
             );
+        });
+
+        it('should extract transaction.accountRef from payment_success webhooks (prod shape)', async () => {
+            const ref = 'va-ref-prod-shape';
+            const payment = { id: 50, orderId: 500, totalAmount: 1500, reference: ref, userId: 11 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+            buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
+
+            await controller.handleWebhook(paymentSuccessViaTransaction(ref, 1500), {});
+
+            expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
+        });
+
+        it('should extract transaction.reference when accountRef is absent', async () => {
+            const ref = 'txn-ref-fallback';
+            const body = {
+                event_type: 'payment_success',
+                data: {
+                    transaction: { reference: ref, transactionAmount: 200, transactionId: 'tid-3' },
+                },
+            };
+            const payment = { id: 51, orderId: null, totalAmount: 200, reference: ref, userId: 12 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+
+            await controller.handleWebhook(body, {});
+
+            expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
         });
     });
 

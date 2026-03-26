@@ -21,12 +21,16 @@ import { SweepService } from "./services/ledger/sweep.service";
 import { SolvencyService } from "./services/ledger/solvency.service";
 import { WithdrawalQueueCron } from "./crons/withdrawal-queue.cron";
 import { OrphanedHoldCron } from "./crons/orphaned-hold.cron";
+import { StuckOrderReconciliationCron } from "./crons/stuck-order-reconciliation.cron";
+import { SweepCron } from "./crons/sweep.cron";
 import { OrphanedHoldService } from "./services/ledger/orphaned-hold.service";
+import { StuckOrderReconciliationService } from "./services/stuck-order-reconciliation.service";
 import { TransactionMonitorService } from "./services/ledger/transaction-monitor.service";
 import { DepositReviewService } from "./services/ledger/deposit-review.service";
 import { TradingController } from "./controllers/v1";
 import { PriceAlertController } from "./controllers/v1/price-alert.controller";
 import { AdminLedgerController } from "./controllers/v1/admin-ledger.controller";
+import { AdminAccountingController } from "./controllers/v1/admin-accounting.controller";
 import { TradingFactoryModule } from "@/modules/factory/trading";
 import { TradingEvent } from "./events";
 import { BullModule } from "@nestjs/bull";
@@ -54,6 +58,7 @@ import { TierService } from "../auth/services/tier.service";
 import { OperationsModule } from "../operations";
 import { NotificationModule } from "../notification/notification.module";
 import { CachingModule } from "@/modules/core/redisCache";
+import { SessionModule } from "../session";
 export * from "./interfaces";
 export * from "./errors";
 
@@ -71,8 +76,9 @@ export * from "./errors";
         OperationsModule,
         NotificationModule,
         CachingModule,
+        SessionModule,
     ],
-    controllers: [TradingController, PriceAlertController, AdminLedgerController],
+    controllers: [TradingController, PriceAlertController, AdminLedgerController, AdminAccountingController],
     providers: [
         TradingService,
         TradeHelpersService,
@@ -99,6 +105,9 @@ export * from "./errors";
         FailedRollbackQueueService,
         WithdrawalQueueCron,
         OrphanedHoldCron,
+        StuckOrderReconciliationCron,
+        SweepCron,
+        StuckOrderReconciliationService,
         TradingEvent,
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
@@ -144,6 +153,7 @@ export * from "./errors";
         TransactionMonitorService,
         DepositReviewService,
         SolvencyService,
+        StuckOrderReconciliationService,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
         WsGateway,

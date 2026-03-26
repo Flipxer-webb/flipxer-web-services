@@ -1,5 +1,6 @@
 import { Global, Module, forwardRef } from "@nestjs/common";
 import { TradingModule } from "../trade";
+import { SessionModule } from "../session";
 import { AdminNotificationController } from "./controllers/v1/admin.notification.controller";
 import { AdminNotificationService } from "./services/admin.notification.service";
 import { NotificationController } from "./controllers/v1/notification.controller";
@@ -10,7 +11,7 @@ import { NotificationDispatcher } from "./services/notification-dispatcher.servi
 
 @Global()
 @Module({
-    imports: [forwardRef(() => TradingModule)],
+    imports: [forwardRef(() => TradingModule), SessionModule],
     controllers: [AdminNotificationController, NotificationController],
     providers: [
         AdminNotificationService,

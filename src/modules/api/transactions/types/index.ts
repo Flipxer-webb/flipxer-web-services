@@ -24,8 +24,10 @@ export const shapeTransaction = (
 
     return {
         orderId: t.id,
+        userId: t.userId,
         transactionId: t.transactionId,
         name: `${t.user.lastName} ${t.user.firstName}`,
+        email: (t.user as any).email as string | undefined,
         walletAddress: t?.recipient,
         transactionType: t.orderCategory,
         amount: displayAmount,
@@ -35,18 +37,20 @@ export const shapeTransaction = (
             filter ? t.streamlinedStatus : t.status
         ) as string,
         date: t.createdAt,
+        updatedAt: t.updatedAt,
         swap:
             isSwap
                 ? {
-                      quotationId: t?.quotationId,
-                      fromCurrency: t?.fromCurrency,
-                      toCurrency: t?.toCurrency,
-                      fromAmount: t?.fromAmount,
-                      toAmount: t?.toAmount,
-                      quoted_price: t?.quoted_price,
-                      quoted_currency: t?.quoted_currency,
-                      executionPrice: t?.executionPrice,
-                  }
+                    quotationId: t?.quotationId,
+                    fromCurrency: t?.fromCurrency,
+                    toCurrency: t?.toCurrency,
+                    fromAmount: t?.fromAmount,
+                    toAmount: t?.toAmount,
+                    quoted_price: t?.quoted_price,
+                    quoted_currency: t?.quoted_currency,
+                    executionPrice: t?.executionPrice,
+                    swapExpiresAt: t?.swapExpiresAt,
+                }
                 : null,
         narration: t?.narration,
         reason: t?.reason,
@@ -54,6 +58,29 @@ export const shapeTransaction = (
         recipient: t?.recipient,
         fee: t?.fee,
         total: t?.total,
+        amountInFiat: t?.amountInFiat,
+        rateAtConversion: t?.rateAtConversion,
+        totalToReceiveInFiat: t?.totalToReceiveInFiat,
+        estimatedProfit: t?.estimatedProfit,
+        referenceFiatCurrency: t?.referenceFiatCurrency,
+        orderReference: t?.orderReference,
+        providerOrderId: t?.providerOrderId,
+        sender: t?.sender,
+        txHash: t?.blockchain_txid,
+        sourceType: t?.sourceType,
+        market: t?.market,
+        orderType: t?.orderType,
+        orderSide: t?.orderSide,
+        volume: t?.volume,
+        price: t?.price,
+        destinationBankName: t?.destinationBankName,
+        destinationBankAccountName: t?.destinationBankAccountName,
+        destinationBankAccountNumber: t?.destinationBankAccountNumber,
+        destinationBankCode: t?.destinationBankCode,
+        destinationTag: t?.destinationTag,
+        paymentStatus: t?.paymentStatus,
+        fulfilled: t?.fulfilled,
+        ledgerEntryId: t?.ledgerEntryId,
     };
 };
 

@@ -1,4 +1,6 @@
 import Axios, { AxiosInstance, AxiosError } from "axios";
+import { Mutex } from "async-mutex";
+import { Logger } from "@nestjs/common";
 
 export interface NombaOptions {
     baseUrl: string;
@@ -12,11 +14,12 @@ export interface NombaOptions {
 export interface NombaTokenResponse {
     code: string;
     description: string;
+    status?: boolean;
     data: {
         access_token: string;
         refresh_token: string;
-        token_type: string;
-        expires_in: number;
+        businessId?: string;
+        expiresAt: string; // ISO date string from Nomba API
     };
 }
 
@@ -168,6 +171,8 @@ interface TokenCache {
 export class NombaLib {
     private axios: AxiosInstance;
     private tokenCache: TokenCache | null = null;
+    private readonly tokenMutex = new Mutex();
+    private readonly logger = new Logger('NombaLib');
 
     constructor(private readonly options: NombaOptions) {
         this.axios = Axios.create({
@@ -195,19 +200,19 @@ export class NombaLib {
         // Add request logging interceptor
         this.axios.interceptors.request.use(
             (config) => {
-                console.log(`[NOMBA REQUEST] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-                console.log(`[NOMBA REQUEST] Headers:`, JSON.stringify({
+                this.logger.debug(`[REQUEST] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+                this.logger.debug(`[REQUEST] Headers: ${JSON.stringify({
                     accountId: config.headers.accountId,
                     Authorization: config.headers.Authorization ? 'Bearer ***' : 'NONE',
                     'Content-Type': config.headers['Content-Type'],
-                }));
+                })}`);
                 if (config.data) {
-                    console.log(`[NOMBA REQUEST] Body:`, JSON.stringify(config.data));
+                    this.logger.debug(`[REQUEST] Body: ${JSON.stringify(this.sanitizeNombaPayload(config.data))}`);
                 }
                 return config;
             },
             (error) => {
-                console.error(`[NOMBA REQUEST ERROR]`, error.message);
+                this.logger.error(`[REQUEST ERROR] ${error.message}`);
                 return Promise.reject(error);
             }
         );
@@ -215,16 +220,51 @@ export class NombaLib {
         // Add response logging interceptor
         this.axios.interceptors.response.use(
             (response) => {
-                console.log(`[NOMBA RESPONSE] ${response.status} ${response.config.url}`);
-                console.log(`[NOMBA RESPONSE] Data:`, JSON.stringify(response.data));
+                this.logger.debug(`[RESPONSE] ${response.status} ${response.config.url}`);
+                this.logger.debug(`[RESPONSE] Data: ${JSON.stringify(this.sanitizeNombaPayload(response.data))}`);
                 return response;
             },
             (error) => {
-                console.error(`[NOMBA RESPONSE ERROR] ${error.response?.status || 'NO STATUS'} ${error.config?.url}`);
-                console.error(`[NOMBA RESPONSE ERROR] Data:`, JSON.stringify(error.response?.data || error.message));
+                this.logger.error(`[RESPONSE ERROR] ${error.response?.status || 'NO STATUS'} ${error.config?.url}`);
+                this.logger.error(`[RESPONSE ERROR] Data: ${JSON.stringify(this.sanitizeNombaPayload(error.response?.data || error.message))}`);
                 return Promise.reject(error);
             }
         );
+    }
+
+    private sanitizeNombaPayload(payload: unknown): unknown {
+        if (!payload || typeof payload !== "object") {
+            return payload;
+        }
+
+        try {
+            const copy = JSON.parse(JSON.stringify(payload)) as any;
+
+            if (copy?.client_secret) {
+                copy.client_secret = "[REDACTED]";
+            }
+            if (copy?.data?.access_token) {
+                copy.data.access_token = "[REDACTED]";
+            }
+            if (copy?.data?.refresh_token) {
+                copy.data.refresh_token = "[REDACTED]";
+            }
+
+            return copy;
+        } catch {
+            return "[UNSERIALIZABLE_PAYLOAD]";
+        }
+    }
+
+    private resolveTokenExpiry(expiresAt: string): number {
+        const expiresAtMs = new Date(expiresAt).getTime();
+        if (!Number.isFinite(expiresAtMs)) {
+            const fallbackExpiryMs = Date.now() + 55 * 60 * 1000;
+            this.logger.warn(`Invalid token expiry received from Nomba: ${expiresAt}. Using fallback expiry.`);
+            return fallbackExpiryMs;
+        }
+
+        return expiresAtMs;
     }
 
     private handleError(error: AxiosError<any>) {
@@ -242,33 +282,37 @@ export class NombaLib {
     }
 
     /**
-     * Get a valid access token, refreshing if needed
+     * Get a valid access token, refreshing if needed.
+     * Uses a mutex to prevent concurrent token refresh/issue thundering herd.
      */
     private async getValidToken(): Promise<string | null> {
-        // Check if we have a valid cached token
-        if (this.tokenCache && this.tokenCache.expiresAt > Date.now() + 60000) {
-            return this.tokenCache.accessToken;
-        }
-
-        // Try to refresh if we have a refresh token
-        if (this.tokenCache?.refreshToken) {
-            try {
-                await this.refreshAccessToken(this.tokenCache.refreshToken);
-                return this.tokenCache?.accessToken || null;
-            } catch {
-                // Refresh failed, get new token
+        return this.tokenMutex.runExclusive(async () => {
+            // Double-check after acquiring mutex (another caller may have refreshed)
+            if (this.tokenCache && this.tokenCache.expiresAt > Date.now() + 60000) {
+                return this.tokenCache.accessToken;
             }
-        }
 
-        // Get new token
-        await this.obtainAccessToken();
-        return this.tokenCache?.accessToken || null;
+            // Try to refresh if we have a refresh token
+            if (this.tokenCache?.refreshToken) {
+                try {
+                    await this.refreshAccessToken(this.tokenCache.refreshToken);
+                    return this.tokenCache?.accessToken || null;
+                } catch (err) {
+                    this.logger.warn(`Token refresh failed, falling back to fresh token issue: ${(err as Error).message}`);
+                    this.tokenCache = null; // Clear stale cache to prevent retries with same token
+                }
+            }
+
+            // Get new token
+            await this.obtainAccessToken();
+            return this.tokenCache?.accessToken || null;
+        });
     }
 
     /**
      * Obtain initial access token using client credentials
      */
-    async obtainAccessToken(): Promise<NombaTokenResponse> {
+    private async obtainAccessToken(): Promise<NombaTokenResponse> {
         try {
             const { data } = await this.axios.post<NombaTokenResponse>(
                 "/v1/auth/token/issue",
@@ -283,8 +327,9 @@ export class NombaLib {
                 this.tokenCache = {
                     accessToken: data.data.access_token,
                     refreshToken: data.data.refresh_token,
-                    expiresAt: Date.now() + data.data.expires_in * 1000,
+                    expiresAt: this.resolveTokenExpiry(data.data.expiresAt),
                 };
+                this.logger.log(`Token issued, expires at ${data.data.expiresAt}`);
             }
 
             return data;
@@ -295,10 +340,10 @@ export class NombaLib {
     }
 
     /**
-     * Refresh an expired access token
-     * NOTE: Nomba requires the current access token in the Authorization header
+     * Refresh an access token nearing expiry
+     * NOTE: Nomba requires the current (still-valid) access token in the Authorization header
      */
-    async refreshAccessToken(refreshToken: string): Promise<NombaTokenResponse> {
+    private async refreshAccessToken(refreshToken: string): Promise<NombaTokenResponse> {
         try {
             // Nomba requires current access token even when refreshing
             const currentToken = this.tokenCache?.accessToken;
@@ -320,8 +365,9 @@ export class NombaLib {
                 this.tokenCache = {
                     accessToken: data.data.access_token,
                     refreshToken: data.data.refresh_token,
-                    expiresAt: Date.now() + data.data.expires_in * 1000,
+                    expiresAt: this.resolveTokenExpiry(data.data.expiresAt),
                 };
+                this.logger.log(`Token refreshed, expires at ${data.data.expiresAt}`);
             }
 
             return data;
@@ -335,7 +381,7 @@ export class NombaLib {
      * Get list of Nigerian banks
      */
     async getBanks(): Promise<NombaBankListResponse> {
-        console.log("[NOMBA GET BANKS] Starting bank list fetch...");
+        this.logger.debug("Starting bank list fetch...");
         try {
             // Nomba API: GET /v1/transfers/banks (plural, v1)
             const { data } = await this.axios.get<NombaBankListResponse>(
@@ -343,24 +389,24 @@ export class NombaLib {
             );
 
             // Detailed logging to debug empty bank list issue
-            console.log("[NOMBA GET BANKS] Response received:", JSON.stringify({
+            this.logger.debug(`Bank list response: ${JSON.stringify({
                 code: data?.code,
                 description: data?.description,
                 banksCount: data?.data?.length || 0,
                 sampleBanks: data?.data?.slice(0, 3).map(b => ({ code: b.code, name: b.name })) || [],
-            }));
+            })}`);
 
             if (!data?.data || data.data.length === 0) {
-                console.warn("[NOMBA GET BANKS] WARNING: Empty bank list returned!", JSON.stringify(data));
+                this.logger.warn(`Empty bank list returned: ${JSON.stringify(data)}`);
             }
 
             return data;
         } catch (error) {
-            console.error("[NOMBA GET BANKS] Error fetching bank list:", {
+            this.logger.error(`Error fetching bank list: ${JSON.stringify({
                 message: (error as Error).message,
                 response: (error as any).response?.data,
                 status: (error as any).response?.status,
-            });
+            })}`);
             this.handleError(error as AxiosError);
             throw error;
         }

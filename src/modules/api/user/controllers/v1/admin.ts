@@ -15,7 +15,7 @@ import {
     CountryBlockGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
@@ -23,7 +23,7 @@ import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../../dtos"; // Adde
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiTags("admin")
 @Controller({
     path: "admin/user",
@@ -34,8 +34,12 @@ export class AdminUserController {
     @ApiOperation({ summary: "Admin gets Dashboard analytics overview" })
     @ApiBearerAuth("access-token")
     @Get("analytics-overview")
-    async getAnalyticsOverview() {
-        return await this.adminService.getAnalyticsOverview();
+    async getAnalyticsOverview(
+        @Query("period") period?: string,
+        @Query("startDate") startDate?: string,
+        @Query("endDate") endDate?: string,
+    ) {
+        return await this.adminService.getAnalyticsOverview(period, startDate, endDate);
     }
 
     @ApiOperation({ summary: "Admin gets all users list" })
@@ -43,6 +47,13 @@ export class AdminUserController {
     @Get("all")
     async getAllUsers(@Query() query: GetUserListDto) {
         return await this.adminService.getUserList(query);
+    }
+
+    @ApiOperation({ summary: "Admin gets filter-aware user stats" })
+    @ApiBearerAuth("access-token")
+    @Get("stats")
+    async getUserStats(@Query() query: GetUserListDto) {
+        return await this.adminService.getUserFilteredStats(query);
     }
 
     @ApiOperation({ summary: "Admin gets user transactions list" })
@@ -64,6 +75,7 @@ export class AdminUserController {
 
     @ApiOperation({ summary: "Admin unflags a user account" })
     @ApiBearerAuth("access-token")
+    @UserTypes([UserType.SUPER_ADMIN])
     @Post("unflag")
     async unflagUser(@Body() dto: UnflagUserDto) {
         return await this.adminService.unflagUser(dto);
@@ -71,6 +83,7 @@ export class AdminUserController {
 
     @ApiOperation({ summary: "Admin flags a user account" })
     @ApiBearerAuth("access-token")
+    @UserTypes([UserType.SUPER_ADMIN])
     @Post("flag")
     async flagUser(@Body() dto: FlagUserDto) {
         return await this.adminService.flagUser(dto);

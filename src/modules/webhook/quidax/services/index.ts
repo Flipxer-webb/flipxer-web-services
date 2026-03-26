@@ -54,15 +54,21 @@ export class QuidaxWebhookService implements QuidaxWebhook {
      * @returns true if valid, false if too old
      */
     private isWebhookTimestampValid(eventData: any): { valid: boolean; ageMs: number } {
-        const createdAt = eventData?.created_at || eventData?.data?.created_at;
+        // Prefer updated_at over created_at for staleness checks.
+        // For "wallet.updated" events, created_at is when the wallet was
+        // originally provisioned (potentially months/years ago), while
+        // updated_at reflects the moment the event actually occurred.
+        const timestamp =
+            eventData?.updated_at || eventData?.data?.updated_at ||
+            eventData?.created_at || eventData?.data?.created_at;
         
-        if (!createdAt) {
+        if (!timestamp) {
             // If no timestamp, allow for backward compatibility but log warning
             this.logger.warn(`Webhook received without timestamp - allowing for compatibility`);
             return { valid: true, ageMs: 0 };
         }
 
-        const eventTime = new Date(createdAt).getTime();
+        const eventTime = new Date(timestamp).getTime();
         const now = Date.now();
         const ageMs = now - eventTime;
 
@@ -414,6 +420,30 @@ export class QuidaxWebhookService implements QuidaxWebhook {
         // Log the withdrawal event status for debugging
         this.logger.log(`[WITHDRAWAL] Processing withdrawal: ${eventData.reference} | Status: ${eventData.status}`);
 
+        // Route sweep webhooks to SweepService via TradingService facade.
+        // Sweep references are prefixed with "sweep-" and should never hit
+        // the Order lookup path (which would throw TransactionNotFoundException).
+        if (eventData.reference?.startsWith('sweep-')) {
+            const sweepStatus =
+                normalizedStatus === 'done' ||
+                normalizedStatus === 'successful' ||
+                normalizedStatus === 'success' ||
+                normalizedStatus === 'completed'
+                    ? 'completed' as const
+                    : 'failed' as const;
+
+            this.logger.log(
+                `[WITHDRAWAL] Routing sweep webhook | txId: ${eventData.id} | reference: ${eventData.reference} | status: ${sweepStatus} | reason: ${eventData.reason ?? 'none'}`
+            );
+
+            await this.tradingService.handleSweepConfirmation(
+                eventData.id,
+                sweepStatus,
+                eventData.reason ?? undefined
+            );
+            return;
+        }
+
         switch (true) {
             case normalizedStatus === OrderStatus.done:
             case normalizedStatus === "successful":
@@ -422,6 +452,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
                     status: OrderStatus.done,
+                    txid: eventData.txid,
                 });
                 break;
 
@@ -430,6 +461,7 @@ export class QuidaxWebhookService implements QuidaxWebhook {
                 await this.tradingService.withdrawerTransactionHandler({
                     orderReference: eventData.reference,
                     status: OrderStatus.failed, // Map rejected/failed to OrderStatus.failed
+                    txid: eventData.txid,
                 });
                 break;
 

@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearch", "fullTextIndex"]
+  previewFeatures = ["fullTextSearch"]
   binaryTargets   = ["native", "rhel-openssl-1.0.x"]
 }
 
@@ -48,6 +48,7 @@ model User {
   isPhoneVerified                    Boolean                           @default(false)
   cryptoSubAccountId                 String?                           @unique
   refreshToken                       String?
+  refreshTokenFamily                 String?                           // UUID family for token rotation/reuse detection
   businessDocumentsUploaded          Boolean                           @default(false)
   recoveryEmail                      String?
   photoFileId                        String?
@@ -98,6 +99,7 @@ model User {
   preferences                        UserPreferences?
   notificationPreferences            NotificationPreferences?
   priceAlerts                        PriceAlert[]
+  deviceTokens                       DeviceToken[]
 
   role                               Role                              @relation(fields: [roleId], references: [id], onDelete: Cascade)
   // Virtual Balance / Ledger System relations
@@ -172,6 +174,7 @@ model NotificationPreferences {
   pushPriceAlerts     Boolean  @default(true)
   pushSecurityAlerts  Boolean  @default(true)
   pushMarketing       Boolean  @default(false)
+  soundEnabled        Boolean  @default(true)
   quietHoursEnabled   Boolean  @default(false)
   quietHoursStart     String?  // "22:00" in 24hr format
   quietHoursEnd       String?  // "07:00" in 24hr format
@@ -180,6 +183,21 @@ model NotificationPreferences {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("NotificationPreferences")
+}
+
+model DeviceToken {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  token       String
+  deviceName  String?  // e.g., "Chrome on Windows", "Safari on iPhone"
+  platform    String?  // "web", "android", "ios"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([token])
+  @@map("DeviceTokens")
 }
 
 model PriceAlert {
@@ -357,6 +375,43 @@ model BusinessDocument {
   meansOfIdentificationForBeneficialOwnerFileName     String?
   proofOfAddressForBeneficialOwnerFileName            String?
 
+  // Expanded business KYC document set (company-level)
+  certificateOfIncorporationUrl                        String?
+  certificateOfIncorporationFieldId                    String?
+  certificateOfIncorporationFileName                   String?
+  applicationForRegistrationUrl                        String?
+  applicationForRegistrationFieldId                    String?
+  applicationForRegistrationFileName                   String?
+  memartUrl                                            String?
+  memartFieldId                                        String?
+  memartFileName                                       String?
+  companyUtilityBillsUrl                               String?
+  companyUtilityBillsFieldId                           String?
+  companyUtilityBillsFileName                          String?
+  companyAmlPolicyUrl                                  String?
+  companyAmlPolicyFieldId                              String?
+  companyAmlPolicyFileName                             String?
+  scumlCertificateUrl                                  String?
+  scumlCertificateFieldId                              String?
+  scumlCertificateFileName                             String?
+  companyOrganogramUrl                                 String?
+  companyOrganogramFieldId                             String?
+  companyOrganogramFileName                            String?
+  companyLicenseUrl                                    String?
+  companyLicenseFieldId                                String?
+  companyLicenseFileName                               String?
+  flowsBusinessFundsUrl                                String?
+  flowsBusinessFundsFieldId                            String?
+  flowsBusinessFundsFileName                           String?
+
+  // Company info text fields
+  companyWebsite                                       String?
+  companyTaxId                                         String?
+  companyAddress                                       String?
+  natureOfBusiness                                     String?
+  purposeOfTransaction                                 String?
+  purposeOfTransactionOther                            String?
+
   // Dojah CAC Lookup verification
   cacVerified                                         Boolean  @default(false)
   cacVerifiedAt                                       DateTime?
@@ -382,8 +437,57 @@ model BusinessDocument {
   cacOcrRawResponse                                   String?  @db.Text
 
   user                                                User?   @relation(fields: [userId], references: [id])
+  directors                                           BusinessDirector[]
+  shareholders                                        BusinessShareholder[]
 
   @@map("BusinessDocuments")
+}
+
+model BusinessDirector {
+  id                Int              @id @default(autoincrement())
+  businessDocumentId Int
+  fullName          String
+  nationality       String
+  dateOfBirth       DateTime
+  residentialAddress String
+  businessAddress   String
+  nin               String?
+  idDocumentUrl     String?
+  idDocumentFieldId String?
+  idDocumentFileName String?
+  proofOfAddressUrl String?
+  proofOfAddressFieldId String?
+  proofOfAddressFileName String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  businessDocument  BusinessDocument @relation(fields: [businessDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([businessDocumentId])
+  @@map("BusinessDirectors")
+}
+
+model BusinessShareholder {
+  id                Int              @id @default(autoincrement())
+  businessDocumentId Int
+  fullName          String
+  nationality       String
+  dateOfBirth       DateTime
+  residentialAddress String
+  businessAddress   String
+  nin               String?
+  ownershipPercentage Float
+  idDocumentUrl     String?
+  idDocumentFieldId String?
+  idDocumentFileName String?
+  proofOfAddressUrl String?
+  proofOfAddressFieldId String?
+  proofOfAddressFileName String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  businessDocument  BusinessDocument @relation(fields: [businessDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([businessDocumentId])
+  @@map("BusinessShareholders")
 }
 
 model AccountVerificationRequest {
@@ -657,6 +761,10 @@ model Payment {
   idempotencyKey               String?           @unique
   paymentConfirmedByUser       DateTime?
   stuckAlertSentAt             DateTime?
+  senderAccountNumber          String?
+  senderAccountName            String?
+  senderBankName               String?
+  receivedAmount               Decimal?          @db.Decimal(10, 2)
   createdAt                    DateTime          @default(now())
   updatedAt                    DateTime          @updatedAt
   order                        Order?            @relation(fields: [orderId], references: [id])
@@ -714,6 +822,7 @@ model Notification {
   status          NotificationStatus      @default(PENDING)
   transactionType OrderCategory?
   currency        String?
+  category        String?                 // "transaction", "security", "price_alert", "marketing"
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
   sender          User?                   @relation("senderNotification", fields: [senderId], references: [id])
@@ -722,6 +831,7 @@ model Notification {
   @@index([userId])
   @@index([isRead])
   @@index([userId, isRead])
+  @@index([category])
   @@map("Notifications")
 }
 
@@ -865,6 +975,7 @@ model FeatureFlagAuditLog {
 }
 
 enum UserType {
+  SUPER_ADMIN
   ADMIN
   INDIVIDUAL
   BUSINESS
@@ -1143,6 +1254,7 @@ enum MigrationStatus {
   PAUSED
 }
 
+
 // Core ledger entry for double-entry accounting
 // Each balance change creates an entry; balanceAfter provides O(1) balance lookup
 model LedgerEntry {
@@ -1163,6 +1275,9 @@ model LedgerEntry {
   paymentReference   String?       // Fiat payment reference
   description        String?       // Human-readable description for audit
   metadata           Json?         // Additional data
+  sequenceNumber     BigInt        @default(autoincrement()) @unique // F-001: monotonic ordering
+  sweepTxId          String?       @unique                           // SW-001: webhook correlation
+  sweepRetryCount    Int           @default(0)                       // SW-002: retry tracking
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -1174,7 +1289,9 @@ model LedgerEntry {
 
   // Prevent duplicate entries for same transaction
   @@unique([type, reference])
-  // Fast balance lookups
+  // Fast balance lookups — sequenceNumber is the canonical ordering index (F-001)
+  @@index([userId, currency, sequenceNumber(sort: Desc)])
+  // Retained for time-range queries (history, audit logs, reconciliation date filters)
   @@index([userId, currency, createdAt(sort: Desc)])
   @@index([status])
   @@index([sweepStatus])

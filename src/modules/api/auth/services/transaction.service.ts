@@ -191,8 +191,10 @@ export class TransactionService {
     }
 
     /**
-     * Fallback limit validation using database queries (less atomic but functional).
+     * Fallback limit validation using database queries.
      * Used when Redis is unavailable.
+     * Wraps in a Prisma transaction with SELECT FOR UPDATE to serialize
+     * concurrent limit checks for the same user, preventing race conditions.
      */
     private async validateLimitsWithDbFallback(
         user: User,
@@ -204,87 +206,92 @@ export class TransactionService {
         monthlyLimit: number,
         path: string
     ): Promise<void> {
-        const now = new Date();
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        await this.prisma.$transaction(async (tx) => {
+            // Acquire row-level lock on user to serialize concurrent limit checks
+            await tx.$queryRaw`SELECT id FROM "Users" WHERE id = ${user.id} FOR UPDATE`;
 
-        // Fetch all relevant orders
-        const orders = await this.prisma.order.findMany({
-            where: {
-                userId: user.id,
-                createdAt: { gte: thirtyDaysAgo },
-                status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
-            },
-            select: { amount: true, currency: true, createdAt: true },
-        });
+            const now = new Date();
+            const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-        // Get USDT rate for NGN to USD conversion
-        const usdtRate = await this.prisma.cryptoRate.findUnique({ where: { currency: 'USDT' } });
-        const ngnToUsd = usdtRate && usdtRate.sellRate > 0 ? 1 / usdtRate.sellRate : 0;
-
-        // Build rate cache for order currencies
-        const uniqueCurrencies = [...new Set(orders.map(order => order.currency))];
-        const rateCache: { [key: string]: number } = {};
-
-        for (const curr of uniqueCurrencies) {
-            if (!curr) continue;
-            const cryptoRate = await this.prisma.cryptoRate.findUnique({
-                where: { currency: curr.toUpperCase() }
+            // Fetch all relevant orders
+            const orders = await tx.order.findMany({
+                where: {
+                    userId: user.id,
+                    createdAt: { gte: thirtyDaysAgo },
+                    status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
+                },
+                select: { amount: true, currency: true, createdAt: true },
             });
-            if (cryptoRate && cryptoRate.sellRate > 0 && ngnToUsd > 0) {
-                rateCache[curr] = cryptoRate.sellRate * ngnToUsd;
-            } else {
-                rateCache[curr] = 0;
-            }
-        }
 
-        // Calculate daily total
-        let currentDailyTotal = 0;
-        for (const order of orders) {
-            if (order.createdAt >= oneDayAgo && order.amount && order.currency) {
-                const usdRate = rateCache[order.currency] || 0;
-                currentDailyTotal += order.amount * usdRate;
-            }
-        }
-        const newDailyTotal = currentDailyTotal + amountUSD;
+            // Get USDT rate for NGN to USD conversion
+            const usdtRate = await tx.cryptoRate.findUnique({ where: { currency: 'USDT' } });
+            const ngnToUsd = usdtRate && usdtRate.sellRate > 0 ? 1 / usdtRate.sellRate : 0;
 
-        // Check daily limit
-        if (!hasUnlimitedWithdrawal) {
-            const dailyLimit = tierInfo.withdrawalLimit as number;
-            if (newDailyTotal > dailyLimit) {
+            // Build rate cache for order currencies
+            const uniqueCurrencies = [...new Set(orders.map(order => order.currency))];
+            const rateCache: { [key: string]: number } = {};
+
+            for (const curr of uniqueCurrencies) {
+                if (!curr) continue;
+                const cryptoRate = await tx.cryptoRate.findUnique({
+                    where: { currency: curr.toUpperCase() }
+                });
+                if (cryptoRate && cryptoRate.sellRate > 0 && ngnToUsd > 0) {
+                    rateCache[curr] = cryptoRate.sellRate * ngnToUsd;
+                } else {
+                    rateCache[curr] = 0;
+                }
+            }
+
+            // Calculate daily total
+            let currentDailyTotal = 0;
+            for (const order of orders) {
+                if (order.createdAt >= oneDayAgo && order.amount && order.currency) {
+                    const usdRate = rateCache[order.currency] || 0;
+                    currentDailyTotal += order.amount * usdRate;
+                }
+            }
+            const newDailyTotal = currentDailyTotal + amountUSD;
+
+            // Check daily limit
+            if (!hasUnlimitedWithdrawal) {
+                const dailyLimit = tierInfo.withdrawalLimit as number;
+                if (newDailyTotal > dailyLimit) {
+                    const transactionId = uuidv4();
+                    const reason = `Daily withdrawal limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)}`;
+                    await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+                    await this.sendFlaggedEmail(user, reason, transactionId);
+                    throw new GeneralTransactionException(
+                        `Daily withdrawal limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
+                        HttpStatus.FORBIDDEN
+                    );
+                }
+            }
+
+            // Calculate monthly total
+            let currentMonthlyTotal = 0;
+            for (const order of orders) {
+                if (order.amount && order.currency) {
+                    const usdRate = rateCache[order.currency] || 0;
+                    currentMonthlyTotal += order.amount * usdRate;
+                }
+            }
+            const newMonthlyTotal = currentMonthlyTotal + amountUSD;
+
+            // Check monthly limit
+            if (newMonthlyTotal > monthlyLimit) {
                 const transactionId = uuidv4();
-                const reason = `Daily withdrawal limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)}`;
+                const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal.toFixed(2)}`;
                 await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+                await this.flagUserForLimitViolation(user, reason);
                 await this.sendFlaggedEmail(user, reason, transactionId);
                 throw new GeneralTransactionException(
-                    `Daily withdrawal limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
+                    `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                     HttpStatus.FORBIDDEN
                 );
             }
-        }
-
-        // Calculate monthly total
-        let currentMonthlyTotal = 0;
-        for (const order of orders) {
-            if (order.amount && order.currency) {
-                const usdRate = rateCache[order.currency] || 0;
-                currentMonthlyTotal += order.amount * usdRate;
-            }
-        }
-        const newMonthlyTotal = currentMonthlyTotal + amountUSD;
-
-        // Check monthly limit
-        if (newMonthlyTotal > monthlyLimit) {
-            const transactionId = uuidv4();
-            const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal.toFixed(2)}`;
-            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-            await this.flagUserForLimitViolation(user, reason);
-            await this.sendFlaggedEmail(user, reason, transactionId);
-            throw new GeneralTransactionException(
-                `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
-                HttpStatus.FORBIDDEN
-            );
-        }
+        }, { timeout: 10000 });
     }
 
     /**
