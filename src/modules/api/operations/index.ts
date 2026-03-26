@@ -5,9 +5,10 @@ import { LiquidityAlertService } from "./services/liquidity-alert.service";
 import { AdminWalletController } from "./controllers/v1/admin/wallet.controller";
 import { AdminSlackWebhookController } from "./controllers/v1/admin/slack-webhook.controller";
 import { AdminLiquidityAlertController } from "./controllers/v1/admin/liquidity-alert.controller";
+import { SessionModule } from "../session";
 
 @Module({
-    imports: [],
+    imports: [SessionModule],
     controllers: [
         AdminWalletController,
         AdminSlackWebhookController,

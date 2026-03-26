@@ -29,6 +29,7 @@ import { shapeTransaction, TransactionIncludeOptions } from "../types";
 import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
 import { SwapService } from "@/modules/api/trade/services/swap.service";
 import { WithdrawalWebhookHandler } from "@/modules/api/trade/services/webhook-handlers/withdrawal-webhook.handler";
+import { Decimal } from "@prisma/client/runtime/library";
 
 @Injectable()
 export class AdminTransactionService {
@@ -119,68 +120,70 @@ export class AdminTransactionService {
 
     // ==================== TRANSACTION STATS ====================
 
-    async getTransactionStats(period: string = "month"): Promise<ApiResponse> {
-        const { startDate, endDate } = this.getDateRange(period);
+    async getTransactionStats(period: string = "month", status?: string, type?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
+        const { startDate, endDate } = startDateStr && endDateStr
+            ? { startDate: new Date(startDateStr), endDate: endOfDay(new Date(endDateStr)) }
+            : this.getDateRange(period);
 
-        const [
-            totalCount,
-            completedCount,
-            pendingCount,
-            failedCount,
-            totalVolume,
-            completedOrdersForFees,
-            volumeByCategory,
-        ] = await Promise.all([
-            this.prisma.order.count({
-                where: { createdAt: { gte: startDate, lte: endDate } },
-            }),
-            this.prisma.order.count({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                },
-            }),
-            this.prisma.order.count({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.pending,
-                },
-            }),
-            this.prisma.order.count({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.failed,
-                },
-            }),
-            this.prisma.order.aggregate({
-                _sum: { amountInFiat: true },
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                },
-            }),
-            // Fetch completed orders with fee and rate to calculate fees in fiat
-            this.prisma.order.findMany({
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                    fee: { not: null },
-                },
-                select: {
-                    fee: true,
-                    rateAtConversion: true,
-                },
-            }),
-            this.prisma.order.groupBy({
-                by: ["orderCategory"],
-                where: {
-                    createdAt: { gte: startDate, lte: endDate },
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                },
-                _sum: { amountInFiat: true },
-                _count: true,
-            }),
-        ]);
+        // Base date+type filter — no streamlinedStatus here to avoid field conflicts
+        const baseWhere = {
+            createdAt: { gte: startDate, lte: endDate },
+            ...(type && { orderCategory: type as any }),
+        };
+
+        // Filter that includes the optional status
+        const filteredWhere = {
+            ...baseWhere,
+            ...(status && { streamlinedStatus: status as OrderStreamlinedStatus }),
+        };
+
+        // Total is always against the fully filtered WHERE
+        const totalCount = await this.prisma.order.count({ where: filteredWhere });
+
+        // Per-status breakdown: when status filter is set, derive trivially to avoid field conflicts
+        let completedCount: number;
+        let pendingCount: number;
+        let failedCount: number;
+
+        if (status) {
+            completedCount = status === OrderStreamlinedStatus.completed ? totalCount : 0;
+            pendingCount   = status === OrderStreamlinedStatus.pending   ? totalCount : 0;
+            failedCount    = status === OrderStreamlinedStatus.failed    ? totalCount : 0;
+        } else {
+            [completedCount, pendingCount, failedCount] = await Promise.all([
+                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.completed } }),
+                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.pending } }),
+                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.failed } }),
+            ]);
+        }
+
+        // Volume & fees only apply when we might have completed orders
+        const showVolume = !status || status === OrderStreamlinedStatus.completed;
+        const completedBaseWhere = { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.completed };
+
+        let totalVolume: { _sum: { amountInFiat: number | null } };
+        let completedOrdersForFees: { fee: any; rateAtConversion: any }[];
+        let volumeByCategory: any[];
+
+        if (showVolume) {
+            [totalVolume, completedOrdersForFees, volumeByCategory] = await Promise.all([
+                this.prisma.order.aggregate({ _sum: { amountInFiat: true }, where: completedBaseWhere }),
+                this.prisma.order.findMany({
+                    where: { ...completedBaseWhere, fee: { not: null } },
+                    select: { fee: true, rateAtConversion: true },
+                }),
+                this.prisma.order.groupBy({
+                    by: ["orderCategory"],
+                    where: completedBaseWhere,
+                    _sum: { amountInFiat: true },
+                    _count: true,
+                }),
+            ]);
+        } else {
+            totalVolume = { _sum: { amountInFiat: null } };
+            completedOrdersForFees = [];
+            volumeByCategory = [];
+        }
 
         // Calculate total fees in fiat (fee * rateAtConversion for each order)
         const totalFeesInFiat = completedOrdersForFees.reduce((sum, order) => {
@@ -268,6 +271,13 @@ export class AdminTransactionService {
      * Manually approve a pending transaction.
      * Requires 2FA verification from admin.
      * For BUY orders, credits the user's ledger.
+     *
+     * FIX: AT-001 — replaced non-atomic fulfilled check with updateMany atomic guard.
+     * Previous code checked transaction.fulfilled then credited ledger in two separate
+     * operations, allowing two concurrent admin approvals to both pass the check and
+     * both attempt to credit the ledger. Now uses updateMany with WHERE fulfilled=false
+     * so only one request can win — the other gets count=0 and returns early.
+     * Ledger idempotency (type+reference unique key) still acts as a secondary safety net.
      */
     async manualApproveTransaction(
         transactionId: string,
@@ -295,8 +305,15 @@ export class AdminTransactionService {
             });
         }
 
-        // Prevent double-approval
-        if (transaction.fulfilled || transaction.streamlinedStatus === OrderStreamlinedStatus.completed) {
+        // FIX: AT-001 — atomic guard prevents double-approval race condition.
+        // updateMany with WHERE fulfilled=false returns count=0 if already approved,
+        // ensuring only one concurrent request can proceed to ledger credit.
+        const claimResult = await this.prisma.order.updateMany({
+            where: { transactionId, fulfilled: false },
+            data: { fulfilled: true },
+        });
+
+        if (claimResult.count === 0) {
             return buildResponse({ message: "Transaction already completed", data: null });
         }
 
@@ -319,6 +336,11 @@ export class AdminTransactionService {
             });
 
             if (!creditResult.success) {
+                // Rollback the fulfilled flag so the transaction can be retried
+                await this.prisma.order.update({
+                    where: { transactionId },
+                    data: { fulfilled: false },
+                });
                 this.logger.error(`Manual approve ledger credit failed for ${transactionId}: ${creditResult.error}`);
                 throw new InternalServerErrorException(`Failed to credit ledger: ${creditResult.error}`);
             }
@@ -329,7 +351,7 @@ export class AdminTransactionService {
             data: {
                 streamlinedStatus: OrderStreamlinedStatus.completed,
                 status: "confirmed",
-                fulfilled: true,
+                fulfilled: true, // already set by atomic guard above; explicit for clarity
                 ...(dto.overrideAmount && {
                     amountInFiat: parseFloat(dto.overrideAmount)
                 }),
@@ -373,8 +395,13 @@ export class AdminTransactionService {
     /**
      * Refund a failed transaction by crediting funds back to user's ledger.
      * Only failed transactions can be refunded. Refunds are always FULL amount.
-     * 
+     *
      * IMPORTANT: Completed orders with successful bank payouts require manual reversal.
+     *
+     * FIX: AT-002 — refundAmount explicitly wrapped in new Decimal() to guarantee
+     * Decimal type safety before passing to ledgerService.credit(). transaction.total
+     * and transaction.amount come from Prisma as Decimal but TypeScript types them
+     * as number in some schema versions, explicit conversion is safer.
      */
     async refundTransaction(
         transactionId: string,
@@ -407,12 +434,17 @@ export class AdminTransactionService {
             throw new BadRequestException('Transaction has already been refunded');
         }
 
-        // Full refund - for SELL/SEND use total (includes fees), otherwise use amount
-        const refundAmount = (transaction.orderCategory === 'SELL' || transaction.orderCategory === 'SEND')
+        // FIX: AT-002 — explicit Decimal conversion to ensure type safety.
+        // transaction.total and transaction.amount are Prisma Decimal fields but
+        // may be typed as number depending on schema version. Wrapping in new Decimal()
+        // guarantees precision is preserved through the ledger credit.
+        const rawAmount = (transaction.orderCategory === 'SELL' || transaction.orderCategory === 'SEND')
             ? (transaction.total || transaction.amount)
             : transaction.amount;
 
-        if (!refundAmount || refundAmount <= 0) {
+        const refundAmount = new Decimal(rawAmount);
+
+        if (refundAmount.lte(0)) {
             throw new BadRequestException('Cannot refund: transaction amount is zero or invalid');
         }
 
@@ -472,7 +504,7 @@ export class AdminTransactionService {
                 resourceId: transactionId,
                 details: {
                     reason: dto.reason,
-                    refundAmount: refundAmount,
+                    refundAmount: refundAmount.toString(),
                     currency: transaction.currency,
                     ledgerEntryId: creditResult.entryId,
                     originalAmount: transaction.amount,
@@ -484,7 +516,7 @@ export class AdminTransactionService {
             `Refund processed | ${JSON.stringify({
                 transactionId,
                 userId: transaction.userId,
-                amount: refundAmount,
+                amount: refundAmount.toString(),
                 currency: transaction.currency,
                 adminId,
             })}`
@@ -495,7 +527,7 @@ export class AdminTransactionService {
             data: {
                 transaction: shapeTransaction(updatedTransaction),
                 refund: {
-                    amount: refundAmount,
+                    amount: refundAmount.toString(),
                     currency: transaction.currency,
                     ledgerEntryId: creditResult.entryId,
                     reason: dto.reason,
@@ -504,6 +536,15 @@ export class AdminTransactionService {
         });
     }
 
+    /**
+     * Retry a failed or pending transaction.
+     *
+     * FIX: AT-003 documented known risk: if process crashes between status reset
+     * to pending and the catch block, the order stays stuck in pending indefinitely.
+     * Acceptable risk for admin-only operation, a stuck pending order is visible
+     * in the admin dashboard and can be manually resolved. A full fix would require
+     * a saga/outbox pattern which is out of scope for this PR.
+     */
     async retryTransaction(
         transactionId: string,
         adminId?: number
@@ -761,6 +802,8 @@ export class AdminTransactionService {
                 return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
             case "year":
                 return { startDate: startOfYear(now), endDate: endOfYear(now) };
+            case "all":
+                return { startDate: new Date(0), endDate: now };
             default:
                 return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
         }

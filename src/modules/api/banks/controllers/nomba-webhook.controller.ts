@@ -2,7 +2,7 @@ import { Controller, Post, Get, Body, Headers, HttpCode, Logger, UnauthorizedExc
 import { NombaWebhookPayload, NombaWebhookEventType } from "../dtos/nomba-webhook.dto";
 import { NormalizedPaymentEvent } from "../types/payment-event.interface";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { TransactionStatus } from "@prisma/client";
+import { TransactionStatus, OrderCategory, OrderStatus } from "@prisma/client";
 import * as Config from "@/config";
 import * as crypto from "crypto";
 import { BuyOrderService } from "../../trade/services/buy-order.service";
@@ -31,8 +31,8 @@ export class NombaWebhookController {
     private verifySignature(body: any, signature: string, timestamp: string): boolean {
         const webhookSecret = Config.nombaOptions?.webhookSecret;
         if (!webhookSecret) {
-            this.logger.warn("Nomba webhook secret not configured - skipping signature verification");
-            return true;
+            this.logger.error("SECURITY: Nomba webhook secret not configured - rejecting webhook");
+            return false;
         }
 
         const data = body.data || {};
@@ -56,14 +56,14 @@ export class NombaWebhookController {
             timestamp || "",
         ].join(":");
 
-        this.logger.log(`[SIG] Hashing payload: ${hashingPayload}`);
+        this.logger.debug(`[SIG] Hashing payload: ${hashingPayload}`);
 
         const expectedSignature = crypto
             .createHmac("sha256", webhookSecret)
             .update(hashingPayload)
             .digest("base64");
 
-        this.logger.log(`[SIG] Expected: ${expectedSignature.substring(0, 16)}... Received: ${signature.substring(0, 16)}...`);
+        this.logger.debug(`[SIG] Expected: ${expectedSignature.substring(0, 16)}... Received: ${signature.substring(0, 16)}...`);
 
         // Timing-safe comparison
         const sigBuf = Buffer.from(signature);
@@ -92,18 +92,18 @@ export class NombaWebhookController {
 
         // Extract Standard Fields
         // 1. Reference: Must match what we stored in Payment.reference
-        //    - order.orderReference              → checkout/order flow
-        //    - data.reference                    → generic events
+        //    - transaction.aliasAccountReference → actual Nomba VA payment_success field (prod)
         //    - data.accountRef                   → virtual-account credit events (VA buy flow)
         //    - transaction.accountRef            → payment_success with nested transaction
-        //    - transaction.aliasAccountReference → actual Nomba VA payment_success field (prod)
+        //    - order.orderReference              → checkout/order flow
+        //    - data.reference                    → generic events
         //    - transaction.reference             → alternative transaction-level ref
         //    - transaction.merchantTxRef         → last-resort fallback (Nomba's own ref)
-        const reference = order.orderReference
-            || data.reference
+        const reference = transaction.aliasAccountReference
             || data.accountRef
             || transaction.accountRef
-            || transaction.aliasAccountReference
+            || order.orderReference
+            || data.reference
             || transaction.reference
             || transaction.merchantTxRef;
 
@@ -138,6 +138,9 @@ export class NombaWebhookController {
             providerReference: transaction.transactionId || data.id,
             amount,
             currency: 'NGN', // Nomba is NGN only for now
+            senderAccountNumber: data.senderAccountNumber || transaction.senderAccountNumber,
+            senderAccountName: data.senderAccountName || transaction.senderAccountName,
+            senderBankName: data.senderBankName || transaction.senderBankName,
             raw: body, // Keep raw for debugging
             metadata: {
                 accountRef: data.accountRef || transaction.accountRef || transaction.aliasAccountReference || order.accountId,
@@ -161,8 +164,8 @@ export class NombaWebhookController {
         @Body() body: any,
         @Headers() headers: any,
     ) {
-        this.logger.log(`Raw Webhook Headers: ${JSON.stringify(headers)}`);
-        this.logger.log(`Raw Webhook Body: ${JSON.stringify(body)}`);
+        this.logger.debug(`Raw Webhook Headers: ${JSON.stringify(headers)}`);
+        this.logger.debug(`Raw Webhook Body: ${JSON.stringify(body)}`);
 
         const signature = headers["nomba-signature"]
             || headers["nomba-sig-value"]
@@ -178,13 +181,16 @@ export class NombaWebhookController {
         // 2. Signature Verification (Security First)
         //    Nomba signs a colon-separated string of specific fields (not the raw body).
         //    See: https://developer.nomba.com/docs/api-basics/webhook#webhook-signature-verification
-        if (process.env.NODE_ENV === "production" && signature) {
-            this.logger.log(`Signature verification — timestamp: ${timestamp || 'NONE'}, sig: ${signature.substring(0, 12)}...`);
-            const isValid = this.verifySignature(body, signature, timestamp);
-            if (!isValid) {
-                this.logger.error("Invalid Nomba webhook signature");
-                throw new UnauthorizedException("Invalid webhook signature");
-            }
+        if (!signature) {
+            this.logger.error("SECURITY: Nomba webhook rejected - missing signature header");
+            throw new UnauthorizedException("Missing webhook signature");
+        }
+
+        this.logger.log(`Signature verification - timestamp: ${timestamp || 'NONE'}, sig: ${signature.substring(0, 12)}...`);
+        const isValid = this.verifySignature(body, signature, timestamp);
+        if (!isValid) {
+            this.logger.error("SECURITY: Invalid Nomba webhook signature");
+            throw new UnauthorizedException("Invalid webhook signature");
         }
 
         try {
@@ -283,19 +289,37 @@ export class NombaWebhookController {
                     this.logger.error(
                         `Underpayment detected | Ref: ${reference} | Expected: ${expectedAmount} | Received: ${amount}`
                     );
+
+                    // Capture sender details and received amount for ops refund processing
+                    await this.prisma.payment.update({
+                        where: { id: payment.id },
+                        data: {
+                            receivedAmount: amount,
+                            senderAccountNumber: event.senderAccountNumber || null,
+                            senderAccountName: event.senderAccountName || null,
+                            senderBankName: event.senderBankName || null,
+                            narration: `Underpayment: received ₦${amount} of expected ₦${expectedAmount}`,
+                        },
+                    });
+
                     await this.slackWebhookService.sendWebhookFailureAlert(
                         'nomba',
                         reference,
-                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. Admin review required.`,
+                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. ` +
+                        `Sender: ${event.senderAccountName || 'N/A'} (${event.senderAccountNumber || 'N/A'}) @ ${event.senderBankName || 'N/A'}. ` +
+                        `Auto-cancel will run after 2 hours. Ops must process refund.`,
                         {
                             orderId: payment.orderId,
                             userId: payment.userId,
                             expectedAmount,
                             receivedAmount: amount,
                             shortfall: expectedAmount - amount,
+                            senderAccountNumber: event.senderAccountNumber,
+                            senderAccountName: event.senderAccountName,
+                            senderBankName: event.senderBankName,
                         }
                     );
-                    // Don't fulfill — payment stays PENDING for admin review
+                    // Don't fulfill — underpaid order will be auto-cancelled by cron after 2 hours
                     return;
                 }
 
@@ -369,6 +393,12 @@ export class NombaWebhookController {
 
         this.logger.log(`Processing transfer failure: ${reference}`);
 
+        // Find payments matching this reference before updating
+        const payments = await this.prisma.payment.findMany({
+            where: { reference },
+            select: { id: true, orderId: true, userId: true, totalAmount: true },
+        });
+
         await this.prisma.payment.updateMany({
             where: { reference },
             data: {
@@ -376,5 +406,50 @@ export class NombaWebhookController {
                 paymentStatus: TransactionStatus.FAILED,
             },
         });
+
+        // Propagate failure to linked SELL orders whose payout failed
+        for (const payment of payments) {
+            if (!payment.orderId) continue;
+
+            const order = await this.prisma.order.findUnique({
+                where: { id: payment.orderId },
+                select: {
+                    id: true,
+                    orderCategory: true,
+                    status: true,
+                    transactionId: true,
+                    totalToReceiveInFiat: true,
+                    destinationBankName: true,
+                    destinationBankAccountNumber: true,
+                    user: { select: { id: true, email: true } },
+                },
+            });
+
+            if (order && order.orderCategory === OrderCategory.SELL && order.status === OrderStatus.done) {
+                await this.prisma.order.update({
+                    where: { id: order.id },
+                    data: { paymentStatus: TransactionStatus.FAILED },
+                });
+
+                this.logger.error(
+                    `SELL order ${order.id} payout failed. User ${order.user.id} owed ₦${order.totalToReceiveInFiat}`,
+                );
+
+                await this.slackWebhookService.sendWebhookFailureAlert(
+                    'nomba',
+                    reference,
+                    `SELL order #${order.transactionId} payout FAILED after completion. ` +
+                    `User owed ₦${order.totalToReceiveInFiat}. ` +
+                    `Bank: ${order.destinationBankName} / ${order.destinationBankAccountNumber}. ` +
+                    `Manual retry required.`,
+                    {
+                        orderId: order.id,
+                        userId: order.user.id,
+                        email: order.user.email,
+                        amount: order.totalToReceiveInFiat,
+                    },
+                );
+            }
+        }
     }
 }

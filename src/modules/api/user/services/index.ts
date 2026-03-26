@@ -847,15 +847,61 @@ export class UserService {
 
     /**
      * Update user's notification token for push notifications (FCM)
+     * Now stores in DeviceToken table for multi-device support.
      */
     async updateNotificationToken(
         user: User,
-        token: string | null
+        token: string | null,
+        deviceName?: string,
+        platform?: string
     ): Promise<{ message: string }> {
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: { notificationToken: token },
-        });
+        if (token) {
+            // Upsert into DeviceToken table (best-effort).
+            // If this fails (e.g. migration drift), we still keep legacy token flow working.
+            try {
+                await this.prisma.deviceToken.upsert({
+                    where: {
+                        userId_token: { userId: user.id, token },
+                    },
+                    update: {
+                        deviceName: deviceName ?? undefined,
+                        platform: platform ?? undefined,
+                    },
+                    create: {
+                        userId: user.id,
+                        token,
+                        deviceName: deviceName ?? null,
+                        platform: platform ?? "web",
+                    },
+                });
+            } catch (error) {
+                this.logger.warn(
+                    `DeviceToken upsert failed for user ${user.id}, falling back to legacy notificationToken: ${error?.message || error}`
+                );
+            }
+
+            // Also keep legacy field in sync for backward compatibility
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: { notificationToken: token },
+            });
+        } else {
+            // Disable: remove all device tokens for this user (best-effort)
+            try {
+                await this.prisma.deviceToken.deleteMany({
+                    where: { userId: user.id },
+                });
+            } catch (error) {
+                this.logger.warn(
+                    `DeviceToken cleanup failed for user ${user.id}, continuing with legacy notificationToken cleanup: ${error?.message || error}`
+                );
+            }
+
+            await this.prisma.user.update({
+                where: { id: user.id },
+                data: { notificationToken: null },
+            });
+        }
 
         // Invalidate profile cache
         await this.redisCacheService.del(this.getProfileCacheKey(user.id));

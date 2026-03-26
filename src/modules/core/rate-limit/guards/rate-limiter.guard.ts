@@ -52,6 +52,12 @@ export interface RateLimitOptions {
    * Custom error message
    */
   errorMessage?: string;
+
+  /**
+   * Whether to allow requests when rate limiting fails (e.g. Redis down).
+   * Defaults to true. Set to false for sensitive endpoints (auth, 2FA, password reset).
+   */
+  failOpen?: boolean;
 }
 
 /**
@@ -64,7 +70,7 @@ export const RateLimit = (options: RateLimitOptions) =>
  * Decorator for stricter rate limits (e.g., authentication endpoints)
  */
 export const StrictRateLimit = () =>
-  RateLimit({ limit: 5, windowSeconds: 60, errorMessage: 'Too many attempts. Please try again later.' });
+  RateLimit({ limit: 5, windowSeconds: 60, errorMessage: 'Too many attempts. Please try again later.', failOpen: false });
 
 /**
  * Decorator for relaxed rate limits (e.g., read-only endpoints)
@@ -103,6 +109,7 @@ export class RateLimiterGuard implements CanActivate {
     const result = await this.rateLimiter.checkLimit(key, {
       limit: options.limit,
       windowSeconds: options.windowSeconds,
+      failOpen: options.failOpen,
     });
 
     // Set rate limit headers

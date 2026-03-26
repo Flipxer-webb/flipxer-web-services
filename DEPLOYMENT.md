@@ -398,13 +398,16 @@ pnpm build
 ### Database Migration Issues
 
 ```bash
-# Reset and reapply migrations (CAUTION: Data loss!)
-pnpm db:push
-
-# Or manually fix migrations
-pnpm migration:generate fix_issue
-# Edit the generated migration
+# Apply pending migrations safely
 pnpm db:migrate:prod
+
+# Or create a new migration to fix issues
+pnpm migration:generate fix_issue
+# Edit the generated migration SQL
+pnpm db:migrate:prod
+
+# ❌ NEVER use db:push on production — it causes schema drift
+# pnpm db:push
 ```
 
 ### Port Already in Use

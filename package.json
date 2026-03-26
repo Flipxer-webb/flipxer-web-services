@@ -73,7 +73,7 @@
         "prisma:generate": "npx prisma generate",
         "migration:generate": "npx prisma migrate dev --create-only --name",
         "db:migrate:dev": "npx prisma migrate dev",
-        "db:push": "npx prisma db push",
+        "db:push": "echo '⚠️  WARNING: db:push should NEVER be used on production. Use db:migrate:prod instead.' && npx prisma db push",
         "db:seed": "npx prisma db seed",
         "db:pull": "npx prisma db pull",
         "db:migrate:prod": "npx prisma migrate deploy",

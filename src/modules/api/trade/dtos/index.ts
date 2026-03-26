@@ -236,6 +236,11 @@ export class VerifyWalletAddressDto {
     @IsNotEmpty()
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
+
+    @ApiProperty({ description: "Blockchain network for address validation", required: false })
+    @IsOptional()
+    @IsString()
+    network?: string;
 }
 
 export class GetCryptoWithdrawerFeeDto {

@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import { randomInt } from "crypto";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
@@ -27,6 +28,7 @@ import * as bcrypt from "bcryptjs";
 import { generateBackupCodes, hashBackupCodes, verifyBackupCode, removeUsedBackupCode } from "../../auth/utils/backup-codes.util";
 import { SmsService } from "@/modules/core/sms/services";
 import { EmailService } from "@/modules/core/email/services";
+import { encryptField, decryptField } from "@/utils";
 
 const NON_PUBLIC_IP_RANGES = new Set([
     "unspecified",
@@ -415,7 +417,7 @@ export class SettingService {
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
-                twoFactorSecret: secret,
+                twoFactorSecret: encryptField(secret),
                 twoFactorBackupCodes: JSON.stringify(hashedBackupCodes),
                 isTwoFactorEnabled: false,
             },
@@ -454,7 +456,7 @@ export class SettingService {
         if (userWithSecret.isTwoFactorEnabled) {
             const isValid = authenticator.verify({
                 token: dto.code,
-                secret: userWithSecret.twoFactorSecret,
+                secret: decryptField(userWithSecret.twoFactorSecret),
             });
 
             if (!isValid) {
@@ -469,7 +471,7 @@ export class SettingService {
         // Verify the TOTP code before enabling
         const isValid = authenticator.verify({
             token: dto.code,
-            secret: userWithSecret.twoFactorSecret,
+            secret: decryptField(userWithSecret.twoFactorSecret),
         });
 
         if (!isValid) {
@@ -544,7 +546,7 @@ export class SettingService {
         // Verify the TOTP code
         const isValid = authenticator.verify({
             token: dto.code,
-            secret: userWithData.twoFactorSecret,
+            secret: decryptField(userWithData.twoFactorSecret),
         });
 
         if (!isValid) {
@@ -597,7 +599,7 @@ export class SettingService {
 
         return authenticator.verify({
             token: code,
-            secret: user.twoFactorSecret,
+            secret: decryptField(user.twoFactorSecret),
         });
     }
 
@@ -661,7 +663,7 @@ export class SettingService {
 
         const isValid = authenticator.verify({
             token: dto.code,
-            secret: userData.twoFactorSecret,
+            secret: decryptField(userData.twoFactorSecret),
         });
 
         if (!isValid) {
@@ -998,7 +1000,7 @@ export class SettingService {
                 }
                 const isValidTotp = authenticator.verify({
                     token: dto.code,
-                    secret: userData.twoFactorSecret,
+                    secret: decryptField(userData.twoFactorSecret),
                 });
                 if (!isValidTotp) {
                     throw new UserForbiddenException("Invalid authenticator code", HttpStatus.FORBIDDEN);
@@ -1076,8 +1078,8 @@ export class SettingService {
             }
         }
 
-        // Generate 6-digit OTP
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // Generate 6-digit OTP using cryptographically secure randomness
+        const otp = randomInt(100000, 1000000).toString();
         const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
         // Store OTP in database (using existing pattern or create new table)

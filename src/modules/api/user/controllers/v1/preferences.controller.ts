@@ -84,6 +84,7 @@ export class PreferencesController {
                 pushPriceAlerts: { type: "boolean" },
                 pushSecurityAlerts: { type: "boolean" },
                 pushMarketing: { type: "boolean" },
+                soundEnabled: { type: "boolean" },
                 quietHoursEnabled: { type: "boolean" },
                 quietHoursStart: { type: "string", example: "22:00" },
                 quietHoursEnd: { type: "string", example: "07:00" },

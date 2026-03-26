@@ -1,7 +1,3 @@
-// @ts-nocheck — Remove after running `npx prisma migrate dev && npx prisma generate`
-// New KycVerification columns (version, isActive, escalatedAt, escalatedById) are in schema
-// but not yet in the generated Prisma client.
-
 /**
  * KYC State Machine Service
  *
@@ -280,6 +276,6 @@ export class KycStateMachineService {
     }
 
     private isDecisionStatus(status: KycStatus): boolean {
-        return [KycStatus.APPROVED, KycStatus.REJECTED, KycStatus.ESCALATED].includes(status);
+        return ([KycStatus.APPROVED, KycStatus.REJECTED, KycStatus.ESCALATED] as KycStatus[]).includes(status);
     }
 }

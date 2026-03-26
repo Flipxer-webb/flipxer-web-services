@@ -32,6 +32,7 @@ import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.
 import { LedgerService } from "./ledger/ledger.service";
 import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 
 /**
  * Sell Order Service
@@ -56,7 +57,8 @@ export class SellOrderService {
         private readonly transactionMonitorService: TransactionMonitorService,
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
-        private readonly slackWebhookService: SlackWebhookService
+        private readonly slackWebhookService: SlackWebhookService,
+        private readonly distributedLockService: DistributedLockService
     ) { }
 
 
@@ -193,6 +195,9 @@ export class SellOrderService {
      * Places a sell order for crypto
      */
     async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {
+        return this.distributedLockService.withLock(
+            `trade:sell:${user.id}`,
+            async () => {
         const responseData = await this.calculateSellQuote(user, dto, true);
 
         // IDEMPOTENCY CHECK (TASK-008)
@@ -321,6 +326,7 @@ export class SellOrderService {
                     destinationBankCode: dto.bankDetail.bankCode,
                     amountInFiat: amtFiat?.amount,
                     rateAtConversion: amtFiat?.rate,
+                    sender: `${user.lastName} ${user.firstName}`,
                     ledgerEntryId: settleResult.userEntry?.id, // Link to ledger entry (from settled hold)
                 },
             });
@@ -359,6 +365,7 @@ export class SellOrderService {
                 userId: user.id,
                 title: "Sell order initiated",
                 body: message,
+                category: "transaction",
                 currency: order.currency,
                 transactionType: OrderCategory.SELL,
                 enablePush: true,
@@ -377,9 +384,14 @@ export class SellOrderService {
 
                 this.logger.log(`[Omnibus] Sell Order ${order.id} payout initiated successfully`);
 
+                // Re-fetch order from DB to return the latest status after payout processing
+                const freshOrder = await this.prisma.order.findUnique({
+                    where: { id: order.id },
+                });
+
                 return buildResponse({
                     message: "Order placed successfully, Payment is processing",
-                    data: order,
+                    data: freshOrder ?? order,
                 });
             } catch (payoutError) {
                 // Payout initiation failed - release hold and fail the order
@@ -458,6 +470,7 @@ export class SellOrderService {
                     userId: user.id,
                     title: "Sell order failed",
                     body: `❌ Your sell order of ${order.amount} ${order.currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
+                    category: "transaction",
                     currency: order.currency,
                     transactionType: OrderCategory.SELL,
                     enableEmail: true,
@@ -490,6 +503,9 @@ export class SellOrderService {
             }
             throw error;
         }
+            },
+            { ttlMs: 30000, maxWaitMs: 5000, strict: true },
+        );
     }
 
     /**

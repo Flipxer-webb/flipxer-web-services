@@ -131,6 +131,7 @@ export interface SwapTransactionHandlerOptions {
 export interface WithdrawerTransactionHandlerOptions {
     orderReference: string;
     status: OrderStatus;
+    txid?: string;
 }
 
 export interface DepositTransaction {

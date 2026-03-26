@@ -9,11 +9,14 @@ import { UserSigInDto } from "../dtos";
 
 
 export interface DataStoredInToken {
-    sub: string;
+    sub: number;
+    sessionId?: string;
+    platform?: string;
 }
 
 export interface RequestWithUser extends Request {
     user: User;
+    sessionId?: string;
 }
 
 export enum LoginPlatform {

@@ -20,8 +20,11 @@ process.on("uncaughtException", (error) => {
 process.on("unhandledRejection", (reason, promise) => {
     console.error("\n=== UNHANDLED REJECTION ===");
     console.error("Reason:", reason);
+    console.error("Promise:", promise);
     console.error("============================\n");
-    process.exit(1);
+    // An unhandled rejection in one request so process.exit(1) should be avoided here,
+    // as it would take down the entire server for all users. Log and continue.
+    // The uncaughtException handler above handles truly unrecoverable errors.
 });
 
 console.log("=== Flipxer Backend Starting ===");

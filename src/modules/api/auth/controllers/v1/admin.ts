@@ -20,6 +20,8 @@ import { ClientData, ClientDataInterface } from "@/modules/api/user";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { CountryBlockGuard, AuthGuard, EnabledAccountGuard } from "../../guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { RateLimiterGuard, RateLimit } from "@/modules/core/rate-limit";
 
 @UseGuards(CountryBlockGuard)
 @ApiTags("admin")
@@ -35,6 +37,8 @@ export class AdminAuthController {
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "admin login" })
+    @UseGuards(RateLimiterGuard)
+    @RateLimit({ limit: 10, windowSeconds: 600, errorMessage: "Too many login attempts. Please try again later." })
     @Post("login")
     async signIn(
         @Body(ValidationPipe) signInDto: SignInDto,
@@ -46,7 +50,8 @@ export class AdminAuthController {
         );
     }
 
-    @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+    @UseGuards(AuthGuard, EnabledAccountGuard, RoleGuard)
+    @UserTypes(ADMIN_USER_TYPES)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ 
         summary: "Reset 2FA rate limit for a user",
@@ -59,7 +64,8 @@ export class AdminAuthController {
         return await this.authService.reset2FARateLimit(dto);
     }
 
-    @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+    @UseGuards(AuthGuard, EnabledAccountGuard, RoleGuard)
+    @UserTypes(ADMIN_USER_TYPES)
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ 
         summary: "Update tiers for all users",
@@ -70,23 +76,6 @@ export class AdminAuthController {
         const result = await this.tierService.updateAllUserTiers();
         return buildResponse({
             message: `Updated ${result.updated} user tiers. ${result.unchanged} unchanged, ${result.errors} errors.`,
-            data: result,
-        });
-    }
-
-    @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-    @HttpCode(HttpStatus.OK)
-    @ApiOperation({ 
-        summary: "Reset user verification for testing",
-        description: "Admin endpoint to reset a user's verification status and tier to 0 for testing purposes"
-    })
-    @Post("reset-user-for-testing")
-    async resetUserForTesting(
-        @Body(ValidationPipe) dto: { email: string }
-    ): Promise<ApiResponse> {
-        const result = await this.tierService.resetUserForTesting(dto.email);
-        return buildResponse({
-            message: `User ${dto.email} reset to Tier 0`,
             data: result,
         });
     }

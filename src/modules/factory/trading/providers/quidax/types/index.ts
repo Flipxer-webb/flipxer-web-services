@@ -43,6 +43,7 @@ export interface CreatePaymentAddressOptions {
 export interface VerifyAddressOptions {
     currency: string;
     address: string;
+    network?: string;
 }
 
 export interface CreateWithdrawerRequestOptions {

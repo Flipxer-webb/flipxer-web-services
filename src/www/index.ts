@@ -1,5 +1,6 @@
 import helmet from "helmet";
 import compression from "compression";
+import { randomBytes } from "crypto";
 import { INestApplication, Logger, VersioningType } from "@nestjs/common";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "@/modules";
@@ -13,6 +14,12 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Request, Response } from "express";
 import { waitForRedis } from "@/utils";
+
+// Prevent "Do not know how to serialize a BigInt" crashes in JSON responses
+// (Prisma BigInt fields like LedgerEntry.sequenceNumber)
+(BigInt.prototype as any).toJSON = function () {
+    return this.toString();
+};
 
 export interface CreateServerOptions {
     port: number;
@@ -39,7 +46,7 @@ export default async (
 
     const corsOptions: CorsOptions = {
         origin: whitelist,
-        allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type"],
+        allowedHeaders: ["Authorization", "X-Requested-With", "Content-Type", "x-security-token", "x-2fa-code"],
         methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         credentials: true,
     };
@@ -79,6 +86,12 @@ export default async (
         return res.sendStatus(403);
     });
 
+    // SECURITY: Generate per-request nonce for CSP
+    expressApp.use((req: Request, res: Response, next: Function) => {
+        res.locals.cspNonce = randomBytes(16).toString("base64");
+        next();
+    });
+
     // SECURITY: Configure helmet with comprehensive security headers
     app.use(helmet({
         contentSecurityPolicy: {
@@ -86,7 +99,7 @@ export default async (
                 defaultSrc: ["'self'"],
                 scriptSrc: [
                     "'self'",
-                    "'unsafe-inline'", // Required for some inline scripts
+                    (req: Request, res: Response) => `'nonce-${res.locals.cspNonce}'`,
                     "https://widget.intercom.io",
                     "https://js.intercomcdn.com",
                 ],
@@ -203,7 +216,9 @@ export default async (
         )
         .build();
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup("api", app, document);
+    if (!isProdEnvironment && process.env.NODE_ENV !== "production") {
+        SwaggerModule.setup("api", app, document);
+    }
 
     app.useGlobalPipes(classValidatorPipeInstance());
     const httpAdapterHost = app.get(HttpAdapterHost);

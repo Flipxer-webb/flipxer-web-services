@@ -452,6 +452,7 @@ export class QuidaxLib {
             const requestOptions: AxiosRequestConfig = {
                 url: `/${options.currency}/${options.address}/validate_address`,
                 method: "GET",
+                params: options.network ? { network: options.network } : undefined,
             };
             const resp = await this.mainAxios<
                 t.QuidaxResponse<t.VerifyAddressResponse>

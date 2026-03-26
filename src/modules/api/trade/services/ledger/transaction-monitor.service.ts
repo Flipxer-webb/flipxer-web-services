@@ -48,6 +48,10 @@ export interface ValidateOptions {
  * - Non-blocking for small transactions (preserve UX)
  * - Configurable via SystemSetting
  * - Alerts only, doesn't auto-block (except for critical discrepancies)
+ *
+ * Known limitations:
+ * - TM-002: recentBlockedCount in getStats() returns a placeholder 0 because
+ *   no audit trail exists for blocked transactions yet. Phase 3 work.
  */
 @Injectable()
 export class TransactionMonitorService {
@@ -107,8 +111,15 @@ export class TransactionMonitorService {
     }
 
     /**
-     * Convert amount to USDT equivalent for threshold comparison
-     * Uses sell rates from crypto rates table
+     * Convert amount to USDT equivalent for threshold comparison.
+     * Uses sell rates from crypto rates table.
+     *
+     * FIX: TM-001 replaced float zero-check `usdtRate.sellRate === 0` with
+     * Decimal-safe `new Decimal(usdtRate.sellRate).isZero()`. The original float
+     * strict equality could silently pass a near-zero rate (e.g. 0.000001), producing
+     * a massively inflated USDT equivalent and bypassing the threshold check entirely.
+     * Also sellRate values is wrapped in new Decimal() before arithmetic to prevent
+     * float precision loss when multiplying/dividing large crypto amounts.
      */
     async getUsdtEquivalent(currency: string, amount: Decimal): Promise<Decimal> {
         const upperCurrency = currency.toUpperCase();
@@ -135,13 +146,17 @@ export class TransactionMonitorService {
                 where: { currency: "USDT" },
             });
 
-            if (!usdtRate || usdtRate.sellRate === 0) {
+            // FIX: TM-001 Decimal-safe zero check instead of float strict equality.
+            // `sellRate === 0` fails to catch near-zero floats; isZero() is exact.
+            if (!usdtRate || new Decimal(usdtRate.sellRate).isZero()) {
                 this.logger.warn("No USDT rate found for conversion");
                 return new Decimal(this.DEFAULT_THRESHOLD_USDT + 1);
             }
 
-            const ngnValue = amount.mul(rate.sellRate);
-            return ngnValue.div(usdtRate.sellRate);
+            // FIX: TM-001 wrap sellRate in new Decimal() before arithmetic to
+            // preserve precision when multiplying/dividing large crypto amounts.
+            const ngnValue = amount.mul(new Decimal(rate.sellRate));
+            return ngnValue.div(new Decimal(usdtRate.sellRate));
         } catch (error) {
             this.logger.error(`Error converting to USDT: ${error.message}`);
             // Be conservative - treat as high value if conversion fails
@@ -378,6 +393,10 @@ export class TransactionMonitorService {
 
     /**
      * Get monitoring statistics
+     *
+     * NOTE: TM-002 recentBlockedCount is a placeholder returning 0.
+     * A proper implementation requires an audit trail for blocked transactions
+     * (Phase 3 work). Tracked separately.
      */
     async getStats(): Promise<{
         enabled: boolean;
@@ -392,7 +411,7 @@ export class TransactionMonitorService {
         return {
             enabled,
             thresholdUsdt: threshold,
-            recentBlockedCount: 0,
+            recentBlockedCount: 0, // NOTE: TM-002 placeholder, see method JSDoc
         };
     }
 }

@@ -3,3 +3,7 @@ export * from "./withdrawal-queue.service";
 export * from "./float-config.service";
 export * from "./reconciliation.service";
 export * from "./sweep.service";
+export * from "./deposit-review.service";
+export * from "./orphaned-hold.service";
+export * from "./solvency.service";
+export * from "./transaction-monitor.service";

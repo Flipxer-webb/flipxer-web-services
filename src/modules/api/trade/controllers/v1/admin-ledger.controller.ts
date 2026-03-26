@@ -15,9 +15,11 @@ import {
     AuthGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, Permissions, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType, User as UserEntity } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user/decorators";
 import { ReconciliationService } from "../../services/ledger/reconciliation.service";
 import { WithdrawalQueueService } from "../../services/ledger/withdrawal-queue.service";
@@ -46,8 +48,8 @@ import { buildResponse } from "@/utils/api-response-util";
  * - Solvency: Monitor platform reserves vs liabilities
  * - User Balance: Query user ledger balances
  */
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
-@UserTypes([UserType.ADMIN])
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
+@UserTypes(ADMIN_USER_TYPES)
 @ApiTags("admin-ledger")
 @ApiBearerAuth("access-token")
 @Controller({
@@ -168,9 +170,9 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Get withdrawal queue statistics" })
     @Get("withdrawal-queue/stats")
-    async getWithdrawalQueueStats() {
+    async getWithdrawalQueueStats(@Query("currency") currency?: string) {
         this.logger.log("Admin fetching withdrawal queue stats");
-        const stats = await this.withdrawalQueueService.getAdminQueueStats();
+        const stats = await this.withdrawalQueueService.getAdminQueueStats(currency);
         return buildResponse({
             message: "Queue statistics retrieved",
             data: stats,
@@ -196,7 +198,7 @@ export class AdminLedgerController {
     // USER BALANCE ENDPOINTS
     // =========================================================================
 
-    @ApiOperation({ summary: "Get user ledger balance" })
+    @ApiOperation({ summary: "Get user ledger balance for a specific currency" })
     @Get("balance/:userId/:currency")
     async getUserBalance(
         @Param("userId", ParseIntPipe) userId: number,
@@ -211,6 +213,26 @@ export class AdminLedgerController {
                 currency: currency.toUpperCase(),
                 ...balance,
             },
+        });
+    }
+
+    @ApiOperation({ summary: "Get user ledger balances for all currencies" })
+    @Get("balance/:userId")
+    async getUserBalances(
+        @Param("userId", ParseIntPipe) userId: number
+    ) {
+        this.logger.log(`Admin fetching all balances for user ${userId}`);
+        const balancesMap = await this.ledgerService.getAllBalances(userId);
+        const balances = Array.from(balancesMap.entries()).map(([currency, info]) => ({
+            userId,
+            currency,
+            available: info.available.toNumber(),
+            held: info.held.toNumber(),
+            total: info.total.toNumber(),
+        }));
+        return buildResponse({
+            message: "User balances retrieved",
+            data: balances,
         });
     }
 
@@ -279,6 +301,35 @@ export class AdminLedgerController {
         return buildResponse({
             message: "Sweep statistics retrieved",
             data: stats,
+        });
+    }
+
+    @ApiOperation({ summary: "Resolve a stuck/failed sweep as NOT_APPLICABLE" })
+    @Post("sweeps/:id/resolve")
+    async resolveSweep(
+        @Param("id") id: string,
+        @User() admin: UserEntity,
+        @Body("reason") reason?: string,
+    ) {
+        this.logger.log(`Admin ${admin.id} resolving sweep ${id}`);
+        await this.sweepService.markNotApplicable(
+            id,
+            reason || `manually resolved by admin ${admin.id}`
+        );
+        return buildResponse({
+            message: "Sweep resolved as NOT_APPLICABLE",
+            data: { ledgerEntryId: id },
+        });
+    }
+
+    @ApiOperation({ summary: "Retry failed sweeps now" })
+    @Post("sweeps/retry")
+    async retryFailedSweeps() {
+        this.logger.log("Admin triggering failed sweep retry");
+        const retriedCount = await this.sweepService.retryFailedSweeps();
+        return buildResponse({
+            message: "Failed sweep retry completed",
+            data: { retriedCount },
         });
     }
 
@@ -378,6 +429,7 @@ export class AdminLedgerController {
     // =========================================================================
 
     @ApiOperation({ summary: "Get audit trail for a ledger entry" })
+    @Permissions([PermissionName.SYSTEM_AUDIT_LOGS])
     @Get("audit/:entryId")
     async getAuditTrail(@Param("entryId") entryId: string) {
         this.logger.log(`Admin fetching audit trail for entry ${entryId}`);
@@ -393,30 +445,42 @@ export class AdminLedgerController {
     }
 
     @ApiOperation({ summary: "Get recent audit logs" })
-    @ApiQuery({ name: "limit", required: false, description: "Max entries to return (default: 100)" })
+    @Permissions([PermissionName.SYSTEM_AUDIT_LOGS])
+    @ApiQuery({ name: "pageNumber", required: false, description: "Page number (default: 1)" })
+    @ApiQuery({ name: "pageSize", required: false, description: "Page size (default: 20)" })
     @ApiQuery({ name: "action", required: false, description: "Filter by action type" })
+    @ApiQuery({ name: "search", required: false, description: "Search actor or reason" })
+    @ApiQuery({ name: "startDate", required: false, description: "Start date (ISO)" })
+    @ApiQuery({ name: "endDate", required: false, description: "End date (ISO)" })
     @Get("audit-logs")
     async getRecentAuditLogs(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
-        @Query("pageSize", new DefaultValuePipe(100), ParseIntPipe) pageSize: number,
-        @Query("action") action?: string
+        @Query("pageSize", new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+        @Query("action") action?: string,
+        @Query("search") search?: string,
+        @Query("startDate") startDate?: string,
+        @Query("endDate") endDate?: string,
     ) {
         this.logger.log(`Admin fetching recent audit logs (page ${pageNumber})`);
-        const logs = await this.ledgerService.getRecentAuditLogs(
+        const { logs, total } = await this.ledgerService.getRecentAuditLogs(
             pageNumber,
             pageSize,
-            action as any // Will be validated by Prisma
+            action as any,
+            search,
+            startDate,
+            endDate,
         );
         return buildResponse({
             message: "Audit logs retrieved",
             data: {
                 logs,
-                count: logs.length,
+                count: total,
             },
         });
     }
 
     @ApiOperation({ summary: "Trigger backfill of audit logs for existing entries" })
+    @Permissions([PermissionName.SYSTEM_AUDIT_LOGS])
     @Post("audit/backfill")
     async backfillAuditLogs(@Body() body: { limit?: number }) {
         this.logger.log(`Admin triggering audit log backfill (limit: ${body.limit || 1000})`);
@@ -547,9 +611,12 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Get deposit review queue statistics" })
     @Get("deposit-review-stats")
-    async getDepositReviewStats() {
+    async getDepositReviewStats(
+        @Query("status") status?: string,
+        @Query("currency") currency?: string,
+    ) {
         this.logger.log("Admin fetching deposit review stats");
-        const stats = await this.depositReviewService.getStats();
+        const stats = await this.depositReviewService.getStats(status, currency);
         return buildResponse({
             message: "Deposit review statistics retrieved",
             data: stats,

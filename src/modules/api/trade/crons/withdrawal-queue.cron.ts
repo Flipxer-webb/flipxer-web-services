@@ -6,6 +6,7 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { WithdrawalQueueService } from "../services/ledger/withdrawal-queue.service";
 import { LedgerService } from "../services/ledger/ledger.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { WsGateway } from "../gateway/v1";
 import { Decimal } from "@prisma/client/runtime/library";
 import { OrderCategory } from "@prisma/client";
@@ -32,14 +33,47 @@ export class WithdrawalQueueCron {
         private readonly withdrawalQueueService: WithdrawalQueueService,
         private readonly ledgerService: LedgerService,
         private readonly slackWebhookService: SlackWebhookService,
+        private readonly lockService: DistributedLockService,
         private readonly wsGateway: WsGateway
     ) { }
 
     /**
      * Main cron job - runs every 5 minutes
+     *
+     * FIX: WQ-001 — Protected by a distributed Redis job lock so only one
+     * pod processes the queue per cron cycle. Mirrors the pattern used by
+     * SweepService.processPendingSweeps(). Without this lock, multiple pods
+     * could call getNextForProcessing() concurrently and execute the same
+     * Quidax withdrawal twice (double-withdrawal risk).
      */
     @Cron(CronExpression.EVERY_5_MINUTES)
     async processQueue(): Promise<void> {
+        const jobLockKey = "job:withdrawal-queue:process";
+
+        try {
+            await this.lockService.withLock(
+                jobLockKey,
+                async () => this._processQueueInner(),
+                // ttlMs: 240s covers worst-case processing of multiple currencies.
+                // maxWaitMs: 0 means skip if another pod holds the lock.
+                // strict: false — if Redis is down, we still want to attempt processing
+                // (individual ledger ops have their own strict locks).
+                { ttlMs: 240000, maxWaitMs: 0, strict: false }
+            );
+        } catch (error) {
+            if (error.message?.includes("Failed to acquire lock")) {
+                this.logger.debug("Queue processing already running on another pod — skipping");
+                return;
+            }
+            this.logger.error(`Queue processing failed: ${error.message}`, error.stack);
+            await this.sendProcessingErrorAlert(error);
+        }
+    }
+
+    /**
+     * Inner implementation of processQueue, called within the job lock.
+     */
+    private async _processQueueInner(): Promise<void> {
         this.logger.log("Starting withdrawal queue processing...");
 
         try {
@@ -50,46 +84,42 @@ export class WithdrawalQueueCron {
                 return;
             }
 
-            // 1. Process timed-out entries first
+            // 1. Get queue stats for monitoring
+            const stats = await this.withdrawalQueueService.getQueueStats();
+
+            // 2. Process currency queues FIRST — timed-out entries with available
+            // liquidity get fulfilled normally before the timeout refund runs
+            if (stats.totalQueued > 0) {
+                this.logger.log(`Queue stats: ${JSON.stringify(stats)}`);
+
+                const pendingCurrencies = await this.prisma.withdrawalQueue.groupBy({
+                    by: ['currency'],
+                    where: {
+                        processedAt: null,
+                        releasedAt: null,
+                    },
+                });
+
+                let totalProcessed = 0;
+                for (const { currency } of pendingCurrencies) {
+                    const processed = await this.processCurrencyQueue(currency);
+                    totalProcessed += processed;
+                }
+
+                if (totalProcessed > 0) {
+                    this.logger.log(`Processed ${totalProcessed} queued withdrawals`);
+                }
+
+                await this.checkQueueHealth(stats);
+            }
+
+            // 3. Process timed-out entries AFTER queue processing —
+            // only entries that couldn't be fulfilled get refunded
             const timeoutCount = await this.withdrawalQueueService.processTimeouts();
             if (timeoutCount > 0) {
                 this.logger.log(`Processed ${timeoutCount} timed-out queue entries`);
                 await this.sendTimeoutAlert(timeoutCount);
             }
-
-            // 2. Get queue stats for monitoring
-            const stats = await this.withdrawalQueueService.getQueueStats();
-
-            if (stats.totalQueued === 0) {
-                this.logger.log("No queued withdrawals to process");
-                return;
-            }
-
-            this.logger.log(`Queue stats: ${JSON.stringify(stats)}`);
-
-            // 3. Get currencies that have pending withdrawals (dynamic)
-            // Pending = not yet processed and not released
-            const pendingCurrencies = await this.prisma.withdrawalQueue.groupBy({
-                by: ['currency'],
-                where: {
-                    processedAt: null,
-                    releasedAt: null,
-                },
-            });
-
-            // 4. Process each currency with pending entries
-            let totalProcessed = 0;
-            for (const { currency } of pendingCurrencies) {
-                const processed = await this.processCurrencyQueue(currency);
-                totalProcessed += processed;
-            }
-
-            if (totalProcessed > 0) {
-                this.logger.log(`Processed ${totalProcessed} queued withdrawals`);
-            }
-
-            // 4. Check if queue is getting too large
-            await this.checkQueueHealth(stats);
 
         } catch (error) {
             this.logger.error(`Queue processing failed: ${error.message}`, error.stack);
@@ -252,8 +282,49 @@ export class WithdrawalQueueCron {
             });
 
             if (!settleResult.success) {
-                this.logger.error(`Failed to settle hold: ${settleResult.error}`);
-                // Withdrawal succeeded, so we continue
+                // FIX: WQ-004 — Withdrawal succeeded on Quidax but the ledger
+                // hold was NOT settled. This is a critical inconsistency:
+                // funds have left the main wallet but the user's ledger still
+                // shows a hold. Alert admins immediately so they can manually
+                // settle or reconcile.
+                this.logger.error(
+                    `CRITICAL: Withdrawal executed but hold settlement failed | ${JSON.stringify({
+                        queueId: queueEntry.id,
+                        userId: queueEntry.userId,
+                        currency: queueEntry.currency,
+                        amount: queueEntry.amount.toString(),
+                        quidaxId: withdrawalRes.data.id,
+                        holdReference: holdEntry.reference,
+                        settleError: settleResult.error,
+                    })}`
+                );
+
+                await this.slackWebhookService.sendSystemAlert(
+                    "withdrawal_queue",
+                    "CRITICAL: Dangling Hold After Withdrawal",
+                    `Withdrawal executed on Quidax (${withdrawalRes.data.id}) but hold settlement failed. ` +
+                    `Ledger is inconsistent — manual intervention required.`,
+                    {
+                        queueId: queueEntry.id,
+                        userId: queueEntry.userId,
+                        currency: queueEntry.currency,
+                        amount: queueEntry.amount.toString(),
+                        quidaxId: withdrawalRes.data.id,
+                        holdReference: holdEntry.reference,
+                        settleError: settleResult.error,
+                    },
+                    "error"
+                );
+
+                this.wsGateway.notifyQueueHealthAlert({
+                    category: "withdrawal_queue",
+                    title: "CRITICAL: Dangling Hold After Withdrawal",
+                    message: `Hold settlement failed after successful withdrawal (Queue: ${queueEntry.id})`,
+                    severity: "error",
+                });
+
+                // Still return true — the withdrawal DID happen, so the queue
+                // entry should be marked as processed to prevent re-execution.
             }
 
             this.logger.log(`Queued withdrawal executed: ${JSON.stringify({
@@ -294,6 +365,12 @@ export class WithdrawalQueueCron {
 
     /**
      * Check queue health and send alerts if needed
+     *
+     * FIX: WQ-005 — Added starvation detection for large withdrawals.
+     * The smallest-first strategy can indefinitely defer withdrawals that
+     * are always larger than the available balance. We alert when an entry
+     * has been queued for >24h without being processed so admins can top up
+     * the main wallet or manually intervene.
      */
     private async checkQueueHealth(stats: any): Promise<void> {
         // Alert if queue is growing too large
@@ -342,6 +419,57 @@ export class WithdrawalQueueCron {
                     severity: "warning",
                 });
             }
+        }
+
+        // FIX: WQ-005 — Starvation detection: find entries that have been
+        // in the queue for >24h. These are likely large withdrawals that are
+        // consistently skipped by the smallest-first strategy because the
+        // main wallet never has enough balance to cover them.
+        const starvationThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+        const starvedEntries = await this.prisma.withdrawalQueue.findMany({
+            where: {
+                processedAt: null,
+                releasedAt: null,
+                queuedAt: { lt: starvationThreshold },
+            },
+            select: {
+                id: true,
+                userId: true,
+                currency: true,
+                amount: true,
+                queuedAt: true,
+            },
+            orderBy: { queuedAt: "asc" },
+            take: 10,
+        });
+
+        if (starvedEntries.length > 0) {
+            const entries = starvedEntries.map((e) => ({
+                queueId: e.id,
+                userId: e.userId,
+                currency: e.currency,
+                amount: e.amount.toString(),
+                hoursInQueue: (
+                    (Date.now() - e.queuedAt.getTime()) /
+                    (1000 * 60 * 60)
+                ).toFixed(1),
+            }));
+
+            await this.slackWebhookService.sendSystemAlert(
+                "withdrawal_queue",
+                "Starvation Warning",
+                `${starvedEntries.length} withdrawal(s) queued >24h — may need wallet top-up or manual processing`,
+                { entries },
+                "warning"
+            );
+
+            this.wsGateway.notifyQueueHealthAlert({
+                category: "withdrawal_queue",
+                title: "Starvation Warning",
+                message: `${starvedEntries.length} withdrawal(s) queued >24h — possible starvation by smallest-first strategy`,
+                severity: "warning",
+            });
         }
     }
 

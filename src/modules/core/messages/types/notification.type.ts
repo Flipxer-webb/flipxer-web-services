@@ -82,3 +82,15 @@ export interface IReceiveTransactionFailed {
     currency: string;
     transactionId: string;
 }
+
+export interface IBuyPaymentShort {
+    receivedAmount: number | string;
+    expectedAmount: number | string;
+    transactionId: string;
+}
+
+export interface ISendWithdrawalRefunded {
+    amount: number | string;
+    currency: string;
+    transactionId: string;
+}

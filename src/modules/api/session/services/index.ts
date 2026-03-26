@@ -11,8 +11,8 @@ import { REFRESH_TOKEN_EXPIRATION } from "@/config";
 import { randomUUID } from "crypto";
 import { isLikelyBotTraffic, getBotTrafficReason, isCloudProviderIP, isSuspiciousCombination } from "../utils/bot-detection";
 
-// Server-side inactivity limit (1 hour) - sessions inactive beyond this are considered invalid
-const SERVER_INACTIVITY_LIMIT_MS = 60 * 60 * 1000;
+// Server-side inactivity limit (30 minutes) - sessions inactive beyond this are considered invalid
+const SERVER_INACTIVITY_LIMIT_MS = 30 * 60 * 1000;
 
 // Minimum time between session extend calls (rate limiting)
 const MIN_TIME_BETWEEN_EXTENDS_MS = 60 * 1000; // 1 minute
@@ -225,6 +225,28 @@ export class SessionService {
     }
 
     /**
+     * Touch session activity at most once per minute to reduce write load.
+     */
+    async touchSessionActivity(sessionId: string): Promise<void> {
+        try {
+            const staleThreshold = new Date(
+                Date.now() - MIN_TIME_BETWEEN_EXTENDS_MS
+            );
+
+            await this.prisma.session.updateMany({
+                where: {
+                    id: sessionId,
+                    isActive: true,
+                    lastActiveAt: { lt: staleThreshold },
+                },
+                data: { lastActiveAt: new Date() },
+            });
+        } catch (error) {
+            this.logger.warn(`Failed to touch session activity: ${sessionId}`);
+        }
+    }
+
+    /**
      * Validate if a session is active, not expired, and not inactive too long
      */
     async validateSession(sessionId: string): Promise<boolean> {
@@ -304,6 +326,30 @@ export class SessionService {
         } catch (error) {
             this.logger.warn(`Failed to invalidate session: ${sessionId}`);
         }
+    }
+
+    /**
+     * Invalidate the current session for authenticated user logout
+     */
+    async invalidateCurrentSession(user: User, sessionId: string): Promise<ApiResponse> {
+        const session = await this.prisma.session.findFirst({
+            where: { id: sessionId, userId: user.id },
+        });
+
+        if (!session) {
+            return buildResponse({
+                message: "Session already invalid or not found",
+            });
+        }
+
+        await this.prisma.session.update({
+            where: { id: sessionId },
+            data: { isActive: false },
+        });
+
+        return buildResponse({
+            message: "Session invalidated successfully",
+        });
     }
 
     /**

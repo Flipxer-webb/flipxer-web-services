@@ -44,7 +44,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
                     multerCode,
                     field: exception?.field,
                 },
-                stack: isProdEnvironment ? undefined : exception?.stack,
             };
 
             if (!isProdEnvironment) {
@@ -95,22 +94,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
                 message: "Validation Failed",
                 code: ErrorCode.VALIDATION_ERROR,
                 errors: exceptionResponse,
-                stack: isProdEnvironment ? undefined : exception.stack,
             };
             return httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
         }
 
-        // Build response body
+        // Build response body — SECURITY: never include stack traces
         const responseBody: Record<string, unknown> = {
             success: false,
             message: httpStatus === 500 ? "Something went wrong" : errorMessage,
             code: errorCode || this.inferErrorCodeFromStatus(httpStatus),
-            stack: isProdEnvironment ? undefined : exception.stack,
         };
 
-        // Log 500 errors for debugging
-        if (httpStatus >= 500 && !isProdEnvironment) {
+        // Log server errors for debugging (server-side only, never in response)
+        if (httpStatus >= 500) {
             console.error("[AllExceptionsFilter] Server Error:", exception);
+        } else if (!isProdEnvironment && httpStatus >= 400) {
+            console.error(`[AllExceptionsFilter] ${httpStatus}:`, exception?.message);
         }
 
         httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);

@@ -4,11 +4,11 @@ import { UserType } from "@prisma/client";
 
 import { AuthGuard } from "../../auth/guard";
 import { RoleGuard } from "../guards/role.guard";
-import { UserTypes } from "../decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "../decorator";
 
 @Injectable()
 @UseGuards(AuthGuard, RoleGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 export default class AuthorizationService {
     constructor(private readonly prismaService: PrismaService) {}
 }

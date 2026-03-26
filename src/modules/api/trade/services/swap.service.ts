@@ -31,6 +31,7 @@ import { SlackWebhookService } from "@/modules/api/operations/services/slack-web
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { getStreamlinedStatus } from "../interfaces/trade";
 import { FailedRollbackQueueService } from "./failed-rollback-queue.service";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 
 /**
  * Swap Service
@@ -58,7 +59,8 @@ export class SwapService {
         private readonly walletManagementService: WalletManagementService,
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
-        private readonly failedRollbackQueueService: FailedRollbackQueueService
+        private readonly failedRollbackQueueService: FailedRollbackQueueService,
+        private readonly distributedLockService: DistributedLockService
     ) { }
 
     /**
@@ -213,6 +215,9 @@ export class SwapService {
      * Confirms and executes a swap quote using the "Order-First" Atomic Pattern.
      */
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
+        return this.distributedLockService.withLock(
+            `trade:swap:${user.id}`,
+            async () => {
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
                 "Please complete your account setup or contact admin for support",
@@ -277,6 +282,7 @@ export class SwapService {
                 recipient: "Internal Swap",
                 narration: `Swap ${quote.from_currency} -> ${quote.to_currency}`,
                 transaction_note: `Swapping ${quote.from_amount} ${quote.from_currency} to ${quote.to_amount.toFixed(8)} ${quote.to_currency}`,
+                fee: 0, // No explicit fee for swaps (built into rate)
                 quotationId: dto.quotationId, // Track the quote ID
             }
         });
@@ -342,6 +348,7 @@ export class SwapService {
                 userId: user.id,
                 title: "Swap Successful",
                 body: `Swapped ${quote.from_amount} ${quote.from_currency} for ${quote.to_amount.toFixed(6)} ${quote.to_currency}`,
+                category: "transaction",
                 currency: quote.to_currency,
                 transactionType: OrderCategory.SWAP,
                 enableEmail: true,
@@ -442,6 +449,7 @@ export class SwapService {
                 userId: user.id,
                 title: "Swap failed",
                 body: `\u274C Your swap of ${quote.from_amount} ${quote.from_currency.toUpperCase()} to ${quote.to_currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
+                category: "transaction",
                 currency: quote.from_currency,
                 transactionType: OrderCategory.SWAP,
                 enableEmail: true,
@@ -465,6 +473,9 @@ export class SwapService {
                 HttpStatus.INTERNAL_SERVER_ERROR
             );
         }
+            },
+            { ttlMs: 30000, maxWaitMs: 5000, strict: true },
+        );
     }
 
     private emitTransactionUpdate(userId: number, order: any) {
@@ -590,6 +601,7 @@ export class SwapService {
                 userId: user.id,
                 title: "Swap Successful",
                 body: `Swapped ${order.amount} ${order.currency} for ${toAmount.toFixed(6)} ${toCurrency}`,
+                category: "transaction",
                 currency: toCurrency,
                 transactionType: OrderCategory.SWAP,
                 enableEmail: true,

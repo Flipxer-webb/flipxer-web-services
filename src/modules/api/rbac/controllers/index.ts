@@ -7,12 +7,14 @@ import {
     Body,
     Param,
     Query,
+    Req,
     ParseIntPipe,
     UseGuards,
 } from "@nestjs/common";
+import { Request } from "express";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
-import { UserTypes } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
@@ -31,7 +33,7 @@ import {
 } from "../dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiTags("admin/rbac")
 @Controller({ path: "admin/rbac" })
 export class RbacController {
@@ -59,8 +61,8 @@ export class RbacController {
     @ApiBearerAuth("access-token")
     @Permissions([PermissionName.ROLES_CREATE])
     @Post("roles")
-    async createRole(@Body() dto: CreateRoleDto) {
-        return await this.rbacService.createRole(dto);
+    async createRole(@Body() dto: CreateRoleDto, @Req() req: Request) {
+        return await this.rbacService.createRole(dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Update a role" })
@@ -69,17 +71,18 @@ export class RbacController {
     @Put("roles/:roleId")
     async updateRole(
         @Param("roleId", ParseIntPipe) roleId: number,
-        @Body() dto: UpdateRoleDto
+        @Body() dto: UpdateRoleDto,
+        @Req() req: Request,
     ) {
-        return await this.rbacService.updateRole(roleId, dto);
+        return await this.rbacService.updateRole(roleId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Delete a role" })
     @ApiBearerAuth("access-token")
     @Permissions([PermissionName.ROLES_DELETE])
     @Delete("roles/:roleId")
-    async deleteRole(@Param("roleId", ParseIntPipe) roleId: number) {
-        return await this.rbacService.deleteRole(roleId);
+    async deleteRole(@Param("roleId", ParseIntPipe) roleId: number, @Req() req: Request) {
+        return await this.rbacService.deleteRole(roleId, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Assign permissions to a role" })
@@ -88,9 +91,10 @@ export class RbacController {
     @Post("roles/:roleId/permissions")
     async assignPermissions(
         @Param("roleId", ParseIntPipe) roleId: number,
-        @Body() dto: AssignPermissionsDto
+        @Body() dto: AssignPermissionsDto,
+        @Req() req: Request,
     ) {
-        return await this.rbacService.assignPermissionsToRole(roleId, dto);
+        return await this.rbacService.assignPermissionsToRole(roleId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     // ==================== PERMISSIONS ====================
@@ -125,8 +129,8 @@ export class RbacController {
     @ApiBearerAuth("access-token")
     @Permissions([PermissionName.ROLES_CREATE])
     @Post("admins")
-    async createAdminUser(@Body() dto: CreateAdminUserDto) {
-        return await this.rbacService.createAdminUser(dto);
+    async createAdminUser(@Body() dto: CreateAdminUserDto, @Req() req: Request) {
+        return await this.rbacService.createAdminUser(dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Update an admin user" })
@@ -135,17 +139,18 @@ export class RbacController {
     @Put("admins/:adminId")
     async updateAdminUser(
         @Param("adminId", ParseIntPipe) adminId: number,
-        @Body() dto: UpdateAdminUserDto
+        @Body() dto: UpdateAdminUserDto,
+        @Req() req: Request,
     ) {
-        return await this.rbacService.updateAdminUser(adminId, dto);
+        return await this.rbacService.updateAdminUser(adminId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Delete an admin user" })
     @ApiBearerAuth("access-token")
     @Permissions([PermissionName.ROLES_DELETE])
     @Delete("admins/:adminId")
-    async deleteAdminUser(@Param("adminId", ParseIntPipe) adminId: number) {
-        return await this.rbacService.deleteAdminUser(adminId);
+    async deleteAdminUser(@Param("adminId", ParseIntPipe) adminId: number, @Req() req: Request) {
+        return await this.rbacService.deleteAdminUser(adminId, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Change admin user password" })
@@ -154,9 +159,10 @@ export class RbacController {
     @Post("admins/:adminId/change-password")
     async changeAdminPassword(
         @Param("adminId", ParseIntPipe) adminId: number,
-        @Body() dto: ChangeAdminPasswordDto
+        @Body() dto: ChangeAdminPasswordDto,
+        @Req() req: Request,
     ) {
-        return await this.rbacService.changeAdminPassword(adminId, dto);
+        return await this.rbacService.changeAdminPassword(adminId, dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     // ==================== AUDIT LOGS ====================

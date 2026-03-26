@@ -8,6 +8,7 @@ import { SmsModule } from "@/modules/core/sms";
 import { EmailModule } from "@/modules/core/email";
 import { jwtSecret } from "@/config";
 import { TradingModule } from "@/modules/api/trade";
+import { SessionModule } from "@/modules/api/session";
 
 @Module({
     imports: [
@@ -18,6 +19,7 @@ import { TradingModule } from "@/modules/api/trade";
             signOptions: { expiresIn: "5m" },
         }),
         forwardRef(() => TradingModule),
+        SessionModule,
     ],
     controllers: [SettingController, AdminSettingController, AdminSwapPairController],
     providers: [SettingService],

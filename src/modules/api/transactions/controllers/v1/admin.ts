@@ -42,12 +42,12 @@ import {
     GetTransactionAuditLogsDto,
     BulkTransactionActionDto,
 } from "../../dtos";
-import { UserTypes, Permissions } from "@/modules/api/authorize/decorator";
+import { UserTypes, Permissions, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
 
 @ApiTags("admin")
 @UseGuards(CountryBlockGuard, AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
-@UserTypes([UserType.ADMIN])
+@UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth("access-token")
 @Controller({
     path: "admin/transactions",
@@ -95,8 +95,14 @@ export class AdminTransactionController {
     @ApiOperation({ summary: "Get transaction statistics" })
     @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("stats")
-    async getTransactionStats(@Query("period") period?: string) {
-        return this.adminTransactionService.getTransactionStats(period);
+    async getTransactionStats(
+        @Query("period") period?: string,
+        @Query("status") status?: string,
+        @Query("type") type?: string,
+        @Query("startDate") startDate?: string,
+        @Query("endDate") endDate?: string,
+    ) {
+        return this.adminTransactionService.getTransactionStats(period, status, type, startDate, endDate);
     }
 
     @HttpCode(HttpStatus.OK)

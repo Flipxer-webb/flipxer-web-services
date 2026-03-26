@@ -93,6 +93,7 @@ export class WithdrawalWebhookHandler {
                 data: {
                     status: OrderStatus.done,
                     streamlinedStatus: OrderStreamlinedStatus.completed,
+                    fulfilled: true,
                 },
             });
             this.emitTransactionUpdate(transaction.user.id, completedOrder);
@@ -202,6 +203,7 @@ export class WithdrawalWebhookHandler {
                 streamlinedStatus: isSellPayoutPending
                     ? OrderStreamlinedStatus.pending
                     : getStreamlinedStatus(options.status),
+                ...(options.txid && { blockchain_txid: options.txid }),
             },
         });
 
@@ -231,6 +233,7 @@ export class WithdrawalWebhookHandler {
                         data: {
                             status: OrderStatus.done,
                             streamlinedStatus: OrderStreamlinedStatus.completed,
+                            fulfilled: true,
                         },
                     });
 
@@ -251,6 +254,7 @@ export class WithdrawalWebhookHandler {
                         userId: transaction.user.id,
                         title: "Sell order completed",
                         body: sellMessage,
+                        category: "transaction",
                         currency: transaction.currency,
                         transactionType: OrderCategory.SELL,
                         enableEmail: true,
@@ -428,6 +432,7 @@ export class WithdrawalWebhookHandler {
             userId: buyOrder.user.id,
             title: "Your purchase is complete",
             body: message,
+            category: "transaction",
             currency: buyOrder.currency,
             transactionType: OrderCategory.BUY,
             enableEmail: true,
@@ -563,6 +568,7 @@ export class WithdrawalWebhookHandler {
             userId: buyOrder.user.id,
             title: "Buy order failed",
             body: message,
+            category: "transaction",
             currency: buyOrder.currency,
             transactionType: OrderCategory.BUY,
             enableEmail: true,
@@ -750,6 +756,7 @@ export class WithdrawalWebhookHandler {
             userId: transaction.user.id,
             title: "Your send transaction is done",
             body: message,
+            category: "transaction",
             currency: transaction.currency,
             transactionType: transaction.orderCategory,
             enableEmail: true,
@@ -778,6 +785,7 @@ export class WithdrawalWebhookHandler {
             userId: transaction.user.id,
             title: "Send transaction failed",
             body: message,
+            category: "transaction",
             currency: transaction.currency,
             transactionType: transaction.orderCategory,
             enableEmail: true,
