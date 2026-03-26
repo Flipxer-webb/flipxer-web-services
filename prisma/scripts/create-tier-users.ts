@@ -30,7 +30,7 @@ interface TestUser {
 const testUsers: TestUser[] = [
     {
         email: "tier0.test@flipxer.com",
-        password: process.env.TEST_TIER0_PASSWORD || "TierZero@2024!",
+        password: process.env.TEST_TIER0_PASSWORD,
         firstName: "Tier0",
         lastName: "TestUser",
         phone: "09088880000",
@@ -45,7 +45,7 @@ const testUsers: TestUser[] = [
     },
     {
         email: "tier1.test@flipxer.com",
-        password: process.env.TEST_TIER1_PASSWORD || "TierOne@2024!",
+        password: process.env.TEST_TIER1_PASSWORD,
         firstName: "Tier1",
         lastName: "TestUser",
         phone: "09088881111",
@@ -61,7 +61,7 @@ const testUsers: TestUser[] = [
     },
     {
         email: "tier2.test@flipxer.com",
-        password: process.env.TEST_TIER2_PASSWORD || "TierTwo@2024!",
+        password: process.env.TEST_TIER2_PASSWORD,
         firstName: "Tier2",
         lastName: "TestUser",
         phone: "09088882222",
@@ -79,6 +79,9 @@ const testUsers: TestUser[] = [
 ];
 
 async function main() {
+    const missingVars = ['TEST_TIER0_PASSWORD', 'TEST_TIER1_PASSWORD', 'TEST_TIER2_PASSWORD'].filter(v => !process.env[v]);
+    if (missingVars.length > 0) { console.error(`ERROR: Missing env vars: ${missingVars.join(', ')}`); process.exit(1); }
+
     console.log("Creating test users with tiers 0, 1, 2...\n");
 
     // Get the individual role

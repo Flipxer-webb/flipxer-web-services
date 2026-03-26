@@ -504,45 +504,7 @@ export class TierVerificationService {
         }
 
         // Prepare user data update based on government data
-        const updateData: Record<string, unknown> = {};
-
-        // Update user's name and DOB from government data if available
-        if (govData?.firstName) {
-            updateData.firstName = govData.firstName;
-        }
-        if (govData?.lastName) {
-            updateData.lastName = govData.lastName;
-        }
-        if (govData?.dateOfBirth) {
-            updateData.dateOfBirth = new Date(govData.dateOfBirth);
-        }
-
-        // Set verification status based on ID type
-        if (idType === "bvn") {
-            if (!govData?.idNumber) {
-                throw new BadRequestException("Verified BVN payload is missing ID number");
-            }
-            updateData.isBvnVerified = true;
-            updateData.isNinVerified = false;
-            updateData.bvn = govData?.idNumber;
-            if (govData?.phoneNumber) {
-                updateData.bvnRegisteredPhone = govData.phoneNumber;
-            }
-        } else if (idType === "nin") {
-            if (!govData?.idNumber) {
-                throw new BadRequestException("Verified NIN payload is missing ID number");
-            }
-            updateData.isNinVerified = true;
-            updateData.isBvnVerified = false;
-            updateData.nin = govData?.idNumber;
-            if (govData?.phoneNumber) {
-                updateData.ninRegisteredPhone = govData.phoneNumber;
-            }
-        } else {
-            // For other government IDs (voters_id, drivers_license, etc.)
-            // Treat as document verification
-            updateData.isDocumentVerified = true;
-        }
+        const updateData = this.buildGovIdUpdateData(govData, idType);
 
         await this.prisma.user.update({
             where: { id: user.id },
@@ -610,6 +572,39 @@ export class TierVerificationService {
         return buildResponse({
             message: "Trading password created successfully",
         });
+    }
+
+    private buildGovIdUpdateData(
+        govData: any,
+        idType: string,
+    ): Record<string, unknown> {
+        const updateData: Record<string, unknown> = {};
+
+        if (govData?.firstName) updateData.firstName = govData.firstName;
+        if (govData?.lastName)  updateData.lastName  = govData.lastName;
+        if (govData?.dateOfBirth) updateData.dateOfBirth = new Date(govData.dateOfBirth);
+
+        if (idType === "bvn") {
+            if (!govData?.idNumber) {
+                throw new BadRequestException("Verified BVN payload is missing ID number");
+            }
+            updateData.isBvnVerified = true;
+            updateData.isNinVerified = false;
+            updateData.bvn = govData.idNumber;
+            if (govData?.phoneNumber) updateData.bvnRegisteredPhone = govData.phoneNumber;
+        } else if (idType === "nin") {
+            if (!govData?.idNumber) {
+                throw new BadRequestException("Verified NIN payload is missing ID number");
+            }
+            updateData.isNinVerified = true;
+            updateData.isBvnVerified = false;
+            updateData.nin = govData.idNumber;
+            if (govData?.phoneNumber) updateData.ninRegisteredPhone = govData.phoneNumber;
+        } else {
+            updateData.isDocumentVerified = true;
+        }
+
+        return updateData;
     }
 
     /**

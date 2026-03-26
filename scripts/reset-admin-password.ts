@@ -13,7 +13,8 @@ import bcrypt from 'bcryptjs';
 
 const SALT_ROUNDS = 10;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@flipxer.com';
-const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD || 'FlipxerAdmin2025!';
+const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD;
+if (!NEW_PASSWORD) { console.error('ERROR: NEW_ADMIN_PASSWORD env var required'); process.exit(1); }
 
 async function main() {
     console.log('🔐 Admin Password Reset Script');

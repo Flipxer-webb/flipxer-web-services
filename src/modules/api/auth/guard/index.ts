@@ -649,17 +649,9 @@ export class TwoFactorGuard implements CanActivate {
         let isVerificationRequired = true;
 
         if (transactionData && hasLegacy2FA) {
-            // Get crypto rate to convert to NGN for tier-based threshold check
-            const rate = await this.getCryptoRateToNGN(transactionData.currency);
-
-            if (rate) {
-                const amountNGN = convertToNGN(transactionData.amount, rate);
-                isVerificationRequired = isTwoFactorRequiredForTransaction(
-                    userData.tier,
-                    amountNGN,
-                    userData.isTwoFactorEnabled
-                );
-            }
+            isVerificationRequired = await this.isTransactionVerificationRequired(
+                transactionData, userData
+            );
         }
 
         // If verification is not required based on tier/amount, allow transaction
@@ -680,56 +672,19 @@ export class TwoFactorGuard implements CanActivate {
 
         // CASE 1: New multi-factor verification token present
         if (verificationToken) {
-            // Support comma-separated tokens for multi-method verification
-            const tokens = verificationToken.split(',');
-            const verifiedMethods = new Set<string>();
-            let allTokensValid = true;
-
-            for (const token of tokens) {
-                if (!token.trim()) continue;
-
-                const method = await this.validateVerificationTokenAndGetMethod(user.id, token.trim());
-                if (method) {
-                    verifiedMethods.add(method);
-                } else {
-                    allTokensValid = false;
-                    break;
-                }
-            }
-
-            if (allTokensValid) {
-                // Check if we have enough unique methods
-                let requiredCount = userData?.requiredMethodCount || 1;
-
-                // SPECIAL CASE: Swap transactions are exempt from multi-method requirements
-                // and should default to single 2FA (Authenticator) due to timing constraints.
-                if (request.url.includes('execute-atomic-swap')) {
-                    this.logger.debug(`User ${user.id}: Swap transaction detected, overriding requiredMethodCount to 1`);
-                    requiredCount = 1;
-                }
-
-                if (verifiedMethods.size >= requiredCount) {
-                    this.logger.debug(`User ${user.id}: Verified ${verifiedMethods.size}/${requiredCount} methods (${Array.from(verifiedMethods).join(', ')}), allowing transaction`);
-                    return true;
-                } else {
-                    this.logger.warn(`User ${user.id}: Insufficient methods verified. Got ${verifiedMethods.size}, required ${requiredCount}`);
-                }
-            } else {
-                this.logger.warn(`User ${user.id}: Invalid verification token(s) provided`);
-            }
+            const isMultiFactorValid = await this.verifyMultiFactorTokens(
+                user.id, verificationToken, userData, request.url
+            );
+            if (isMultiFactorValid) return true;
         }
 
         // CASE 2: Legacy TOTP code present (backward compatibility)
         if (legacyCode && legacyCode.length <= 6 && userData?.twoFactorSecret) {
             const isValidLegacy = await this.validateLegacyTwoFactor(user.id, legacyCode, userData.twoFactorSecret);
-            if (isValidLegacy) {
-                // Legacy flow only supports 1 method (Authenticator)
-                // If user requires > 1 method, this flow is insufficient unless they only have authenticator enabled
-                const requiredCount = userData?.requiredMethodCount || 1;
-                if (requiredCount <= 1) {
-                    this.logger.debug(`User ${user.id}: Valid legacy 2FA code, allowing transaction`);
-                    return true;
-                }
+            const requiredCount = userData?.requiredMethodCount || 1;
+            if (isValidLegacy && requiredCount <= 1) {
+                this.logger.debug(`User ${user.id}: Valid legacy 2FA code, allowing transaction`);
+                return true;
             }
         }
 
@@ -759,6 +714,58 @@ export class TwoFactorGuard implements CanActivate {
         if (request.body?.verificationToken) return request.body.verificationToken;
 
         return null;
+    }
+
+    private async isTransactionVerificationRequired(
+        transactionData: { amount: number; currency: string },
+        userData: { tier: number; isTwoFactorEnabled: boolean },
+    ): Promise<boolean> {
+        const rate = await this.getCryptoRateToNGN(transactionData.currency);
+        if (!rate) return true;
+
+        const amountNGN = convertToNGN(transactionData.amount, rate);
+        return isTwoFactorRequiredForTransaction(
+            userData.tier,
+            amountNGN,
+            userData.isTwoFactorEnabled,
+        );
+    }
+
+    private async verifyMultiFactorTokens(
+        userId: number,
+        verificationToken: string,
+        userData: { requiredMethodCount?: number },
+        requestUrl: string,
+    ): Promise<boolean> {
+        const tokens = verificationToken.split(',');
+        const verifiedMethods = new Set<string>();
+
+        for (const token of tokens) {
+            if (!token.trim()) continue;
+
+            const method = await this.validateVerificationTokenAndGetMethod(userId, token.trim());
+            if (!method) {
+                this.logger.warn(`User ${userId}: Invalid verification token(s) provided`);
+                return false;
+            }
+
+            verifiedMethods.add(method);
+        }
+
+        let requiredCount = userData?.requiredMethodCount || 1;
+
+        if (requestUrl.includes('execute-atomic-swap')) {
+            this.logger.debug(`User ${userId}: Swap transaction detected, overriding requiredMethodCount to 1`);
+            requiredCount = 1;
+        }
+
+        if (verifiedMethods.size >= requiredCount) {
+            this.logger.debug(`User ${userId}: Verified ${verifiedMethods.size}/${requiredCount} methods (${Array.from(verifiedMethods).join(', ')}), allowing transaction`);
+            return true;
+        }
+
+        this.logger.warn(`User ${userId}: Insufficient methods verified. Got ${verifiedMethods.size}, required ${requiredCount}`);
+        return false;
     }
 
     /**

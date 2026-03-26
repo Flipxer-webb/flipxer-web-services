@@ -113,21 +113,7 @@ export class PriceCacheSchedulerService implements OnModuleInit {
                 this.logger.debug("✅ [LCW] Batch USDT price fetch successful");
             } catch (batchError) {
                 this.logger.warn(`⚠️ [LCW] Batch fetch failed, falling back to individual calls: ${batchError.message}`);
-
-                // Fallback: fetch individually (slower but more resilient)
-                for (const coin of this.coins) {
-                    if (coin.toLowerCase() === "usdt") {
-                        usdtPrices["usdt"] = 1.0;
-                        continue;
-                    }
-                    try {
-                        const price = await this.liveCoinWatchService.getPriceInUSDT(coin);
-                        usdtPrices[coin.toLowerCase()] = price;
-                    } catch (err) {
-                        this.logger.warn(`Failed to get USDT price for ${coin}: ${err.message}`);
-                        usdtPrices[coin.toLowerCase()] = null;
-                    }
-                }
+                usdtPrices = await this.fetchIndividualUsdtPrices();
             }
 
             this.logger.debug(`✅ [LiveCoinWatch] Fetched ${Object.keys(usdtPrices).length} USDT prices`);
@@ -166,6 +152,25 @@ export class PriceCacheSchedulerService implements OnModuleInit {
             release();
             this.logger.debug("USDT prices lock released");
         }
+    }
+
+    private async fetchIndividualUsdtPrices(): Promise<Record<string, number | null>> {
+        const prices: Record<string, number | null> = {};
+
+        for (const coin of this.coins) {
+            if (coin.toLowerCase() === "usdt") {
+                prices["usdt"] = 1.0;
+                continue;
+            }
+            try {
+                prices[coin.toLowerCase()] = await this.liveCoinWatchService.getPriceInUSDT(coin);
+            } catch (err) {
+                this.logger.warn(`Failed to get USDT price for ${coin}: ${err.message}`);
+                prices[coin.toLowerCase()] = null;
+            }
+        }
+
+        return prices;
     }
 }
 

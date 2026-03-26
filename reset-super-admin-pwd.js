@@ -2,7 +2,8 @@ require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
-const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD || 'FlipxerAdmin2025!';
+const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD;
+if (!NEW_PASSWORD) { console.error('ERROR: NEW_ADMIN_PASSWORD env var required'); process.exit(1); }
 
 async function main() {
     const prisma = new PrismaClient();

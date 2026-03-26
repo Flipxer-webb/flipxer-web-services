@@ -10,10 +10,12 @@
  *   QUIDAX_API_SECRET=your_secret node trigger-quidax-withdrawal.js
  */
 
+require('dotenv').config();
 const https = require('https');
 const { Client } = require('pg');
 
-const DATABASE_URL = 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d575e4mr433s73egl6p0-a.oregon-postgres.render.com/resolve_db_4a8l_b6ra';
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) { console.error('ERROR: DATABASE_URL not set'); process.exit(1); }
 const QUIDAX_API_SECRET = process.env.QUIDAX_API_SECRET;
 const ORDER_ID = 12;
 

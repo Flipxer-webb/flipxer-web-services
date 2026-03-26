@@ -144,52 +144,24 @@ export class BinanceService {
     ): Promise<Map<string, number>> {
         this.logger.debug(`Fetching batch USDT prices for: ${assets.join(", ")}`);
 
-        const result = new Map<string, number>();
-        const assetsToFetch: string[] = [];
-
-        // Check cache first for each asset
-        for (const asset of assets) {
-            const normalizedAsset = asset.toUpperCase();
-
-            // USDT is always 1:1
-            if (normalizedAsset === "USDT") {
-                result.set(normalizedAsset, 1.0);
-                continue;
-            }
-
-            const cacheKey = `binance:price:${asset.toLowerCase()}:usdt`;
-            const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
-
-            if (cachedPrice) {
-                result.set(normalizedAsset, cachedPrice);
-                this.logger.debug(`Cache hit for ${asset}: ${cachedPrice} USDT`);
-            } else {
-                assetsToFetch.push(asset);
-            }
-        }
+        const { cached: result, toFetch: assetsToFetch } = await this.checkPriceCache(assets);
 
         if (assetsToFetch.length === 0) {
             return result;
         }
 
         try {
-            // Fetch all prices from Binance (no filter = all symbols)
             const response = await this.apiClient.get<BinanceTickerPrice[]>(
                 `/api/v3/ticker/price`
             );
 
-            const allPrices = response.data;
-
-            // Create a lookup map for quick access
             const priceMap = new Map<string, number>();
-            for (const ticker of allPrices) {
+            for (const ticker of response.data) {
                 if (ticker.symbol.endsWith("USDT")) {
-                    const asset = ticker.symbol.replace("USDT", "");
-                    priceMap.set(asset, parseFloat(ticker.price));
+                    priceMap.set(ticker.symbol.replace("USDT", ""), parseFloat(ticker.price));
                 }
             }
 
-            // Match our requested assets
             for (const asset of assetsToFetch) {
                 const symbol = this.getBinanceSymbol(asset);
                 const baseAsset = symbol.replace("USDT", "");
@@ -197,7 +169,6 @@ export class BinanceService {
 
                 if (price && !isNaN(price)) {
                     result.set(asset.toUpperCase(), price);
-                    // Cache for 60 seconds
                     const cacheKey = `binance:price:${asset.toLowerCase()}:usdt`;
                     await this.redisCacheService.set(cacheKey, price, 60);
                     this.logger.debug(`Price for ${asset}: ${price} USDT`);
@@ -209,18 +180,45 @@ export class BinanceService {
             return result;
         } catch (error) {
             this.logger.error(`Batch price fetch failed: ${error.message}`);
+            await this.fetchIndividualPrices(assetsToFetch, result);
+            return result;
+        }
+    }
 
-            // Fallback to individual fetches for remaining assets
-            for (const asset of assetsToFetch) {
-                try {
-                    const price = await this.getPriceInUSDT(asset);
-                    result.set(asset.toUpperCase(), price);
-                } catch (err) {
-                    this.logger.warn(`Skipping ${asset}: ${err.message}`);
-                }
+    private async checkPriceCache(assets: string[]): Promise<{ cached: Map<string, number>; toFetch: string[] }> {
+        const cached = new Map<string, number>();
+        const toFetch: string[] = [];
+
+        for (const asset of assets) {
+            const normalizedAsset = asset.toUpperCase();
+
+            if (normalizedAsset === "USDT") {
+                cached.set(normalizedAsset, 1.0);
+                continue;
             }
 
-            return result;
+            const cacheKey = `binance:price:${asset.toLowerCase()}:usdt`;
+            const cachedPrice = await this.redisCacheService.get<number>(cacheKey);
+
+            if (cachedPrice) {
+                cached.set(normalizedAsset, cachedPrice);
+                this.logger.debug(`Cache hit for ${asset}: ${cachedPrice} USDT`);
+            } else {
+                toFetch.push(asset);
+            }
+        }
+
+        return { cached, toFetch };
+    }
+
+    private async fetchIndividualPrices(assets: string[], result: Map<string, number>): Promise<void> {
+        for (const asset of assets) {
+            try {
+                const price = await this.getPriceInUSDT(asset);
+                result.set(asset.toUpperCase(), price);
+            } catch (err) {
+                this.logger.warn(`Skipping ${asset}: ${err.message}`);
+            }
         }
     }
 

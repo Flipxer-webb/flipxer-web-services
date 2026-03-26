@@ -127,66 +127,7 @@ export class TransactionSecurityGuard implements CanActivate {
 
         // Parse tokens (comma-separated for multi-method verification)
         const tokens = verificationToken.split(',').map((t: string) => t.trim()).filter((t: string) => t);
-        const verifiedMethods = new Set<string>();
-
-        // Validate each token
-        for (const token of tokens) {
-            try {
-                const payload = await this.jwtService.verifyAsync<TransactionVerificationPayload>(token);
-
-                // Verify token type
-                if (payload.type !== "transaction_verification") {
-                    this.logger.warn(`Invalid token type: ${payload.type}`);
-                    continue;
-                }
-
-                // Verify token belongs to the same user
-                if (payload.userId !== user.id) {
-                    this.logger.warn(`Token user ${payload.userId} doesn't match request user ${user.id}`);
-                    continue;
-                }
-
-                // Check token age (5 minutes max)
-                const tokenAgeMs = Date.now() - payload.verifiedAt;
-                const maxAgeMs = 5 * 60 * 1000;
-
-                if (tokenAgeMs > maxAgeMs) {
-                    this.logger.warn(`Token for method ${payload.method} expired`);
-                    continue;
-                }
-
-                // CRITICAL: Validate context hash binding (strict enforcement)
-                if (!payload.contextHash) {
-                    this.logger.error(`SECURITY: Token for user ${user.id} missing contextHash - REJECTING (no legacy tokens allowed)`);
-                    throw new ForbiddenException({
-                        message: "Verification token must be bound to transaction context",
-                        code: "CONTEXT_HASH_REQUIRED",
-                    });
-                }
-
-                if (payload.contextHash !== expectedContextHash) {
-                    this.logger.error(
-                        `SECURITY: Context hash mismatch for user ${user.id}! ` +
-                        `Token hash: ${payload.contextHash.substring(0, 16)}... ` +
-                        `Expected: ${expectedContextHash.substring(0, 16)}...`
-                    );
-                    throw new ForbiddenException({
-                        message: "Verification token was not issued for this transaction",
-                        code: "CONTEXT_MISMATCH",
-                    });
-                }
-
-                // Token is valid - record the verified method
-                verifiedMethods.add(payload.method);
-
-            } catch (error) {
-                // Re-throw ForbiddenException (our security rejections)
-                if (error instanceof ForbiddenException) {
-                    throw error;
-                }
-                this.logger.error(`Token verification failed: ${error.message}`);
-            }
-        }
+        const verifiedMethods = await this.validateTokens(tokens, user.id, expectedContextHash);
 
         // STEP 4: Check if ALL required methods have been verified
         const missingMethods = requiredMethodList.filter(m => !verifiedMethods.has(m));
@@ -205,5 +146,62 @@ export class TransactionSecurityGuard implements CanActivate {
 
         this.logger.log(`User ${user.id} passed security check with context binding (verified: ${Array.from(verifiedMethods).join(', ')})`);
         return true;
+    }
+
+    private async validateTokens(
+        tokens: string[],
+        userId: number,
+        expectedContextHash: string,
+    ): Promise<Set<string>> {
+        const verifiedMethods = new Set<string>();
+
+        for (const token of tokens) {
+            try {
+                const payload = await this.jwtService.verifyAsync<TransactionVerificationPayload>(token);
+
+                if (payload.type !== "transaction_verification") {
+                    this.logger.warn(`Invalid token type: ${payload.type}`);
+                    continue;
+                }
+
+                if (payload.userId !== userId) {
+                    this.logger.warn(`Token user ${payload.userId} doesn't match request user ${userId}`);
+                    continue;
+                }
+
+                const tokenAgeMs = Date.now() - payload.verifiedAt;
+                if (tokenAgeMs > 5 * 60 * 1000) {
+                    this.logger.warn(`Token for method ${payload.method} expired`);
+                    continue;
+                }
+
+                if (!payload.contextHash) {
+                    this.logger.error(`SECURITY: Token for user ${userId} missing contextHash - REJECTING`);
+                    throw new ForbiddenException({
+                        message: "Verification token must be bound to transaction context",
+                        code: "CONTEXT_HASH_REQUIRED",
+                    });
+                }
+
+                if (payload.contextHash !== expectedContextHash) {
+                    this.logger.error(
+                        `SECURITY: Context hash mismatch for user ${userId}! ` +
+                        `Token hash: ${payload.contextHash.substring(0, 16)}... ` +
+                        `Expected: ${expectedContextHash.substring(0, 16)}...`
+                    );
+                    throw new ForbiddenException({
+                        message: "Verification token was not issued for this transaction",
+                        code: "CONTEXT_MISMATCH",
+                    });
+                }
+
+                verifiedMethods.add(payload.method);
+            } catch (error) {
+                if (error instanceof ForbiddenException) throw error;
+                this.logger.error(`Token verification failed: ${error.message}`);
+            }
+        }
+
+        return verifiedMethods;
     }
 }

@@ -3,7 +3,8 @@ const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 const email = process.env.TEST_EMAIL || 'magpiep18@gmail.com';
-const password = process.env.TEST_PASSWORD || 'TestUser@2024!';
+const password = process.env.TEST_PASSWORD;
+if (!password) { console.error('ERROR: TEST_PASSWORD env var required'); process.exit(1); }
 
 async function main() {
     console.log(`Checking user: ${email}`);

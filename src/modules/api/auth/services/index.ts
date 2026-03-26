@@ -209,6 +209,35 @@ export class AuthService {
         return `Document verification failed: ${originalMessage}. Please try with a clearer image.`;
     }
 
+    private applyDojahPostValidation(
+        isDocumentValid: boolean,
+        dojahParsed: any,
+        userId: number,
+        logger: Logger,
+    ): boolean {
+        if (isDocumentValid && this.isDocumentExpired(dojahParsed?.expiryDate)) {
+            logger.warn(`Document for user ${userId} is expired: ${dojahParsed?.expiryDate}`);
+            if (dojahParsed) {
+                dojahParsed.reason = "Document has expired";
+            }
+            isDocumentValid = false;
+        }
+
+        logger.log(
+            `Document analysis for user ${userId}: ` +
+            `valid=${isDocumentValid}, ` +
+            `docType=${dojahParsed?.documentType || "unknown"}, ` +
+            `expiryDate=${dojahParsed?.expiryDate || "unknown"}, ` +
+            `reason=${dojahParsed?.reason || "unknown"}`
+        );
+
+        if (!isDocumentValid && dojahParsed?.reason) {
+            this.checkHardRejectDocument(dojahParsed.reason, userId, dojahParsed.hasExtractedText, logger);
+        }
+
+        return isDocumentValid;
+    }
+
     /**
      * Hard-reject documents that are expired or unsupported.
      * For other failure reasons, log and allow through for manual review.
@@ -2009,27 +2038,7 @@ export class AuthService {
             );
         }
 
-        // Check if document is expired
-        if (isDocumentValid && this.isDocumentExpired(dojahParsed?.expiryDate)) {
-            logger.warn(`Document for user ${user.id} is expired: ${dojahParsed?.expiryDate}`);
-            isDocumentValid = false;
-            if (dojahParsed) {
-                dojahParsed.reason = "Document has expired";
-            }
-        }
-
-        logger.log(
-            `Document analysis for user ${user.id}: ` +
-            `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
-            `docType=${dojahParsed?.documentType || "unknown"}, ` +
-            `expiryDate=${dojahParsed?.expiryDate || "unknown"}, ` +
-            `reason=${dojahParsed?.reason || "unknown"}`
-        );
-
-        // If Dojah says document is NOT valid, check rejection criteria
-        if (!isDocumentValid && dojahParsed?.reason) {
-            this.checkHardRejectDocument(dojahParsed.reason, user.id, dojahParsed.hasExtractedText, logger);
-        }
+        isDocumentValid = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
 
         // Auto-approve if document is valid; otherwise save as PENDING for manual review
         // Name matching is informational only, logged for review if needed

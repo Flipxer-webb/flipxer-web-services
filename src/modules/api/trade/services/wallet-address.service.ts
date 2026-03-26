@@ -280,26 +280,11 @@ export class WalletAddressService {
         });
 
         if (options.requestedNetworks?.length) {
-            const normalizedRequests = new Set<NetworkTypes>();
-
-            for (const requested of options.requestedNetworks) {
-                const normalized = this.tradeHelpers.normalizeNetworkInput(requested);
-
-                if (!normalized || !depositEnabledNetworkMap.has(normalized)) {
-                    this.logWalletFlow(
-                        "ensureWalletPaymentAddresses:requested_network_unavailable",
-                        { requested }
-                    );
-                    throw new OutOfRangeException(
-                        `Network ${requested} is not available for ${walletResponse.currency.toUpperCase()}`,
-                        HttpStatus.BAD_REQUEST
-                    );
-                }
-
-                normalizedRequests.add(normalized);
-            }
-
-            targetNetworks = Array.from(normalizedRequests);
+            targetNetworks = this.validateRequestedNetworks(
+                options.requestedNetworks,
+                depositEnabledNetworkMap,
+                walletResponse.currency,
+            );
             this.logWalletFlow(
                 "ensureWalletPaymentAddresses:filtered_requested_networks",
                 { targetNetworks }
@@ -353,11 +338,7 @@ export class WalletAddressService {
         const backfilledProviderAddresses: CryptoWalletAddress[] = [];
 
         for (const [network, providerAddress] of providerAddressMap.entries()) {
-            if (!targetNetworks.includes(network)) {
-                continue;
-            }
-
-            if (existingNetworkSet.has(network)) {
+            if (!targetNetworks.includes(network) || existingNetworkSet.has(network)) {
                 continue;
             }
 
@@ -608,6 +589,33 @@ export class WalletAddressService {
         });
 
         return createdAddresses;
+    }
+
+    private validateRequestedNetworks(
+        requestedNetworks: string[],
+        depositEnabledNetworkMap: Map<NetworkTypes, string>,
+        currency: string,
+    ): NetworkTypes[] {
+        const normalizedRequests = new Set<NetworkTypes>();
+
+        for (const requested of requestedNetworks) {
+            const normalized = this.tradeHelpers.normalizeNetworkInput(requested);
+
+            if (!normalized || !depositEnabledNetworkMap.has(normalized)) {
+                this.logWalletFlow(
+                    "ensureWalletPaymentAddresses:requested_network_unavailable",
+                    { requested }
+                );
+                throw new OutOfRangeException(
+                    `Network ${requested} is not available for ${currency.toUpperCase()}`,
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            normalizedRequests.add(normalized);
+        }
+
+        return Array.from(normalizedRequests);
     }
 
     /**

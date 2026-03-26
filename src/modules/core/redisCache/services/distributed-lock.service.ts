@@ -130,51 +130,48 @@ export class DistributedLockService {
         // do-while ensures at least one acquisition attempt even when maxWaitMs=0
         // (maxWaitMs=0 means "try once, don't wait if locked")
         do {
-            try {
-                if (!this.isConnected) {
-                    if (strict) {
-                        throw new Error(`Redis lock service unavailable - cannot proceed with lock for: ${key}`);
-                    }
-                    this.logger.warn(`Lock service unavailable, proceeding without lock for: ${key}`);
-                    return lockToken; // Allow operation to proceed when Redis is down
-                }
+            const result = await this.tryAcquireLock(lockKey, lockToken, ttlMs, key, strict);
+            if (result !== null) return result;
 
-                // SET NX (only if not exists) with PX (expiry in milliseconds)
-                const result = await this.client.set(
-                    lockKey,
-                    lockToken,
-                    "PX",
-                    ttlMs,
-                    "NX"
-                );
-
-                if (result === "OK") {
-                    this.logger.debug(`Lock acquired: ${key} (token: ${lockToken.substring(0, 8)}...)`);
-                    return lockToken;
-                }
-
-                // Lock not acquired, wait and retry (skip sleep on last iteration)
-                if (Date.now() - startTime < maxWaitMs) {
-                    await this.sleep(retryIntervalMs);
-                }
-            } catch (error) {
-                // Re-throw if it's our strict mode error
-                if (error.message?.includes("Redis lock service unavailable")) {
-                    throw error;
-                }
-                
-                if (strict) {
-                    throw new Error(`Redis lock error for ${key}: ${error.message}`);
-                }
-                
-                this.logger.error(`Error acquiring lock for ${key}: ${error.message}`);
-                // On error, allow operation to proceed (non-strict mode)
-                return lockToken;
+            // Lock not acquired, wait and retry (skip sleep on last iteration)
+            if (Date.now() - startTime < maxWaitMs) {
+                await this.sleep(retryIntervalMs);
             }
         } while (Date.now() - startTime < maxWaitMs);
 
         this.logger.warn(`Failed to acquire lock for ${key} within ${maxWaitMs}ms`);
         return null;
+    }
+
+    /**
+     * Single attempt to acquire a lock. Returns token on success, null to retry.
+     * In non-strict mode, returns token on Redis errors (fail-open).
+     */
+    private async tryAcquireLock(
+        lockKey: string, lockToken: string, ttlMs: number, key: string, strict: boolean,
+    ): Promise<string | null> {
+        try {
+            if (!this.isConnected) {
+                if (strict) {
+                    throw new Error(`Redis lock service unavailable - cannot proceed with lock for: ${key}`);
+                }
+                this.logger.warn(`Lock service unavailable, proceeding without lock for: ${key}`);
+                return lockToken;
+            }
+
+            const result = await this.client.set(lockKey, lockToken, "PX", ttlMs, "NX");
+            if (result === "OK") {
+                this.logger.debug(`Lock acquired: ${key} (token: ${lockToken.substring(0, 8)}...)`);
+                return lockToken;
+            }
+
+            return null; // Not acquired, caller should retry
+        } catch (error) {
+            if (error.message?.includes("Redis lock service unavailable")) throw error;
+            if (strict) throw new Error(`Redis lock error for ${key}: ${error.message}`);
+            this.logger.error(`Error acquiring lock for ${key}: ${error.message}`);
+            return lockToken; // Fail-open in non-strict mode
+        }
     }
 
     /**

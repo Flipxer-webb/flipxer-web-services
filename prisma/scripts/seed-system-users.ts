@@ -38,7 +38,7 @@ async function main() {
             status: "ACTIVE",
             isEmailVerified: true,
             isPhoneVerified: true,
-            password: process.env.SYSTEM_PLATFORM_PASSWORD || "NO_LOGIN_ALLOWED_PLATFORM",
+            password: process.env.SYSTEM_PLATFORM_PASSWORD || crypto.randomUUID(),
         }
     });
 
@@ -63,7 +63,7 @@ async function main() {
             status: "ACTIVE",
             isEmailVerified: true,
             isPhoneVerified: true,
-            password: process.env.SYSTEM_FEES_PASSWORD || "NO_LOGIN_ALLOWED_FEES",
+            password: process.env.SYSTEM_FEES_PASSWORD || crypto.randomUUID(),
         }
     });
 

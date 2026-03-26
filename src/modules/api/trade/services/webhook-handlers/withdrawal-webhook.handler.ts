@@ -215,89 +215,8 @@ export class WithdrawalWebhookHandler {
             options.status === OrderStatus.done &&
             transaction.orderCategory === OrderCategory.SELL
         ) {
-            // Check if this is an admin's SELL order linked to a user's BUY order
-            const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
-            if (buyOrderMatch) {
-                // This is admin sending crypto to user for a BUY order - complete the BUY order
-                const buyOrderId = parseInt(buyOrderMatch[1], 10);
-                await this.completeBuyOrder(buyOrderId, transaction);
-            } else {
-                // This is a regular user SELL order - pay them in fiat
-                // If payout succeeds, mark order as completed
-                try {
-                    await this.initiateFiatPayout(transaction);
-
-                    // Payout succeeded - NOW mark order as completed
-                    const completedOrder = await this.prisma.order.update({
-                        where: { id: transaction.id },
-                        data: {
-                            status: OrderStatus.done,
-                            streamlinedStatus: OrderStreamlinedStatus.completed,
-                            fulfilled: true,
-                        },
-                    });
-
-                    // Emit final completion status
-                    this.emitTransactionUpdate(transaction.user.id, completedOrder);
-
-                    // Send sell completion notification to user
-                    const sellMessage = this.notificationMessage.sellTransactionSuccess({
-                        amount: transaction.amount,
-                        currency: transaction.currency,
-                        fiatAmount: transaction.totalToReceiveInFiat,
-                        bankName: transaction.destinationBankName || 'your bank',
-                        accountNumber: transaction.destinationBankAccountNumber || '',
-                        transactionId: transaction.transactionId,
-                    });
-
-                    await this.notificationDispatcher.notify({
-                        userId: transaction.user.id,
-                        title: "Sell order completed",
-                        body: sellMessage,
-                        category: "transaction",
-                        currency: transaction.currency,
-                        transactionType: OrderCategory.SELL,
-                        enableEmail: true,
-                        emailPayload: {
-                            email: transaction.user.email,
-                            transactionType: 'sell',
-                            transactionId: transaction.transactionId,
-                            amount: String(transaction.amount),
-                            currency: transaction.currency.toUpperCase(),
-                            status: 'completed',
-                            date: new Date().toISOString(),
-                            fiatAmount: String(transaction.totalToReceiveInFiat || ''),
-                            bankName: transaction.destinationBankName || '',
-                            accountNumber: transaction.destinationBankAccountNumber || '',
-                        },
-                        enablePush: true,
-                    });
-
-                    this.logger.log(`Order ${transaction.id} marked COMPLETED after successful payout`);
-                } catch (payoutError) {
-                    // Payout failed - mark order as failed
-                    const failedOrder = await this.prisma.order.update({
-                        where: { id: transaction.id },
-                        data: {
-                            status: OrderStatus.failed,
-                            streamlinedStatus: OrderStreamlinedStatus.failed,
-                            reason: `Payout failed: ${payoutError.message}`,
-                        },
-                    });
-
-                    // Emit failure status so UI shows failed, not stuck on processing
-                    this.emitTransactionUpdate(transaction.user.id, failedOrder);
-                    this.logger.error(`Order ${transaction.id} marked FAILED due to payout error: ${payoutError.message}`);
-
-                    // Send failure notification
-                    await this.handleWithdrawalFailed(transaction);
-
-                    // Refund the user since payout failed
-                    await this.refundSellOrder(transaction);
-
-                    return; // Don't proceed to handleWithdrawalDone
-                }
-            }
+            const completedViaSellFlow = await this.handleSellOrderDone(transaction);
+            if (!completedViaSellFlow) return; // Payout failed, already handled
         }
 
         if (options.status == OrderStatus.done && transaction.orderCategory !== OrderCategory.SELL) {
@@ -334,6 +253,86 @@ export class WithdrawalWebhookHandler {
             }
 
             await this.handleWithdrawalFailed(transaction);
+        }
+    }
+
+    /**
+     * Handles sell order completion: either completes a linked BUY order
+     * or initiates fiat payout to the seller.
+     * Returns true if flow succeeded, false if payout failed (already handled).
+     */
+    private async handleSellOrderDone(transaction: any): Promise<boolean> {
+        const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
+        if (buyOrderMatch) {
+            const buyOrderId = parseInt(buyOrderMatch[1], 10);
+            await this.completeBuyOrder(buyOrderId, transaction);
+            return true;
+        }
+
+        try {
+            await this.initiateFiatPayout(transaction);
+
+            const completedOrder = await this.prisma.order.update({
+                where: { id: transaction.id },
+                data: {
+                    status: OrderStatus.done,
+                    streamlinedStatus: OrderStreamlinedStatus.completed,
+                    fulfilled: true,
+                },
+            });
+
+            this.emitTransactionUpdate(transaction.user.id, completedOrder);
+
+            const sellMessage = this.notificationMessage.sellTransactionSuccess({
+                amount: transaction.amount,
+                currency: transaction.currency,
+                fiatAmount: transaction.totalToReceiveInFiat,
+                bankName: transaction.destinationBankName || 'your bank',
+                accountNumber: transaction.destinationBankAccountNumber || '',
+                transactionId: transaction.transactionId,
+            });
+
+            await this.notificationDispatcher.notify({
+                userId: transaction.user.id,
+                title: "Sell order completed",
+                body: sellMessage,
+                category: "transaction",
+                currency: transaction.currency,
+                transactionType: OrderCategory.SELL,
+                enableEmail: true,
+                emailPayload: {
+                    email: transaction.user.email,
+                    transactionType: 'sell',
+                    transactionId: transaction.transactionId,
+                    amount: String(transaction.amount),
+                    currency: transaction.currency.toUpperCase(),
+                    status: 'completed',
+                    date: new Date().toISOString(),
+                    fiatAmount: String(transaction.totalToReceiveInFiat || ''),
+                    bankName: transaction.destinationBankName || '',
+                    accountNumber: transaction.destinationBankAccountNumber || '',
+                },
+                enablePush: true,
+            });
+
+            this.logger.log(`Order ${transaction.id} marked COMPLETED after successful payout`);
+            return true;
+        } catch (payoutError) {
+            const failedOrder = await this.prisma.order.update({
+                where: { id: transaction.id },
+                data: {
+                    status: OrderStatus.failed,
+                    streamlinedStatus: OrderStreamlinedStatus.failed,
+                    reason: `Payout failed: ${payoutError.message}`,
+                },
+            });
+
+            this.emitTransactionUpdate(transaction.user.id, failedOrder);
+            this.logger.error(`Order ${transaction.id} marked FAILED due to payout error: ${payoutError.message}`);
+
+            await this.handleWithdrawalFailed(transaction);
+            await this.refundSellOrder(transaction);
+            return false;
         }
     }
 

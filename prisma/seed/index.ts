@@ -509,7 +509,8 @@ async function main() {
     // Seed FULLY VERIFIED TEST USER (for testing purposes)
     logger.info("Seeding fully verified test user...");
     if (individualRole) {
-        const testUserPassword = process.env.TEST_USER_PASSWORD || "TestUser@2024!";
+        const testUserPassword = process.env.TEST_USER_PASSWORD;
+        if (!testUserPassword) { logger.error('TEST_USER_PASSWORD env var required for test user seed'); process.exit(1); }
         const hashedTestPassword = await bcrypt.hash(testUserPassword, SALT_ROUNDS);
 
         const testUser = await prisma.user.upsert({
@@ -610,7 +611,7 @@ async function main() {
                 status: "ACTIVE",
                 isEmailVerified: true,
                 isPhoneVerified: true,
-                password: process.env.SYSTEM_PLATFORM_PASSWORD || "NO_LOGIN_ALLOWED_PLATFORM",
+                password: process.env.SYSTEM_PLATFORM_PASSWORD || crypto.randomUUID(),
             }
         });
         logger.info("Platform User (ID 0) ensured.");
@@ -631,7 +632,7 @@ async function main() {
                 status: "ACTIVE",
                 isEmailVerified: true,
                 isPhoneVerified: true,
-                password: process.env.SYSTEM_FEES_PASSWORD || "NO_LOGIN_ALLOWED_FEES",
+                password: process.env.SYSTEM_FEES_PASSWORD || crypto.randomUUID(),
             }
         });
         logger.info("Network Fee User (ID -1) ensured.");

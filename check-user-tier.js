@@ -1,16 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 require('dotenv').config();
 
-// External URL for Render PostgreSQL (external access requires -a.external instead of just -a)
-const externalDbUrl = 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d44d3om3jp1c739lgge0-a.oregon-postgres.render.com/resolve_db?sslmode=require';
-
-const prisma = new PrismaClient({
-    datasources: {
-        db: {
-            url: externalDbUrl,
-        },
-    },
-});
+const prisma = new PrismaClient();
 
 async function main() {
     try {

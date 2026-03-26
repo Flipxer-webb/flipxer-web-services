@@ -58,6 +58,9 @@ yarn.lock
 *.sql.zip
 bun.lockb
 bun.lock
+
+# Security scan results (may contain secrets)
+snyk_code_results.json
 package-lock.json
 pnpm-lock.yaml
 

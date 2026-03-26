@@ -229,7 +229,7 @@ export class CoinCapService {
     async getBatchSparklines(assets: string[]): Promise<Record<string, number[]>> {
         this.logger.debug(`Fetching sparklines for: ${assets.join(", ")}`);
 
-        const cacheKey = `coincap:sparklines:${assets.sort().join(",")}`;
+        const cacheKey = `coincap:sparklines:${assets.sort((a, b) => a.localeCompare(b)).join(",")}`;
         const cachedData = await this.redisCacheService.get<Record<string, number[]>>(cacheKey);
         if (cachedData) {
             this.logger.debug(`Cache hit for sparklines`);

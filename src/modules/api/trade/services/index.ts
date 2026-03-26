@@ -582,76 +582,7 @@ export class TradingService {
 
         // For SEND orders, we need to check Quidax status first and cancel there if possible
         if (order.orderCategory === OrderCategory.SEND && order.providerOrderId) {
-            try {
-                // Check current status on Quidax
-                const withdrawalDetail = await this.quidaxService.getWithdrawerDetail({
-                    user_id: user.cryptoSubAccountId,
-                    withdrawal_id: order.providerOrderId,
-                });
-
-                const quidaxStatus = withdrawalDetail.data?.status?.toLowerCase();
-
-                // If already done/completed on Quidax, cannot cancel
-                if (quidaxStatus === 'done' || quidaxStatus === 'completed' || quidaxStatus === 'successful') {
-                    // Update local status to match Quidax
-                    await this.prisma.order.update({
-                        where: { id: orderId },
-                        data: {
-                            status: OrderStatus.done,
-                            streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
-                        },
-                    });
-
-                    // Emit wallet update to refresh balance
-                    this.wsGateway.notifyWalletUpdate(user.id);
-
-                    throw new GeneralTransactionException(
-                        "Transaction has already been completed on the blockchain and cannot be cancelled",
-                        HttpStatus.BAD_REQUEST
-                    );
-                }
-
-                // If still pending/processing on Quidax, attempt to cancel
-                if (quidaxStatus === 'pending' || quidaxStatus === 'processing' || quidaxStatus === 'submitted') {
-                    try {
-                        await this.quidaxService.cancelWithdrawerRequest({
-                            user_id: user.cryptoSubAccountId,
-                            withdrawal_id: order.providerOrderId,
-                        });
-                        this.logger.log(`Successfully cancelled withdrawal ${order.providerOrderId} on Quidax`);
-                    } catch (cancelError) {
-                        this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError.message}`);
-                        // Re-check status after cancel attempt
-                        const recheckDetail = await this.quidaxService.getWithdrawerDetail({
-                            user_id: user.cryptoSubAccountId,
-                            withdrawal_id: order.providerOrderId,
-                        });
-                        const recheckStatus = recheckDetail.data?.status?.toLowerCase();
-
-                        if (recheckStatus === 'done' || recheckStatus === 'completed' || recheckStatus === 'successful') {
-                            await this.prisma.order.update({
-                                where: { id: orderId },
-                                data: {
-                                    status: OrderStatus.done,
-                                    streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
-                                },
-                            });
-                            this.wsGateway.notifyWalletUpdate(user.id);
-                            throw new GeneralTransactionException(
-                                "Transaction completed while attempting to cancel. Your funds have been sent.",
-                                HttpStatus.BAD_REQUEST
-                            );
-                        }
-                    }
-                }
-            } catch (error) {
-                // If error is already a GeneralTransactionException, rethrow it
-                if (error instanceof GeneralTransactionException) {
-                    throw error;
-                }
-                this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error.message}`);
-                // Continue with local cancellation if Quidax check fails
-            }
+            await this.cancelSendOrderOnProvider(user, order, orderId);
         }
 
         // For SWAP orders, we need to refund the user's debited funds
@@ -682,45 +613,7 @@ export class TradingService {
 
         // For SEND orders, release held funds immediately when cancellation succeeds
         if (order.orderCategory === OrderCategory.SEND) {
-            const holdReference = `withdrawal:${order.orderReference}`;
-
-            const releaseResult = await this.ledgerService.releaseHold(
-                holdReference,
-                false,
-                `User cancelled SEND order ${order.id}`
-            );
-
-            if (!releaseResult.success) {
-                const holdEntry = await this.prisma.ledgerEntry.findFirst({
-                    where: { reference: holdReference },
-                    select: { id: true, status: true },
-                });
-
-                if (holdEntry?.status === EntryStatus.HOLD) {
-                    this.logger.error(
-                        `Failed to release SEND hold on cancellation | orderId: ${order.id} | holdRef: ${holdReference} | error: ${releaseResult.error}`
-                    );
-                    throw new GeneralTransactionException(
-                        "Failed to release held funds for cancelled order. Please contact support.",
-                        HttpStatus.INTERNAL_SERVER_ERROR
-                    );
-                }
-
-                this.logger.warn(
-                    `SEND hold not in HOLD status during cancel (treated as already released) | orderId: ${order.id} | holdRef: ${holdReference} | currentStatus: ${holdEntry?.status ?? "missing"}`
-                );
-            }
-
-            if (order.ledgerEntryId) {
-                await this.prisma.withdrawalQueue.updateMany({
-                    where: {
-                        holdEntryId: order.ledgerEntryId,
-                        releasedAt: null,
-                        processedAt: null,
-                    },
-                    data: { releasedAt: new Date() },
-                });
-            }
+            await this.releaseSendOrderHold(order);
         }
 
         // Update order status to cancelled
@@ -762,6 +655,117 @@ export class TradingService {
                 streamlinedStatus: updatedOrder.streamlinedStatus,
             },
         });
+    }
+
+    private async cancelSendOrderOnProvider(
+        user: User,
+        order: { id: number; providerOrderId: string },
+        orderId: number
+    ): Promise<void> {
+        try {
+            const withdrawalDetail = await this.quidaxService.getWithdrawerDetail({
+                user_id: user.cryptoSubAccountId,
+                withdrawal_id: order.providerOrderId,
+            });
+
+            const quidaxStatus = withdrawalDetail.data?.status?.toLowerCase();
+
+            if (quidaxStatus === 'done' || quidaxStatus === 'completed' || quidaxStatus === 'successful') {
+                await this.prisma.order.update({
+                    where: { id: orderId },
+                    data: {
+                        status: OrderStatus.done,
+                        streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
+                    },
+                });
+                this.wsGateway.notifyWalletUpdate(user.id);
+                throw new GeneralTransactionException(
+                    "Transaction has already been completed on the blockchain and cannot be cancelled",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            if (quidaxStatus === 'pending' || quidaxStatus === 'processing' || quidaxStatus === 'submitted') {
+                try {
+                    await this.quidaxService.cancelWithdrawerRequest({
+                        user_id: user.cryptoSubAccountId,
+                        withdrawal_id: order.providerOrderId,
+                    });
+                    this.logger.log(`Successfully cancelled withdrawal ${order.providerOrderId} on Quidax`);
+                } catch (cancelError) {
+                    this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError.message}`);
+                    const recheckDetail = await this.quidaxService.getWithdrawerDetail({
+                        user_id: user.cryptoSubAccountId,
+                        withdrawal_id: order.providerOrderId,
+                    });
+                    const recheckStatus = recheckDetail.data?.status?.toLowerCase();
+
+                    if (recheckStatus === 'done' || recheckStatus === 'completed' || recheckStatus === 'successful') {
+                        await this.prisma.order.update({
+                            where: { id: orderId },
+                            data: {
+                                status: OrderStatus.done,
+                                streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
+                            },
+                        });
+                        this.wsGateway.notifyWalletUpdate(user.id);
+                        throw new GeneralTransactionException(
+                            "Transaction completed while attempting to cancel. Your funds have been sent.",
+                            HttpStatus.BAD_REQUEST
+                        );
+                    }
+                }
+            }
+        } catch (error) {
+            if (error instanceof GeneralTransactionException) {
+                throw error;
+            }
+            this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error.message}`);
+        }
+    }
+
+    private async releaseSendOrderHold(
+        order: { id: number; orderReference: string | null; ledgerEntryId: string | null }
+    ): Promise<void> {
+        const holdReference = `withdrawal:${order.orderReference}`;
+
+        const releaseResult = await this.ledgerService.releaseHold(
+            holdReference,
+            false,
+            `User cancelled SEND order ${order.id}`
+        );
+
+        if (!releaseResult.success) {
+            const holdEntry = await this.prisma.ledgerEntry.findFirst({
+                where: { reference: holdReference },
+                select: { id: true, status: true },
+            });
+
+            if (holdEntry?.status === EntryStatus.HOLD) {
+                this.logger.error(
+                    `Failed to release SEND hold on cancellation | orderId: ${order.id} | holdRef: ${holdReference} | error: ${releaseResult.error}`
+                );
+                throw new GeneralTransactionException(
+                    "Failed to release held funds for cancelled order. Please contact support.",
+                    HttpStatus.INTERNAL_SERVER_ERROR
+                );
+            }
+
+            this.logger.warn(
+                `SEND hold not in HOLD status during cancel (treated as already released) | orderId: ${order.id} | holdRef: ${holdReference} | currentStatus: ${holdEntry?.status ?? "missing"}`
+            );
+        }
+
+        if (order.ledgerEntryId) {
+            await this.prisma.withdrawalQueue.updateMany({
+                where: {
+                    holdEntryId: order.ledgerEntryId,
+                    releasedAt: null,
+                    processedAt: null,
+                },
+                data: { releasedAt: new Date() },
+            });
+        }
     }
 
     async confirmInstantSwapQuote(user: User, dto: ConfirmInstantSwapQuoteDto) {
@@ -888,79 +892,8 @@ export class TradingService {
             const walletResults = [];
 
             for (const currency of currenciesToProcess) {
-                try {
-                    this.logger.log(`Creating wallet for ${currency.toUpperCase()}...`);
-                    const addresses = await this.ensureWalletPaymentAddresses({
-                        userId: user.id,
-                        cryptoSubAccountId,
-                        assetSymbol: currency.toUpperCase(),
-                    });
-                    this.logger.log(`Wallet created for ${currency.toUpperCase()}: ${addresses?.length || 0} addresses`);
-
-                    // Also create/update AssetWallet record directly (don't wait for webhook)
-                    try {
-                        const walletData = await this.quidaxService.getUserWallet({
-                            user_id: cryptoSubAccountId,
-                            currency: currency.toLowerCase(),
-                        });
-
-                        if (walletData.status === "success" && walletData.data) {
-                            const data = walletData.data;
-                            await this.prisma.assetWallet.upsert({
-                                where: {
-                                    userId_assetCurrency: {
-                                        userId: user.id,
-                                        assetCurrency: currency.toUpperCase(),
-                                    },
-                                },
-                                update: {
-                                    quidaxWalletId: data.id,
-                                    assetName: data.name,
-                                    balance: data.balance,
-                                    locked: data.locked,
-                                    staked: data.staked,
-                                    convertedBalance: data.converted_balance,
-                                    blockchainEnabled: data.blockchain_enabled,
-                                    defaultNetwork: data.default_network,
-                                    isCrypto: data.is_crypto,
-                                    networks: data.networks,
-                                    referenceCurrency: data.reference_currency,
-                                    depositAddress: data.deposit_address,
-                                    destinationTag: data.destination_tag,
-                                    ...(data.deposit_address && { addressSynced: true }),
-                                    ...(data.deposit_address && { isActive: true }),
-                                },
-                                create: {
-                                    quidaxWalletId: data.id,
-                                    assetCurrency: data.currency.toUpperCase(),
-                                    assetName: data.name,
-                                    balance: data.balance,
-                                    locked: data.locked,
-                                    staked: data.staked,
-                                    convertedBalance: data.converted_balance,
-                                    blockchainEnabled: data.blockchain_enabled,
-                                    defaultNetwork: data.default_network,
-                                    isCrypto: data.is_crypto,
-                                    networks: data.networks,
-                                    referenceCurrency: data.reference_currency,
-                                    depositAddress: data.deposit_address,
-                                    destinationTag: data.destination_tag,
-                                    userId: user.id,
-                                    ...(data.deposit_address && { addressSynced: true }),
-                                    ...(data.deposit_address && { isActive: true }),
-                                },
-                            });
-                            this.logger.log(`AssetWallet created/updated for ${currency.toUpperCase()}`);
-                        }
-                    } catch (assetError) {
-                        this.logger.error(`Failed to create AssetWallet for ${currency}: ${assetError?.message}`);
-                    }
-
-                    walletResults.push({ currency, success: true, addresses: addresses?.length || 0 });
-                } catch (error) {
-                    this.logger.error(`Address creation error for ${currency}: ${error?.message}`, error?.stack);
-                    walletResults.push({ currency, success: false, error: error?.message });
-                }
+                const result = await this.processWalletForCurrency(user.id, cryptoSubAccountId, currency);
+                walletResults.push(result);
             }
 
             const successCount = walletResults.filter(r => r.success).length;
@@ -973,6 +906,95 @@ export class TradingService {
         } catch (error) {
             this.logger.error(`triggerQuidaxAccountCreation failed: ${error?.message}`, error?.stack);
             throw error;
+        }
+    }
+
+    private async processWalletForCurrency(
+        userId: number,
+        cryptoSubAccountId: string,
+        currency: string
+    ): Promise<{ currency: string; success: boolean; addresses?: number; error?: string }> {
+        try {
+            this.logger.log(`Creating wallet for ${currency.toUpperCase()}...`);
+            const addresses = await this.ensureWalletPaymentAddresses({
+                userId,
+                cryptoSubAccountId,
+                assetSymbol: currency.toUpperCase(),
+            });
+            this.logger.log(`Wallet created for ${currency.toUpperCase()}: ${addresses?.length || 0} addresses`);
+
+            await this.syncAssetWalletFromProvider(userId, cryptoSubAccountId, currency);
+
+            return { currency, success: true, addresses: addresses?.length || 0 };
+        } catch (error) {
+            this.logger.error(`Address creation error for ${currency}: ${error?.message}`, error?.stack);
+            return { currency, success: false, error: error?.message };
+        }
+    }
+
+    private async syncAssetWalletFromProvider(
+        userId: number,
+        cryptoSubAccountId: string,
+        currency: string
+    ): Promise<void> {
+        try {
+            const walletData = await this.quidaxService.getUserWallet({
+                user_id: cryptoSubAccountId,
+                currency: currency.toLowerCase(),
+            });
+
+            if (walletData.status !== "success" || !walletData.data) return;
+
+            const data = walletData.data;
+            const addressFields = data.deposit_address
+                ? { addressSynced: true, isActive: true }
+                : {};
+
+            await this.prisma.assetWallet.upsert({
+                where: {
+                    userId_assetCurrency: {
+                        userId,
+                        assetCurrency: currency.toUpperCase(),
+                    },
+                },
+                update: {
+                    quidaxWalletId: data.id,
+                    assetName: data.name,
+                    balance: data.balance,
+                    locked: data.locked,
+                    staked: data.staked,
+                    convertedBalance: data.converted_balance,
+                    blockchainEnabled: data.blockchain_enabled,
+                    defaultNetwork: data.default_network,
+                    isCrypto: data.is_crypto,
+                    networks: data.networks,
+                    referenceCurrency: data.reference_currency,
+                    depositAddress: data.deposit_address,
+                    destinationTag: data.destination_tag,
+                    ...addressFields,
+                },
+                create: {
+                    quidaxWalletId: data.id,
+                    assetCurrency: data.currency.toUpperCase(),
+                    assetName: data.name,
+                    balance: data.balance,
+                    locked: data.locked,
+                    staked: data.staked,
+                    convertedBalance: data.converted_balance,
+                    blockchainEnabled: data.blockchain_enabled,
+                    defaultNetwork: data.default_network,
+                    isCrypto: data.is_crypto,
+                    networks: data.networks,
+                    referenceCurrency: data.reference_currency,
+                    depositAddress: data.deposit_address,
+                    destinationTag: data.destination_tag,
+                    userId,
+                    ...addressFields,
+                },
+            });
+            this.logger.log(`AssetWallet created/updated for ${currency.toUpperCase()}`);
+        } catch (assetError) {
+            this.logger.error(`Failed to create AssetWallet for ${currency}: ${assetError?.message}`);
         }
     }
 
@@ -1176,47 +1198,39 @@ export class TradingService {
         data: any
     ): Promise<{ fee: number; type: string }> {
         if (data.type === "flat" && typeof data.fee === "number") {
-            return {
-                fee: data.fee,
-                type: "flat",
-            };
+            return { fee: data.fee, type: "flat" };
         }
 
         if (data.type === "percentage" && typeof data.fee === "number") {
-            return {
-                fee: (amount * data.fee) / 100,
-                type: "percentage",
-            };
+            return { fee: (amount * data.fee) / 100, type: "percentage" };
         }
 
         if (data.type === "range" && Array.isArray(data.fee)) {
-            for (const range of data.fee) {
-                if (amount >= range.min && amount < range.max) {
-                    if (range.type === "percentage") {
-                        return {
-                            fee: (amount * range.value) / 100,
-                            type: "percentage",
-                        };
-                    } else {
-                        return {
-                            fee: range.value,
-                            type: "flat",
-                        };
-                    }
-                }
-            }
-
-            throw new OutOfRangeException(
-                "Amount is out of range.",
-                HttpStatus.BAD_REQUEST
-            );
+            return this.calculateRangeFee(amount, data.fee);
         }
 
         throw new UnknownFeeStructureException(
-            `Unknown fee type or structure. Received data: ${JSON.stringify(
-                data
-            )}`,
+            `Unknown fee type or structure. Received data: ${JSON.stringify(data)}`,
             HttpStatus.INTERNAL_SERVER_ERROR
+        );
+    }
+
+    private calculateRangeFee(
+        amount: number,
+        ranges: { min: number; max: number; type: string; value: number }[]
+    ): { fee: number; type: string } {
+        for (const range of ranges) {
+            if (amount >= range.min && amount < range.max) {
+                const fee = range.type === "percentage"
+                    ? (amount * range.value) / 100
+                    : range.value;
+                return { fee, type: range.type === "percentage" ? "percentage" : "flat" };
+            }
+        }
+
+        throw new OutOfRangeException(
+            "Amount is out of range.",
+            HttpStatus.BAD_REQUEST
         );
     }
 
@@ -1416,108 +1430,7 @@ export class TradingService {
                 this.logger.log(`Processing ${depositsResponse.data.length} ${currency} deposits...`);
 
                 for (const deposit of depositsResponse.data) {
-                    try {
-                        this.logger.log(`Checking deposit ${deposit.id}: ${deposit.amount} ${currency}, status: ${deposit.status || deposit.state}`);
-
-                        // Check if order already exists for this deposit
-                        const existingOrder = await this.prisma.order.findUnique({
-                            where: { providerOrderId: deposit.id },
-                        });
-
-                        if (existingOrder) {
-                            this.logger.log(`Deposit ${deposit.id} already exists as order ${existingOrder.id}`);
-                            syncResults.skipped++;
-                            syncResults.details.push({
-                                currency,
-                                depositId: deposit.id,
-                                status: deposit.status,
-                                amount: deposit.amount,
-                                result: "skipped - already exists",
-                            });
-                            continue;
-                        }
-
-                        // Check if this deposit is from a BUY order (same logic as webhook handler)
-                        const isBuyRelated = await this.isBuyOrderRelatedDeposit(user.id, currency, +deposit.amount);
-                        if (isBuyRelated) {
-                            this.logger.log(`Deposit ${deposit.id} is from a BUY order - skipping RECEIVE creation`);
-                            syncResults.skipped++;
-                            syncResults.details.push({
-                                currency,
-                                depositId: deposit.id,
-                                status: deposit.status,
-                                amount: deposit.amount,
-                                result: "skipped - from BUY order",
-                            });
-                            continue;
-                        }
-
-                        // Normalize the status
-                        const normalizedStatus = this.normalizeDepositStatus(deposit.status || deposit.state);
-
-                        // Log the deposit data for debugging timestamps
-                        this.logger.log(`Deposit ${deposit.id} timestamps: created_at=${deposit.created_at}, done_at=${deposit.done_at}, completed_at=${deposit.completed_at}`);
-
-                        // Get amount in fiat for record
-                        const amtFiat = await this.getAmountInNaira(
-                            currency,
-                            Number(deposit.amount),
-                            "buy"
-                        );
-
-                        const transactionId = generateId({ type: "transaction" });
-
-                        // Use the original deposit timestamp from Quidax
-                        const depositCreatedAt = deposit.created_at ? new Date(deposit.created_at) : new Date();
-                        const depositCompletedAt = deposit.completed_at || deposit.done_at
-                            ? new Date(deposit.completed_at || deposit.done_at)
-                            : null;
-
-                        // Create the order with the original Quidax timestamp
-                        await this.prisma.order.create({
-                            data: {
-                                orderCategory: OrderCategory.RECEIVE,
-                                status: normalizedStatus,
-                                transactionId: transactionId,
-                                streamlinedStatus: getStreamlinedStatus(normalizedStatus),
-                                providerOrderId: deposit.id,
-                                blockchain_txid: deposit.txid,
-                                userId: user.id,
-                                currency: currency.toUpperCase(),
-                                amount: +deposit.amount,
-                                fee: +deposit.fee,
-                                amountInFiat: amtFiat?.amount,
-                                rateAtConversion: amtFiat?.rate,
-                                createdAt: depositCreatedAt,
-                                updatedAt: depositCompletedAt || depositCreatedAt,
-                            },
-                        });
-
-                        syncResults.synced++;
-                        syncResults.details.push({
-                            currency,
-                            depositId: deposit.id,
-                            status: deposit.status,
-                            amount: deposit.amount,
-                            result: "synced successfully",
-                        });
-
-                        this.logger.log(
-                            `Synced deposit: ${deposit.id} - ${deposit.amount} ${currency}`
-                        );
-                    } catch (depositError) {
-                        syncResults.errors++;
-                        syncResults.details.push({
-                            currency,
-                            depositId: deposit.id,
-                            status: deposit.status,
-                            amount: deposit.amount,
-                            result: `error: ${depositError.message}`,
-                        });
-                        this.logger.error(
-                            `Error syncing deposit ${deposit.id}: ${depositError.message}`
-                        );
-                    }
+                    await this.syncSingleDeposit(user, currency, deposit, syncResults);
                 }
             } catch (currencyError) {
                 this.logger.error(
@@ -1530,6 +1443,73 @@ export class TradingService {
             message: `Deposit sync completed for user ${user.email}`,
             data: syncResults,
         });
+    }
+
+    private async syncSingleDeposit(
+        user: { id: number; cryptoSubAccountId: string },
+        currency: string,
+        deposit: any,
+        syncResults: { synced: number; skipped: number; errors: number; details: any[] }
+    ): Promise<void> {
+        try {
+            this.logger.log(`Checking deposit ${deposit.id}: ${deposit.amount} ${currency}, status: ${deposit.status || deposit.state}`);
+
+            const existingOrder = await this.prisma.order.findUnique({
+                where: { providerOrderId: deposit.id },
+            });
+
+            if (existingOrder) {
+                this.logger.log(`Deposit ${deposit.id} already exists as order ${existingOrder.id}`);
+                syncResults.skipped++;
+                syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: "skipped - already exists" });
+                return;
+            }
+
+            const isBuyRelated = await this.isBuyOrderRelatedDeposit(user.id, currency, +deposit.amount);
+            if (isBuyRelated) {
+                this.logger.log(`Deposit ${deposit.id} is from a BUY order - skipping RECEIVE creation`);
+                syncResults.skipped++;
+                syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: "skipped - from BUY order" });
+                return;
+            }
+
+            const normalizedStatus = this.normalizeDepositStatus(deposit.status || deposit.state);
+            this.logger.log(`Deposit ${deposit.id} timestamps: created_at=${deposit.created_at}, done_at=${deposit.done_at}, completed_at=${deposit.completed_at}`);
+
+            const amtFiat = await this.getAmountInNaira(currency, Number(deposit.amount), "buy");
+            const transactionId = generateId({ type: "transaction" });
+            const depositCreatedAt = deposit.created_at ? new Date(deposit.created_at) : new Date();
+            const depositCompletedAt = deposit.completed_at || deposit.done_at
+                ? new Date(deposit.completed_at || deposit.done_at)
+                : null;
+
+            await this.prisma.order.create({
+                data: {
+                    orderCategory: OrderCategory.RECEIVE,
+                    status: normalizedStatus,
+                    transactionId: transactionId,
+                    streamlinedStatus: getStreamlinedStatus(normalizedStatus),
+                    providerOrderId: deposit.id,
+                    blockchain_txid: deposit.txid,
+                    userId: user.id,
+                    currency: currency.toUpperCase(),
+                    amount: +deposit.amount,
+                    fee: +deposit.fee,
+                    amountInFiat: amtFiat?.amount,
+                    rateAtConversion: amtFiat?.rate,
+                    createdAt: depositCreatedAt,
+                    updatedAt: depositCompletedAt || depositCreatedAt,
+                },
+            });
+
+            syncResults.synced++;
+            syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: "synced successfully" });
+            this.logger.log(`Synced deposit: ${deposit.id} - ${deposit.amount} ${currency}`);
+        } catch (depositError) {
+            syncResults.errors++;
+            syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: `error: ${depositError.message}` });
+            this.logger.error(`Error syncing deposit ${deposit.id}: ${depositError.message}`);
+        }
     }
 
     /**
@@ -1715,141 +1695,9 @@ export class TradingService {
         // Handle based on transaction category
         if (transaction.orderCategory === OrderCategory.SEND ||
             transaction.orderCategory === OrderCategory.SELL) {
-            // Withdrawal transaction - check by reference
-            if (!transaction.orderReference) {
-                throw new GeneralTransactionException(
-                    "Transaction reference not found",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            try {
-                const response = await this.getWithdrawerTransactionByReference(
-                    transaction.orderReference,
-                    user.cryptoSubAccountId
-                );
-
-                const quidaxStatus = response.data?.status?.toLowerCase();
-
-                if (quidaxStatus === OrderStatus.done) {
-                    await this.withdrawerTransactionHandler({
-                        orderReference: transaction.orderReference,
-                        status: OrderStatus.done,
-                        txid: response.data?.txid,
-                    });
-
-                    return buildResponse({
-                        message: "Transaction completed successfully",
-                        data: {
-                            transactionId: transaction.transactionId,
-                            status: OrderStatus.done,
-                            streamlinedStatus: "completed",
-                        },
-                    });
-                } else if (quidaxStatus === OrderStatus.rejected) {
-                    await this.withdrawerTransactionHandler({
-                        orderReference: transaction.orderReference,
-                        status: OrderStatus.rejected,
-                        txid: response.data?.txid,
-                    });
-
-                    return buildResponse({
-                        message: "Transaction was rejected",
-                        data: {
-                            transactionId: transaction.transactionId,
-                            status: OrderStatus.rejected,
-                            streamlinedStatus: "failed",
-                        },
-                    });
-                }
-
-                return buildResponse({
-                    message: "Transaction is still processing",
-                    data: {
-                        transactionId: transaction.transactionId,
-                        status: transaction.status,
-                        streamlinedStatus: transaction.streamlinedStatus,
-                        providerStatus: quidaxStatus,
-                    },
-                });
-            } catch (error) {
-                this.logger.error(`Error refreshing transaction ${transactionId}: ${error.message}`);
-                return buildResponse({
-                    message: "Unable to refresh status. Please try again later.",
-                    data: {
-                        transactionId: transaction.transactionId,
-                        status: transaction.status,
-                        streamlinedStatus: transaction.streamlinedStatus,
-                    },
-                });
-            }
+            return this.refreshWithdrawalStatus(transaction, user.cryptoSubAccountId, transactionId);
         } else if (transaction.orderCategory === OrderCategory.SWAP) {
-            // Swap transaction - check by provider order ID
-            if (!transaction.providerOrderId) {
-                throw new GeneralTransactionException(
-                    "Provider order ID not found",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
-            try {
-                const response = await this.verifySwapQuoteTransaction(
-                    transaction.providerOrderId,
-                    user.cryptoSubAccountId
-                );
-
-                const quidaxStatus = response.data?.status;
-
-                if (quidaxStatus === OrderStatus.completed) {
-                    await this.swapTransactionHandler({
-                        orderId: transaction.providerOrderId,
-                        status: OrderStatus.completed,
-                    });
-
-                    return buildResponse({
-                        message: "Swap completed successfully",
-                        data: {
-                            transactionId: transaction.transactionId,
-                            status: OrderStatus.completed,
-                            streamlinedStatus: "completed",
-                        },
-                    });
-                } else if (quidaxStatus === OrderStatus.failed) {
-                    await this.swapTransactionHandler({
-                        orderId: transaction.providerOrderId,
-                        status: OrderStatus.failed,
-                    });
-
-                    return buildResponse({
-                        message: "Swap failed",
-                        data: {
-                            transactionId: transaction.transactionId,
-                            status: OrderStatus.failed,
-                            streamlinedStatus: "failed",
-                        },
-                    });
-                }
-
-                return buildResponse({
-                    message: "Swap is still processing",
-                    data: {
-                        transactionId: transaction.transactionId,
-                        status: transaction.status,
-                        streamlinedStatus: transaction.streamlinedStatus,
-                        providerStatus: quidaxStatus,
-                    },
-                });
-            } catch (error) {
-                this.logger.error(`Error refreshing swap ${transactionId}: ${error.message}`);
-                return buildResponse({
-                    message: "Unable to refresh status. Please try again later.",
-                    data: {
-                        transactionId: transaction.transactionId,
-                        status: transaction.status,
-                        streamlinedStatus: transaction.streamlinedStatus,
-                    },
-                });
-            }
+            return this.refreshSwapStatus(transaction, user.cryptoSubAccountId, transactionId);
         }
 
         return buildResponse({
@@ -1860,6 +1708,118 @@ export class TradingService {
                 streamlinedStatus: transaction.streamlinedStatus,
             },
         });
+    }
+
+    private async refreshWithdrawalStatus(
+        transaction: { transactionId: string; orderReference: string | null; status: OrderStatus; streamlinedStatus: string | null },
+        cryptoSubAccountId: string,
+        transactionId: string
+    ) {
+        if (!transaction.orderReference) {
+            throw new GeneralTransactionException(
+                "Transaction reference not found",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        try {
+            const response = await this.getWithdrawerTransactionByReference(
+                transaction.orderReference,
+                cryptoSubAccountId
+            );
+
+            const quidaxStatus = response.data?.status?.toLowerCase();
+
+            if (quidaxStatus === OrderStatus.done) {
+                await this.withdrawerTransactionHandler({
+                    orderReference: transaction.orderReference,
+                    status: OrderStatus.done,
+                    txid: response.data?.txid,
+                });
+
+                return buildResponse({
+                    message: "Transaction completed successfully",
+                    data: { transactionId: transaction.transactionId, status: OrderStatus.done, streamlinedStatus: "completed" },
+                });
+            } else if (quidaxStatus === OrderStatus.rejected) {
+                await this.withdrawerTransactionHandler({
+                    orderReference: transaction.orderReference,
+                    status: OrderStatus.rejected,
+                    txid: response.data?.txid,
+                });
+
+                return buildResponse({
+                    message: "Transaction was rejected",
+                    data: { transactionId: transaction.transactionId, status: OrderStatus.rejected, streamlinedStatus: "failed" },
+                });
+            }
+
+            return buildResponse({
+                message: "Transaction is still processing",
+                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus, providerStatus: quidaxStatus },
+            });
+        } catch (error) {
+            this.logger.error(`Error refreshing transaction ${transactionId}: ${error.message}`);
+            return buildResponse({
+                message: "Unable to refresh status. Please try again later.",
+                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus },
+            });
+        }
+    }
+
+    private async refreshSwapStatus(
+        transaction: { transactionId: string; providerOrderId: string | null; status: OrderStatus; streamlinedStatus: string | null },
+        cryptoSubAccountId: string,
+        transactionId: string
+    ) {
+        if (!transaction.providerOrderId) {
+            throw new GeneralTransactionException(
+                "Provider order ID not found",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        try {
+            const response = await this.verifySwapQuoteTransaction(
+                transaction.providerOrderId,
+                cryptoSubAccountId
+            );
+
+            const quidaxStatus = response.data?.status;
+
+            if (quidaxStatus === OrderStatus.completed) {
+                await this.swapTransactionHandler({
+                    orderId: transaction.providerOrderId,
+                    status: OrderStatus.completed,
+                });
+
+                return buildResponse({
+                    message: "Swap completed successfully",
+                    data: { transactionId: transaction.transactionId, status: OrderStatus.completed, streamlinedStatus: "completed" },
+                });
+            } else if (quidaxStatus === OrderStatus.failed) {
+                await this.swapTransactionHandler({
+                    orderId: transaction.providerOrderId,
+                    status: OrderStatus.failed,
+                });
+
+                return buildResponse({
+                    message: "Swap failed",
+                    data: { transactionId: transaction.transactionId, status: OrderStatus.failed, streamlinedStatus: "failed" },
+                });
+            }
+
+            return buildResponse({
+                message: "Swap is still processing",
+                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus, providerStatus: quidaxStatus },
+            });
+        } catch (error) {
+            this.logger.error(`Error refreshing swap ${transactionId}: ${error.message}`);
+            return buildResponse({
+                message: "Unable to refresh status. Please try again later.",
+                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus },
+            });
+        }
     }
 
     /**

@@ -12,7 +12,8 @@ const SALT_ROUNDS = 10;
 
 // Test admin credentials - use these for Playwright tests
 const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || "test-admin@flipxer.com";
-const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || "TestAdmin123!";
+const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD;
+if (!TEST_ADMIN_PASSWORD) { console.error('ERROR: TEST_ADMIN_PASSWORD env var required'); process.exit(1); }
 
 async function main() {
     console.log("🔧 Creating test super admin...\n");
