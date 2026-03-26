@@ -2,8 +2,13 @@ require('dotenv').config();
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD || 'FlipxerAdmin2025!';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@flipxer.com';
+const NEW_PASSWORD = process.env.NEW_ADMIN_PASSWORD;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+
+if (!NEW_PASSWORD || !ADMIN_EMAIL) {
+    console.error('ERROR: NEW_ADMIN_PASSWORD and ADMIN_EMAIL environment variables are required');
+    process.exit(1);
+}
 
 // Try internal Render connection (without -a suffix)
 const client = new Client({

@@ -290,45 +290,7 @@ export class CoinGeckoService {
 
                 const result = {
                     prices: chartResponse.data.prices as [number, number][],
-                    market_data: marketResponse ? {
-                        current_price: marketResponse.data.market_data?.current_price?.usd,
-                        market_cap: marketResponse.data.market_data?.market_cap?.usd,
-                        total_volume: marketResponse.data.market_data?.total_volume?.usd,
-                        high_24h: marketResponse.data.market_data?.high_24h?.usd,
-                        low_24h: marketResponse.data.market_data?.low_24h?.usd,
-                        price_change_24h: marketResponse.data.market_data?.price_change_24h,
-                        price_change_percentage_24h: marketResponse.data.market_data?.price_change_percentage_24h,
-                        price_change_percentage_7d: marketResponse.data.market_data?.price_change_percentage_7d_in_currency?.usd,
-                        price_change_percentage_30d: marketResponse.data.market_data?.price_change_percentage_30d_in_currency?.usd,
-                        circulating_supply: marketResponse.data.market_data?.circulating_supply,
-                        max_supply: marketResponse.data.market_data?.max_supply,
-                        ath: marketResponse.data.market_data?.ath?.usd,
-                        ath_date: marketResponse.data.market_data?.ath_date?.usd,
-                        atl: marketResponse.data.market_data?.atl?.usd,
-                        atl_date: marketResponse.data.market_data?.atl_date?.usd,
-                    } : {
-                        // Fallback: calculate current price from last price point
-                        current_price: chartResponse.data.prices?.length > 0
-                            ? chartResponse.data.prices[chartResponse.data.prices.length - 1][1]
-                            : null,
-                        market_cap: null,
-                        total_volume: null,
-                        high_24h: null,
-                        low_24h: null,
-                        price_change_24h: null,
-                        price_change_percentage_24h: chartResponse.data.prices?.length >= 2
-                            ? ((chartResponse.data.prices[chartResponse.data.prices.length - 1][1] -
-                                chartResponse.data.prices[0][1]) / chartResponse.data.prices[0][1]) * 100
-                            : null,
-                        price_change_percentage_7d: null,
-                        price_change_percentage_30d: null,
-                        circulating_supply: null,
-                        max_supply: null,
-                        ath: null,
-                        ath_date: null,
-                        atl: null,
-                        atl_date: null,
-                    },
+                    market_data: this.buildMarketData(marketResponse, chartResponse.data.prices),
                 };
 
                 // Cache for 10 minutes for short periods, 1 hour for longer periods (increased from 5/30 min)
@@ -403,19 +365,7 @@ export class CoinGeckoService {
                     }
                 );
 
-                for (const coin of response.data) {
-                    const assetSymbol = Object.entries(this.coinGeckoIdMap).find(
-                        ([, id]) => id === coin.id
-                    )?.[0];
-
-                    if (assetSymbol && coin.sparkline_in_7d?.price) {
-                        const sparkline = coin.sparkline_in_7d.price;
-                        result[assetSymbol] = sparkline;
-
-                        const cacheKey = `coingecko:sparkline:${assetSymbol}`;
-                        await this.redisCacheService.set(cacheKey, sparkline, 30 * 60);
-                    }
-                }
+                await this.cacheSparklineResults(response.data, result);
 
                 this.logger.debug(`Sparklines fetched for ${Object.keys(result).length} assets`);
                 return result;
@@ -430,6 +380,72 @@ export class CoinGeckoService {
         }
 
         return result;
+    }
+
+    private buildMarketData(marketResponse: any, chartPrices: [number, number][]): Record<string, any> {
+        if (marketResponse) {
+            const md = marketResponse.data.market_data;
+            return {
+                current_price: md?.current_price?.usd,
+                market_cap: md?.market_cap?.usd,
+                total_volume: md?.total_volume?.usd,
+                high_24h: md?.high_24h?.usd,
+                low_24h: md?.low_24h?.usd,
+                price_change_24h: md?.price_change_24h,
+                price_change_percentage_24h: md?.price_change_percentage_24h,
+                price_change_percentage_7d: md?.price_change_percentage_7d_in_currency?.usd,
+                price_change_percentage_30d: md?.price_change_percentage_30d_in_currency?.usd,
+                circulating_supply: md?.circulating_supply,
+                max_supply: md?.max_supply,
+                ath: md?.ath?.usd,
+                ath_date: md?.ath_date?.usd,
+                atl: md?.atl?.usd,
+                atl_date: md?.atl_date?.usd,
+            };
+        }
+
+        const lastPrice = chartPrices?.length > 0 ? chartPrices[chartPrices.length - 1][1] : null;
+        const priceChange = chartPrices?.length >= 2
+            ? ((chartPrices[chartPrices.length - 1][1] - chartPrices[0][1]) / chartPrices[0][1]) * 100
+            : null;
+
+        return {
+            current_price: lastPrice,
+            market_cap: null,
+            total_volume: null,
+            high_24h: null,
+            low_24h: null,
+            price_change_24h: null,
+            price_change_percentage_24h: priceChange,
+            price_change_percentage_7d: null,
+            price_change_percentage_30d: null,
+            circulating_supply: null,
+            max_supply: null,
+            ath: null,
+            ath_date: null,
+            atl: null,
+            atl_date: null,
+        };
+    }
+
+    private async cacheSparklineResults(
+        responseData: any[],
+        result: Record<string, number[]>,
+    ): Promise<void> {
+        for (const coin of responseData) {
+            const assetSymbol = Object.entries(this.coinGeckoIdMap).find(
+                ([, id]) => id === coin.id
+            )?.[0];
+
+            if (assetSymbol && coin.sparkline_in_7d?.price) {
+                result[assetSymbol] = coin.sparkline_in_7d.price;
+                await this.redisCacheService.set(
+                    `coingecko:sparkline:${assetSymbol}`,
+                    coin.sparkline_in_7d.price,
+                    30 * 60,
+                );
+            }
+        }
     }
 
     /**

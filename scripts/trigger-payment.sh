@@ -20,7 +20,7 @@ API_URL="https://flipxer-api.onrender.com/api/webhook/fincra"
 # Get the webhook secret from environment (only available on Render)
 WEBHOOK_SECRET="${FINCRA_WEBHOOK_SECRET}"
 
-if [ -z "$WEBHOOK_SECRET" ]; then
+if [[ -z "$WEBHOOK_SECRET" ]]; then
     echo "ERROR: FINCRA_WEBHOOK_SECRET environment variable is not set"
     echo "This script must be run on the Render server"
     exit 1

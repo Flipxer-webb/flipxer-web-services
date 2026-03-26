@@ -6,7 +6,7 @@
 set -e
 
 # Load environment variables
-if [ -f .env ]; then
+if [[ -f .env ]]; then
   export $(cat .env | grep -v '#' | xargs)
 fi
 

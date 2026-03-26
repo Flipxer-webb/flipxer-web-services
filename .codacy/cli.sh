@@ -20,6 +20,9 @@ case "$arch" in
 "aarch64"|"arm64")
   arch="arm64"
   ;;
+*)
+  echo "Warning: unsupported architecture $arch" >&2
+  ;;
 esac
 
 if [ -z "$CODACY_CLI_V2_TMP_FOLDER" ]; then

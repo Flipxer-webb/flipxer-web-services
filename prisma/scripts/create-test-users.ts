@@ -18,7 +18,7 @@ const generatePhone = customAlphabet("0123456789", 10);
 // ─── Test credentials ───────────────────────────────────────────
 const TEST_ADMIN = {
     email: "audit-admin@flipxer.test",
-    password: process.env.TEST_ADMIN_PASSWORD || "AuditAdmin@2026!",
+    password: process.env.TEST_ADMIN_PASSWORD,
     firstName: "Audit",
     lastName: "Admin",
     userType: UserType.ADMIN,
@@ -27,13 +27,18 @@ const TEST_ADMIN = {
 
 const TEST_USER = {
     email: "audit-user@flipxer.test",
-    password: process.env.TEST_USER_PASSWORD || "AuditUser@2026!",
+    password: process.env.TEST_USER_PASSWORD,
     firstName: "Audit",
     lastName: "User",
     userType: UserType.INDIVIDUAL,
     roleSlug: "individual",
 };
 // ─────────────────────────────────────────────────────────────────
+
+if (!TEST_ADMIN.password || !TEST_USER.password) {
+    console.error("❌ TEST_ADMIN_PASSWORD and TEST_USER_PASSWORD environment variables are required");
+    process.exit(1);
+}
 
 async function upsertTestUser(config: typeof TEST_ADMIN | typeof TEST_USER) {
     const role = await prisma.role.findUnique({
