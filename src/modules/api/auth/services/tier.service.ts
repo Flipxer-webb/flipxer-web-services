@@ -4,7 +4,7 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 import { User, UserType } from "@prisma/client";
 import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
 
-export { TierLevel };
+export { TierLevel } from "@/modules/shared/tier-limits";
 
 export interface TierInfo {
     tier: TierLevel;

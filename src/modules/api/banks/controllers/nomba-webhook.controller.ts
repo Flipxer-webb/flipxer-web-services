@@ -4,7 +4,7 @@ import { NormalizedPaymentEvent } from "../types/payment-event.interface";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TransactionStatus, OrderCategory, OrderStatus } from "@prisma/client";
 import * as Config from "@/config";
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 import { BuyOrderService } from "../../trade/services/buy-order.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 

@@ -81,7 +81,7 @@ export class DepositReviewService {
         });
 
         // If no float config or not active, allow deposit
-        if (!floatConfig || !floatConfig.isActive) {
+        if (!floatConfig?.isActive) {
             return {
                 allowed: true,
                 queued: false,
@@ -253,8 +253,8 @@ export class DepositReviewService {
         // or handle it here.
         // For backward compatibility or safety, if no status is passed, maybe return all?
         // Let's check if the current implementation defaulted to PENDING. Yes it did.
-        if (!status) where.status = DepositReviewStatus.PENDING;
-        else where.status = status;
+        if (status) where.status = status;
+        else where.status = DepositReviewStatus.PENDING;
         if (currency) where.currency = currency;
 
         const [reviews, count] = await Promise.all([

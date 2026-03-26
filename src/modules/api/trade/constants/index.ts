@@ -170,18 +170,17 @@ export const DEFAULT_TRANSACTION_MAX_WAIT_MS = 5000;
 
 // ==================== TIER & LIMITS ====================
 
-// Import from shared module — single source of truth
-import { TIER_WITHDRAWAL_LIMITS, TIER_MONTHLY_LIMITS as SHARED_MONTHLY_LIMITS } from "@/modules/shared/tier-limits";
+// Re-export from shared module — single source of truth
 
 /**
  * @deprecated Use TIER_WITHDRAWAL_LIMITS from @/modules/shared/tier-limits directly
  */
-export const TIER_DAILY_LIMITS = TIER_WITHDRAWAL_LIMITS;
+export { TIER_WITHDRAWAL_LIMITS as TIER_DAILY_LIMITS } from "@/modules/shared/tier-limits";
 
 /**
  * @deprecated Use TIER_MONTHLY_LIMITS from @/modules/shared/tier-limits directly
  */
-export const TIER_MONTHLY_LIMITS = SHARED_MONTHLY_LIMITS;
+export { TIER_MONTHLY_LIMITS } from "@/modules/shared/tier-limits";
 
 // ==================== BATCH SIZES ====================
 

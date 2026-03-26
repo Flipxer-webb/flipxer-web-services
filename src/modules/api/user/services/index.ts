@@ -484,8 +484,6 @@ export class UserService {
             this.rateService.getAllRates(),
         ]);
 
-        const referenceCurrency = "ngn";
-
         // Create map for rates (AssetRate has sellRate/buyRate)
         const rateMap = new Map(
             allRates.map(r => [r.currency.toUpperCase(), r])

@@ -24,7 +24,7 @@ import { emailTemplateConfig, mailConfig, COMPANY_NAME } from "@/config";
 @Injectable()
 export class KycService {
     private readonly logger = new Logger(KycService.name);
-    private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
+    private readonly getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -401,18 +401,24 @@ export class KycService {
 
         // Send notification to user about KYC status
         const notificationType = verificationType ? `${verificationType.toLowerCase()} ` : "";
-        const title =
-            action === "APPROVE"
-                ? "KYC Verification Approved"
-                : action === "REJECT"
-                    ? "KYC Verification Rejected"
-                    : "KYC Verification Escalated";
-        const body =
-            action === "APPROVE"
-                ? `Your ${notificationType}verification has been approved.`
-                : action === "REJECT"
-                    ? `Your ${notificationType}verification was rejected. Reason: ${note || "No reason provided."}`
-                    : `Your ${notificationType}verification has been escalated for additional review.`;
+
+        let title: string;
+        if (action === "APPROVE") {
+            title = "KYC Verification Approved";
+        } else if (action === "REJECT") {
+            title = "KYC Verification Rejected";
+        } else {
+            title = "KYC Verification Escalated";
+        }
+
+        let body: string;
+        if (action === "APPROVE") {
+            body = `Your ${notificationType}verification has been approved.`;
+        } else if (action === "REJECT") {
+            body = `Your ${notificationType}verification was rejected. Reason: ${note || "No reason provided."}`;
+        } else {
+            body = `Your ${notificationType}verification has been escalated for additional review.`;
+        }
 
         // KC-002: fire-and-forget — notification/email failure should not
         // block the response after the KYC decision has been committed.

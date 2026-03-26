@@ -167,7 +167,7 @@ export class DojahService {
         try {
             const resp = await this.dojah.getVerificationResult(verificationId);
 
-            if (!resp || !resp.data) {
+            if (!resp?.data) {
                 return { verified: false, status: 'not_found' };
             }
 

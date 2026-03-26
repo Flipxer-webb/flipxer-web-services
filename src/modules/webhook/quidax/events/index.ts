@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import { EventBody, WebhookEventMap } from "../interfaces";
 import { QuidaxWebhookService } from "../services";
 

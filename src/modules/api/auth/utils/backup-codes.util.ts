@@ -5,7 +5,7 @@
  * Format: ABCD-1234-EFGH (10-digit alphanumeric with dashes)
  */
 
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 
 /**

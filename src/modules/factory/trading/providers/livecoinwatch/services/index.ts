@@ -153,7 +153,7 @@ export class LiveCoinWatchService {
 
         // USDT itself is always 1:1
         if (normalizedAsset === "USDT") {
-            return 1.0;
+            return 1;
         }
 
         this.logger.debug(`Fetching USDT price for asset: ${asset}`);
@@ -232,8 +232,9 @@ export class LiveCoinWatchService {
         this.logger.debug(`Batch fetching USDT prices for: ${normalizedAssets.join(", ")}`);
 
         const batchKey = `lcw:batch-usdt:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
-        if (this.inFlightBatchUsdtRequests.has(batchKey)) {
-            return this.inFlightBatchUsdtRequests.get(batchKey)!;
+        const inflightBatchUsdt = this.inFlightBatchUsdtRequests.get(batchKey);
+        if (inflightBatchUsdt) {
+            return inflightBatchUsdt;
         }
 
         const requestPromise = (async () => {
@@ -241,7 +242,7 @@ export class LiveCoinWatchService {
 
             // Handle USDT immediately - it's always 1:1
             if (normalizedAssets.some(a => a.toUpperCase() === "USDT")) {
-                result["usdt"] = 1.0;
+                result["usdt"] = 1;
             }
 
             // Filter out USDT for the API call
@@ -556,8 +557,9 @@ export class LiveCoinWatchService {
         this.logger.debug(`Batch fetching market data for: ${normalizedAssets.join(", ")}`);
 
         const batchKey = `lcw:batch-market:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
-        if (this.inFlightBatchMarketRequests.has(batchKey)) {
-            return this.inFlightBatchMarketRequests.get(batchKey)!;
+        const inflightBatchMarket = this.inFlightBatchMarketRequests.get(batchKey);
+        if (inflightBatchMarket) {
+            return inflightBatchMarket;
         }
 
         const requestPromise = (async () => {

@@ -6,6 +6,8 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { Decimal } from "@prisma/client/runtime/library";
 
+export type SolvencyStatus = "HEALTHY" | "WARNING" | "CRITICAL";
+
 /**
  * Solvency status for a single currency
  */
@@ -16,7 +18,7 @@ export interface CurrencySolvency {
     reserveRatio: number;          // (reserves / liabilities) * 100
     pendingWithdrawals: Decimal;   // Holdings not yet settled
     effectiveReserveRatio: number; // (reserves / (liabilities + pending)) * 100
-    status: "HEALTHY" | "WARNING" | "CRITICAL";
+    status: SolvencyStatus;
 }
 
 /**
@@ -25,7 +27,7 @@ export interface CurrencySolvency {
 export interface SolvencyReport {
     timestamp: Date;
     currencies: CurrencySolvency[];
-    overallStatus: "HEALTHY" | "WARNING" | "CRITICAL";
+    overallStatus: SolvencyStatus;
     alertsSent: number;
 }
 
@@ -66,7 +68,7 @@ export class SolvencyService {
     private readonly CRITICAL_THRESHOLD = 25;   // < 25% = CRITICAL
 
     // Track last alert to prevent spam
-    private lastAlertTimestamp: Map<string, Date> = new Map();
+    private readonly lastAlertTimestamp: Map<string, Date> = new Map();
     private readonly ALERT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 
     constructor(
@@ -114,11 +116,14 @@ export class SolvencyService {
         // Determine overall status
         const hasCritical = currencies.some((c) => c.status === "CRITICAL");
         const hasWarning = currencies.some((c) => c.status === "WARNING");
-        const overallStatus = hasCritical
-            ? "CRITICAL"
-            : hasWarning
-                ? "WARNING"
-                : "HEALTHY";
+        let overallStatus: SolvencyStatus;
+        if (hasCritical) {
+            overallStatus = "CRITICAL";
+        } else if (hasWarning) {
+            overallStatus = "WARNING";
+        } else {
+            overallStatus = "HEALTHY";
+        }
 
         const report: SolvencyReport = {
             timestamp,

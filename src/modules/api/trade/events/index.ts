@@ -1,4 +1,4 @@
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { TradingService } from "../services";
 import { TradingEventMap } from "../interfaces/trade";

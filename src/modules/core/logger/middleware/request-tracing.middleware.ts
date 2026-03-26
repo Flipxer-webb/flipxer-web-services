@@ -119,8 +119,8 @@ export class RequestTracingMiddleware implements NestMiddleware {
         // Check for user ID in query params (admin routes)
         const userId = req.query.userId;
         if (userId && typeof userId === "string") {
-            const parsed = parseInt(userId, 10);
-            if (!isNaN(parsed)) {
+            const parsed = Number.parseInt(userId, 10);
+            if (!Number.isNaN(parsed)) {
                 return parsed;
             }
         }

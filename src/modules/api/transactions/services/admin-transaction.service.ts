@@ -572,7 +572,7 @@ export class AdminTransactionService {
         }
 
         // Reset to pending for retry - this updates the UI status
-        const updatedTransaction = await this.prisma.order.update({
+        await this.prisma.order.update({
             where: { transactionId },
             data: {
                 streamlinedStatus: OrderStreamlinedStatus.pending,

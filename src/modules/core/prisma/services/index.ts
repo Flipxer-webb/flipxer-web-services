@@ -7,11 +7,11 @@ import { PrismaClient, Prisma } from "@prisma/client";
  */
 const CONNECTION_POOL_CONFIG = {
     // Maximum number of connections in the pool
-    connectionLimit: parseInt(process.env.DATABASE_POOL_SIZE || '10', 10),
+    connectionLimit: Number.parseInt(process.env.DATABASE_POOL_SIZE || '10', 10),
     // Connection timeout in milliseconds
-    connectTimeout: parseInt(process.env.DATABASE_CONNECT_TIMEOUT || '10000', 10),
+    connectTimeout: Number.parseInt(process.env.DATABASE_CONNECT_TIMEOUT || '10000', 10),
     // Maximum time a connection can be idle before being closed
-    poolTimeout: parseInt(process.env.DATABASE_POOL_TIMEOUT || '10000', 10),
+    poolTimeout: Number.parseInt(process.env.DATABASE_POOL_TIMEOUT || '10000', 10),
 };
 
 /**

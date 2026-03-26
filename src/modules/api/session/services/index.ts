@@ -8,7 +8,6 @@ import {
     InvalidSessionException,
 } from "../errors";
 import { REFRESH_TOKEN_EXPIRATION } from "@/config";
-import { randomUUID } from "crypto";
 import { isLikelyBotTraffic, getBotTrafficReason, isCloudProviderIP, isSuspiciousCombination } from "../utils/bot-detection";
 
 // Server-side inactivity limit (30 minutes) - sessions inactive beyond this are considered invalid

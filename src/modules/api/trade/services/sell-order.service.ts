@@ -145,7 +145,7 @@ export class SellOrderService {
             );
         }
 
-        const { depositAddress, defaultNetwork, assetCurrency } = assetWallet;
+        const { depositAddress, defaultNetwork } = assetWallet;
 
         if ((!depositAddress || !defaultNetwork) && !internal) {
             // Internal sells might not need deposit address if just balance deduction? 

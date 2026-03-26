@@ -32,8 +32,8 @@ function countTranspositions(s1: string, s2: string, s1Matches: boolean[], s2Mat
  * Returns a value between 0.0 (no match) and 1.0 (exact match).
  */
 function jaroSimilarity(s1: string, s2: string): number {
-    if (s1 === s2) return 1.0;
-    if (s1.length === 0 || s2.length === 0) return 0.0;
+    if (s1 === s2) return 1;
+    if (s1.length === 0 || s2.length === 0) return 0;
 
     const matchWindow = Math.max(Math.floor(Math.max(s1.length, s2.length) / 2) - 1, 0);
 
@@ -56,7 +56,7 @@ function jaroSimilarity(s1: string, s2: string): number {
         }
     }
 
-    if (matches === 0) return 0.0;
+    if (matches === 0) return 0;
 
     const transpositions = countTranspositions(s1, s2, s1Matches, s2Matches);
 
@@ -101,7 +101,7 @@ export function normaliseName(name: string): string {
         .toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "") // strip combining diacritical marks
-        .replace(/[-]+/g, " ")           // hyphens → spaces
+        .replace(/-+/g, " ")           // hyphens → spaces
         .replace(/\s+/g, " ")            // collapse whitespace
         .trim();
 }
@@ -178,7 +178,7 @@ export function matchDateOfBirth(userDob: string, providerDob: string): boolean 
         if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned;
 
         // Try DD-MM-YYYY or DD/MM/YYYY
-        const dmyMatch = cleaned.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+        const dmyMatch = /^(\d{2})[-/](\d{2})[-/](\d{4})$/.exec(cleaned);
         if (dmyMatch) {
             return `${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`;
         }

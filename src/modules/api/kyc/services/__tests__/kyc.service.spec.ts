@@ -10,8 +10,6 @@ import { UserType } from "@prisma/client";
 
 describe("KycService", () => {
     let service: KycService;
-    let prismaService: PrismaService;
-    let tierService: TierService;
 
     const mockPrismaService = {
         user: {
@@ -64,8 +62,6 @@ describe("KycService", () => {
         }).compile();
 
         service = module.get<KycService>(KycService);
-        prismaService = module.get<PrismaService>(PrismaService);
-        tierService = module.get<TierService>(TierService);
 
         jest.clearAllMocks();
     });

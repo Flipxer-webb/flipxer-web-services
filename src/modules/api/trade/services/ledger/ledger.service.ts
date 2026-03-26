@@ -975,8 +975,8 @@ export class LedgerService {
             );
         }
 
-        const firstLockUser = fromUserId < toUserId ? fromUserId : toUserId;
-        const secondLockUser = fromUserId < toUserId ? toUserId : fromUserId;
+        const firstLockUser = Math.min(fromUserId, toUserId);
+        const secondLockUser = Math.max(fromUserId, toUserId);
 
         const lockKey1 = `ledger:${firstLockUser}:${upperCurrency}`;
         const lockKey2 = `ledger:${secondLockUser}:${upperCurrency}`;
@@ -1544,7 +1544,7 @@ export class LedgerService {
                     action,
                     actor,
                     reason,
-                    metadata: metadata ? metadata : undefined,
+                    metadata: metadata ?? undefined,
                 },
             });
         } catch (error) {
@@ -1667,7 +1667,7 @@ export class LedgerService {
         let count = 0;
 
         for (const entry of entries) {
-            let action: AuditAction = AuditAction.CREATED;
+            let action: AuditAction;
             // Map status/type to Action
             // If entry is HOLD -> HOLD_PLACED
             // If entry is SETTLED and was originally a HOLD -> We can't easily know history without looking at updates, 
@@ -1737,17 +1737,7 @@ export class LedgerService {
      * @param options Credit options
      */
     async pairedCredit(options: PairedCreditOptions): Promise<PairedLedgerResult> {
-        const {
-            userId,
-            currency,
-            type,
-            reference,
-            tradeGroupId,
-            description,
-            metadata,
-            sweepStatus,
-            createPlatformEntry = true
-        } = options;
+        const { userId, currency, createPlatformEntry = true } = options;
 
         // Platform User ID check to prevent infinite loops if crediting platform
         if (userId === LedgerService.PLATFORM_USER_ID) {
@@ -1878,7 +1868,7 @@ export class LedgerService {
                 };
             }
 
-            this.logger.log(`Paired credit success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? `Debited` : 'Skipped'}`);
+            this.logger.log(`Paired credit success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? 'Debited' : 'Skipped'}`);
 
             // --- Audit Logs ---
             const audits = [
@@ -2041,7 +2031,7 @@ export class LedgerService {
             };
         }
 
-        this.logger.log(`Paired credit (in-tx) success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? `Debited` : 'Skipped'}`);
+        this.logger.log(`Paired credit (in-tx) success | User: ${userId} (+${amount}) | Platform: ${createPlatformEntry ? 'Debited' : 'Skipped'}`);
 
         // Audit logs (using same transaction client for FK integrity)
         const audits = [
@@ -2070,17 +2060,7 @@ export class LedgerService {
      * Optional network fee handling
      */
     async pairedDebit(options: PairedDebitOptions): Promise<PairedLedgerResult> {
-        const {
-            userId,
-            currency,
-            type,
-            reference,
-            tradeGroupId,
-            description,
-            metadata,
-            createPlatformEntry = true,
-            networkFee = 0
-        } = options;
+        const { userId, currency, networkFee = 0 } = options;
 
         if (userId === LedgerService.PLATFORM_USER_ID) {
             return { success: false, error: "Cannot use pairedDebit for platform user" };
@@ -2274,7 +2254,7 @@ export class LedgerService {
      * Releases a hold and creates platform entries if settling
      */
     async releaseHoldWithPlatformEntry(options: ReleaseHoldWithPlatformOptions): Promise<PairedLedgerResult> {
-        const { holdReference, settle, description, tradeGroupId, createPlatformEntry = true, networkFee = 0 } = options;
+        const { holdReference } = options;
 
         const holdEntry = await this.prisma.ledgerEntry.findFirst({
             where: { reference: holdReference, status: EntryStatus.HOLD },

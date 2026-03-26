@@ -1249,8 +1249,8 @@ export class TradingService {
         const ticker = marketData.data?.ticker;
         if (!ticker) return null;
 
-        const rate = parseFloat(ticker[rateType]);
-        if (isNaN(rate)) return null;
+        const rate = Number.parseFloat(ticker[rateType]);
+        if (Number.isNaN(rate)) return null;
 
         return {
             amount: amount * rate,

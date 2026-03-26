@@ -279,7 +279,7 @@ export class RateService {
         const priceMap = new Map(
             currencies.map((currency) => {
                 if (currency === "USDT") {
-                    return [currency, 1.0] as const;
+                    return [currency, 1] as const;
                 }
 
                 return [currency, batchPrices[currency.toLowerCase()] ?? null] as const;
@@ -298,7 +298,7 @@ export class RateService {
                     buyRate: usdtBaseRate.buyRate,
                     sellRate: usdtBaseRate.sellRate,
                     source: "database" as const,
-                    usdtPrice: 1.0,
+                    usdtPrice: 1,
                     lastUpdated: new Date(),
                 };
             }

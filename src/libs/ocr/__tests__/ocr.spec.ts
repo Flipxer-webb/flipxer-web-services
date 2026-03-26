@@ -100,26 +100,26 @@ describe("Document Date Extraction (extractDocumentDate)", () => {
             const text = "Issued on 15 January 2025";
             const result = extractDocumentDate(text);
             expect(result).not.toBeNull();
-            expect(result!.getFullYear()).toBe(2025);
-            expect(result!.getMonth()).toBe(0);
-            expect(result!.getDate()).toBe(15);
+            expect(result?.getFullYear()).toBe(2025);
+            expect(result?.getMonth()).toBe(0);
+            expect(result?.getDate()).toBe(15);
         });
 
         it('should parse "Month DD, YYYY"', () => {
             const text = "Date: February 5, 2025";
             const result = extractDocumentDate(text);
             expect(result).not.toBeNull();
-            expect(result!.getFullYear()).toBe(2025);
-            expect(result!.getMonth()).toBe(1);
-            expect(result!.getDate()).toBe(5);
+            expect(result?.getFullYear()).toBe(2025);
+            expect(result?.getMonth()).toBe(1);
+            expect(result?.getDate()).toBe(5);
         });
 
         it("should parse abbreviated month names", () => {
             const text = "Statement for Dec 2024. Due: 15 Dec 2024";
             const result = extractDocumentDate(text);
             expect(result).not.toBeNull();
-            expect(result!.getFullYear()).toBe(2024);
-            expect(result!.getMonth()).toBe(11);
+            expect(result?.getFullYear()).toBe(2024);
+            expect(result?.getMonth()).toBe(11);
         });
     });
 
@@ -128,9 +128,9 @@ describe("Document Date Extraction (extractDocumentDate)", () => {
             const text = "Period: 01/01/2025 to 31/03/2025. Due: 15/04/2025";
             const result = extractDocumentDate(text);
             expect(result).not.toBeNull();
-            expect(result!.getFullYear()).toBe(2025);
-            expect(result!.getMonth()).toBe(3); // April = 3
-            expect(result!.getDate()).toBe(15);
+            expect(result?.getFullYear()).toBe(2025);
+            expect(result?.getMonth()).toBe(3); // April = 3
+            expect(result?.getDate()).toBe(15);
         });
     });
 

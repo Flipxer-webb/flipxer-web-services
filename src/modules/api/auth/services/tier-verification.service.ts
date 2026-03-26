@@ -512,7 +512,7 @@ export class TierVerificationService {
         });
 
         // Create audit record for Dojah widget verification
-        const verificationType = idType === "bvn" ? "BVN" : idType === "nin" ? "NIN" : "DOCUMENT";
+        const verificationType = idType === "bvn" ? "BVN" : (idType === "nin" ? "NIN" : "DOCUMENT");
         await this.prisma.kycVerification.create({
             data: {
                 userId: user.id,

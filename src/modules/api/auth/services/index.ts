@@ -93,7 +93,7 @@ import {
 } from "../interfaces";
 import { CryptoAccountQueueProducer } from "../../trade/queues/producers/producer.service";
 import { authenticator } from "otplib";
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 import { SmsService } from "@/modules/core/sms/services";
 import { SessionService } from "../../session/services";
 import { SessionInfo } from "../../session/interfaces";
@@ -153,7 +153,7 @@ export class AuthService {
     private uploadService: ImagekitService | CloudinaryService;
     private readonly SALT_ROUNDS = 10;
     private readonly SIGNUP_CACHE_TTL = 3600; // 1 hour
-    private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
+    private readonly getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
     private maskSensitiveId(value?: string, visibleDigits: number = 4): string {
         if (!value) return "N/A";
@@ -355,7 +355,7 @@ export class AuthService {
                 expiryDate = new Date(expiryDateStr);
             }
 
-            if (isNaN(expiryDate.getTime())) {
+            if (Number.isNaN(expiryDate.getTime())) {
                 this.logger.warn(`Could not parse expiry date: ${expiryDateStr}`);
                 return false;
             }
@@ -1692,14 +1692,19 @@ export class AuthService {
             // Determine if OCR extracted enough text to allow submission for manual review
             const canProceedForReview = parsed.hasExtractedText;
 
+            let message: string;
+            if (parsed.isValid) {
+                message = "Document analyzed successfully";
+            } else if (canProceedForReview) {
+                message = "Document needs review but key details were extracted. You can proceed to submit.";
+            } else {
+                message = this.mapDojahReasonToUserMessage(parsed.reason);
+            }
+
             // Return extracted data for user verification
             return {
                 success: true,
-                message: parsed.isValid
-                    ? "Document analyzed successfully"
-                    : canProceedForReview
-                        ? "Document needs review but key details were extracted. You can proceed to submit."
-                        : this.mapDojahReasonToUserMessage(parsed.reason),
+                message,
                 data: {
                     isValid: parsed.isValid,
                     reason: parsed.reason,

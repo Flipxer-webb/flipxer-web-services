@@ -7,7 +7,6 @@ import { EmailService } from '@/modules/core/email/services';
 import { UploadFactory } from '@/modules/core/upload/services';
 import { QuidaxCacheService } from '@/modules/core/redisCache/services/quidax-cache.service';
 import { TierService } from '../../auth/services/tier.service';
-import { LiveCoinWatchService } from '@/modules/factory/trading/providers/livecoinwatch/services';
 import { RedisCacheService } from '@/modules/core/redisCache/services/redis-cache.service';
 import { LedgerService } from '@/modules/api/trade/services/ledger/ledger.service';
 import { RateService } from '@/modules/api/trade/services/rate.service';
@@ -16,9 +15,6 @@ import { TradingInjectionToken } from '@/modules/factory/trading/types';
 
 describe('UserService', () => {
     let service: UserService;
-    let prismaService: PrismaService;
-    let redisCacheService: RedisCacheService;
-    let tierService: TierService;
 
     const mockPrismaService = {
         user: {
@@ -62,9 +58,6 @@ describe('UserService', () => {
         }).compile();
 
         service = module.get<UserService>(UserService);
-        prismaService = module.get<PrismaService>(PrismaService);
-        redisCacheService = module.get<RedisCacheService>(RedisCacheService);
-        tierService = module.get<TierService>(TierService);
     });
 
     it('should be defined', () => {

@@ -25,14 +25,10 @@ import {
 } from "../../transactions/errors";
 import { TransactionNotFoundException } from "../../trade";
 import {
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     OrderStreamlinedStatus,
     TransactionStatus,
-    UserNotificationTarget,
 } from "@prisma/client";
 import logger from "moment-logger";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
@@ -729,8 +725,8 @@ export class BankService {
         const ticker = marketData.data?.ticker;
         if (!ticker) return null;
 
-        const rate = parseFloat(ticker[rateType]);
-        if (isNaN(rate)) return null;
+        const rate = Number.parseFloat(ticker[rateType]);
+        if (Number.isNaN(rate)) return null;
 
         return {
             amount: amount * rate,

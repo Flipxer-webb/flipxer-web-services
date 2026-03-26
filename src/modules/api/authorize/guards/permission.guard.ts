@@ -5,7 +5,7 @@ import {
     HttpStatus,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { Permission, Role, RolePermission } from "@prisma/client";
+import { Permission, Role, RolePermission, UserType } from "@prisma/client";
 import {
     PermissionNotFoundException,
     RoleNotFoundException,
@@ -39,6 +39,19 @@ export class PermissionGuard implements CanActivate {
                 HttpStatus.NOT_FOUND
             );
         }
+
+        // SUPER_ADMIN userType has unrestricted access — bypass permission lookup
+        if (user.userType === UserType.SUPER_ADMIN) {
+            return true;
+        }
+
+        if (!user.roleId) {
+            throw new RoleNotFoundException(
+                `No role assigned to this account. Contact a super admin.`,
+                HttpStatus.FORBIDDEN
+            );
+        }
+
         const userRole: Role = await this.prismaService.role.findUnique({
             where: {
                 id: user.roleId,

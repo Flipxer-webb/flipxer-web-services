@@ -397,7 +397,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
 
             // INCRBYFLOAT is atomic - perfect for rate limiting
             const result = await this.client.incrbyfloat(key, increment);
-            const newValue = parseFloat(result);
+            const newValue = Number.parseFloat(result);
 
             // Set TTL if this is a new key (value equals increment means it was just created)
             if (ttlSeconds && Math.abs(newValue - increment) < 0.001) {
@@ -443,7 +443,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
 
             const value = await this.client.get(key);
             this.recordSuccess();
-            return value ? parseFloat(value) : 0;
+            return value ? Number.parseFloat(value) : 0;
         } catch (error) {
             this.recordFailure();
             this.logger.error(`Redis GET counter error for ${key}: ${error.message}`);

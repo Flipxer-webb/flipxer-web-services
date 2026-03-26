@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "@/modules/core/prisma/services";
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 
 interface TransactionVerificationPayload {
     userId: number;

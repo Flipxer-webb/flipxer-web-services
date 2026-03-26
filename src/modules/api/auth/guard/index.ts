@@ -30,8 +30,7 @@ import logger from "moment-logger";
 import { Status, OrderCategory } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { Observable } from "rxjs";
-import * as crypto from "crypto";
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import * as requestIp from "request-ip";
 import { GeoIPService } from "@/modules/core/geoip/geoip.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -227,7 +226,7 @@ export class QuidaxWebhookGuard implements CanActivate {
         }
 
         // SECURITY: Validate timestamp to prevent replay attacks
-        const webhookTimestamp = parseInt(timestamp, 10);
+        const webhookTimestamp = Number.parseInt(timestamp, 10);
         const now = Math.floor(Date.now() / 1000);
         const timeDifference = Math.abs(now - webhookTimestamp);
 
@@ -247,8 +246,7 @@ export class QuidaxWebhookGuard implements CanActivate {
         }
         const payload = `${timestamp}.${requestBody}`;
 
-        const expectedSignature = crypto
-            .createHmac("sha256", quidaxConfig.webhook_key)
+        const expectedSignature = createHmac("sha256", quidaxConfig.webhook_key)
             .update(payload)
             .digest("hex");
 
@@ -262,7 +260,7 @@ export class QuidaxWebhookGuard implements CanActivate {
                 return false;
             }
 
-            const isValid = crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+            const isValid = timingSafeEqual(signatureBuffer, expectedBuffer);
 
             if (isValid) {
                 this.logger.log(`[WEBHOOK AUTH] Signature verified for event: ${request.body?.event}`);

@@ -14,7 +14,7 @@ import {
     QueueReason,
     User,
 } from "@prisma/client";
-import { IncompleteAccountSetupException, UnknownFeeStructureException, RateLimitExceededException } from "../errors";
+import { IncompleteAccountSetupException, UnknownFeeStructureException, RateLimitExceededException, GeneralTransactionException } from "../errors";
 import {
     CancelWithdrawerRequestDto,
     GetCryptoWithdrawerFeeDto,
@@ -33,7 +33,6 @@ import { SweepService } from "./ledger/sweep.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { Decimal } from "@prisma/client/runtime/library";
 import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
-import { GeneralTransactionException } from "../errors";
 
 // Withdrawal rate limits: configurable via environment variables
 // Default: 5 withdrawals per hour per user
@@ -492,7 +491,7 @@ export class SendService {
         if (/^L[1-9A-HJ-NP-Za-km-z]{26,33}$/.test(trimmed)) return "ltc";
         if (/^D[5-9A-HJ-NP-Ua-km-z]{32}$/.test(trimmed)) return "doge";
         if (/^X[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "dash";
-        if (/^(bitcoincash:)?(q|p)[a-z0-9]{41}$/i.test(trimmed)) return "bch";
+        if (/^(bitcoincash:)?[qp][a-z0-9]{41}$/i.test(trimmed)) return "bch";
         if (/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(trimmed)) return "ripple";
         if (/^G[A-Z2-7]{55}$/.test(trimmed)) return "stellar";
         if (/^addr1[0-9a-z]{20,}$/i.test(trimmed)) return "cardano";

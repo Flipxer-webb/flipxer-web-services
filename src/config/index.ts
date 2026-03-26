@@ -183,7 +183,7 @@ export const allowedDomains =
     process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
 export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
 export const isProduction: boolean = process.env.ENVIRONMENT === "production";
-export const port: number = parseInt(process.env.PORT ?? "4000");
+export const port: number = Number.parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
 export const frontendUrl = process.env.FRONTEND_URL;
 // JWT
