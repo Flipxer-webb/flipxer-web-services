@@ -1,1 +1,0 @@
-﻿const { PrismaClient } = require('@prisma/client'); const p = new PrismaClient(); p.user.findFirst({ where: { email: 'testuser@flipxer.com' }, select: { id: true, email: true, isTwoFactorEnabled: true, twoFactorSecret: true } }).then(u => { console.log('2FA Enabled:', u.isTwoFactorEnabled); console.log('Has Secret:', !!u.twoFactorSecret); }).finally(() => p['\']())
