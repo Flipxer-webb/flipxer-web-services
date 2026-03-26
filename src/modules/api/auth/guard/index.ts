@@ -615,9 +615,41 @@ export class TwoFactorGuard implements CanActivate {
             );
         }
 
-        // Get user data including security preferences
-        const userData = await this.prisma.user.findUnique({
-            where: { id: user.id },
+        const userData = await this.fetchUserSecurityData(user.id);
+        const securityMethods = this.parseSecurityMethods(userData?.securityMethods);
+        const hasSecurityMethodsEnabled = this.hasAnySecurityMethod(securityMethods);
+        const hasLegacy2FA = !!(userData?.isTwoFactorEnabled && userData?.twoFactorSecret);
+
+        if (!hasSecurityMethodsEnabled && !hasLegacy2FA) {
+            return true;
+        }
+
+        const isVerificationRequired = await this.checkVerificationRequired(
+            request, userData, hasLegacy2FA
+        );
+        if (!isVerificationRequired) {
+            return true;
+        }
+
+        if (await this.tryValidateSecurityCredentials(request, user.id, userData)) {
+            return true;
+        }
+
+        const availableMethods = this.getAvailableMethods(securityMethods, userData);
+        throw new UserForbiddenException(
+            JSON.stringify({
+                code: "SECURITY_VERIFICATION_REQUIRED",
+                message: "Security verification is required for this transaction",
+                availableMethods,
+                requiredCount: userData?.requiredMethodCount || 1,
+            }),
+            HttpStatus.FORBIDDEN
+        );
+    }
+
+    private async fetchUserSecurityData(userId: number) {
+        return this.prisma.user.findUnique({
+            where: { id: userId },
             select: {
                 twoFactorSecret: true,
                 isTwoFactorEnabled: true,
@@ -629,77 +661,60 @@ export class TwoFactorGuard implements CanActivate {
                 isEmailVerified: true,
             },
         });
+    }
 
-        // Parse security methods
-        const securityMethods = this.parseSecurityMethods(userData?.securityMethods);
-        const hasSecurityMethodsEnabled = this.hasAnySecurityMethod(securityMethods);
-        const hasLegacy2FA = userData?.isTwoFactorEnabled && userData?.twoFactorSecret;
-
-        // If no security methods enabled and no legacy 2FA, allow transaction
-        if (!hasSecurityMethodsEnabled && !hasLegacy2FA) {
-            this.logger.debug(`User ${user.id}: No security methods enabled, allowing transaction`);
-            return true;
-        }
-
-        // Extract transaction data from request
+    /**
+     * Check if verification is required based on transaction data and tier
+     */
+    private async checkVerificationRequired(
+        request: RequestWithUser,
+        userData: any,
+        hasLegacy2FA: boolean | null | undefined
+    ): Promise<boolean> {
         const { body, path } = request;
         const transactionData = this.extractTransactionData(body, path);
 
-        // Determine if security verification is required based on tier and amount
-        let isVerificationRequired = true;
-
         if (transactionData && hasLegacy2FA) {
-            isVerificationRequired = await this.isTransactionVerificationRequired(
-                transactionData, userData
-            );
+            return this.isTransactionVerificationRequired(transactionData, userData);
         }
+        return true;
+    }
 
-        // If verification is not required based on tier/amount, allow transaction
-        if (!isVerificationRequired) {
-            this.logger.debug(`User ${user.id}: Verification not required based on tier/amount`);
-            return true;
-        }
-
-        // Try to get verification token from request
+    /**
+     * Try to validate security credentials from the request
+     */
+    private async tryValidateSecurityCredentials(
+        request: RequestWithUser,
+        userId: number,
+        userData: any
+    ): Promise<boolean> {
         let verificationToken = this.extractVerificationToken(request);
         const legacyCode = request.body?.twoFactorCode || request.headers["x-2fa-code"];
 
-        // Smart detection: If legacy code looks like a JWT (long string), treat it as a verification token
-        // This avoids needing to refactor all frontend callsites that send "twoFactorCode"
+        // Smart detection: If legacy code looks like a JWT, treat it as a verification token
         if (!verificationToken && legacyCode && legacyCode.length > 20) {
             verificationToken = legacyCode;
         }
 
-        // CASE 1: New multi-factor verification token present
+        // New multi-factor verification token
         if (verificationToken) {
-            const isMultiFactorValid = await this.verifyMultiFactorTokens(
-                user.id, verificationToken, userData, request.url
+            const isValid = await this.verifyMultiFactorTokens(
+                userId, verificationToken, userData, request.url
             );
-            if (isMultiFactorValid) return true;
+            if (isValid) return true;
         }
 
-        // CASE 2: Legacy TOTP code present (backward compatibility)
+        // Legacy TOTP code (backward compatibility)
         if (legacyCode && legacyCode.length <= 6 && userData?.twoFactorSecret) {
-            const isValidLegacy = await this.validateLegacyTwoFactor(user.id, legacyCode, userData.twoFactorSecret);
+            const isValidLegacy = await this.validateLegacyTwoFactor(userId, legacyCode, userData.twoFactorSecret);
             const requiredCount = userData?.requiredMethodCount || 1;
             if (isValidLegacy && requiredCount <= 1) {
-                this.logger.debug(`User ${user.id}: Valid legacy 2FA code, allowing transaction`);
+                this.logger.debug(`User ${userId}: Valid legacy 2FA code, allowing transaction`);
                 return true;
             }
         }
 
-        // No valid verification - determine what methods are available and respond accordingly
-        const availableMethods = this.getAvailableMethods(securityMethods, userData);
-
-        throw new UserForbiddenException(
-            JSON.stringify({
-                code: "SECURITY_VERIFICATION_REQUIRED",
-                message: "Security verification is required for this transaction",
-                availableMethods,
-                requiredCount: userData?.requiredMethodCount || 1,
-            }),
-            HttpStatus.FORBIDDEN
-        );
+        return false;
     }
 
     /**

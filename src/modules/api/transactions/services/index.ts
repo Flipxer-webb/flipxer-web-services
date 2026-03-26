@@ -42,58 +42,13 @@ export class TransactionService {
         query: GetUserTransactionListDto,
         user?: User
     ) {
-        const { pageNumber, pageSize, sortBy } = query;
-
-        const resolvedPageNumber: number =
-            !pageNumber || (pageNumber && pageNumber <= 1)
-                ? defaultPagination.pageNumber
-                : pageNumber;
-
-        const resolvedPageSize: number =
-            !pageSize || (pageSize && pageSize <= 0)
-                ? defaultPagination.pageSize
-                : query.pageSize;
+        const { sortBy } = query;
+        const { resolvedPageNumber, resolvedPageSize } = this.resolvePagination(query);
+        const whereClause = this.buildTransactionWhereClause(query, user);
 
         const dbQuery: Prisma.OrderFindManyArgs = {
             orderBy: { createdAt: sortBy },
-            where: {
-                ...(user && { userId: user.id }),
-                ...(query.type && { orderCategory: query.type }),
-                ...(query.status && { streamlinedStatus: query.status }),
-                ...(query.startDate || query.endDate
-                    ? {
-                          createdAt: {
-                              ...(query.startDate && {
-                                  gte: new Date(query.startDate),
-                              }),
-                              ...(query.endDate && {
-                                  lte: endOfDay(new Date(query.endDate)),
-                              }),
-                          },
-                      }
-                    : {}),
-                AND: [
-                    ...(query.asset
-                        ? [{
-                            OR: [
-                                { currency: { contains: query.asset, mode: "insensitive" as const } },
-                                { fromCurrency: { contains: query.asset, mode: "insensitive" as const } },
-                                { toCurrency: { contains: query.asset, mode: "insensitive" as const } },
-                            ],
-                        }]
-                        : []),
-                    ...(query.searchText
-                        ? [{
-                            OR: [
-                                { transactionId: { contains: query.searchText, mode: "insensitive" as const } },
-                                { user: { firstName: { contains: query.searchText, mode: "insensitive" as const } } },
-                                { user: { lastName: { contains: query.searchText, mode: "insensitive" as const } } },
-                                { user: { email: { contains: query.searchText, mode: "insensitive" as const } } },
-                            ],
-                        }]
-                        : []),
-                ],
-            },
+            where: whereClause,
             include: {
                 user: { select: { firstName: true, lastName: true } },
             },
@@ -109,30 +64,87 @@ export class TransactionService {
             }),
             this.prisma.order.count({ where: dbQuery.where }),
         ]);
-        const isStatusFilter = query.status ? true : false;
-        const responseData: DataWithPagination<any> = {
+
+        return buildResponse({
+            message: "Transactions retrieved",
+            data: this.buildTransactionResponse(query, transactions, count, resolvedPageNumber, resolvedPageSize, user),
+        });
+    }
+
+    private buildTransactionResponse(
+        query: GetUserTransactionListDto,
+        transactions: any[],
+        count: number,
+        pageNumber: number,
+        pageSize: number,
+        user?: User
+    ): DataWithPagination<any> {
+        const isStatusFilter = !!query.status;
+        return {
             ...(query.paginated === "true" && {
-                meta: buildPaginationMeta(
-                    resolvedPageNumber,
-                    resolvedPageSize,
-                    count,
-                    transactions.length
-                ),
+                meta: buildPaginationMeta(pageNumber, pageSize, count, transactions.length),
             }),
             records: user
                 ? groupTransactionsByDate(transactions, isStatusFilter)
                 : transactions.map((t) =>
-                      shapeTransaction(
-                          t as TransactionIncludeOptions,
-                          isStatusFilter
-                      )
+                      shapeTransaction(t as TransactionIncludeOptions, isStatusFilter)
                   ),
         };
+    }
 
-        return buildResponse({
-            message: "Transactions retrieved",
-            data: responseData,
-        });
+    private resolvePagination(query: GetUserTransactionListDto) {
+        const resolvedPageNumber: number =
+            !query.pageNumber || query.pageNumber <= 1
+                ? defaultPagination.pageNumber
+                : query.pageNumber;
+
+        const resolvedPageSize: number =
+            !query.pageSize || query.pageSize <= 0
+                ? defaultPagination.pageSize
+                : query.pageSize;
+
+        return { resolvedPageNumber, resolvedPageSize };
+    }
+
+    private buildTransactionWhereClause(query: GetUserTransactionListDto, user?: User): Prisma.OrderWhereInput {
+        return {
+            ...(user && { userId: user.id }),
+            ...(query.type && { orderCategory: query.type }),
+            ...(query.status && { streamlinedStatus: query.status }),
+            ...(query.startDate || query.endDate
+                ? {
+                      createdAt: {
+                          ...(query.startDate && {
+                              gte: new Date(query.startDate),
+                          }),
+                          ...(query.endDate && {
+                              lte: endOfDay(new Date(query.endDate)),
+                          }),
+                      },
+                  }
+                : {}),
+            AND: [
+                ...(query.asset
+                    ? [{
+                        OR: [
+                            { currency: { contains: query.asset, mode: "insensitive" as const } },
+                            { fromCurrency: { contains: query.asset, mode: "insensitive" as const } },
+                            { toCurrency: { contains: query.asset, mode: "insensitive" as const } },
+                        ],
+                    }]
+                    : []),
+                ...(query.searchText
+                    ? [{
+                        OR: [
+                            { transactionId: { contains: query.searchText, mode: "insensitive" as const } },
+                            { user: { firstName: { contains: query.searchText, mode: "insensitive" as const } } },
+                            { user: { lastName: { contains: query.searchText, mode: "insensitive" as const } } },
+                            { user: { email: { contains: query.searchText, mode: "insensitive" as const } } },
+                        ],
+                    }]
+                    : []),
+            ],
+        };
     }
 
     async getTransactionDetail(transactionId: string, userId?: number) {
@@ -246,10 +258,11 @@ export class TransactionService {
                 }
                 case OrderCategory.SELL: {
                     currency = t.currency;
-                    destinationBankName = destinationBankName;
-                    destinationBankAccountNumber = destinationBankAccountNumber;
-                    destinationBankAccountName = destinationBankAccountName;
-                    totalReceiveInFiat = totalReceiveInFiat;
+                    destinationBankName = t.destinationBankName ?? "N/A";
+                    destinationBankAccountNumber = t.destinationBankAccountNumber ?? "N/A";
+                    destinationBankAccountName = t.destinationBankAccountName ?? "N/A";
+                    totalReceiveInFiat = t.totalToReceiveInFiat?.toString() ?? "N/A";
+                    break;
                 }
 
                 case OrderCategory.BUY: {

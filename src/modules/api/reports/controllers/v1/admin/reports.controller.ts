@@ -26,8 +26,8 @@ export class AdminReportsController {
      * Get available report types
      */
     @Get()
-    async getAvailableReports() {
-        const reports = await this.reportsService.getAvailableReports();
+    getAvailableReports() {
+        const reports = this.reportsService.getAvailableReports();
         return buildResponse({
             message: "Available reports retrieved successfully",
             data: reports,

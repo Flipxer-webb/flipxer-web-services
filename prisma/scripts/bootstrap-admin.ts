@@ -97,10 +97,15 @@ Examples:
     return args;
 }
 
-// Validate email format
+// Validate email format (simple check without regex backtracking risk)
 function isValidEmail(email: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    if (email.length > 254) return false;
+    const atIndex = email.indexOf('@');
+    if (atIndex < 1 || atIndex !== email.lastIndexOf('@')) return false;
+    const domain = email.substring(atIndex + 1);
+    if (!domain || domain.length < 3 || !domain.includes('.')) return false;
+    if (email.includes(' ')) return false;
+    return true;
 }
 
 // Validate password strength

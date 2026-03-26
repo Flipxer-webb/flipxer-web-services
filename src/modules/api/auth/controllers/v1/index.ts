@@ -257,7 +257,7 @@ export class AuthController {
             ],
             {
                 storage: memoryStorage(),
-                limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit per file
+                limits: { fileSize: 10 * 1024 * 1024, files: 2, fields: 10, parts: 15 },
             }
         )
     )
@@ -394,7 +394,7 @@ export class AuthController {
             ],
             {
                 storage: memoryStorage(),
-                limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit per file
+                limits: { fileSize: 20 * 1024 * 1024, files: 5, fields: 10, parts: 20 },
             }
         )
     )
@@ -435,7 +435,7 @@ export class AuthController {
     @UseInterceptors(
         FileInterceptor("file", {
             storage: memoryStorage(),
-            limits: { fileSize: 20 * 1024 * 1024 },
+            limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 5, parts: 10 },
         })
     )
     async uploadBusinessDocumentFile(
@@ -521,7 +521,7 @@ export class AuthController {
     @UseInterceptors(
         FileInterceptor("document", {
             storage: memoryStorage(),
-            limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 5, parts: 10 },
         })
     )
     async verifyAddress(
@@ -548,7 +548,7 @@ export class AuthController {
     @UseInterceptors(
         FileInterceptor("document", {
             storage: memoryStorage(),
-            limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 5, parts: 10 },
         })
     )
     async verifyIncome(

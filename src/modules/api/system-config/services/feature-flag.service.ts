@@ -191,73 +191,62 @@ export class FeatureFlagService {
         conditions: FeatureFlagConditions, 
         context: FeatureFlagEvaluationContext
     ): boolean {
-        // Check excluded users first
-        if (conditions.excludeUserIds?.includes(context.userId!)) {
-            return false;
-        }
-
-        // Check allowed users (override all other conditions)
-        if (conditions.allowedUserIds?.includes(context.userId!)) {
-            return true;
-        }
-
-        // Check date conditions
-        if (conditions.startDate) {
-            const start = new Date(conditions.startDate);
-            if (new Date() < start) return false;
-        }
-
-        if (conditions.endDate) {
-            const end = new Date(conditions.endDate);
-            if (new Date() > end) return false;
-        }
-
-        // Check tier conditions
-        if (context.userTier !== undefined) {
-            if (conditions.tiers && !conditions.tiers.includes(context.userTier)) {
-                return false;
-            }
-            if (conditions.minTier !== undefined && context.userTier < conditions.minTier) {
-                return false;
-            }
-            if (conditions.maxTier !== undefined && context.userTier > conditions.maxTier) {
-                return false;
-            }
-        }
-
-        // Check country conditions
-        if (context.userCountry) {
-            if (conditions.excludeCountries?.includes(context.userCountry)) {
-                return false;
-            }
-            if (conditions.countries && !conditions.countries.includes(context.userCountry)) {
-                return false;
-            }
-        }
-
-        // Check user type conditions
-        if (context.userType && conditions.userTypes) {
-            if (!conditions.userTypes.includes(context.userType)) {
-                return false;
-            }
-        }
-
-        // Check percentage rollout
-        if (conditions.percentageEnabled !== undefined && context.userId) {
-            const percentage = this.getUserPercentage(context.userId);
-            if (percentage > conditions.percentageEnabled) {
-                return false;
-            }
-        }
+        if (this.isUserExcluded(conditions, context)) return false;
+        if (this.isUserWhitelisted(conditions, context)) return true;
+        if (this.isOutsideDateRange(conditions)) return false;
+        if (this.isExcludedByTier(conditions, context)) return false;
+        if (this.isExcludedByCountry(conditions, context)) return false;
+        if (this.isExcludedByUserType(conditions, context)) return false;
+        if (this.isExcludedByRollout(conditions, context)) return false;
 
         return true;
+    }
+
+    private isUserExcluded(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
+        return !!conditions.excludeUserIds?.includes(context.userId!);
+    }
+
+    private isUserWhitelisted(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
+        return !!conditions.allowedUserIds?.includes(context.userId!);
+    }
+
+    private isOutsideDateRange(conditions: FeatureFlagConditions): boolean {
+        const now = new Date();
+        if (conditions.startDate && now < new Date(conditions.startDate)) return true;
+        if (conditions.endDate && now > new Date(conditions.endDate)) return true;
+        return false;
+    }
+
+    private isExcludedByTier(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
+        if (context.userTier === undefined) return false;
+        if (conditions.tiers && !conditions.tiers.includes(context.userTier)) return true;
+        if (conditions.minTier !== undefined && context.userTier < conditions.minTier) return true;
+        if (conditions.maxTier !== undefined && context.userTier > conditions.maxTier) return true;
+        return false;
+    }
+
+    private isExcludedByCountry(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
+        if (!context.userCountry) return false;
+        if (conditions.excludeCountries?.includes(context.userCountry)) return true;
+        if (conditions.countries && !conditions.countries.includes(context.userCountry)) return true;
+        return false;
+    }
+
+    private isExcludedByUserType(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
+        if (!context.userType || !conditions.userTypes) return false;
+        return !conditions.userTypes.includes(context.userType);
+    }
+
+    private isExcludedByRollout(conditions: FeatureFlagConditions, context: FeatureFlagEvaluationContext): boolean {
+        if (conditions.percentageEnabled === undefined || !context.userId) return false;
+        return this.getUserPercentage(context.userId) > conditions.percentageEnabled;
     }
 
     /**
      * Calculate consistent percentage bucket for a user (0-100)
      */
     private getUserPercentage(userId: number): number {
-        const hash = crypto.createHash("md5").update(String(userId)).digest("hex");
+        const hash = crypto.createHash("sha256").update(String(userId)).digest("hex");
         const num = parseInt(hash.substring(0, 8), 16);
         return num % 100;
     }

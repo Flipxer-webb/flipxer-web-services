@@ -6,6 +6,7 @@
  */
 
 import { Injectable, Inject, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { redisConfig } from '@/config';
 
@@ -127,7 +128,7 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
     multi.zremrangebyscore(key, '-inf', windowStart);
     
     // Add current request with timestamp as score
-    multi.zadd(key, now, `${now}-${Math.random()}`);
+    multi.zadd(key, now, `${now}-${randomUUID()}`);
     
     // Count requests in window
     multi.zcard(key);

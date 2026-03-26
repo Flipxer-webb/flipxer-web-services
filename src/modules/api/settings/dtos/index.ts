@@ -61,7 +61,7 @@ export class GetCryptoTransactionFeePerAssetDto {
 export class AddAllowedIpDto {
     @ApiProperty({
         description: "Public IP address to allow (IPv4 or IPv6)",
-        example: "102.89.23.11",
+        example: "203.0.113.10",
     })
     @IsNotEmpty({ message: "IP address is required" })
     @IsString({ message: "IP address must be a string" })

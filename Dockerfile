@@ -6,7 +6,11 @@ COPY ./package.json ./pnpm-lock.yaml ./
 RUN pnpm install
 COPY ./prisma ./prisma
 RUN pnpm prisma generate
-COPY . .
+COPY ./src ./src
+COPY ./tsconfig.json ./tsconfig.build.json ./nest-cli.json ./webpack.config.js ./
+COPY ./email-templates ./email-templates
+COPY ./public ./public
+COPY ./scripts ./scripts
 EXPOSE 3500
 CMD ["sh", "-c", "pnpm build && node dist/server"]
 
@@ -16,7 +20,11 @@ WORKDIR /usr/src/app
 RUN npm install -g pnpm
 COPY ./package.json ./pnpm-lock.yaml ./
 RUN pnpm install
-COPY . .
+COPY ./prisma ./prisma
+COPY ./src ./src
+COPY ./tsconfig.json ./tsconfig.build.json ./nest-cli.json ./webpack.config.js ./
+COPY ./email-templates ./email-templates
+COPY ./public ./public
 RUN pnpm prisma generate
 RUN pnpm build
 

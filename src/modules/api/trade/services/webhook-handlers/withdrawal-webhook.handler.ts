@@ -146,30 +146,9 @@ export class WithdrawalWebhookHandler {
      * Internal method to process withdrawal transaction - called within a distributed lock
      */
     private async processWithdrawerTransaction(options: WithdrawerTransactionHandlerOptions) {
-        const transaction = await this.prisma.order.findUnique({
-            where: { orderReference: options.orderReference },
-            include: {
-                user: { select: { id: true, email: true, userType: true } },
-            },
-        });
+        const transaction = await this.findTransactionOrSkip(options);
+        if (!transaction) return;
 
-        if (!transaction) {
-            // Check if this is a buy order fulfillment withdrawal (format: transactionId_fulfill)
-            if (options.orderReference?.endsWith('_fulfill')) {
-                this.logger.debug(
-                    `Skipping withdrawal webhook for buy order fulfillment: ${options.orderReference}`
-                );
-                return; // This is expected - buy order fulfillments don't create separate Order records
-            }
-            throw new TransactionNotFoundException(
-                "Transaction not found",
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        // CRITICAL: Ignore withdrawals related to SWAP orders.
-        // The SwapService handles the entire flow (Sell -> Buy) atomically.
-        // Processing this webhook would prematurely mark the Swap as COMPLETED when only the Sell leg is done.
         if (transaction.orderCategory === OrderCategory.SWAP) {
             this.logger.log(`Ignoring withdrawal webhook for SWAP order ${transaction.id}. Internal flow handles this.`);
             return;
@@ -186,17 +165,56 @@ export class WithdrawalWebhookHandler {
             return;
         }
 
-        // For SELL orders where crypto arrived (done), don't mark completed yet
-        // Wait for payout to succeed before marking completed
+        const updatedOrder = await this.updateOrderStatus(transaction, options);
+        this.emitTransactionUpdate(transaction.user.id, updatedOrder);
+
+        if (options.status === OrderStatus.done) {
+            await this.handleDoneStatus(transaction);
+        } else if (options.status === OrderStatus.failed) {
+            await this.handleFailedStatus(transaction);
+        } else if (options.status === OrderStatus.cancelled) {
+            await this.handleCancelledStatus(transaction);
+        }
+    }
+
+    /**
+     * Find transaction by order reference, or return null for expected skip scenarios
+     */
+    private async findTransactionOrSkip(options: WithdrawerTransactionHandlerOptions) {
+        const transaction = await this.prisma.order.findUnique({
+            where: { orderReference: options.orderReference },
+            include: {
+                user: { select: { id: true, email: true, userType: true } },
+            },
+        });
+
+        if (!transaction) {
+            if (options.orderReference?.endsWith('_fulfill')) {
+                this.logger.debug(
+                    `Skipping withdrawal webhook for buy order fulfillment: ${options.orderReference}`
+                );
+                return null;
+            }
+            throw new TransactionNotFoundException(
+                "Transaction not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        return transaction;
+    }
+
+    /**
+     * Update order status, handling SELL payout-pending intermediate state
+     */
+    private async updateOrderStatus(transaction: any, options: WithdrawerTransactionHandlerOptions) {
         const isSellPayoutPending = (
             options.status === OrderStatus.done &&
             transaction.orderCategory === OrderCategory.SELL &&
-            !transaction.transaction_note?.match(/^BUY:\d+$/) // Not a BUY fulfillment
+            !transaction.transaction_note?.match(/^BUY:\d+$/)
         );
 
-        // Update order status
-        // For SELL orders awaiting payout, set to "processing" instead of "done/completed"
-        const updatedOrder = await this.prisma.order.update({
+        return this.prisma.order.update({
             where: { id: transaction.id },
             data: {
                 status: isSellPayoutPending ? OrderStatus.processing : options.status,
@@ -206,54 +224,54 @@ export class WithdrawalWebhookHandler {
                 ...(options.txid && { blockchain_txid: options.txid }),
             },
         });
+    }
 
-        // Emit transaction update immediately so UI reflects status change
-        this.emitTransactionUpdate(transaction.user.id, updatedOrder);
-
-        // For sell orders: when crypto reaches admin, pay the seller in fiat
-        if (
-            options.status === OrderStatus.done &&
-            transaction.orderCategory === OrderCategory.SELL
-        ) {
-            const completedViaSellFlow = await this.handleSellOrderDone(transaction);
-            if (!completedViaSellFlow) return; // Payout failed, already handled
+    /**
+     * Handle withdrawal done: settle SEND holds, complete SELL payouts, notify user
+     */
+    private async handleDoneStatus(transaction: any): Promise<void> {
+        if (transaction.orderCategory === OrderCategory.SELL) {
+            await this.handleSellOrderDone(transaction);
+            return;
         }
 
-        if (options.status == OrderStatus.done && transaction.orderCategory !== OrderCategory.SELL) {
-            // External SEND orders use held funds; settle the hold only when withdrawal is done.
-            if (transaction.orderCategory === OrderCategory.SEND) {
-                await this.settleOrReleaseSendHold(transaction, true);
-            }
-            await this.handleWithdrawalDone(transaction);
-        } else if (options.status == OrderStatus.failed) {
-            // External SEND orders use held funds; release hold (refund) when withdrawal fails.
-            if (transaction.orderCategory === OrderCategory.SEND) {
-                await this.settleOrReleaseSendHold(transaction, false);
-            }
-
-            await this.handleWithdrawalFailed(transaction);
-
-            // Check if this failed withdrawal was for a BUY order
-            const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
-
-            if (buyOrderMatch) {
-                const buyOrderId = parseInt(buyOrderMatch[1], 10);
-                await this.failBuyOrder(buyOrderId, transaction);
-            }
-
-            // Check if this was a regular SELL order that failed at withdrawal stage
-            if (transaction.orderCategory === OrderCategory.SELL && !buyOrderMatch) {
-                this.logger.warn(`Regular SELL order ${transaction.id} withdrawal failed - initiating refund`);
-                await this.refundSellOrder(transaction);
-            }
-        } else if (options.status == OrderStatus.cancelled) {
-            // External SEND orders use held funds; release hold (refund) when withdrawal is cancelled.
-            if (transaction.orderCategory === OrderCategory.SEND) {
-                await this.settleOrReleaseSendHold(transaction, false);
-            }
-
-            await this.handleWithdrawalFailed(transaction);
+        if (transaction.orderCategory === OrderCategory.SEND) {
+            await this.settleOrReleaseSendHold(transaction, true);
         }
+        await this.handleWithdrawalDone(transaction);
+    }
+
+    /**
+     * Handle withdrawal failed: release SEND holds, fail linked BUY orders, refund SELL orders
+     */
+    private async handleFailedStatus(transaction: any): Promise<void> {
+        if (transaction.orderCategory === OrderCategory.SEND) {
+            await this.settleOrReleaseSendHold(transaction, false);
+        }
+
+        await this.handleWithdrawalFailed(transaction);
+
+        const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
+        if (buyOrderMatch) {
+            const buyOrderId = parseInt(buyOrderMatch[1], 10);
+            await this.failBuyOrder(buyOrderId, transaction);
+        }
+
+        if (transaction.orderCategory === OrderCategory.SELL && !buyOrderMatch) {
+            this.logger.warn(`Regular SELL order ${transaction.id} withdrawal failed - initiating refund`);
+            await this.refundSellOrder(transaction);
+        }
+    }
+
+    /**
+     * Handle withdrawal cancelled: release SEND holds, notify failure
+     */
+    private async handleCancelledStatus(transaction: any): Promise<void> {
+        if (transaction.orderCategory === OrderCategory.SEND) {
+            await this.settleOrReleaseSendHold(transaction, false);
+        }
+
+        await this.handleWithdrawalFailed(transaction);
     }
 
     /**

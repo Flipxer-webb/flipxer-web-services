@@ -23,4 +23,15 @@
 **/secrets.dev.yaml
 **/values.dev.yaml
 LICENSE
+# Debug and investigation output files
+*.txt
+*.log
+**/debug_output*
+**/snyk_*
+**/*_dump*
+**/*_result*
+**/held_funds*
+**/released_details*
+**/*.md
+!README.md
 README.md

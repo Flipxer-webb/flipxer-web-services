@@ -156,7 +156,11 @@ export class TradeHelpersService {
      * @returns Formatted amount string
      */
     formatAmount(amount: number, decimals: number = 8): string {
-        return amount.toFixed(decimals).replace(/\.?0+$/, "");
+        const str = amount.toFixed(decimals);
+        let end = str.length - 1;
+        while (end > 0 && str[end] === '0') end--;
+        if (str[end] === '.') end--;
+        return str.substring(0, end + 1);
     }
 
     /**
