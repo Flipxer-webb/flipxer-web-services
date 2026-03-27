@@ -174,13 +174,13 @@ export class NombaBank implements TNomba.INombaBank {
     }
 
     /**
-     * Initialize payment using Nomba Checkout
-     * Returns a checkout link for the user to complete payment
+     * Initialize payment using Nomba Checkout (hosted redirect flow).
+     * Returns a checkout link for the user to complete payment.
      *
      * NOTE: When integrating redirect-based checkout flows, callers may provide a
      * deterministic reference so the frontend can safely verify status post-redirect.
      *
-     * @deprecated Use initializePaymentViaVirtualAccount for new buy flows
+     * Prefer initializePaymentViaVirtualAccount for new buy flows.
      */
     async initializePayment(
         user: NombaUserRecord,
