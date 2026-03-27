@@ -54,10 +54,10 @@ const isPublicIp = (address: string) => {
 export class SettingService {
     private readonly logger = new Logger("SettingService");
     constructor(
-        private prisma: PrismaService,
-        private smsService: SmsService,
-        private emailService: EmailService,
-        private jwtService: JwtService,
+        private readonly prisma: PrismaService,
+        private readonly smsService: SmsService,
+        private readonly emailService: EmailService,
+        private readonly jwtService: JwtService,
     ) { }
 
     async getAllowedList(user: User) {
@@ -994,7 +994,7 @@ export class SettingService {
         let isVerified = false;
 
         switch (dto.method) {
-            case "authenticator":
+            case "authenticator": {
                 if (!userData?.twoFactorSecret) {
                     throw new AuthGenericException("Authenticator not set up", HttpStatus.BAD_REQUEST);
                 }
@@ -1007,8 +1007,9 @@ export class SettingService {
                 }
                 isVerified = true;
                 break;
+            }
 
-            case "tradingPassword":
+            case "tradingPassword": {
                 if (!userData?.tradingPassword) {
                     throw new AuthGenericException("Trading password not set", HttpStatus.BAD_REQUEST);
                 }
@@ -1018,17 +1019,19 @@ export class SettingService {
                 }
                 isVerified = true;
                 break;
+            }
 
-            case "backupCode":
+            case "backupCode": {
                 const isValidBackup = await this.verifyBackupCode(user.id, dto.code);
                 if (!isValidBackup) {
                     throw new UserForbiddenException("Invalid or already used backup code", HttpStatus.FORBIDDEN);
                 }
                 isVerified = true;
                 break;
+            }
 
             case "sms":
-            case "email":
+            case "email": {
                 // These need to be verified via TransactionOTP - separate flow
                 const isValidOtp = await this.verifyTransactionOtp(user.id, dto.method, dto.code);
                 if (!isValidOtp) {
@@ -1036,6 +1039,7 @@ export class SettingService {
                 }
                 isVerified = true;
                 break;
+            }
 
             default:
                 throw new AuthGenericException("Invalid security method", HttpStatus.BAD_REQUEST);

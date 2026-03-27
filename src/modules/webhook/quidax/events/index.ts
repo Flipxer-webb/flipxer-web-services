@@ -7,7 +7,7 @@ import { QuidaxWebhookService } from "../services";
 export class QuidaxWebhookEvent extends EventEmitter {
     private readonly logger = new Logger("QuidaxWebhookEvent");
     
-    constructor(private quidaxWebhookService: QuidaxWebhookService) {
+    constructor(private readonly quidaxWebhookService: QuidaxWebhookService) {
         super();
         // Use arrow function or bind to preserve 'this' context
         this.on("process-webhook-event", this.processor.bind(this));

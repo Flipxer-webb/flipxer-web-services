@@ -7,7 +7,7 @@ import * as e from "../errors/notification.error";
 
 @Injectable()
 export class NotificationService {
-    constructor(private prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) {}
 
     async getNotification(notificationId: number) {
         const notification = await this.prisma.notification.findUnique({

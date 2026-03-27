@@ -190,7 +190,7 @@ export class WalletManagementService {
                 t => t.currency.toLowerCase() === wallet.currency.toLowerCase()
             );
 
-            if (threshold && threshold.alertEnabled) {
+            if (threshold?.alertEnabled) {
                 const balance = Number.parseFloat(wallet.availableBalance);
 
                 if (balance < threshold.minBalance) {

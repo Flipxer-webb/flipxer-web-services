@@ -1,4 +1,3 @@
-import { buildResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -33,7 +32,7 @@ import { CsvHeaders } from "@/utils/decorators";
     path: "transactions",
 })
 export class TransactionController {
-    constructor(private transactionService: TransactionService) {}
+    constructor(private readonly transactionService: TransactionService) {}
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get user transactions" })

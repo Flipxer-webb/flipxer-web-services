@@ -8,7 +8,7 @@ import * as t from "../types/notification.type";
 @Injectable()
 export class NotificationEvent extends EventEmitter {
     private readonly logger = new Logger(NotificationEvent.name);
-    constructor(private emailService: EmailService) {
+    constructor(private readonly emailService: EmailService) {
         super();
         this.on(
             "transaction_notification",

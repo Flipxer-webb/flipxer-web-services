@@ -153,7 +153,7 @@ function fileFieldCreate(
 @Injectable()
 export class AuthService {
     private readonly logger = new Logger(AuthService.name);
-    private uploadService: ImagekitService | CloudinaryService;
+    private readonly uploadService: ImagekitService | CloudinaryService;
     private readonly SALT_ROUNDS = 10;
     private readonly SIGNUP_CACHE_TTL = 3600; // 1 hour
     private readonly getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
@@ -374,10 +374,10 @@ export class AuthService {
     }
 
     constructor(
-        private jwtService: JwtService,
-        private prisma: PrismaService,
-        private emailService: EmailService,
-        private uploadFactory: UploadFactory,
+        private readonly jwtService: JwtService,
+        private readonly prisma: PrismaService,
+        private readonly emailService: EmailService,
+        private readonly uploadFactory: UploadFactory,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
         private readonly dojahService: DojahService,
         private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
@@ -593,7 +593,6 @@ export class AuthService {
             `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
         const username = user.email;
         const team = COMPANY_NAME;
-        const resetLink = `${frontendDevUrl}/reset-password?code=${code}&email=${email}`;
 
         try {
             await this.emailService.sendMailWithTemplate({
@@ -628,7 +627,7 @@ export class AuthService {
             include: { passwordResetRequest: true },
         });
 
-        if (!user || !user.passwordResetRequest) {
+        if (!user?.passwordResetRequest) {
             throw new InvalidResetRequestException(
                 "Invalid password reset request"
             );
@@ -702,7 +701,7 @@ export class AuthService {
         }
 
         // Security: Prevent blocked/flagged users from bypassing bans via re-registration
-        if (existingUser && existingUser.isDeleted) {
+        if (existingUser?.isDeleted) {
             // Check if user was blocked
             if (existingUser.status === Status.BLOCKED) {
                 throw new UserAccountDisabledException(
@@ -712,7 +711,7 @@ export class AuthService {
             }
 
             // Check if user was flagged
-            if (existingUser.flaggedRecord && existingUser.flaggedRecord.flagged) {
+            if (existingUser.flaggedRecord?.flagged) {
                 throw new UserAccountDisabledException(
                     `This account has been flagged: ${existingUser.flaggedRecord.reason || 'Policy violation'}. Please contact support.`,
                     HttpStatus.FORBIDDEN
@@ -3144,7 +3143,7 @@ export class AuthService {
             },
         });
 
-        if (!user || !user.isTwoFactorEnabled || !user.twoFactorSecret) {
+        if (!user?.isTwoFactorEnabled || !user?.twoFactorSecret) {
             throw new UserUnauthorizedException(
                 "2FA is not enabled for this account",
                 HttpStatus.BAD_REQUEST

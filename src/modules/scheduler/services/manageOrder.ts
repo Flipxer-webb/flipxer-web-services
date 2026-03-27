@@ -9,7 +9,7 @@ import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service"
 @Injectable()
 export class ManageOrdersSchedulerService {
     private readonly logger = new Logger("ManageOrdersScheduler");
-    private mutex = new Mutex(); // Create a Mutex instance
+    private readonly mutex = new Mutex(); // Create a Mutex instance
 
     constructor(
         private readonly prisma: PrismaService,

@@ -160,9 +160,8 @@ console.log(`Missing (${missingVars.length}):`, missingVars.join(", "));
 console.log("==================================");
 
 if (missingVars.length > 0) {
-    console.error(
-        `\n❌ FATAL: Missing required environment variables:\n${missingVars.map((v) => `  - ${v}`).join("\n")}\n`
-    );
+    const varList = missingVars.map((v) => `  - ${v}`).join("\n");
+    console.error(`\n❌ FATAL: Missing required environment variables:\n${varList}\n`);
     console.error(
         "Please add these variables to your Render Environment tab.\n"
     );
@@ -180,7 +179,7 @@ try {
 
 // App
 export const allowedDomains =
-    process.env.ALLOWED_DOMAINS && process.env.ALLOWED_DOMAINS.split(",");
+    process.env.ALLOWED_DOMAINS?.split(",");
 export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
 export const isProduction: boolean = process.env.ENVIRONMENT === "production";
 export const port: number = Number.parseInt(process.env.PORT ?? "4000");

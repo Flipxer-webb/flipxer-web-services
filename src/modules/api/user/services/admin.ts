@@ -29,8 +29,8 @@ import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits"
 @Injectable()
 export class AdminUserService {
     constructor(
-        private prisma: PrismaService,
-        private emailService: EmailService
+        private readonly prisma: PrismaService,
+        private readonly emailService: EmailService
     ) {}
 
     async getAnalyticsOverview(period?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
@@ -497,7 +497,7 @@ export class AdminUserService {
             );
         }
 
-        if (!user.flaggedRecord || !user.flaggedRecord.flagged) {
+        if (!user.flaggedRecord?.flagged) {
             return buildResponse({
                 message: "Account is not flagged.",
                 data: { flaggedRecord: { flagged: false, reason: "" } },
@@ -567,7 +567,7 @@ export class AdminUserService {
             );
         }
 
-        if (user.flaggedRecord && user.flaggedRecord.flagged) {
+        if (user.flaggedRecord?.flagged) {
             return buildResponse({
                 message: "Account is already flagged.",
                 data: {

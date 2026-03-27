@@ -13,9 +13,9 @@ export class AdminNotificationService {
     private readonly logger = new Logger(AdminNotificationService.name);
     
     constructor(
-        private prisma: PrismaService,
-        private notificationEvent: NotificationEvent,
-        private pushNotificationService: PushNotificationService,
+        private readonly prisma: PrismaService,
+        private readonly notificationEvent: NotificationEvent,
+        private readonly pushNotificationService: PushNotificationService,
         private readonly wsGateway: WsGateway,
     ) {}
 

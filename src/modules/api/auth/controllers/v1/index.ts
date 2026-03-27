@@ -88,8 +88,8 @@ export class AuthController {
     }
 
     constructor(
-        private authService: AuthService,
-        private tierVerificationService: TierVerificationService
+        private readonly authService: AuthService,
+        private readonly tierVerificationService: TierVerificationService
     ) { }
 
     @UseGuards(RateLimiterGuard)

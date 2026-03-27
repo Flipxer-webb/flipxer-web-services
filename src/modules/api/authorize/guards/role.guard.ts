@@ -12,7 +12,7 @@ import { Socket } from "socket.io";
 
 @Injectable()
 export class RoleGuard implements CanActivate {
-    constructor(private reflector: Reflector) {}
+    constructor(private readonly reflector: Reflector) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const decoratedRoles: UserType[] = this.reflector.getAllAndOverride(
@@ -36,7 +36,7 @@ export class RoleGuard implements CanActivate {
 
 @Injectable()
 export class SocketRoleGuard implements CanActivate {
-    constructor(private reflector: Reflector) {}
+    constructor(private readonly reflector: Reflector) {}
 
     canActivate(context: ExecutionContext): boolean {
         const decoratedRoles: UserType[] = this.reflector.getAllAndOverride(

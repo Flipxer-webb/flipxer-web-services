@@ -2,7 +2,7 @@ import { Injectable, HttpStatus, Logger } from "@nestjs/common";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import axios, { AxiosInstance } from "axios";
-import { setTimeout } from "timers/promises";
+import { setTimeout } from "node:timers/promises";
 
 interface CoinCapAsset {
     id: string;
@@ -229,7 +229,8 @@ export class CoinCapService {
     async getBatchSparklines(assets: string[]): Promise<Record<string, number[]>> {
         this.logger.debug(`Fetching sparklines for: ${assets.join(", ")}`);
 
-        const cacheKey = `coincap:sparklines:${assets.sort((a, b) => a.localeCompare(b)).join(",")}`;
+        const sortedAssets = [...assets].sort((a, b) => a.localeCompare(b));
+        const cacheKey = `coincap:sparklines:${sortedAssets.join(",")}`;
         const cachedData = await this.redisCacheService.get<Record<string, number[]>>(cacheKey);
         if (cachedData) {
             this.logger.debug(`Cache hit for sparklines`);

@@ -9,13 +9,13 @@ import { TradingService } from "@/modules/api/trade/services";
 @Injectable()
 export class AssetBalanceSchedulerService {
     private readonly logger = new Logger("ManageBalanceScheduler");
-    private mutex = new Mutex(); // Create a Mutex instance
-    private depositSyncMutex = new Mutex(); // Separate mutex for deposit sync
+    private readonly mutex = new Mutex(); // Create a Mutex instance
+    private readonly depositSyncMutex = new Mutex(); // Separate mutex for deposit sync
 
     constructor(
-        private prisma: PrismaService,
-        private cryptoAccountProducer: CryptoAccountQueueProducer,
-        private tradingService: TradingService
+        private readonly prisma: PrismaService,
+        private readonly cryptoAccountProducer: CryptoAccountQueueProducer,
+        private readonly tradingService: TradingService
     ) {}
 
     //every 15 minute

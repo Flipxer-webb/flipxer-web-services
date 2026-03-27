@@ -10,9 +10,9 @@ export class FincraWebhookService {
     private readonly logger = new Logger('FincraWebhookService');
 
     constructor(
-        private prisma: PrismaService,
-        private bankService: BankService,
-        private slackService: SlackWebhookService
+        private readonly prisma: PrismaService,
+        private readonly bankService: BankService,
+        private readonly slackService: SlackWebhookService
     ) { }
 
     async processWebhookEvent(payload: FincraWebhookPayload) {

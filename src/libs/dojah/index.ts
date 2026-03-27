@@ -7,7 +7,7 @@ import * as t from "./types";
 export class DojahLib {
     constructor(protected instanceOptions: t.DojahOptions) {}
 
-    private axios: AxiosInstance = Axios.create({
+    private readonly axios: AxiosInstance = Axios.create({
         baseURL: this.instanceOptions.baseURL,
         headers: {
             Authorization: this.instanceOptions.apiKey,

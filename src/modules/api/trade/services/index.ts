@@ -1364,7 +1364,7 @@ export class TradingService {
             },
         });
 
-        if (!user || !user.cryptoSubAccountId) {
+        if (!user?.cryptoSubAccountId) {
             throw new UserNotFoundException(
                 "User not found or no crypto sub-account",
                 HttpStatus.NOT_FOUND
@@ -1533,7 +1533,7 @@ export class TradingService {
             },
         });
 
-        if (!user || !user.cryptoSubAccountId) {
+        if (!user?.cryptoSubAccountId) {
             return { error: "User not found or no crypto sub-account" };
         }
 

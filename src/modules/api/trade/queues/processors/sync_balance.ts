@@ -26,7 +26,7 @@ export class QuidaxTradingBalanceSyncProcessor {
     private readonly logger = new Logger("QuidaxTradingBalanceSyncProcessor");
 
     constructor(
-        private prisma: PrismaService,
+        private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService
     ) { }

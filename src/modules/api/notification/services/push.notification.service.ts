@@ -20,7 +20,7 @@ export class PushNotificationService implements OnModuleInit {
     private readonly logger = new Logger(PushNotificationService.name);
     private isInitialized = false;
 
-    constructor(private prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) {}
 
     onModuleInit() {
         this.initializeFirebase();
@@ -159,7 +159,7 @@ export class PushNotificationService implements OnModuleInit {
         }
 
         // Filter out empty tokens
-        const validTokens = tokens.filter((token) => token && token.trim());
+        const validTokens = tokens.filter((token) => token?.trim());
         
         if (validTokens.length === 0) {
             this.logger.warn("Push notifications skipped: No valid device tokens");

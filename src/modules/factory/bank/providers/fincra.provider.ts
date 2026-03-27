@@ -28,14 +28,14 @@ import { TransactionShortDescription } from "@/modules/api/transactions/types";
 export class FincraBank implements TFincra.IFincraBank {
     name?: string;
     constructor(
-        private fincra: FincraLib,
-        private prisma: PrismaService
+        private readonly fincra: FincraLib,
+        private readonly prisma: PrismaService
     ) {}
 
     async getBanks(): Promise<FincraBankListResponse> {
         try {
             const banks = await this.fincra.getBanks("NG");
-            if (!banks || !banks.success) {
+            if (!banks?.success) {
                 throw new e.FINCRABankException(
                     "Failed to fetch banks",
                     HttpStatus.BAD_REQUEST
@@ -75,7 +75,7 @@ export class FincraBank implements TFincra.IFincraBank {
                 "****RESOLVE ACCOUNT RESPONSE****** FINCRA"
             );
 
-            if (!result || !result.success) {
+            if (!result?.success) {
                 throw new e.FINCRABankException(
                     result?.message || "Failed to resolve bank account",
                     HttpStatus.BAD_REQUEST
@@ -165,7 +165,7 @@ export class FincraBank implements TFincra.IFincraBank {
     async verifyTransaction(reference: string) {
         try {
             const resp = await this.fincra.verifyPayment(reference);
-            if (!resp || !resp.data) {
+            if (!resp?.data) {
                 throw new Error("Unable to verify fincra transaction");
             }
             return resp;
@@ -300,7 +300,7 @@ export class FincraBank implements TFincra.IFincraBank {
     async verifyTransferStatus(reference: string) {
         try {
             const resp = await this.fincra.verifyPayoutByCustomerReference(reference);
-            if (!resp || !resp.data) {
+            if (!resp?.data) {
                 throw new e.FincraVerifyTransactionException(
                     "Unable to verify transfer status",
                     HttpStatus.NOT_IMPLEMENTED

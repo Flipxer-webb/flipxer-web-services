@@ -11,10 +11,10 @@ import {
 export class CryptoAccountQueueProducer {
     constructor(
         @InjectQueue(TradingQueue.QUIDAX_ACCOUNT_INIT)
-        private quidaxCryptoQueue: Queue<QuidaxTradingJobOptions>,
+        private readonly quidaxCryptoQueue: Queue<QuidaxTradingJobOptions>,
 
         @InjectQueue(TradingQueue.QUIDAX_SYNC_BALANCE)
-        private syncBalanceQueue: Queue<QuidaxTradingJobOptions>
+        private readonly syncBalanceQueue: Queue<QuidaxTradingJobOptions>
     ) {}
 
     async enqueue(user_id: number) {

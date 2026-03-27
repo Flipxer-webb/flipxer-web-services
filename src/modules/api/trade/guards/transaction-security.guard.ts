@@ -126,7 +126,7 @@ export class TransactionSecurityGuard implements CanActivate {
         this.logger.debug(`Context hash inputs: amount=${amount}, currency=${currencyValue}, recipient=${recipientValue?.substring(0, 10)}...`);
 
         // Parse tokens (comma-separated for multi-method verification)
-        const tokens = verificationToken.split(',').map((t: string) => t.trim()).filter((t: string) => t);
+        const tokens = verificationToken.split(',').map((t: string) => t.trim()).filter(Boolean);
         const verifiedMethods = await this.validateTokens(tokens, user.id, expectedContextHash);
 
         // STEP 4: Check if ALL required methods have been verified

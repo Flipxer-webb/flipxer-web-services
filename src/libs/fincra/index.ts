@@ -139,7 +139,7 @@ export interface FincraPayoutStatusResponse {
 }
 
 export class FincraLib {
-    private axios: AxiosInstance;
+    private readonly axios: AxiosInstance;
 
     constructor(private readonly options: FincraOptions) {
         const axiosConfig: any = {

@@ -29,8 +29,8 @@ import { RateLimiterGuard, RateLimit } from "@/modules/core/rate-limit";
 
 export class AdminAuthController {
     constructor(
-        private authService: AuthService,
-        private tierService: TierService
+        private readonly authService: AuthService,
+        private readonly tierService: TierService
     ) {}
 
     @HttpCode(HttpStatus.OK)

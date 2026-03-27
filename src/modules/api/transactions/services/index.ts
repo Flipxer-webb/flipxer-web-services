@@ -21,7 +21,7 @@ import { createObjectCsvStringifier } from "csv-writer";
 @Injectable()
 export class TransactionService {
     private readonly logger = new Logger("TransactionService");
-    constructor(private prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) {}
 
     async getRecentTransactionList() {
         const transactions = await this.prisma.order.findMany({
@@ -231,7 +231,6 @@ export class TransactionService {
             let toAmount = "N/A";
             let quotedCurrency = "N/A";
             let currency = "N/A";
-            let recipient = "N/A";
             let destinationBankName = "N/A";
             let destinationBankAccountNumber = "N/A";
             let destinationBankAccountName = "N/A";
@@ -246,13 +245,8 @@ export class TransactionService {
                     currency = t.quoted_currency;
                     break;
                 }
-                case OrderCategory.RECEIVE: {
-                    recipient = t.recipient;
-                    currency = t.currency;
-                    break;
-                }
+                case OrderCategory.RECEIVE:
                 case OrderCategory.SEND: {
-                    recipient = t.recipient;
                     currency = t.currency;
                     break;
                 }
@@ -269,8 +263,8 @@ export class TransactionService {
                     currency = t.currency;
                     break;
                 }
-                default: {
-                }
+                default:
+                    break;
             }
 
             const data: GeneralReportDownload = {

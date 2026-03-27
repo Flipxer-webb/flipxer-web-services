@@ -181,7 +181,7 @@ export class BankService {
             bank_code: options.bankCode,
         });
 
-        if (!account || !account.data) {
+        if (!account?.data) {
             throw new BadRequestException("Failed to verify bank account");
         }
 
@@ -284,7 +284,7 @@ export class BankService {
             where: { id: bankDetailId },
         });
 
-        if (!bankDetail || bankDetail.userId !== userId) {
+        if (bankDetail?.userId !== userId) {
             throw new BankDetailNotFoundException(
                 "Bank detail not found or does not belong to this user",
                 HttpStatus.NOT_FOUND
@@ -314,7 +314,7 @@ export class BankService {
             where: { id: bankDetailId },
         });
 
-        if (!bankDetail || bankDetail.userId !== userId) {
+        if (bankDetail?.userId !== userId) {
             throw new BankDetailNotFoundException(
                 "Bank detail not found or does not belong to this user",
                 HttpStatus.NOT_FOUND

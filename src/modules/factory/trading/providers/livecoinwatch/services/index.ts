@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import axios, { AxiosInstance } from "axios";
-import { setTimeout } from "timers/promises";
+import { setTimeout } from "node:timers/promises";
 
 interface LiveCoinWatchCoin {
     code: string;

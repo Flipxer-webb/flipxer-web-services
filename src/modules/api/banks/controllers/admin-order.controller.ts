@@ -54,7 +54,7 @@ export class AdminOrderController {
             include: { role: { select: { slug: true } } },
         });
 
-        if (!userData?.role || userData.role.slug !== 'super-admin') {
+        if (userData?.role?.slug !== 'super-admin') {
             throw new ForbiddenException('Admin access required');
         }
     }

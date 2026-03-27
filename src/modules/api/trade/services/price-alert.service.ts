@@ -26,9 +26,9 @@ export class PriceAlertService {
     private readonly MAX_ALERTS_PER_USER = 10; // Limit alerts per user
 
     constructor(
-        private prisma: PrismaService,
-        private quidaxCacheService: QuidaxCacheService,
-        private pushNotificationService: PushNotificationService
+        private readonly prisma: PrismaService,
+        private readonly quidaxCacheService: QuidaxCacheService,
+        private readonly pushNotificationService: PushNotificationService
     ) {}
 
     /**

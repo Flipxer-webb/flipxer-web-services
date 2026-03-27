@@ -9,10 +9,10 @@ import { UserService } from "../../user/services";
 
 @Injectable()
 export class WsService {
-    private userSocketMap: Map<string, string> = new Map(); // userId -> socketId
-    private socketUserMap: Map<string, string> = new Map(); // socketId -> userId
+    private readonly userSocketMap: Map<string, string> = new Map(); // userId -> socketId
+    private readonly socketUserMap: Map<string, string> = new Map(); // socketId -> userId
     constructor(
-        private prismaService: PrismaService,
+        private readonly prismaService: PrismaService,
         @Inject(forwardRef(() => UserService))
         private readonly userService: UserService
     ) {}

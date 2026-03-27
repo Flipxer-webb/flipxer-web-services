@@ -169,7 +169,7 @@ interface TokenCache {
 }
 
 export class NombaLib {
-    private axios: AxiosInstance;
+    private readonly axios: AxiosInstance;
     private tokenCache: TokenCache | null = null;
     private readonly tokenMutex = new Mutex();
     private readonly logger = new Logger('NombaLib');

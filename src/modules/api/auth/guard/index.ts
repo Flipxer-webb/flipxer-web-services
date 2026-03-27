@@ -421,8 +421,8 @@ export class CountryBlockGuard implements CanActivate {
 @Injectable()
 export class SocketAuthGuard implements CanActivate {
     constructor(
-        private jwtService: JwtService,
-        private prisma: PrismaService
+        private readonly jwtService: JwtService,
+        private readonly prisma: PrismaService
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -609,10 +609,10 @@ export class TwoFactorGuard implements CanActivate {
     private readonly logger = new Logger('TwoFactorGuard');
 
     constructor(
-        private prisma: PrismaService,
-        private jwtService: JwtService,
-        @Optional() private twoFactorRateLimitService?: any,
-        @Optional() private settingService?: any
+        private readonly prisma: PrismaService,
+        private readonly jwtService: JwtService,
+        @Optional() private readonly twoFactorRateLimitService?: any,
+        @Optional() private readonly settingService?: any
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {

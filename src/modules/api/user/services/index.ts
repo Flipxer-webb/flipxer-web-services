@@ -42,19 +42,19 @@ import { RateService } from "@/modules/api/trade/services/rate.service";
 
 @Injectable()
 export class UserService {
-    private uploadService: ImagekitService | CloudinaryService;
+    private readonly uploadService: ImagekitService | CloudinaryService;
     private readonly logger = new Logger(UserService.name);
 
     // Profile cache configuration
     private readonly PROFILE_CACHE_TTL = 300; // 5 minutes
-    private getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
+    private readonly getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
 
     constructor(
-        private prisma: PrismaService,
+        private readonly prisma: PrismaService,
         @Inject(forwardRef(() => AuthService))
-        private authService: AuthService,
-        private emailService: EmailService,
-        private uploadFactory: UploadFactory,
+        private readonly authService: AuthService,
+        private readonly emailService: EmailService,
+        private readonly uploadFactory: UploadFactory,
         private readonly quidaxCacheService: QuidaxCacheService,
         private readonly tierService: TierService,
         @Inject(TradingInjectionToken.LIVECOINWATCH)
@@ -752,8 +752,6 @@ export class UserService {
         const name =
             `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User";
         const team = COMPANY_NAME;
-        const notice =
-            "Please use this code to verify your recovery email. The code expires in 30 minutes.";
 
         try {
             await this.emailService.sendMailWithTemplate({

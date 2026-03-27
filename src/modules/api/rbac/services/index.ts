@@ -492,7 +492,7 @@ export class RbacService {
             where: { id: dto.roleId },
         });
 
-        if (!role || !role.isAdmin) {
+        if (!role?.isAdmin) {
             throw new RoleNotFoundException("Admin role not found");
         }
 

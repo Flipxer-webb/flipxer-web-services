@@ -12,9 +12,9 @@
  *   node scripts/backup-utils.js restore <filename>
  */
 
-const { exec, spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+const { exec, spawn } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -26,7 +26,7 @@ if (!fs.existsSync(BACKUP_DIR)) {
 
 function getTimestamp() {
     const now = new Date();
-    return now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    return now.toISOString().replaceAll(/[:.]/g, '-').slice(0, 19);
 }
 
 async function createBackup() {

@@ -17,11 +17,11 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
     private readonly logger = new Logger("CryptoAccountInit");
 
     constructor(
-        private tradingEvent: TradingEvent,
-        private prisma: PrismaService,
+        private readonly tradingEvent: TradingEvent,
+        private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
-        private tradingService: TradingService
+        private readonly tradingService: TradingService
     ) {}
 
     @Process(QuidaxTradingQueue.TRADING_ACCOUNT_INIT)

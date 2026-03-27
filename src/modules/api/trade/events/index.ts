@@ -7,10 +7,9 @@ import { TradingEventMap } from "../interfaces/trade";
 export class TradingEvent extends EventEmitter {
     constructor(
         @Inject(forwardRef(() => TradingService))
-        private tradingService: TradingService
+        private readonly tradingService: TradingService
     ) {
         super();
-        // this.on("quidax-failure", this.onPaymentFailure);
     }
 
     emit<K extends keyof TradingEventMap>(

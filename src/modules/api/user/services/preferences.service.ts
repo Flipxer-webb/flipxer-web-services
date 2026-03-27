@@ -30,7 +30,7 @@ export interface UpdateNotificationPreferencesDto {
 export class PreferencesService {
     private readonly logger = new Logger(PreferencesService.name);
 
-    constructor(private prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) {}
 
     /**
      * Get user preferences - auto-creates if not exists
@@ -241,8 +241,8 @@ export class PreferencesService {
         user: User,
         order: string[]
     ): Promise<ApiResponse> {
-        const validActions = ["buy", "sell", "swap", "send", "receive"];
-        const filteredOrder = order.filter((a) => validActions.includes(a));
+        const validActions = new Set(["buy", "sell", "swap", "send", "receive"]);
+        const filteredOrder = order.filter((a) => validActions.has(a));
 
         const preferences = await this.prisma.userPreferences.upsert({
             where: { userId: user.id },

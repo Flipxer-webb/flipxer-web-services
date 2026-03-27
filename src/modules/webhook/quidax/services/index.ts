@@ -43,8 +43,8 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     };
 
     constructor(
-        private prisma: PrismaService,
-        private tradingService: TradingService
+        private readonly prisma: PrismaService,
+        private readonly tradingService: TradingService
     ) { }
 
     /**

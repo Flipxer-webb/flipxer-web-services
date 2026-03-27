@@ -458,7 +458,7 @@ export interface ITradingProvider {
  */
 export class MockTradingProvider implements ITradingProvider {
     readonly providerName = 'mock';
-    private responses: Map<string, any> = new Map();
+    private readonly responses: Map<string, any> = new Map();
 
     setResponse<K extends keyof ITradingProvider>(
         method: K,

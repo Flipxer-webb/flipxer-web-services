@@ -2,7 +2,7 @@ import { Injectable, HttpStatus, Logger } from "@nestjs/common";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import axios from "axios";
-import { setTimeout } from "timers/promises";
+import { setTimeout } from "node:timers/promises";
 
 @Injectable()
 export class CoinGeckoService {
@@ -95,7 +95,7 @@ export class CoinGeckoService {
 
         const coinGeckoIds = assets
             .map(asset => this.coinGeckoIdMap[asset.toLowerCase()])
-            .filter(id => id);
+            .filter(Boolean);
 
         if (coinGeckoIds.length === 0) {
             throw new GeneralTransactionException(
@@ -159,7 +159,7 @@ export class CoinGeckoService {
 
         const coinGeckoIds = assets
             .map((asset) => this.coinGeckoIdMap[asset.toLowerCase()])
-            .filter((id) => id);
+            .filter(Boolean);
 
         if (coinGeckoIds.length === 0) {
             // No valid IDs to fetch, return nulls
@@ -188,7 +188,7 @@ export class CoinGeckoService {
                     const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
                     if (coinGeckoId) {
                         const data = response.data[coinGeckoId];
-                        if (data && data.usd !== undefined) {
+                        if (data?.usd !== undefined) {
                             const price = data.usd;
                             const change24h = data.usd_24h_change ?? 0;
 
@@ -345,7 +345,7 @@ export class CoinGeckoService {
 
         const coinGeckoIds = uncachedAssets
             .map((asset) => this.coinGeckoIdMap[asset.toLowerCase()])
-            .filter((id) => id);
+            .filter(Boolean);
 
         if (coinGeckoIds.length === 0) {
             return result;

@@ -14,7 +14,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     private isConnected = false;
 
     // In-memory fallback cache when Redis is unavailable
-    private fallbackCache = new Map<string, CacheEntry<any>>();
+    private readonly fallbackCache = new Map<string, CacheEntry<any>>();
     private fallbackCleanupInterval: NodeJS.Timeout;
     private readonly FALLBACK_ENABLED = true;
     private readonly MAX_FALLBACK_SIZE = 1000;

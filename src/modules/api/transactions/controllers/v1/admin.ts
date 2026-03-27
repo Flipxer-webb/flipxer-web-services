@@ -1,4 +1,3 @@
-import { buildResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -50,9 +49,9 @@ import { PermissionName } from "@/modules/api/authorize/enums/role";
 })
 export class AdminTransactionController {
     constructor(
-        private transactionService: TransactionService,
-        private adminTransactionService: AdminTransactionService,
-        private tradingService: TradingService,
+        private readonly transactionService: TransactionService,
+        private readonly adminTransactionService: AdminTransactionService,
+        private readonly tradingService: TradingService,
     ) { }
 
     @HttpCode(HttpStatus.OK)

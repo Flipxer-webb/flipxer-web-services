@@ -18,7 +18,7 @@
 import { PrismaClient, UserType } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid";
-import * as readline from "readline";
+import * as readline from "node:readline";
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;

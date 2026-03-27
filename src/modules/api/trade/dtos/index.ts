@@ -472,28 +472,6 @@ export class PurchaseLimitBuyDto {
     currency_symbol: string;
 }
 
-// export interface PurchaseLimitBuyOptions {
-//     currency_symbol: string;
-// }
-
-// export interface PurchaseLimitSellOptions {
-//     token_symbol: string;
-// }
-
-// export interface PurchaseQuoteBuyOptions {
-//     currency: string; //Fiat currency
-//     token: string; //Token currency:
-//     fiat_amount: string;
-//     token_network: string;
-// }
-
-// export interface PurchaseQuoteSellOptions {
-//     currency: string; //Fiat currency
-//     token: string; //Token currency:
-//     token_amount: string;
-//     token_network: string;
-// }
-
 export class GetMarketChartDto {
     @ApiProperty({
         example: "BTC",

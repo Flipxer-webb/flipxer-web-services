@@ -61,8 +61,6 @@ export class HealthController {
     @ApiResponse({ status: 200, description: "Server is healthy" })
     @ApiResponse({ status: 503, description: "Server is unhealthy" })
     async check(@Res() res: Response): Promise<Response> {
-        const startTime = Date.now();
-        
         // Check database health
         let dbHealth: HealthCheckResult["services"]["database"] = { healthy: false };
         try {

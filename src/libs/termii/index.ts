@@ -17,8 +17,8 @@ export * from "./errors";
 export * from "./types";
 
 export class TermiiLib {
-    private axios: AxiosInstance;
-    private apiKey: string;
+    private readonly axios: AxiosInstance;
+    private readonly apiKey: string;
 
     constructor(protected instanceOptions: TermiiOptions) {
         this.apiKey = instanceOptions.apiKey;

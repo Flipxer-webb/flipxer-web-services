@@ -10,7 +10,7 @@ import {
 @Injectable()
 export class EmailService {
     private readonly logger = new Logger(EmailService.name);
-    constructor(private client: ISendMailClient) {}
+    constructor(private readonly client: ISendMailClient) {}
 
     async sendMail(options: SendMailOptions): Promise<any> {
         return await this.client.sendMail(options);

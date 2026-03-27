@@ -9,7 +9,7 @@ export class QuidaxLib {
     constructor(protected instanceOptions: t.QuidaxOptions) { }
 
     // Quidax main API
-    private mainAxios: AxiosInstance = Axios.create({
+    private readonly mainAxios: AxiosInstance = Axios.create({
         baseURL: this.instanceOptions.baseURL,
         headers: {
             Authorization: `Bearer ${this.instanceOptions.api_secret}`,
@@ -17,7 +17,7 @@ export class QuidaxLib {
     });
 
     // Quidax Ramp API
-    private rampAxios: AxiosInstance = Axios.create({
+    private readonly rampAxios: AxiosInstance = Axios.create({
         baseURL: this.instanceOptions.rampBaseURL, // e.g., https://ramp-be.quidax.io/api/v1/merchants
         headers: {
             "x-private-key": this.instanceOptions.api_secret,

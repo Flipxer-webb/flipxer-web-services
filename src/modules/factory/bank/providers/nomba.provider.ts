@@ -29,7 +29,7 @@ export class NombaBank implements TNomba.INombaBank {
     async getBanks(): Promise<NombaBankListResponse> {
         try {
             const banks = await this.nomba.getBanks();
-            if (!banks || banks.code !== "00") {
+            if (banks?.code !== "00") {
                 throw new e.NOMBABankException(
                     "Failed to fetch banks",
                     HttpStatus.BAD_REQUEST
@@ -75,7 +75,7 @@ export class NombaBank implements TNomba.INombaBank {
                 "****RESOLVE ACCOUNT RESPONSE****** NOMBA"
             );
 
-            if (!result || result.code !== "00") {
+            if (result?.code !== "00") {
                 throw new e.NOMBABankException(
                     result?.description || "Failed to resolve bank account",
                     HttpStatus.BAD_REQUEST
@@ -83,7 +83,7 @@ export class NombaBank implements TNomba.INombaBank {
             }
 
             const data = result.data;
-            if (!data || !data.accountNumber || !data.accountName) {
+            if (!data?.accountNumber || !data?.accountName) {
                 logger.error(
                     { result: JSON.stringify(result) },
                     "****RESOLVE ACCOUNT INVALID DATA****** NOMBA"
@@ -148,7 +148,7 @@ export class NombaBank implements TNomba.INombaBank {
                 "****CREATE VIRTUAL ACCOUNT RESPONSE****** NOMBA"
             );
 
-            if (!result || result.code !== "00") {
+            if (result?.code !== "00") {
                 throw new e.NombaVirtualAccountException(
                     result?.description || "Failed to create virtual account",
                     HttpStatus.BAD_REQUEST
@@ -221,7 +221,7 @@ export class NombaBank implements TNomba.INombaBank {
                 "****REFERENCE COMPARISON****** NOMBA"
             );
 
-            if (!result || result.code !== "00") {
+            if (result?.code !== "00") {
                 throw new e.NombaWorkflowException(
                     result?.description || "Failed to initialize payment",
                     HttpStatus.BAD_REQUEST
@@ -256,7 +256,7 @@ export class NombaBank implements TNomba.INombaBank {
     async verifyTransaction(reference: string) {
         try {
             const resp = await this.nomba.getCheckoutStatus(reference);
-            if (!resp || !resp.data) {
+            if (!resp?.data) {
                 throw new e.NombaVerifyTransactionException(
                     "Unable to verify transaction",
                     HttpStatus.NOT_IMPLEMENTED
