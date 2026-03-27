@@ -68,6 +68,20 @@ export class CoinCapService {
         });
     }
 
+    private resolveCoinId(asset: string): string {
+        const normalizedAsset = asset.toLowerCase().trim();
+        const coinId = this.symbolToId[normalizedAsset] || normalizedAsset;
+
+        if (!/^[a-z0-9-]+$/.test(coinId)) {
+            throw new GeneralTransactionException(
+                `Invalid asset symbol: ${asset}`,
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        return coinId;
+    }
+
     /**
      * Get current price for a single asset
      */
@@ -81,11 +95,11 @@ export class CoinCapService {
             return cachedPrice;
         }
 
-        const coinId = this.symbolToId[asset.toLowerCase()] || asset.toLowerCase();
+        const coinId = this.resolveCoinId(asset);
 
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                const response = await this.apiClient.get(`/assets/${coinId}`);
+                const response = await this.apiClient.get(`/assets/${encodeURIComponent(coinId)}`);
                 const rate = Number.parseFloat(response.data?.data?.priceUsd);
 
                 if (!rate || Number.isNaN(rate)) throw new Error(`No price data for ${asset}`);
@@ -117,16 +131,14 @@ export class CoinCapService {
         const result: Record<string, { price: number; change24h: number } | null> = {};
 
         try {
-            const ids = assets
-                .map(a => this.symbolToId[a.toLowerCase()] || a.toLowerCase())
-                .join(",");
+            const ids = assets.map((asset) => this.resolveCoinId(asset)).join(",");
 
             const response = await this.apiClient.get(`/assets?ids=${ids}`);
             const coins = response.data?.data as CoinCapAsset[];
 
             coins?.forEach(coin => {
                 const assetKey = assets.find(
-                    a => (this.symbolToId[a.toLowerCase()] || a.toLowerCase()) === coin.id
+                    (asset) => this.resolveCoinId(asset) === coin.id
                 );
 
                 if (assetKey) {
@@ -172,7 +184,7 @@ export class CoinCapService {
             return cachedData;
         }
 
-        const coinId = this.symbolToId[asset.toLowerCase()] || asset.toLowerCase();
+        const coinId = this.resolveCoinId(asset);
         const end = Date.now();
         const start = end - days * 24 * 60 * 60 * 1000;
 
@@ -184,7 +196,14 @@ export class CoinCapService {
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 const response = await this.apiClient.get(
-                    `/assets/${coinId}/history?interval=${interval}&start=${start}&end=${end}`
+                    `/assets/${encodeURIComponent(coinId)}/history`,
+                    {
+                        params: {
+                            interval,
+                            start,
+                            end,
+                        },
+                    },
                 );
 
                 const history = response.data?.data as CoinCapHistoryPoint[];

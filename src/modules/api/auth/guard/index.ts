@@ -182,9 +182,7 @@ export class QuidaxWebhookGuard implements CanActivate {
     canActivate(
         context: ExecutionContext
     ): boolean | Promise<boolean> | Observable<boolean> {
-        const request = context
-            .switchToHttp()
-            .getRequest() as RequestFromQuidax;
+        const request = context.switchToHttp().getRequest<RequestFromQuidax>();
 
         if (!quidaxConfig.webhook_key) {
             this.logger.error("[WEBHOOK AUTH] SECURITY: QUIDAX_WEBHOOK_KEY not configured - rejecting all webhooks");
@@ -517,6 +515,24 @@ const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
     },
 ];
 
+function extractTransactionDataFromRoute(
+    body: any,
+    path: string
+): { amount: number; currency: string; category: OrderCategory } | null {
+    const config = TRANSACTION_ROUTE_CONFIGS.find((cfg) =>
+        cfg.patterns.some((pattern) => path.includes(pattern))
+    );
+
+    if (!config) return null;
+
+    const amount = config.getAmount(body);
+    const currency = config.getCurrency(body);
+
+    if (!amount || !currency) return null;
+
+    return { amount, currency, category: config.category };
+}
+
 @Injectable()
 export class TransactionAmountGuard implements CanActivate {
     constructor(
@@ -535,7 +551,7 @@ export class TransactionAmountGuard implements CanActivate {
         }
 
         const { body, path } = request;
-        const transactionData = this.extractTransactionData(body, path);
+        const transactionData = extractTransactionDataFromRoute(body, path);
 
         if (!transactionData) {
             throw new InvalidTransactionAmountException(
@@ -553,24 +569,6 @@ export class TransactionAmountGuard implements CanActivate {
         );
 
         return true;
-    }
-
-    private extractTransactionData(
-        body: any,
-        path: string
-    ): { amount: number; currency: string; category: OrderCategory } | null {
-        const config = TRANSACTION_ROUTE_CONFIGS.find((cfg) =>
-            cfg.patterns.some((pattern) => path.includes(pattern))
-        );
-
-        if (!config) return null;
-
-        const amount = config.getAmount(body);
-        const currency = config.getCurrency(body);
-
-        if (!amount || !currency) return null;
-
-        return { amount, currency, category: config.category };
     }
 }
 
@@ -683,7 +681,7 @@ export class TwoFactorGuard implements CanActivate {
         hasLegacy2FA: boolean | null | undefined
     ): Promise<boolean> {
         const { body, path } = request;
-        const transactionData = this.extractTransactionData(body, path);
+        const transactionData = extractTransactionDataFromRoute(body, path);
 
         if (transactionData && hasLegacy2FA) {
             return this.isTransactionVerificationRequired(transactionData, userData);
@@ -701,6 +699,7 @@ export class TwoFactorGuard implements CanActivate {
     ): Promise<boolean> {
         let verificationToken = this.extractVerificationToken(request);
         const legacyCode = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+        const routeTemplate = this.getRequestRouteTemplate(request);
 
         // Smart detection: If legacy code looks like a JWT, treat it as a verification token
         if (!verificationToken && legacyCode && legacyCode.length > 20) {
@@ -710,7 +709,7 @@ export class TwoFactorGuard implements CanActivate {
         // New multi-factor verification token
         if (verificationToken) {
             const isValid = await this.verifyMultiFactorTokens(
-                userId, verificationToken, userData, request.url
+                userId, verificationToken, userData, routeTemplate
             );
             if (isValid) return true;
         }
@@ -761,7 +760,7 @@ export class TwoFactorGuard implements CanActivate {
         userId: number,
         verificationToken: string,
         userData: { requiredMethodCount?: number },
-        requestUrl: string,
+        routeTemplate: string,
     ): Promise<boolean> {
         const tokens = verificationToken.split(',');
         const verifiedMethods = new Set<string>();
@@ -780,7 +779,7 @@ export class TwoFactorGuard implements CanActivate {
 
         let requiredCount = userData?.requiredMethodCount || 1;
 
-        if (requestUrl.includes('execute-atomic-swap')) {
+        if (this.isAtomicSwapRoute(routeTemplate)) {
             this.logger.debug(`User ${userId}: Swap transaction detected, overriding requiredMethodCount to 1`);
             requiredCount = 1;
         }
@@ -792,6 +791,26 @@ export class TwoFactorGuard implements CanActivate {
 
         this.logger.warn(`User ${userId}: Insufficient methods verified. Got ${verifiedMethods.size}, required ${requiredCount}`);
         return false;
+    }
+
+    private getRequestRouteTemplate(request: RequestWithUser): string {
+        const routePath = request.route?.path;
+        if (typeof routePath === "string") {
+            return routePath;
+        }
+
+        if (Array.isArray(routePath)) {
+            const firstPath = routePath.find((path) => typeof path === "string");
+            if (firstPath) {
+                return firstPath;
+            }
+        }
+
+        return request.path ?? "";
+    }
+
+    private isAtomicSwapRoute(routeTemplate: string): boolean {
+        return /(^|\/)execute-atomic-swap(?:\/|$)/.test(routeTemplate);
     }
 
     /**
@@ -942,25 +961,6 @@ export class TwoFactorGuard implements CanActivate {
 
         return available;
     }
-
-    private extractTransactionData(
-        body: any,
-        path: string
-    ): { amount: number; currency: string; category: OrderCategory } | null {
-        const config = TRANSACTION_ROUTE_CONFIGS.find((cfg) =>
-            cfg.patterns.some((pattern) => path.includes(pattern))
-        );
-
-        if (!config) return null;
-
-        const amount = config.getAmount(body);
-        const currency = config.getCurrency(body);
-
-        if (!amount || !currency) return null;
-
-        return { amount, currency, category: config.category };
-    }
-
     private async getCryptoRateToNGN(currency: string): Promise<number | null> {
         try {
             const rate = await this.prisma.cryptoRate.findFirst({

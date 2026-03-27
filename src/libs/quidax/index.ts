@@ -89,6 +89,24 @@ export class QuidaxLib {
         }
     }
 
+    private encodePathSegment(value: string, fieldName: string): string {
+        if (typeof value !== "string" || !value.trim()) {
+            throw new e.QuidaxValidationError(
+                `Invalid ${fieldName}. Expected a non-empty string.`,
+                "INVALID_PATH_SEGMENT",
+            );
+        }
+
+        if (/[/?#\\]/.test(value)) {
+            throw new e.QuidaxValidationError(
+                `Invalid ${fieldName}. Path separators are not allowed.`,
+                "INVALID_PATH_SEGMENT",
+            );
+        }
+
+        return encodeURIComponent(value.trim());
+    }
+
     /************************** Account  *************************/
 
     /**
@@ -270,9 +288,11 @@ export class QuidaxLib {
         options: t.GetUserWalletOptions
     ): Promise<t.QuidaxResponse<t.GetUserWalletResponse>> {
         this.validateUserId(options.user_id, "getUserWallet");
+        const safeUserId = this.encodePathSegment(options.user_id, "user_id");
+        const safeCurrency = this.encodePathSegment(options.currency, "currency");
         try {
             const requestOptions: AxiosRequestConfig = {
-                url: `/users/${options.user_id}/wallets/${options.currency}`,
+                url: `/users/${safeUserId}/wallets/${safeCurrency}`,
                 method: "GET",
             };
             const resp = await this.mainAxios<
@@ -304,9 +324,11 @@ export class QuidaxLib {
         options: t.GetPaymentAddressOptions
     ): Promise<t.QuidaxResponse<t.GetUserWalletResponse>> {
         this.validateUserId(options.user_id, "getPaymentAddress");
+        const safeUserId = this.encodePathSegment(options.user_id, "user_id");
+        const safeCurrency = this.encodePathSegment(options.currency, "currency");
         try {
             const requestOptions: AxiosRequestConfig = {
-                url: `/users/${options.user_id}/wallets/${options.currency}/address`,
+                url: `/users/${safeUserId}/wallets/${safeCurrency}/address`,
                 method: "GET",
             };
             const resp = await this.mainAxios<
@@ -412,10 +434,12 @@ export class QuidaxLib {
         options: t.CreatePaymentAddressOptions
     ): Promise<t.QuidaxResponse<t.CreatePaymentAddressResponse>> {
         this.validateUserId(options.user_id, "createPaymentAddress");
+        const safeUserId = this.encodePathSegment(options.user_id, "user_id");
+        const safeCurrency = this.encodePathSegment(options.currency, "currency");
         try {
             const requestOptions: AxiosRequestConfig<t.CreatePaymentAddressOptions> =
             {
-                url: `/users/${options.user_id}/wallets/${options.currency}/addresses`,
+                url: `/users/${safeUserId}/wallets/${safeCurrency}/addresses`,
                 method: "POST",
                 data: options,
             };
@@ -449,9 +473,11 @@ export class QuidaxLib {
     async verifyAddress(
         options: t.VerifyAddressOptions
     ): Promise<t.QuidaxResponse<t.VerifyAddressResponse>> {
+        const safeCurrency = this.encodePathSegment(options.currency, "currency");
+        const safeAddress = this.encodePathSegment(options.address, "address");
         try {
             const requestOptions: AxiosRequestConfig = {
-                url: `/${options.currency}/${options.address}/validate_address`,
+                url: `/${safeCurrency}/${safeAddress}/validate_address`,
                 method: "GET",
                 params: options.network ? { network: options.network } : undefined,
             };

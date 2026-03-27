@@ -64,6 +64,8 @@ import { RoleNotFoundException } from "../../authorize/error";
 import { ADMIN_USER_TYPES } from "../../authorize/decorator";
 import {
     emailTemplateConfig,
+    cloudinaryConfig,
+    imagekitConfig,
     jwt_refresh_secret,
     jwtSecret,
     mailConfig,
@@ -73,6 +75,7 @@ import {
     COMPANY_NAME,
     isProdEnvironment,
 } from "@/config";
+import axios from "axios";
 import { UploadResponse } from "imagekit/dist/libs/interfaces";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { UploadFactory } from "@/modules/core/upload/services";
@@ -768,7 +771,7 @@ export class AuthService {
             select: { id: true, isEmailVerified: true, firstName: true },
         });
 
-        let firstName = "User";
+        let firstName: string;
 
         if (emailExist) {
             // Case 1: User already exists
@@ -835,7 +838,7 @@ export class AuthService {
 
     async verifyEmailOtp(options: VerifyEmailOtpDto): Promise<ApiResponse> {
         const email = options.email.toLowerCase().trim();
-        let user: User | null = null;
+        let user: User;
         let isNewUser = false;
 
         // Check if user exists in DB
@@ -850,7 +853,6 @@ export class AuthService {
                     HttpStatus.BAD_REQUEST
                 );
             }
-            user = emailExist;
         } else {
             // Check Redis for pending signup
             const cacheKey = `pending_signup:${email}`;
@@ -946,13 +948,13 @@ export class AuthService {
         });
 
         // Sync tier & flush profile cache after email verification
-        await this.tierService.syncTierAndCache(user!.id);
+        await this.tierService.syncTierAndCache(user.id);
 
         // Generate tokens for auto-login
         const tokens = await this.generateTokens({
-            sub: user!.id,
+            sub: user.id,
         });
-        await this.saveRefreshToken(user!.id, tokens.refreshToken);
+        await this.saveRefreshToken(user.id, tokens.refreshToken);
 
         return buildResponse({
             message: "Email verification completed",
@@ -2692,6 +2694,42 @@ export class AuthService {
         }
     }
 
+    private getTrustedDocumentOrigins(): Set<string> {
+        const trustedOrigins = new Set<string>();
+
+        if (imagekitConfig.url) {
+            try {
+                trustedOrigins.add(new URL(imagekitConfig.url).origin);
+            } catch {
+                this.logger.warn("Invalid IMAGEKIT_URL configured; skipping URL origin allowlist entry");
+            }
+        }
+
+        if (cloudinaryConfig.cloud_name) {
+            trustedOrigins.add(`https://res.cloudinary.com/${cloudinaryConfig.cloud_name}`);
+        }
+
+        // Keep a safe fallback for standard ImageKit domains.
+        trustedOrigins.add("https://ik.imagekit.io");
+
+        return trustedOrigins;
+    }
+
+    private resolveTrustedDocumentUrl(rawUrl: string): URL | null {
+        try {
+            const parsedUrl = new URL(rawUrl);
+            if (parsedUrl.protocol !== "https:") {
+                return null;
+            }
+
+            return this.getTrustedDocumentOrigins().has(parsedUrl.origin)
+                ? parsedUrl
+                : null;
+        } catch {
+            return null;
+        }
+    }
+
     /**
      * Dojah verification variant that fetches the CAC image from a URL
      * instead of requiring a Multer file buffer.
@@ -2709,12 +2747,20 @@ export class AuthService {
             return;
         }
 
+        const trustedImageUrl = this.resolveTrustedDocumentUrl(cacImageUrl);
+        if (!trustedImageUrl) {
+            this.logger.warn(
+                `[DojahBusinessVerificationFromUrl] Untrusted CAC image URL for user ${userId}, skipping`
+            );
+            return;
+        }
+
         try {
             // Fetch image from ImageKit URL and convert to base64
-            const axios = require("axios");
-            const response = await axios.get(cacImageUrl, {
+            const response = await axios.get(trustedImageUrl.toString(), {
                 responseType: "arraybuffer",
                 timeout: 30000,
+                maxRedirects: 0,
             });
             const buffer = Buffer.from(response.data);
 
@@ -3001,9 +3047,9 @@ export class AuthService {
     }
 
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
-        const payload = await this.jwtService.verify(options.refreshToken, {
+        const payload = await this.jwtService.verify<DataStoredInToken>(options.refreshToken, {
             secret: jwt_refresh_secret,
-        }) as DataStoredInToken;
+        });
 
         // SECURITY: Distributed lock prevents concurrent refresh token rotation race condition
         return this.distributedLockService.withLock(
