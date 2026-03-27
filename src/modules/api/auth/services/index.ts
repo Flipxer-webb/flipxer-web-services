@@ -64,7 +64,6 @@ import { RoleNotFoundException } from "../../authorize/error";
 import { ADMIN_USER_TYPES } from "../../authorize/decorator";
 import {
     emailTemplateConfig,
-    frontendDevUrl,
     jwt_refresh_secret,
     jwtSecret,
     mailConfig,

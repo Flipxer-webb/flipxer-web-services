@@ -188,7 +188,7 @@ export class CoinGeckoService {
                     const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
                     if (coinGeckoId) {
                         const data = response.data[coinGeckoId];
-                        if (data?.usd !== undefined) {
+                        if (typeof data?.usd === "number") {
                             const price = data.usd;
                             const change24h = data.usd_24h_change ?? 0;
 
