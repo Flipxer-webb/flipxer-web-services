@@ -60,10 +60,10 @@
     },
     "scripts": {
         "postinstall": "npx prisma generate",
-        "prebuild": "rm -rf dist || true",
-        "build": "NODE_ENV=production webpack",
+        "prebuild": "rimraf dist",
+        "build": "webpack --mode production",
         "format": "prettier --write \"src/**/*.ts\"",
-        "watch": "NODE_ENV=development webpack --watch",
+        "watch": "webpack --mode development --watch",
         "start:dev": "nest start --watch",
         "start:prod": "node dist/server",
         "start:debug": "nest start --watch",
