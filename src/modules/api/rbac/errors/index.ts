@@ -36,15 +36,9 @@ export class CannotDeleteDefaultRoleException extends HttpException {
     }
 }
 
-export class PermissionNotFoundException extends HttpException {
+export class PermissionNotFoundException extends RoleNotFoundException {
     constructor(message: string = "Permission not found") {
-        super(
-            {
-                success: false,
-                message,
-            },
-            HttpStatus.NOT_FOUND
-        );
+        super(message);
     }
 }
 

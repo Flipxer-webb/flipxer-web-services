@@ -139,7 +139,7 @@ async function main() {
         const [group] = name.split(".");
         return {
             name,
-            description: key.replace(/_/g, " ").toLowerCase(),
+            description: key.replaceAll("_", " ").toLowerCase(),
             group: group.toUpperCase(),
         };
     });

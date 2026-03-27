@@ -27,8 +27,6 @@ describe('DepositWebhookHandler', () => {
   let quidaxService: jest.Mocked<QuidaxService>;
   let wsGateway: jest.Mocked<WsGateway>;
   let notificationEvent: jest.Mocked<NotificationEvent>;
-  let tradeHelpers: jest.Mocked<TradeHelpersService>;
-  let walletAddressService: jest.Mocked<WalletAddressService>;
 
   const mockUser = mockDataFactories.user();
   const mockTicker = mockDataFactories.ticker();
@@ -82,8 +80,6 @@ describe('DepositWebhookHandler', () => {
     quidaxService = module.get(TradingInjectionToken.TRADING_SERVICE);
     wsGateway = module.get(WsGateway);
     notificationEvent = module.get(NotificationEvent);
-    tradeHelpers = module.get(TradeHelpersService);
-    walletAddressService = module.get(WalletAddressService);
   });
 
   afterEach(() => {
@@ -252,7 +248,6 @@ describe('DepositWebhookHandler', () => {
   describe('sendDepositNotification', () => {
     it('should send push notification and websocket update', async () => {
       // Arrange
-      const order = mockDataFactories.order();
       prisma.notification.create.mockResolvedValue(mockDataFactories.notification());
       prisma.notification.findMany.mockResolvedValue([]);
 

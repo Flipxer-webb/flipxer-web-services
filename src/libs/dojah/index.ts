@@ -18,11 +18,14 @@ export class DojahLib {
     private handleDojahError(error: AxiosError<any>) {
         // Handle network errors (no response from server)
         if (!error.response) {
-            const message = error.code === 'ECONNABORTED' 
-                ? 'Request timeout - Dojah API took too long to respond'
-                : error.code === 'ENOTFOUND'
-                ? 'Network error - Could not reach Dojah API'
-                : error.message || 'Network error connecting to Dojah';
+            let message = error.message || 'Network error connecting to Dojah';
+
+            if (error.code === 'ECONNABORTED') {
+                message = 'Request timeout - Dojah API took too long to respond';
+            } else if (error.code === 'ENOTFOUND') {
+                message = 'Network error - Could not reach Dojah API';
+            }
+
             throw new e.DojahNetworkError(message);
         }
 

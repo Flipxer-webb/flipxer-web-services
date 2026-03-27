@@ -1,7 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { BuyOrderService } from "../buy-order.service";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { WalletAddressService } from "../wallet-address.service";
 import { WsGateway } from "../../gateway/v1";
@@ -11,8 +10,6 @@ import { OrderStatus } from "@prisma/client";
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
     let prismaService: jest.Mocked<PrismaService>;
-    let quidaxService: jest.Mocked<QuidaxService>;
-    let walletAddressService: jest.Mocked<WalletAddressService>;
     let wsGateway: jest.Mocked<WsGateway>;
 
     const mockUser = {
@@ -104,8 +101,6 @@ describe("BuyOrderService", () => {
 
         service = module.get<BuyOrderService>(BuyOrderService);
         prismaService = module.get(PrismaService);
-        quidaxService = module.get(TradingInjectionToken.QUIDAX);
-        walletAddressService = module.get(WalletAddressService);
         wsGateway = module.get(WsGateway);
     });
 

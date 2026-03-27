@@ -157,7 +157,7 @@ export class TierService {
     async updateUserTier(userId: number): Promise<UserWithTier> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
-        }) as UserWithTier | null;
+        });
 
         if (!user) {
             throw new Error(`User with ID ${userId} not found`);
@@ -181,7 +181,7 @@ export class TierService {
             const updatedUser = await this.prisma.user.update({
                 where: { id: userId },
                 data: { tier: newTier } as any,
-            }) as UserWithTier;
+            });
 
             return updatedUser;
         }
@@ -249,30 +249,31 @@ export class TierService {
 
         for (const user of users) {
             try {
-                const currentTier = (user.tier as number) ?? 0;
-                const newTier = this.calculateTier(user as any);
+                const currentTier = user.tier ?? 0;
+                const newTier = this.calculateTier(user);
 
-                if (currentTier !== newTier) {
-                    await this.prisma.user.update({
-                        where: { id: user.id },
-                        data: { tier: newTier } as any,
-                    });
-
-                    await this.redisCacheService.del(this.PROFILE_CACHE_KEY(user.id));
-
-                    changes.push({
-                        email: user.email,
-                        from: currentTier,
-                        to: newTier,
-                    });
-
-                    this.logger.log(
-                        `Updated ${user.email}: Tier ${currentTier} -> ${newTier}`
-                    );
-                    updated++;
-                } else {
+                if (currentTier === newTier) {
                     unchanged++;
+                    continue;
                 }
+
+                await this.prisma.user.update({
+                    where: { id: user.id },
+                    data: { tier: newTier } as any,
+                });
+
+                await this.redisCacheService.del(this.PROFILE_CACHE_KEY(user.id));
+
+                changes.push({
+                    email: user.email,
+                    from: currentTier,
+                    to: newTier,
+                });
+
+                this.logger.log(
+                    `Updated ${user.email}: Tier ${currentTier} -> ${newTier}`
+                );
+                updated++;
             } catch (error) {
                 this.logger.error(
                     `Error updating tier for user ${user.id}: ${error.message}`

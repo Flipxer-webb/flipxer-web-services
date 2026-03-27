@@ -91,7 +91,7 @@ export class AssetBalanceSchedulerService {
             );
 
             // Process transactions in parallel
-            const results = await Promise.allSettled(
+            await Promise.allSettled(
                 pendingAddresses.map(
                     async ({ id, walletAddressId, assetSymbol, user }) => {
                         try {
@@ -159,7 +159,11 @@ export class AssetBalanceSchedulerService {
             if (users.length === 0) break;
 
             allUserIds.push(...users.map((u) => u.id));
-            lastId = users[users.length - 1].id;
+            const lastUser = users.at(-1);
+            if (!lastUser) {
+                break;
+            }
+            lastId = lastUser.id;
 
             hasMore = users.length === batchSize;
         }

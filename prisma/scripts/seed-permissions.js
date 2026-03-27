@@ -63,7 +63,7 @@ async function seed() {
       update: {},
       create: {
         name,
-        description: key.replace(/_/g, ' ').toLowerCase(),
+        description: key.replaceAll('_', ' ').toLowerCase(),
         group
       }
     });

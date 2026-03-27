@@ -505,10 +505,9 @@ export class AdminUserService {
         }
 
         await this.prisma.$transaction(async (tx) => {
-            let flaggedRecord;
             if (user.flaggedId) {
                 // Update existing Flagged record
-                flaggedRecord = await tx.flagged.update({
+                await tx.flagged.update({
                     where: { id: user.flaggedId },
                     data: {
                         flagged: false,
@@ -518,7 +517,7 @@ export class AdminUserService {
                 });
             } else {
                 // Create new Flagged record if none exists
-                flaggedRecord = await tx.flagged.create({
+                const flaggedRecord = await tx.flagged.create({
                     data: {
                         userId: user.id,
                         flagged: false,
@@ -580,10 +579,9 @@ export class AdminUserService {
         }
 
         await this.prisma.$transaction(async (tx) => {
-            let flaggedRecord;
             if (user.flaggedId) {
                 // Update existing Flagged record
-                flaggedRecord = await tx.flagged.update({
+                await tx.flagged.update({
                     where: { id: user.flaggedId },
                     data: {
                         flagged: true,
@@ -593,7 +591,7 @@ export class AdminUserService {
                 });
             } else {
                 // Create new Flagged record
-                flaggedRecord = await tx.flagged.create({
+                const flaggedRecord = await tx.flagged.create({
                     data: {
                         userId: user.id,
                         flagged: true,

@@ -113,7 +113,7 @@ export class RbacService {
     }
 
     async createRole(dto: CreateRoleDto, auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
-        const slug = dto.name.toLowerCase().replace(/\s+/g, "-");
+        const slug = dto.name.toLowerCase().replaceAll(/\s+/g, "-");
 
         const existingRole = await this.prisma.role.findFirst({
             where: { OR: [{ name: dto.name }, { slug }] },
@@ -197,7 +197,7 @@ export class RbacService {
         const updateData: Prisma.RoleUpdateInput = {};
         if (dto.name) {
             updateData.name = dto.name;
-            updateData.slug = dto.name.toLowerCase().replace(/\s+/g, "-");
+            updateData.slug = dto.name.toLowerCase().replaceAll(/\s+/g, "-");
         }
         if (dto.description !== undefined) {
             updateData.description = dto.description;
@@ -769,7 +769,7 @@ export class RbacService {
             const [group] = name.split(".");
             return {
                 name,
-                description: key.replace(/_/g, " ").toLowerCase(),
+                description: key.replaceAll("_", " ").toLowerCase(),
                 group: group.toUpperCase(),
             };
         });

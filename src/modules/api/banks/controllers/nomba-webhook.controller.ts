@@ -261,7 +261,7 @@ export class NombaWebhookController {
      * Handle incoming payment (Normalized)
      */
     private async handleIncomingPayment(event: NormalizedPaymentEvent) {
-        const { reference, amount, metadata } = event;
+        const { reference, amount } = event;
 
         if (!reference) {
             this.logger.error(
@@ -425,7 +425,7 @@ export class NombaWebhookController {
                 },
             });
 
-            if (order && order.orderCategory === OrderCategory.SELL && order.status === OrderStatus.done) {
+            if (order?.orderCategory === OrderCategory.SELL && order.status === OrderStatus.done) {
                 await this.prisma.order.update({
                     where: { id: order.id },
                     data: { paymentStatus: TransactionStatus.FAILED },

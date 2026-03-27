@@ -195,7 +195,7 @@ export class BvnVerificationDto {
         format: "date",
     })
     @IsNotEmpty()
-    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, {
         message:
             "Date of Birth must be in YYYY-MM-DD format (e.g., 2024-06-01)",
     })
@@ -228,7 +228,7 @@ export class NinVerificationDto {
         format: "date",
     })
     @IsNotEmpty()
-    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, {
         message:
             "Date of Birth must be in YYYY-MM-DD format (e.g., 2024-06-01)",
     })
@@ -261,7 +261,7 @@ export class OnboardIndividualDto {
         format: "date",
     })
     @IsNotEmpty()
-    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+    @Matches(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, {
         message:
             "Date of Birth must be in YYYY-MM-DD format (e.g., 2024-06-01)",
     })

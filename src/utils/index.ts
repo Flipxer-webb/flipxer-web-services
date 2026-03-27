@@ -197,7 +197,7 @@ export const groupTransactionsByDate = (
 export const formatTimestamp = () =>
     new Date()
         .toISOString()
-        .replace(/[-:.TZ]/g, "")
+        .replaceAll(/[-:.TZ]/g, "")
         .slice(0, 14);
 
 export const generateFileName = (
@@ -206,6 +206,6 @@ export const generateFileName = (
     originalName?: string
 ) => {
     const ext = originalName?.split(".").pop()?.toLowerCase() || "pdf";
-    const sanitizedType = docType.toLowerCase().replace(/\s+/g, "_");
+    const sanitizedType = docType.toLowerCase().replaceAll(/\s+/g, "_");
     return `${sanitizedType}_${userId}_${formatTimestamp()}.${ext}`;
 };

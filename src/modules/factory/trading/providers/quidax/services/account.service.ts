@@ -60,7 +60,7 @@ export class QuidaxAccountService {
             return {
                 status: "success",
                 message: "Existing sub-account found",
-                data: existingAccount as QD.CreateSubAccountResponse,
+                data: existingAccount,
             };
         }
 
@@ -81,7 +81,7 @@ export class QuidaxAccountService {
                     return {
                         status: "success",
                         message: "Existing sub-account found on retry",
-                        data: retryAccount as QD.CreateSubAccountResponse,
+                        data: retryAccount,
                     };
                 }
 

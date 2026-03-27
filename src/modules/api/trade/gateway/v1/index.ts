@@ -12,7 +12,6 @@ import { UseGuards, UsePipes } from "@nestjs/common";
 import { whitelist } from "@/config";
 import { WsService } from "../../services/websocket.service";
 
-import { UserTypes } from "@/modules/api/authorize/decorator";
 import { WsValidatorPipeInstance } from "@/core/exception/ws/pipe";
 import { SocketAuthGuard } from "@/modules/api/auth/guard";
 import { IWsNewNotification, IWsTransactionUpdate } from "../../interfaces/trade";

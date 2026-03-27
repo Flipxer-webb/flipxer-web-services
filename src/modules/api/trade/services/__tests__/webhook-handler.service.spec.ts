@@ -20,7 +20,6 @@ describe("WebhookHandlerService", () => {
     let lockService: jest.Mocked<DistributedLockService>;
     let walletAddressService: jest.Mocked<WalletAddressService>;
     let wsGateway: jest.Mocked<WsGateway>;
-    let notificationEvent: jest.Mocked<NotificationEvent>;
 
     const mockUser = {
         id: 1,
@@ -132,7 +131,6 @@ describe("WebhookHandlerService", () => {
         lockService = module.get(DistributedLockService);
         walletAddressService = module.get(WalletAddressService);
         wsGateway = module.get(WsGateway);
-        notificationEvent = module.get(NotificationEvent);
     });
 
     it("should be defined", () => {

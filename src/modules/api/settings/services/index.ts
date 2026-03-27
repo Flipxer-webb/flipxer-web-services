@@ -1098,12 +1098,12 @@ export class SettingService {
         // Send OTP via appropriate channel
         if (method === "sms") {
             this.logger.log(`Sending transaction OTP via SMS to ${userData.phone}`);
-            await this.smsService.sendVerificationCode(userData.phone!, otp);
+            await this.smsService.sendVerificationCode(userData.phone, otp);
         } else {
             this.logger.log(`Sending transaction OTP via email to ${userData.email}`);
             await this.emailService.sendMail({
                 from: { address: "noreply@flipxer.com", name: "Flipxer" },
-                to: [{ email_address: { address: userData.email!, name: userData.firstName || "User" } }],
+                to: [{ email_address: { address: userData.email, name: userData.firstName || "User" } }],
                 subject: "Flipxer Transaction Verification Code",
                 textbody: `Your transaction verification code is: ${otp}. This code expires in 5 minutes.`,
                 htmlbody: `

@@ -28,7 +28,7 @@ export class SmsService implements SmsServiceInterface {
      * Converts 08012345678 to 2348012345678
      */
     private formatPhoneNumber(phone: string): string {
-        let formatted = phone.trim().replace(/\s+/g, "");
+        let formatted = phone.trim().replaceAll(/\s+/g, "");
         
         // Remove leading + if present
         if (formatted.startsWith("+")) {

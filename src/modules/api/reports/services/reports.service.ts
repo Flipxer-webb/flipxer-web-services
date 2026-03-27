@@ -9,7 +9,7 @@ import {
     RevenueReportRow,
     TaxReportRow,
 } from "../types";
-import { Prisma } from "@prisma/client";
+import { OrderCategory, OrderStreamlinedStatus, Prisma } from "@prisma/client";
 
 @Injectable()
 export class ReportsService {
@@ -192,7 +192,10 @@ export class ReportsService {
                 });
             }
 
-            const row = grouped.get(key)!;
+            const row = grouped.get(key);
+            if (!row) {
+                continue;
+            }
             row.transactionCount++;
             row.totalVolume += order.amount || order.fromAmount || 0;
             row.totalFees += order.fee || 0;
@@ -252,7 +255,10 @@ export class ReportsService {
                 });
             }
 
-            const row = grouped.get(order.userId)!;
+            const row = grouped.get(order.userId);
+            if (!row) {
+                continue;
+            }
             const amount = order.amount || order.fromAmount || 0;
             
             row.totalTransactions++;
@@ -297,11 +303,11 @@ export class ReportsService {
         }
 
         if (filters.status) {
-            where.streamlinedStatus = filters.status as any;
+            where.streamlinedStatus = filters.status as OrderStreamlinedStatus;
         }
 
         if (filters.orderCategory) {
-            where.orderCategory = filters.orderCategory as any;
+            where.orderCategory = filters.orderCategory as OrderCategory;
         }
 
         return where;
@@ -327,7 +333,7 @@ export class ReportsService {
                 const value = row[header];
                 if (value === null || value === undefined) return "";
                 if (typeof value === "string" && (value.includes(",") || value.includes('"'))) {
-                    return `"${value.replace(/"/g, '""')}"`;
+                    return `"${value.replaceAll('"', '""')}"`;
                 }
                 return String(value);
             });
@@ -341,7 +347,7 @@ export class ReportsService {
      * Format date for filename
      */
     private formatDateForFilename(date: Date): string {
-        return date.toISOString().split("T")[0].replace(/-/g, "");
+        return date.toISOString().split("T")[0].replaceAll("-", "");
     }
 
     /**

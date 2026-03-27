@@ -540,8 +540,8 @@ export class AnalyticsService {
         transactions.forEach((t) => {
             const category = t.orderCategory;
             const feeInFiat = calculateFeeInFiat(t);
-            if (categoryRevenueMap.has(category)) {
-                const existing = categoryRevenueMap.get(category)!;
+            const existing = categoryRevenueMap.get(category);
+            if (existing) {
                 existing.revenue += feeInFiat;
                 existing.count += 1;
             } else {

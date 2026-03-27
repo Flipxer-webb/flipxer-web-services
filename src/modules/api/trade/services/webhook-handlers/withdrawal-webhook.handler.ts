@@ -682,11 +682,12 @@ export class WithdrawalWebhookHandler {
             }
 
             const emoji = data.isCritical ? "🚨" : "⚠️";
-            const status = data.isCritical
-                ? "CRITICAL: ALL PAYOUT PROVIDERS FAILED"
-                : data.willRetryWithFincra
-                    ? "Nomba failed, trying Fincra..."
-                    : `${data.provider} payout failed`;
+            let status = `${data.provider} payout failed`;
+            if (data.isCritical) {
+                status = "CRITICAL: ALL PAYOUT PROVIDERS FAILED";
+            } else if (data.willRetryWithFincra) {
+                status = "Nomba failed, trying Fincra...";
+            }
 
             const message = {
                 text: `${emoji} *Payout Alert*`,

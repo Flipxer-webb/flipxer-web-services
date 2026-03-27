@@ -1,4 +1,4 @@
-import { HttpStatus } from "@nestjs/common";
+import { HttpException, HttpStatus } from "@nestjs/common";
 import {
     FincraLib,
     FincraPayInPayload,
@@ -174,7 +174,11 @@ export class FincraBank implements TFincra.IFincraBank {
             const err = new Error(
                 error instanceof Error ? error.message : "Failed to verify transaction"
             );
-            (err as any).status = (error as any)?.status || HttpStatus.BAD_REQUEST;
+            const status =
+                error instanceof HttpException
+                    ? error.getStatus()
+                    : HttpStatus.BAD_REQUEST;
+            Reflect.set(err, "status", status);
             throw err;
         }
     }
