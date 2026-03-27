@@ -77,14 +77,20 @@ export class AdminSystemSettingsController {
      */
     @Put("bulk")
     async bulkUpdateSettings(
-        @Body() settings: SystemSettingDto[],
+        @Body() settings: unknown,
         @User() user: UserModel
     ) {
-        for (const setting of settings) {
+        if (!Array.isArray(settings)) {
+            throw new BadRequestException('"settings" must be an array');
+        }
+
+        const typedSettings = settings as SystemSettingDto[];
+        for (const setting of typedSettings) {
             await this.settingsService.setSetting(setting, user.id);
         }
+
         return buildResponse({
-            message: `${settings.length} settings updated successfully`,
+            message: `${typedSettings.length} settings updated successfully`,
         });
     }
 

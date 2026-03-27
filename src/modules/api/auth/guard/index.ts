@@ -697,26 +697,22 @@ export class TwoFactorGuard implements CanActivate {
         userId: number,
         userData: any
     ): Promise<boolean> {
-        let verificationToken = this.extractVerificationToken(request);
-        const legacyCode = request.body?.twoFactorCode || request.headers["x-2fa-code"];
+        const verificationToken = this.extractVerificationToken(request);
+        const legacyCode = this.extractLegacyCode(request);
         const routeTemplate = this.getRequestRouteTemplate(request);
 
-        // New multi-factor verification token
-        if (verificationToken) {
-            const isValid = await this.verifyMultiFactorTokens(
-                userId, verificationToken, userData, routeTemplate
-            );
-            if (isValid) return true;
-        }
+        const isMultiFactorValid = await this.verifyMultiFactorTokens(
+            userId,
+            verificationToken ?? "",
+            userData,
+            routeTemplate,
+        );
+        if (isMultiFactorValid) return true;
 
-        // Legacy TOTP code (backward compatibility)
-        if (legacyCode && legacyCode.length <= 6 && userData?.twoFactorSecret) {
-            const isValidLegacy = await this.validateLegacyTwoFactor(userId, legacyCode, userData.twoFactorSecret);
-            const requiredCount = userData?.requiredMethodCount || 1;
-            if (isValidLegacy && requiredCount <= 1) {
-                this.logger.debug(`User ${userId}: Valid legacy 2FA code, allowing transaction`);
-                return true;
-            }
+        const isLegacyValid = await this.verifyLegacyTransactionCode(userId, legacyCode, userData);
+        if (isLegacyValid) {
+            this.logger.debug(`User ${userId}: Valid legacy 2FA code, allowing transaction`);
+            return true;
         }
 
         return false;
@@ -734,6 +730,34 @@ export class TwoFactorGuard implements CanActivate {
         if (request.body?.verificationToken) return request.body.verificationToken;
 
         return null;
+    }
+
+    private extractLegacyCode(request: RequestWithUser): string | null {
+        const bodyCode = request.body?.twoFactorCode;
+        if (typeof bodyCode === "string") {
+            return bodyCode;
+        }
+
+        const headerCode = request.headers["x-2fa-code"];
+        if (typeof headerCode === "string") {
+            return headerCode;
+        }
+
+        return null;
+    }
+
+    private async verifyLegacyTransactionCode(
+        userId: number,
+        legacyCode: string | null,
+        userData: any,
+    ): Promise<boolean> {
+        if (!legacyCode || legacyCode.length > 6 || !userData?.twoFactorSecret) {
+            return false;
+        }
+
+        const isValidLegacy = await this.validateLegacyTwoFactor(userId, legacyCode, userData.twoFactorSecret);
+        const requiredCount = userData?.requiredMethodCount || 1;
+        return isValidLegacy && requiredCount <= 1;
     }
 
     private async isTransactionVerificationRequired(
