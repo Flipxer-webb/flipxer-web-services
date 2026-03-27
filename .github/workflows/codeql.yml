@@ -1,0 +1,42 @@
+name: CodeQL Taint Analysis
+
+on:
+  push:
+    branches: ["develop"]
+  pull_request:
+    branches: ["develop"]
+  schedule:
+    # Every Monday at 06:00 UTC — catches new CVEs in unchanged code
+    - cron: "0 6 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # security-extended covers OWASP Top 10 injection classes via taint tracking:
+          # SQL injection, XSS, path traversal, code injection, SSRF, NoSQL injection,
+          # prototype pollution, ReDoS, open redirect, unsafe deserialization
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+          # Upload results to GitHub Security tab
+          upload: always
