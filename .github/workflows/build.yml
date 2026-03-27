@@ -20,9 +20,9 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
+          run: |
+            corepack enable
+            pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Generate coverage report
         run: pnpm exec jest --coverage --passWithNoTests
