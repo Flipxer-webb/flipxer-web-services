@@ -14,14 +14,17 @@ import { SUPPORTED_ASSETS } from "../../../trade/constants";
 @UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth()
 export class AdminSwapPairController {
-    constructor(private readonly prisma: PrismaService) { }
+    // Cast once to access swapPair model (not yet in generated Prisma types)
+    private readonly db: any;
+    constructor(private readonly prisma: PrismaService) {
+        this.db = prisma as any;
+    }
 
     @Get()
     @ApiOperation({ summary: "List all swap pairs" })
     async getSwapPairs() {
         // Fetch all specific pairs
-        // Cast to any for now
-        const pairs = await (this.prisma as any).swapPair.findMany({
+        const pairs = await this.db.swapPair.findMany({
             orderBy: [{ fromCurrency: 'asc' }, { toCurrency: 'asc' }]
         });
         return buildResponse({ message: "Swap pairs retrieved", data: pairs });
@@ -32,7 +35,7 @@ export class AdminSwapPairController {
     async upsertSwapPair(@Body() dto: CreateSwapPairDto) {
         const { fromCurrency, toCurrency, rate, isActive } = dto;
 
-        const pair = await (this.prisma as any).swapPair.upsert({
+        const pair = await this.db.swapPair.upsert({
             where: {
                 fromCurrency_toCurrency: {
                     fromCurrency,
@@ -62,12 +65,13 @@ export class AdminSwapPairController {
 
         // Transaction is safer
         await this.prisma.$transaction(async (tx) => {
+            const db = tx as any;
             for (const fromC of assets) {
                 for (const toC of assets) {
                     if (fromC === toC) continue;
 
                     // Check if exists
-                    const exists = await (tx as any).swapPair.findUnique({
+                    const exists = await db.swapPair.findUnique({
                         where: {
                             fromCurrency_toCurrency: {
                                 fromCurrency: fromC,
@@ -77,7 +81,7 @@ export class AdminSwapPairController {
                     });
 
                     if (!exists) {
-                        await (tx as any).swapPair.create({
+                        await db.swapPair.create({
                             data: {
                                 fromCurrency: fromC,
                                 toCurrency: toC,
@@ -114,14 +118,15 @@ export class AdminSwapPairController {
             // Complex update: Rate = Rate * Multiplier
             // Only updates ACTIVE or EXISTING rates? 
             // Logic: Update all matching pairs
-            const pairs = await (this.prisma as any).swapPair.findMany({ where: whereClause });
+            const pairs = await this.db.swapPair.findMany({ where: whereClause });
             let updatedCount = 0;
 
             await this.prisma.$transaction(async (tx) => {
+                const db = tx as any;
                 for (const p of pairs) {
                     if (p.rate > 0) {
                         const newRate = p.rate * rateMultiplier;
-                        await (tx as any).swapPair.update({
+                        await db.swapPair.update({
                             where: { fromCurrency_toCurrency: { fromCurrency: p.fromCurrency, toCurrency: p.toCurrency } },
                             data: { rate: newRate, ...(isActive !== undefined && { isActive }) }
                         });
@@ -133,7 +138,7 @@ export class AdminSwapPairController {
 
         } else {
             // Simple batch update (e.g. enable/disable)
-            const result = await (this.prisma as any).swapPair.updateMany({
+            const result = await this.db.swapPair.updateMany({
                 where: whereClause,
                 data: {
                     ...(isActive !== undefined && { isActive })

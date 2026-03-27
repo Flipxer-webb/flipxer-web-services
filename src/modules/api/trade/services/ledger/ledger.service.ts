@@ -938,7 +938,7 @@ export class LedgerService {
         fromUserId: number,
         toUserId: number,
         currency: string,
-        amount: Decimal | number | string,
+        amount: DecimalLike,
         reference: string,
         description?: string,
         skipLocking: boolean = false
@@ -1321,7 +1321,7 @@ export class LedgerService {
     /**
      * Utility to convert various number types to Decimal
      */
-    private toDecimal(value: Decimal | number | string): Decimal {
+    private toDecimal(value: DecimalLike): Decimal {
         if (value instanceof Decimal) {
             return value;
         }
@@ -1346,7 +1346,7 @@ export class LedgerService {
         fromUserId: number,
         toUserId: number,
         currency: string,
-        amount: Decimal | number | string,
+        amount: DecimalLike,
         type: LedgerType,
         reference: string,
         tradeGroupId?: string
