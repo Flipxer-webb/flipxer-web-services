@@ -60,7 +60,7 @@
     },
     "scripts": {
         "postinstall": "npx prisma generate",
-        "prebuild": "rimraf dist",
+        "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
         "build": "webpack --mode production",
         "format": "prettier --write \"src/**/*.ts\"",
         "watch": "webpack --mode development --watch",
