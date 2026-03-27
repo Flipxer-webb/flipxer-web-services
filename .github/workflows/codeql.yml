@@ -42,3 +42,106 @@ jobs:
           category: "/language:javascript-typescript"
           # Upload results to GitHub Security tab
           upload: always
+
+  high-critical-taint-gate:
+    name: High/Critical Taint Gate
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: github.event_name == 'pull_request'
+    permissions:
+      security-events: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Fail on high/critical taint findings
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const taintRules = new Set([
+              'js/sql-injection',
+              'js/xss',
+              'js/xss-through-dom',
+              'js/path-injection',
+              'js/code-injection',
+              'js/server-side-request-forgery',
+              'js/nosql-injection',
+              'js/prototype-pollution',
+              'js/open-url-redirect',
+              'js/redos',
+              'js/request-forgery',
+              'js/user-controlled-bypass',
+              'js/type-confusion-through-parameter-tampering',
+            ]);
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const ref = context.payload.pull_request?.head?.sha;
+
+            async function fetchAlerts(refFilter) {
+              const out = [];
+              let page = 1;
+              while (true) {
+                const params = {
+                  owner,
+                  repo,
+                  state: 'open',
+                  tool_name: 'CodeQL',
+                  per_page: 100,
+                  page,
+                };
+                if (refFilter) {
+                  params.ref = refFilter;
+                }
+
+                const res = await github.request('GET /repos/{owner}/{repo}/code-scanning/alerts', params);
+                const batch = res.data || [];
+                out.push(...batch);
+
+                if (batch.length < 100) {
+                  break;
+                }
+                page += 1;
+              }
+              return out;
+            }
+
+            let alerts = [];
+            let usedRef = false;
+
+            try {
+              alerts = await fetchAlerts(ref);
+              usedRef = true;
+            } catch (error) {
+              core.warning(`Unable to query by ref; falling back to repo-wide open alerts: ${error.message}`);
+              alerts = await fetchAlerts(null);
+            }
+
+            const findings = alerts.filter((a) => {
+              const ruleId = a.rule?.id || '';
+              const sev = String(a.rule?.security_severity_level || '').toLowerCase();
+              return taintRules.has(ruleId) && (sev === 'high' || sev === 'critical');
+            });
+
+            core.summary.addHeading('High/Critical CodeQL Taint Gate');
+            core.summary.addRaw(`Checked alerts scope: ${usedRef ? `ref ${ref}` : 'repository-wide open alerts (fallback)'}`).addEOL();
+            core.summary.addRaw(`Open high/critical taint findings: ${findings.length}`).addEOL();
+
+            if (findings.length > 0) {
+              core.summary.addTable([
+                [{data: 'Rule', header: true}, {data: 'Severity', header: true}, {data: 'Location', header: true}],
+                ...findings.slice(0, 20).map((f) => {
+                  const path = f.most_recent_instance?.location?.path || 'unknown';
+                  const line = f.most_recent_instance?.location?.start_line || '?';
+                  return [
+                    f.rule?.id || 'unknown',
+                    String(f.rule?.security_severity_level || 'unknown').toUpperCase(),
+                    `${path}:${line}`,
+                  ];
+                }),
+              ]);
+            }
+            await core.summary.write();
+
+            if (findings.length > 0) {
+              core.setFailed(`Blocking merge: found ${findings.length} high/critical CodeQL taint alert(s).`);
+            }
