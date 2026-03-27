@@ -20,7 +20,7 @@ describe("TradeHelpersService", () => {
     describe("normalizeNetworkInput", () => {
         it("should return null for null/undefined input", () => {
             expect(service.normalizeNetworkInput(null)).toBeNull();
-            expect(service.normalizeNetworkInput(undefined)).toBeNull();
+            expect(service.normalizeNetworkInput()).toBeNull();
             expect(service.normalizeNetworkInput("")).toBeNull();
             expect(service.normalizeNetworkInput("   ")).toBeNull();
         });

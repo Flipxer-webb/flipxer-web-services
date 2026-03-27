@@ -166,86 +166,40 @@ export class QuidaxWebhookService implements QuidaxWebhook {
 
         try {
             switch (eventBody.event) {
-                case Event.WalletAddressGenerated: {
+                case Event.WalletAddressGenerated:
                     await this.walletAddressGeneratedHandler(
                         eventBody.data as WalletAddressGeneratedData
                     );
                     break;
-                }
 
                 case Event.WalletUpdatedEvent:
-                    {
-                        await this.walletUpdatedHandler(
-                            eventBody.data as WalletUpdatedData
-                        );
-                    }
+                    await this.walletUpdatedHandler(
+                        eventBody.data as WalletUpdatedData
+                    );
                     break;
 
                 case Event.SwapTransactionCompleted:
-                    {
-                        await this.swapTransactionHandlerHandler(
-                            eventBody.data as SwapTransactionEventData
-                        );
-                    }
-                    break;
                 case Event.SwapTransactionRevered:
-                    {
-                        await this.swapTransactionHandlerHandler(
-                            eventBody.data as SwapTransactionEventData
-                        );
-                    }
-                    break;
-
                 case Event.SwapTransactionFailed:
-                    {
-                        await this.swapTransactionHandlerHandler(
-                            eventBody.data as SwapTransactionEventData
-                        );
-                    }
+                    await this.swapTransactionHandlerHandler(
+                        eventBody.data as SwapTransactionEventData
+                    );
                     break;
 
                 case Event.WithdrawSuccessful:
-                    {
-                        await this.withdrawerTransactionHandler(
-                            eventBody.data as WithdrawerEventData
-                        );
-                    }
-                    break;
                 case Event.WithdrawRejected:
-                    {
-                        await this.withdrawerTransactionHandler(
-                            eventBody.data as WithdrawerEventData
-                        );
-                    }
-                    break;
-                case Event.DepositTransactionConfirmation:
-                    {
-                        await this.depositHandler(
-                            eventBody.data as DepositTransactionEventData
-                        );
-                    }
-                    break;
-                case Event.DepositTransactionSuccessful:
-                    {
-                        await this.depositHandler(
-                            eventBody.data as DepositTransactionEventData
-                        );
-                    }
+                    await this.withdrawerTransactionHandler(
+                        eventBody.data as WithdrawerEventData
+                    );
                     break;
 
+                case Event.DepositTransactionConfirmation:
+                case Event.DepositTransactionSuccessful:
                 case Event.DepositTransactionOnHold:
-                    {
-                        await this.depositHandler(
-                            eventBody.data as DepositTransactionEventData
-                        );
-                    }
-                    break;
                 case Event.DepositTransactionFailedAml:
-                    {
-                        await this.depositHandler(
-                            eventBody.data as DepositTransactionEventData
-                        );
-                    }
+                    await this.depositHandler(
+                        eventBody.data as DepositTransactionEventData
+                    );
                     break;
 
                 default:

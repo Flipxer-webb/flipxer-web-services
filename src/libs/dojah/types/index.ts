@@ -76,7 +76,7 @@ export interface DocumentAnalysisTextField {
 export interface DocumentAnalysisStatus {
     /** 1 = valid, 0 = invalid */
     overall_status: number;
-    reason: "VALID" | "NOT_VALID" | string;
+    reason: string;
     document_images: "Yes" | "No";
     text: "Yes" | "No";
     document_type: "Yes" | "No";

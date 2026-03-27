@@ -256,7 +256,6 @@ export class TradingController {
         @Body() dto: PlaceInstantSwapRequestDto,
         @User() user: UserModel
     ) {
-        // console.log("🔥 [DEBUG] ESTIMATE SWAP REQUEST", dto.from_currency, dto.to_currency);
         return await this.tradingService.getSwapEstimate(user, dto);
     }
 

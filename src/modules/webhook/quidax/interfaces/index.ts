@@ -167,7 +167,7 @@ export interface InstantOrderData {
 export interface WithdrawerEventData {
     id: string;
     reference: string | null;
-    type: "internal" | string;
+    type: string;
     currency: string;
     amount: string;
     fee: string;
@@ -181,7 +181,7 @@ export interface WithdrawerEventData {
     done_at: string | null;
 
     recipient: {
-        type: "internal" | string;
+        type: string;
         details: {
             user_id: string;
             address: string;

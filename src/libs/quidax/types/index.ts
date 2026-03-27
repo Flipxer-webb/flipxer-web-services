@@ -211,7 +211,7 @@ export interface Wallet {
 export interface IQuidaxTransaction {
     id: string;
     reference: string | null;
-    type: "coin_address" | string;
+    type: string;
     currency: string;
     amount: string;
     fee: string;
@@ -261,10 +261,9 @@ export interface WithdrawerRecordByReferenceOptions {
 
 export type WithdrawerRecordByReferenceResponse = IQuidaxTransaction;
 
-export type NetworkTypes = "trc20" | "erc20" | "bep20" | string;
 export interface WithdrawerFeesOptions {
     currency: string;
-    network?: NetworkTypes;
+    network?: string;
 }
 
 export interface WithdrawerFeeRange {

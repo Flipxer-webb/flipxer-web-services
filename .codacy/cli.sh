@@ -60,6 +60,7 @@ get_latest_version() {
     handle_rate_limit "$response"
     local version=$(echo "$response" | grep -m 1 tag_name | cut -d'"' -f4)
     echo "$version"
+    return 0
 }
 
 handle_rate_limit() {
@@ -67,6 +68,7 @@ handle_rate_limit() {
     if echo "$response" | grep -q "API rate limit exceeded"; then
           fatal "Error: GitHub API rate limit exceeded. Please try again later"
     fi
+    return 0
 }
 
 download_file() {
@@ -80,6 +82,7 @@ download_file() {
     else
         fatal "Error: Could not find curl or wget, please install one."
     fi
+    return 0
 }
 
 download() {
@@ -87,6 +90,7 @@ download() {
     local output_folder="$2"
 
     ( cd "$output_folder" && download_file "$url" )
+    return 0
 }
 
 download_cli() {
@@ -106,6 +110,8 @@ download_cli() {
         download "$url" "$bin_folder"
         tar xzfv "${bin_folder}/${remote_file}" -C "${bin_folder}"
     fi
+
+    return 0
 }
 
 # Warn if CODACY_CLI_V2_VERSION is set and update is requested
