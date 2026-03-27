@@ -81,7 +81,7 @@ export interface WithdrawerRecordByReferenceOptions {
 
 export interface WithdrawerFeesOptions {
     currency: string;
-    network?: QD.NetworkTypes;
+    network?: string;
 }
 
 export interface SellOrBuyOrderRequestOptions {
