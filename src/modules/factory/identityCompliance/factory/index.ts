@@ -9,21 +9,17 @@ export class IdentityComplianceFactory implements t.IIdentityComplianceFactory {
     ) {}
 
     build<T extends t.Provider>(options: t.BuildOptions<T>): DojahService {
-        switch (options.provider) {
-            case "dojah": {
-                const dojahConfig = this.identityComplianceConfig.dojah;
-                const dojah = new DojahLib({
-                    apiKey: dojahConfig.secret_key,
-                    appId: dojahConfig.app_id,
-                    baseURL: dojahConfig.baseUrl,
-                });
+        if (options.provider === "dojah") {
+            const dojahConfig = this.identityComplianceConfig.dojah;
+            const dojah = new DojahLib({
+                apiKey: dojahConfig.secret_key,
+                appId: dojahConfig.app_id,
+                baseURL: dojahConfig.baseUrl,
+            });
 
-                return new DojahService(dojah);
-            }
-
-            //add other providers
-            default:
-                break;
+            return new DojahService(dojah);
         }
+
+        throw new Error(`Unknown provider: ${options.provider}`);
     }
 }

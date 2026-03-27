@@ -113,8 +113,7 @@ async function main() {
     console.log("");
     console.log(`AUDIT_TEST_EMAIL=${TEST_ADMIN.email}`);
     console.log(`AUDIT_TEST_USER_EMAIL=${TEST_USER.email}`);
-    console.log("AUDIT_TEST_PASSWORD=[SET_MANUALLY]");
-    console.log("AUDIT_TEST_USER_PASSWORD=[SET_MANUALLY]");
+    console.log("Configure the remaining audit environment values in flipxer-web-app/.env.local manually.");
     console.log("────────────────────────────────────────────────");
 }
 

@@ -84,7 +84,7 @@ export class CoinCapService {
 
     private normalizeAssetKey(asset: string): string {
         const normalizedAssetKey = asset.toLowerCase().trim();
-        const sanitizedAssetKey = normalizedAssetKey.replace(/[^a-z0-9-]/g, "");
+        const sanitizedAssetKey = normalizedAssetKey.replaceAll(/[^a-z0-9-]/g, "");
         return sanitizedAssetKey || "unknown";
     }
 

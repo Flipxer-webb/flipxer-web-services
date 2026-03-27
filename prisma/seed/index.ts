@@ -127,8 +127,8 @@ async function main() {
             update: {},
             create: {
                 currency,
-                buyRate: 0.0, // default buy rate
-                sellRate: 0.0, // default sell rate
+                buyRate: 0, // default buy rate
+                sellRate: 0, // default sell rate
             },
         });
     }

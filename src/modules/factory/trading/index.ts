@@ -4,14 +4,14 @@ import { TradingInjectionToken } from "./types";
 import { tradingConfig } from "@/config";
 
 /**
- * Legacy Quidax service provider - for backward compatibility
- * @deprecated Prefer using TRADING_PROVIDER token for new code
+ * Legacy Quidax service provider for backward compatibility.
+ * Prefer using TRADING_PROVIDER token for new code.
  */
 const quidaxService: Provider = {
     provide: TradingInjectionToken.QUIDAX,
     useFactory() {
         const tradingFactory = new TradingFactory(tradingConfig);
-        return tradingFactory.build({ provider: "quidax" });
+        return tradingFactory.buildQuidaxService();
     },
 };
 

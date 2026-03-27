@@ -611,8 +611,14 @@ export class AuthService {
                 },
             });
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Failed to send password reset email: ${errorMessage}`);
             throw new AuthGenericException(
-                "Failed to send password reset email"
+                "Failed to send password reset email",
+                HttpStatus.BAD_REQUEST,
+                {
+                    cause: error instanceof Error ? error : new Error(errorMessage),
+                }
             );
         }
 
@@ -823,8 +829,14 @@ export class AuthService {
                 },
             });
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Failed to send account verification email: ${errorMessage}`);
             throw new AuthGenericException(
-                "Failed to send account verification email"
+                "Failed to send account verification email",
+                HttpStatus.BAD_REQUEST,
+                {
+                    cause: error instanceof Error ? error : new Error(errorMessage),
+                }
             );
         }
 
@@ -3051,7 +3063,7 @@ export class AuthService {
     }
 
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
-        const payload = await this.jwtService.verify<DataStoredInToken>(options.refreshToken, {
+        const payload = this.jwtService.verify<DataStoredInToken>(options.refreshToken, {
             secret: jwt_refresh_secret,
         });
 

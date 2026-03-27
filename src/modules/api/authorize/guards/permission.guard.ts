@@ -18,7 +18,7 @@ import { Permissions } from "../decorator";
 @Injectable()
 export class PermissionGuard implements CanActivate {
     constructor(
-        private reflector: Reflector,
+        private readonly reflector: Reflector,
         private readonly prismaService: PrismaService
     ) {}
 
@@ -76,18 +76,20 @@ export class PermissionGuard implements CanActivate {
         const permissionIds: number[] = rolePermissions.map(
             (rp: RolePermission) => rp.permissionId
         );
-        const userPermissionNames: string[] = (
-            await this.prismaService.permission.findMany({
-                where: {
-                    id: {
-                        in: permissionIds,
+        const userPermissionNames = new Set(
+            (
+                await this.prismaService.permission.findMany({
+                    where: {
+                        id: {
+                            in: permissionIds,
+                        },
                     },
-                },
-            })
-        ).map((p: Permission) => p.name);
+                })
+            ).map((p: Permission) => p.name)
+        );
 
         const hasPermission: boolean = decoratedPermissions.every((el) =>
-            userPermissionNames.includes(el)
+            userPermissionNames.has(el)
         );
         if (!hasPermission) {
             throw new PermissionNotFoundException(

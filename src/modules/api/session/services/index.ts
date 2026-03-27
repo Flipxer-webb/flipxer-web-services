@@ -26,7 +26,8 @@ export class SessionService {
      * Parse duration string to milliseconds
      */
     private parseDuration(duration: string): number {
-        const match = duration.match(/^(\d+)([dhms])$/);
+        const durationRegex = /^(\d+)([dhms])$/;
+        const match = durationRegex.exec(duration);
         if (!match) return 7 * 24 * 60 * 60 * 1000; // Default 7 days
 
         const value = Number.parseInt(match[1]);
@@ -218,8 +219,8 @@ export class SessionService {
                 data: { lastActiveAt: new Date() },
             });
         } catch (error) {
-            // Silently fail if session doesn't exist
-            this.logger.warn(`Failed to update session activity: ${sessionId}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Failed to update session activity: ${sessionId} - ${errorMessage}`);
         }
     }
 
@@ -323,7 +324,8 @@ export class SessionService {
                 data: { isActive: false },
             });
         } catch (error) {
-            this.logger.warn(`Failed to invalidate session: ${sessionId}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Failed to invalidate session: ${sessionId} - ${errorMessage}`);
         }
     }
 

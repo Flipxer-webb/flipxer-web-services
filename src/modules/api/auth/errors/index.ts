@@ -1,5 +1,5 @@
 // src/modules/auth/errors.ts
-import { HttpException, HttpStatus } from "@nestjs/common";
+import { HttpException, HttpExceptionOptions, HttpStatus } from "@nestjs/common";
 
 export class UserUnauthorizedException extends HttpException {
     name = "UserUnauthorizedException";
@@ -85,9 +85,10 @@ export class AuthGenericException extends HttpException {
     name = "AuthGenericException";
     constructor(
         message = "Authentication error",
-        status: HttpStatus = HttpStatus.BAD_REQUEST
+        status: HttpStatus = HttpStatus.BAD_REQUEST,
+        options?: HttpExceptionOptions
     ) {
-        super(message, status);
+        super(message, status, options);
     }
 }
 

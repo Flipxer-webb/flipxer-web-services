@@ -20,9 +20,9 @@ CREATE TYPE "DocumentType" AS ENUM ('INTERNATIONAL_PASSPORT', 'NIN', 'DRIVER_LIC
 BEGIN;
 CREATE TYPE "UserType_new" AS ENUM ('ADMIN', 'INDIVIDUAL', 'BUSINESS');
 ALTER TABLE "Users" ALTER COLUMN "userType" TYPE "UserType_new" USING ("userType"::text::"UserType_new");
-ALTER TYPE "UserType" RENAME TO "UserType_old";
+ALTER TYPE "UserType" RENAME TO user_type_old;
 ALTER TYPE "UserType_new" RENAME TO "UserType";
-DROP TYPE "UserType_old";
+DROP TYPE user_type_old;
 COMMIT;
 
 -- AlterTable

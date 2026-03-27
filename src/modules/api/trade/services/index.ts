@@ -789,8 +789,10 @@ export class TradingService {
         try {
             let cryptoSubAccountId = user.cryptoSubAccountId;
 
-            // If user doesn't have a crypto sub-account, create or find existing one
-            if (!cryptoSubAccountId) {
+            if (cryptoSubAccountId) {
+                this.logger.log(`User ${user.id} already has crypto sub-account: ${cryptoSubAccountId}, ensuring wallets exist`);
+            } else {
+                // If user doesn't have a crypto sub-account, create or find existing one
                 this.logger.log(`Creating/finding crypto account for user ${user.id} (${user.email})`);
 
                 // Use createOrFindSubAccount to handle existing accounts gracefully
@@ -822,8 +824,6 @@ export class TradingService {
                 });
 
                 this.logger.log(`Sub-account ID stored: ${cryptoSubAccountId}`);
-            } else {
-                this.logger.log(`User ${user.id} already has crypto sub-account: ${cryptoSubAccountId}, ensuring wallets exist`);
             }
 
             // Check if AssetWallet records already exist for all currencies

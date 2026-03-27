@@ -65,7 +65,7 @@ export class AuthGuard implements CanActivate {
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
-        const request = context.switchToHttp().getRequest() as RequestWithUser;
+        const request = context.switchToHttp().getRequest<RequestWithUser>();
         const token = this.extractTokenFromHeader(request);
 
         if (!token) {
@@ -189,7 +189,10 @@ export class QuidaxWebhookGuard implements CanActivate {
             return false;
         }
 
-        const quidaxSignature = request.headers["quidax-signature"] as string;
+        const quidaxSignatureHeader = request.headers["quidax-signature"];
+        const quidaxSignature = Array.isArray(quidaxSignatureHeader)
+            ? quidaxSignatureHeader[0]
+            : quidaxSignatureHeader;
 
         if (!quidaxSignature) {
             this.logger.error("[WEBHOOK AUTH] Missing quidax-signature header");
@@ -284,13 +287,17 @@ export class FincraWebhookGuard implements CanActivate {
     ): boolean | Promise<boolean> | Observable<boolean> {
         const request = context
             .switchToHttp()
-            .getRequest() as Request;
+            .getRequest<Request>();
         // Fincra uses "signature" header (per their documentation), not "x-fincra-signature"
-        const signature = (request.headers["signature"] || request.headers["x-fincra-signature"]) as string;
+        const signatureHeader = request.headers["signature"] ?? request.headers["x-fincra-signature"];
+        const signature = Array.isArray(signatureHeader)
+            ? signatureHeader[0]
+            : signatureHeader;
         const secret = process.env.FINCRA_WEBHOOK_SECRET;
+        const webhookEvent = getWebhookEventName(request.body);
 
         this.logger.log(`Received Fincra webhook request`);
-        this.logger.debug(`Event: ${(request.body as any)?.event}`);
+        this.logger.debug(`Event: ${webhookEvent ?? "unknown"}`);
 
         // Require signature for security
         if (!signature) {
@@ -331,7 +338,7 @@ export class FincraWebhookGuard implements CanActivate {
         }
 
         if (isValid) {
-            this.logger.log(`Signature verified for event: ${(request.body as any)?.event}`);
+            this.logger.log(`Signature verified for event: ${webhookEvent ?? "unknown"}`);
         } else {
             this.logger.error(`SECURITY: Fincra webhook rejected - invalid signature`);
         }
@@ -345,6 +352,15 @@ export class FincraWebhookGuard implements CanActivate {
 const geoIpMemoryCache = new Map<string, { countryCode: string; expiresAt: number }>();
 const GEOIP_MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in memory
 const GEOIP_MEMORY_CACHE_MAX_SIZE = 500;
+
+const getWebhookEventName = (body: unknown): string | undefined => {
+    if (!body || typeof body !== "object" || !('event' in body)) {
+        return undefined;
+    }
+
+    const event = (body as { event?: unknown }).event;
+    return typeof event === "string" ? event : undefined;
+};
 
 @Injectable()
 export class CountryBlockGuard implements CanActivate {
@@ -992,6 +1008,8 @@ export class TwoFactorGuard implements CanActivate {
 
             return rate?.buyRate || null;
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Failed to load crypto rate for ${currency}: ${errorMessage}`);
             return null;
         }
     }

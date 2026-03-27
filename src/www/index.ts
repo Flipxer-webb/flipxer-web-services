@@ -29,9 +29,9 @@ export interface CreateServerOptions {
 
 const logger = new Logger('ServerBootstrap');
 
-export default async (
+export default async function createServer(
     options: CreateServerOptions
-): Promise<INestApplication> => {
+): Promise<INestApplication> {
     const app = await NestFactory.create<NestExpressApplication>(AppModule, {
         //logger: false,
         rawBody: true, // Preserves raw request body as Buffer for webhook signature verification
@@ -232,4 +232,4 @@ export default async (
     await prismaService.enableShutdownHooks(app);
 
     return app;
-};
+}

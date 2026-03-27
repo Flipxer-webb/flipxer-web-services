@@ -11,20 +11,20 @@ const logger = new Logger("TradingFactory");
 export class TradingFactory implements t.ITradingFactory {
     constructor(private readonly tradingConfig: TradingConfig) {}
 
+    buildQuidaxService(): QuidaxService {
+        return this.createQuidaxService();
+    }
+
     /**
      * Build the raw provider service (legacy - for backward compatibility)
      * @deprecated Use buildProvider() instead for provider-agnostic code
      */
     build<T extends t.Provider>(options: t.BuildOptions<T>): QuidaxService {
-        switch (options.provider) {
-            case "quidax": {
-                return this.createQuidaxService();
-            }
-
-            //add other providers
-            default:
-                break;
+        if (options.provider === "quidax") {
+            return this.createQuidaxService();
         }
+
+        throw new Error(`Unknown provider: ${options.provider}`);
     }
 
     /**
@@ -33,16 +33,12 @@ export class TradingFactory implements t.ITradingFactory {
      * interchangeably with any trading provider implementation
      */
     buildProvider<T extends t.Provider>(options: t.BuildOptions<T>): ITradingProvider {
-        switch (options.provider) {
-            case "quidax": {
-                const quidaxService = this.createQuidaxService();
-                return new QuidaxTradingProvider(quidaxService);
-            }
-
-            //add other providers
-            default:
-                throw new Error(`Unknown provider: ${options.provider}`);
+        if (options.provider === "quidax") {
+            const quidaxService = this.createQuidaxService();
+            return new QuidaxTradingProvider(quidaxService);
         }
+
+        throw new Error(`Unknown provider: ${options.provider}`);
     }
 
     /**

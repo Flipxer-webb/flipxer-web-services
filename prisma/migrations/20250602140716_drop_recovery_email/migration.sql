@@ -12,9 +12,9 @@
 BEGIN;
 CREATE TYPE "OrderCategory_new" AS ENUM ('BUY', 'SELL', 'SWAP', 'SEND', 'RECEIVE');
 ALTER TABLE "Orders" ALTER COLUMN "orderCategory" TYPE "OrderCategory_new" USING ("orderCategory"::text::"OrderCategory_new");
-ALTER TYPE "OrderCategory" RENAME TO "OrderCategory_old";
+ALTER TYPE "OrderCategory" RENAME TO order_category_old;
 ALTER TYPE "OrderCategory_new" RENAME TO "OrderCategory";
-DROP TYPE "OrderCategory_old";
+DROP TYPE order_category_old;
 COMMIT;
 
 -- DropForeignKey

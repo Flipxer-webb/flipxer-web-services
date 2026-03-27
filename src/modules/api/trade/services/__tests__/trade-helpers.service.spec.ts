@@ -84,7 +84,7 @@ describe("TradeHelpersService", () => {
         });
 
         it("should handle number inputs", () => {
-            expect(service.parseAmount(100.50)).toBe(100.5);
+            expect(service.parseAmount(100.5)).toBe(100.5);
             expect(service.parseAmount(0)).toBe(0);
         });
 
@@ -110,7 +110,7 @@ describe("TradeHelpersService", () => {
 
         it("should remove trailing zeros", () => {
             expect(service.formatAmount(1.5)).toBe("1.5");
-            expect(service.formatAmount(10.0)).toBe("10");
+            expect(service.formatAmount(10)).toBe("10");
         });
 
         it("should respect custom decimal places", () => {

@@ -18,22 +18,22 @@ export class AllExceptionsWsFilter implements WsExceptionFilter {
         if (exception instanceof WsException) {
             response.message = exception.message;
             response.stack =
-                process.env.NODE_ENV !== "production"
-                    ? exception.stack
-                    : undefined;
+                process.env.NODE_ENV === "production"
+                    ? undefined
+                    : exception.stack;
         } else if (exception instanceof WsValidationException) {
             response.message = "Failed Validation";
             response.data = exception.getResponse();
             response.stack =
-                process.env.NODE_ENV !== "production"
-                    ? exception.stack
-                    : undefined;
+                process.env.NODE_ENV === "production"
+                    ? undefined
+                    : exception.stack;
         } else {
             response.message = "Internal server error";
             response.stack =
-                process.env.NODE_ENV !== "production"
-                    ? exception.stack
-                    : undefined;
+                process.env.NODE_ENV === "production"
+                    ? undefined
+                    : exception.stack;
         }
 
         client.emit(response.event, response);

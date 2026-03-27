@@ -196,13 +196,13 @@ export class DepositWebhookHandler {
             where: { providerOrderId: options.referenceId },
         });
 
-        if (!transaction) {
-            // All Quidax deposit webhooks are external deposits - credit the user
-            // Note: BUY/SELL/SWAP are purely ledger-based and never trigger Quidax webhooks
-            return this.createNewDepositTransaction(user, options);
-        } else {
+        if (transaction) {
             return this.updateExistingDepositTransaction(user, transaction, options);
         }
+
+        // All Quidax deposit webhooks are external deposits - credit the user
+        // Note: BUY/SELL/SWAP are purely ledger-based and never trigger Quidax webhooks
+        return this.createNewDepositTransaction(user, options);
     }
 
     /**

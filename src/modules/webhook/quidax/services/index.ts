@@ -315,31 +315,21 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     }
 
     async walletAddressGeneratedHandler(eventData: WalletAddressGeneratedData) {
-        switch (true) {
-            default: {
-                await this.processWalletAddress(eventData);
-                break;
-            }
-        }
+        await this.processWalletAddress(eventData);
     }
 
     async walletUpdatedHandler(eventData: WalletUpdatedData) {
-        switch (true) {
-            default: {
-                await this.tradingService.walletUpdatedHandler({
-                    walletId: eventData.id,
-                    balance: eventData.balance,
-                    convertedBalance: eventData.converted_balance,
-                    depositAddress: eventData.deposit_address,
-                    destinationTag: eventData.destination_tag,
-                    referenceCurrency: eventData.reference_currency,
-                    locked: eventData.locked,
-                    staked: eventData.staked,
-                    updatedAt: eventData.updated_at,
-                });
-                break;
-            }
-        }
+        await this.tradingService.walletUpdatedHandler({
+            walletId: eventData.id,
+            balance: eventData.balance,
+            convertedBalance: eventData.converted_balance,
+            depositAddress: eventData.deposit_address,
+            destinationTag: eventData.destination_tag,
+            referenceCurrency: eventData.reference_currency,
+            locked: eventData.locked,
+            staked: eventData.staked,
+            updatedAt: eventData.updated_at,
+        });
     }
 
     async swapTransactionHandlerHandler(eventData: SwapTransactionEventData) {

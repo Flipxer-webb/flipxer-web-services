@@ -118,14 +118,15 @@ export class CoinGeckoService {
                     const coinGeckoId = this.coinGeckoIdMap[asset.toLowerCase()];
                     if (coinGeckoId) {
                         const price = response.data[coinGeckoId]?.usd;
-                        if (price !== undefined) {
-                            const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
-                            this.redisCacheService.set(cacheKey, price, 5 * 60);
-                            result[asset.toLowerCase()] = price;
-                            this.logger.debug(`Price for ${asset}: $${price}`);
-                        } else {
+                        if (price === undefined) {
                             this.logger.warn(`No price data returned for ${asset} (ID: ${coinGeckoId})`);
+                            return;
                         }
+
+                        const cacheKey = `coingecko:price:${asset.toLowerCase()}:usd`;
+                        this.redisCacheService.set(cacheKey, price, 5 * 60);
+                        result[asset.toLowerCase()] = price;
+                        this.logger.debug(`Price for ${asset}: $${price}`);
                     }
                 });
 
