@@ -185,7 +185,7 @@ async function main() {
                 console.log("\n" + "═".repeat(50));
                 console.log("\n✅ Password updated successfully!\n");
                 console.log("📧 Email:", email);
-                console.log("🔑 Password:", password);
+                console.log("🔑 Password: [REDACTED]");
                 console.log("🛡️  Role: Super Admin");
                 console.log("\n" + "═".repeat(50));
             } else {
@@ -252,7 +252,7 @@ async function main() {
         console.log("\n" + "═".repeat(50));
         console.log("\n✅ Super Admin created successfully!\n");
         console.log("📧 Email:", email);
-        console.log("🔑 Password:", password);
+        console.log("🔑 Password: [REDACTED]");
         console.log("👤 Name:", firstName, lastName);
         console.log("🆔 User ID:", newAdmin.id);
         console.log("🛡️  Role: Super Admin");

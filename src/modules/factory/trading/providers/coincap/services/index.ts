@@ -82,6 +82,12 @@ export class CoinCapService {
         return coinId;
     }
 
+    private normalizeAssetKey(asset: string): string {
+        const normalizedAssetKey = asset.toLowerCase().trim();
+        const sanitizedAssetKey = normalizedAssetKey.replace(/[^a-z0-9-]/g, "");
+        return sanitizedAssetKey || "unknown";
+    }
+
     /**
      * Get current price for a single asset
      */
@@ -128,7 +134,7 @@ export class CoinCapService {
     ): Promise<Record<string, { price: number; change24h: number } | null>> {
         this.logger.debug(`Batch fetching market data for: ${assets.join(", ")}`);
 
-        const result: Record<string, { price: number; change24h: number } | null> = {};
+        const resultMap = new Map<string, { price: number; change24h: number } | null>();
 
         try {
             const ids = assets.map((asset) => this.resolveCoinId(asset)).join(",");
@@ -142,27 +148,28 @@ export class CoinCapService {
                 );
 
                 if (assetKey) {
-                    result[assetKey.toLowerCase()] = {
+                    resultMap.set(this.normalizeAssetKey(assetKey), {
                         price: Number.parseFloat(coin.priceUsd) || 0,
                         change24h: Number.parseFloat(coin.changePercent24Hr) || 0,
-                    };
+                    });
                 }
             });
 
             // Fill nulls for missing
-            assets.forEach(a => {
-                if (!result[a.toLowerCase()]) {
-                    result[a.toLowerCase()] = null;
+            assets.forEach(asset => {
+                const assetKey = this.normalizeAssetKey(asset);
+                if (!resultMap.has(assetKey)) {
+                    resultMap.set(assetKey, null);
                 }
             });
 
-            return result;
+            return Object.fromEntries(resultMap) as Record<string, { price: number; change24h: number } | null>;
         } catch (error) {
             this.logger.error(`Batch fetch failed: ${error.message}`);
-            assets.forEach(a => {
-                result[a.toLowerCase()] = null;
+            assets.forEach(asset => {
+                resultMap.set(this.normalizeAssetKey(asset), null);
             });
-            return result;
+            return Object.fromEntries(resultMap) as Record<string, { price: number; change24h: number } | null>;
         }
     }
 
@@ -256,21 +263,22 @@ export class CoinCapService {
             return cachedData;
         }
 
-        const result: Record<string, number[]> = {};
+        const resultMap = new Map<string, number[]>();
 
         // Fetch history for each asset (with rate limiting)
         for (const asset of assets) {
             try {
                 const history = await this.getHistoricalData(asset, 7);
-                result[asset.toLowerCase()] = history.prices.map(p => p[1]);
+                resultMap.set(this.normalizeAssetKey(asset), history.prices.map((point) => point[1]));
             } catch (error) {
                 this.logger.warn(`Failed to get sparkline for ${asset}: ${error.message}`);
-                result[asset.toLowerCase()] = [];
+                resultMap.set(this.normalizeAssetKey(asset), []);
             }
             // Small delay between requests to avoid rate limiting
             await setTimeout(50);
         }
 
+        const result = Object.fromEntries(resultMap) as Record<string, number[]>;
         await this.redisCacheService.set(cacheKey, result, 30 * 60); // Cache 30 min
         return result;
     }

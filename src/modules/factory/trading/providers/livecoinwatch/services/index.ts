@@ -525,20 +525,19 @@ export class LiveCoinWatchService {
             return cachedData;
         }
 
-        const result: Record<string, number[]> = {};
-
         // Fetch history for each asset in parallel
-        const promises = assets.map(async (asset) => {
+        const entries = await Promise.all(assets.map(async (asset) => {
+            const key = asset.toLowerCase();
             try {
                 const history = await this.getHistoricalData(asset, 7);
-                result[asset.toLowerCase()] = history.prices.map(p => p[1]);
+                return [key, history.prices.map((point) => point[1])] as const;
             } catch (error) {
                 this.logger.warn(`Failed to get sparkline for ${asset}: ${error.message}`);
-                result[asset.toLowerCase()] = [];
+                return [key, []] as const;
             }
-        });
+        }));
 
-        await Promise.all(promises);
+        const result = Object.fromEntries(entries) as Record<string, number[]>;
         await this.redisCacheService.set(cacheKey, result, 30 * 60); // Cache 30 minutes
 
         return result;

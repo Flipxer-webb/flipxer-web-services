@@ -96,7 +96,7 @@ async function main() {
     if (admin) {
         console.log("✅ Admin user ready");
         console.log(`   📧 ${TEST_ADMIN.email}`);
-        console.log(`   🔑 ${TEST_ADMIN.password}`);
+        console.log("   🔑 [REDACTED]");
         console.log(`   🆔 ID: ${admin.id}  |  Type: ${TEST_ADMIN.userType}\n`);
     }
 
@@ -104,7 +104,7 @@ async function main() {
     if (user) {
         console.log("✅ Individual user ready");
         console.log(`   📧 ${TEST_USER.email}`);
-        console.log(`   🔑 ${TEST_USER.password}`);
+        console.log("   🔑 [REDACTED]");
         console.log(`   🆔 ID: ${user.id}  |  Type: ${TEST_USER.userType}\n`);
     }
 
@@ -112,9 +112,9 @@ async function main() {
     console.log("Add to flipxer-web-app/.env.local:");
     console.log("");
     console.log(`AUDIT_TEST_EMAIL=${TEST_ADMIN.email}`);
-    console.log(`AUDIT_TEST_PASSWORD=${TEST_ADMIN.password}`);
     console.log(`AUDIT_TEST_USER_EMAIL=${TEST_USER.email}`);
-    console.log(`AUDIT_TEST_USER_PASSWORD=${TEST_USER.password}`);
+    console.log("AUDIT_TEST_PASSWORD=[SET_MANUALLY]");
+    console.log("AUDIT_TEST_USER_PASSWORD=[SET_MANUALLY]");
     console.log("────────────────────────────────────────────────");
 }
 

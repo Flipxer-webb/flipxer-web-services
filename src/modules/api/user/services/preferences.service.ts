@@ -177,16 +177,45 @@ export class PreferencesService {
                 receive: 0,
             };
 
-            currentUsage[action] = (currentUsage[action] || 0) + 1;
+            const increment = (value: unknown): number => {
+                const numericValue = typeof value === "number" && Number.isFinite(value) ? value : 0;
+                return numericValue + 1;
+            };
+
+            const nextUsage = {
+                buy: typeof currentUsage.buy === "number" ? currentUsage.buy : 0,
+                sell: typeof currentUsage.sell === "number" ? currentUsage.sell : 0,
+                swap: typeof currentUsage.swap === "number" ? currentUsage.swap : 0,
+                send: typeof currentUsage.send === "number" ? currentUsage.send : 0,
+                receive: typeof currentUsage.receive === "number" ? currentUsage.receive : 0,
+            };
+
+            switch (action) {
+                case "buy":
+                    nextUsage.buy = increment(currentUsage.buy);
+                    break;
+                case "sell":
+                    nextUsage.sell = increment(currentUsage.sell);
+                    break;
+                case "swap":
+                    nextUsage.swap = increment(currentUsage.swap);
+                    break;
+                case "send":
+                    nextUsage.send = increment(currentUsage.send);
+                    break;
+                case "receive":
+                    nextUsage.receive = increment(currentUsage.receive);
+                    break;
+            }
 
             await this.prisma.userPreferences.upsert({
                 where: { userId },
                 create: {
                     userId,
-                    quickActionUsage: currentUsage,
+                    quickActionUsage: nextUsage,
                 },
                 update: {
-                    quickActionUsage: currentUsage,
+                    quickActionUsage: nextUsage,
                 },
             });
         } catch (error) {

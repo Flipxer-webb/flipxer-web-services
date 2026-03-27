@@ -1338,8 +1338,8 @@ export class TradingService {
             } catch (ccErr) {
                 this.logger.error(`Both LCW and CoinCap sparklines failed: ${ccErr.message}`);
                 // Return empty sparklines instead of throwing
-                const empty: Record<string, number[]> = {};
-                assets.forEach(a => { empty[a.toLowerCase()] = []; });
+                const emptyEntries = assets.map((asset) => [asset.toLowerCase(), [] as number[]]);
+                const empty = Object.fromEntries(emptyEntries) as Record<string, number[]>;
                 return buildResponse({
                     message: "Sparkline data unavailable",
                     data: empty,

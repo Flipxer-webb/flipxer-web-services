@@ -301,12 +301,12 @@ export class FeatureFlagService {
      * Bulk evaluate multiple flags for a context
      */
     async evaluateFlags(keys: string[], context: FeatureFlagEvaluationContext): Promise<Record<string, boolean>> {
-        const results: Record<string, boolean> = {};
-        
+        const entries: Array<[string, boolean]> = [];
+
         for (const key of keys) {
-            results[key] = await this.evaluateFlag(key, context);
+            entries.push([key, await this.evaluateFlag(key, context)]);
         }
-        
-        return results;
+
+        return Object.fromEntries(entries);
     }
 }
