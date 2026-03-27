@@ -232,9 +232,8 @@ export class LiveCoinWatchService {
         this.logger.debug(`Batch fetching USDT prices for: ${normalizedAssets.join(", ")}`);
 
         const batchKey = `lcw:batch-usdt:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
-        const inflightBatchUsdt = this.inFlightBatchUsdtRequests.get(batchKey);
-        if (inflightBatchUsdt) {
-            return inflightBatchUsdt;
+        if (this.inFlightBatchUsdtRequests.has(batchKey)) {
+            return this.inFlightBatchUsdtRequests.get(batchKey)!;
         }
 
         const requestPromise = (async () => {
@@ -557,9 +556,8 @@ export class LiveCoinWatchService {
         this.logger.debug(`Batch fetching market data for: ${normalizedAssets.join(", ")}`);
 
         const batchKey = `lcw:batch-market:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
-        const inflightBatchMarket = this.inFlightBatchMarketRequests.get(batchKey);
-        if (inflightBatchMarket) {
-            return inflightBatchMarket;
+        if (this.inFlightBatchMarketRequests.has(batchKey)) {
+            return this.inFlightBatchMarketRequests.get(batchKey)!;
         }
 
         const requestPromise = (async () => {
