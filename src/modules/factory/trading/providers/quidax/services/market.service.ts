@@ -1,6 +1,5 @@
 import * as QD from "@/libs/quidax";
 import { Logger } from "@nestjs/common";
-import * as t from "../types";
 import { executeQuidaxCall } from "./error-handler";
 
 /**

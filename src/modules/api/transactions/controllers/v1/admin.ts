@@ -1,4 +1,4 @@
-import { SwaggerResponse, ApiResponse } from "@/utils/api-response-util";
+import { buildResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -11,7 +11,6 @@ import {
     Put,
     Query,
     UseGuards,
-    ValidationPipe,
     Req,
 } from "@nestjs/common";
 
@@ -22,8 +21,6 @@ import {
     ApiTags,
     ApiOperation,
     ApiBearerAuth,
-    ApiBody,
-    ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
 import {
     AuthGuard,
@@ -39,7 +36,6 @@ import {
     UpdateTransactionStatusDto,
     ManualApproveTransactionDto,
     RefundTransactionDto,
-    GetTransactionAuditLogsDto,
     BulkTransactionActionDto,
 } from "../../dtos";
 import { UserTypes, Permissions, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";

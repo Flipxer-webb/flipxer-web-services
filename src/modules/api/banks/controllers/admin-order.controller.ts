@@ -80,7 +80,7 @@ export class AdminOrderController {
     ) {
         await this.requireAdmin(user.id);
 
-        const id = parseInt(orderId);
+        const id = Number.parseInt(orderId);
         this.logger.log(`Admin ${user.id} request to complete order ${id}`);
 
         const order = await this.prisma.order.findUnique({

@@ -1,13 +1,11 @@
-import { SwaggerResponse, ApiResponse, buildResponse } from "@/utils/api-response-util";
+import { buildResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
-    Delete,
     Get,
     HttpCode,
     HttpStatus,
     Param,
-    ParseIntPipe,
     Post,
     Query,
     UseGuards,
@@ -18,7 +16,6 @@ import { RateService } from "@/modules/api/trade/services/rate.service";
 import {
     ApiTags,
     ApiOperation,
-    ApiResponse as SwaggerApiResponse,
     ApiBearerAuth,
 } from "@nestjs/swagger";
 import {
@@ -295,7 +292,7 @@ export class SettingController {
     ) {
         return this.settingService.getTransactionSecurityRequirements(
             user,
-            parseFloat(amount) || 0
+            Number.parseFloat(amount) || 0
         );
     }
 }

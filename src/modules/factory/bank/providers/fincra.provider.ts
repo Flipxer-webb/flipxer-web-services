@@ -2,7 +2,6 @@ import { HttpStatus } from "@nestjs/common";
 import {
     FincraLib,
     FincraPayInPayload,
-    FincraResolveAccountResponse,
     FincraBankListResponse,
 } from "@/libs/fincra";
 import { PrismaService } from "@/modules/core/prisma/services";

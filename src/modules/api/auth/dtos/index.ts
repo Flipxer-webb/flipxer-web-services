@@ -2,7 +2,6 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Country, DocumentType } from "@prisma/client";
 import {
     IsAlphanumeric,
-    IsBase64,
     IsEmail,
     IsEnum,
     IsNotEmpty,

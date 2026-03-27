@@ -9,14 +9,12 @@ import {
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { UseGuards, UsePipes } from "@nestjs/common";
-import { Notification, UserType } from "@prisma/client";
 import { whitelist } from "@/config";
 import { WsService } from "../../services/websocket.service";
 
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import { WsValidatorPipeInstance } from "@/core/exception/ws/pipe";
 import { SocketAuthGuard } from "@/modules/api/auth/guard";
-import { SocketRoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { IWsNewNotification, IWsTransactionUpdate } from "../../interfaces/trade";
 import { GetUserAssetsDto } from "@/modules/api/user/dtos";
 

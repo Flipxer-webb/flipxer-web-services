@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { Order, OrderCategory, Prisma, User } from "@prisma/client";
+import { OrderCategory, Prisma, User } from "@prisma/client";
 import { GeneralReportDownloadDto, GetUserTransactionListDto } from "../dtos";
 import {
     buildPaginationMeta,
@@ -14,7 +14,7 @@ import {
     shapeTransaction,
     TransactionIncludeOptions,
 } from "../types";
-import { isToday, isYesterday, format, endOfDay, startOfDay } from "date-fns";
+import { format, endOfDay, startOfDay } from "date-fns";
 import { TransactionNotFoundException } from "../errors";
 import { createObjectCsvStringifier } from "csv-writer";
 

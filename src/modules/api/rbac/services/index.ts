@@ -1,10 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
-import { buildPaginationMeta, defaultPagination } from "@/utils";
-import { Prisma, Role, Permission, UserType } from "@prisma/client";
+import { buildPaginationMeta, generateId } from "@/utils";
+import { Prisma, UserType } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
-import { generateId } from "@/utils";
 import {
     CreateRoleDto,
     UpdateRoleDto,
@@ -25,7 +24,7 @@ import {
     CannotModifySuperAdminException,
     PrivilegeEscalationException,
 } from "../errors";
-import { PermissionNames, RoleTemplates } from "../enums";
+import { PermissionNames } from "../enums";
 import { ADMIN_USER_TYPES } from "../../authorize/decorator";
 
 @Injectable()

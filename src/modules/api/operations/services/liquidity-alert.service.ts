@@ -246,7 +246,7 @@ export class LiquidityAlertService {
                 threshold: breach.breachType === "low" 
                     ? breach.threshold.minBalance 
                     : breach.threshold.maxBalance,
-                currentValue: parseFloat(breach.wallet.availableBalance),
+                currentValue: Number.parseFloat(breach.wallet.availableBalance),
             });
 
             newAlerts++;

@@ -135,9 +135,9 @@ export class TradeHelpersService {
      * @returns Parsed number or null if invalid
      */
     parseAmount(amount: string | number, minAmount?: number): number | null {
-        const parsed = typeof amount === "number" ? amount : parseFloat(amount);
+        const parsed = typeof amount === "number" ? amount : Number.parseFloat(amount);
         
-        if (isNaN(parsed) || !isFinite(parsed) || parsed < 0) {
+        if (Number.isNaN(parsed) || !Number.isFinite(parsed) || parsed < 0) {
             return null;
         }
 

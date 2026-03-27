@@ -1,4 +1,4 @@
-import { PrismaClient, UserType, TransactionFeeCategory, PermissionGroup } from "@prisma/client";
+import { PrismaClient, UserType, TransactionFeeCategory } from "@prisma/client";
 import logger from "moment-logger"; // Assuming this is your custom logger
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes

@@ -129,7 +129,7 @@ export class BankController {
         @User() user: UserModel,
         @Param("id") id: string
     ): Promise<ApiResponse<BankDetailResponseDto>> {
-        return this.bankService.findOne(user.id, parseInt(id));
+        return this.bankService.findOne(user.id, Number.parseInt(id));
     }
 
     @Patch(":id")
@@ -152,7 +152,7 @@ export class BankController {
     ): Promise<ApiResponse<BankDetailResponseDto>> {
         return this.bankService.update(
             user.id,
-            parseInt(id),
+            Number.parseInt(id),
             updateBankDetailDto
         );
     }
@@ -174,6 +174,6 @@ export class BankController {
         @User() user: UserModel,
         @Param("id") id: string
     ): Promise<ApiResponse<null>> {
-        return this.bankService.remove(user.id, parseInt(id));
+        return this.bankService.remove(user.id, Number.parseInt(id));
     }
 }

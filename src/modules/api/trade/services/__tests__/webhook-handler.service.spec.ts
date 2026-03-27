@@ -2,7 +2,6 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { WebhookHandlerService } from "../webhook-handler.service";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
-import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
 import { NotificationEvent } from "../../../notification/events/notification.event";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../../gateway/v1";

@@ -18,7 +18,7 @@ import { WsGateway } from '../../gateway/v1';
 import { TradeHelpersService } from '../trade-helpers.service';
 import { WalletAddressService } from '../wallet-address.service';
 import { TradingInjectionToken } from '@/modules/factory/trading/types';
-import { OrderStatus, OrderCategory, Prisma } from '@prisma/client';
+import { OrderStatus, OrderCategory } from '@prisma/client';
 import { createMockPrismaService, mockDataFactories, MockPrismaClient } from '@/test/mocks';
 
 describe('DepositWebhookHandler', () => {

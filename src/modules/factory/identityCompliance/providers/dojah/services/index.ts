@@ -1,6 +1,5 @@
 import * as DJ from "@/libs/dojah";
 import { HttpStatus, Logger } from "@nestjs/common";
-import * as t from "../types";
 import * as e from "../errors";
 
 export class DojahService {

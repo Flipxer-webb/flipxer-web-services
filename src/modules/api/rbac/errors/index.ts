@@ -1,5 +1,4 @@
-import { HttpStatus } from "@nestjs/common";
-import { HttpException } from "@nestjs/common";
+import { HttpStatus, HttpException } from "@nestjs/common";
 
 export class RoleAlreadyExistsException extends HttpException {
     constructor(message: string) {

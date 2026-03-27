@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, ValidateNested, IsEnum } from "class-validator";
+import { IsString, IsNumber, IsOptional, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
 
 export enum NombaWebhookEventType {

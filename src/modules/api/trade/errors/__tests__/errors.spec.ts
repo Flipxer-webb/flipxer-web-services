@@ -1,7 +1,6 @@
 import { HttpStatus } from "@nestjs/common";
 import {
     TradeErrorCode,
-    BaseTradingException,
     WalletAddressNotFoundException,
     WalletSyncException,
     InsufficientBalanceException,
@@ -12,10 +11,6 @@ import {
     TransactionCompletedException,
     TransactionCancelledException,
     TransactionExpiredException,
-    InvalidTransactionAmountException,
-    GeneralTransactionException,
-    AssetNotFoundException,
-    UnknownFeeStructureException,
     OutOfRangeException,
     InvalidNetworkException,
     InvalidAddressException,

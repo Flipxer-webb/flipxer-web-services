@@ -6,7 +6,6 @@ import {
     Delete,
     Body,
     Param,
-    Query,
     UseGuards,
 } from "@nestjs/common";
 import { SystemSettingsService } from "../../../services/system-settings.service";

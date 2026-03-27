@@ -1,4 +1,4 @@
-import { Injectable, Logger, HttpStatus, BadRequestException, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, BadRequestException, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
@@ -221,7 +221,7 @@ export class PriceAlertService {
                 return; // Currency not found in market data
             }
 
-            const currentPrice = parseFloat(ticker.last || ticker.price || "0");
+            const currentPrice = Number.parseFloat(ticker.last || ticker.price || "0");
             
             if (currentPrice === 0) {
                 return;

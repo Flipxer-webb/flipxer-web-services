@@ -240,8 +240,8 @@ export class QuidaxTradingProvider implements ITradingProvider {
             market: options.pair as any,
             side: options.side,
             ord_type: options.type === 'market' ? 'market' : 'limit',
-            price: options.price ? parseFloat(options.price) : undefined,
-            volume: parseFloat(options.volume || options.amount),
+            price: options.price ? Number.parseFloat(options.price) : undefined,
+            volume: Number.parseFloat(options.volume || options.amount),
         });
 
         return {

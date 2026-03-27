@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
@@ -49,7 +49,7 @@ export class WalletManagementService {
             if (usdtPriceUsd) {
                 // Get USDT/NGN rate from Quidax
                 const marketData = await this.quidax.getSingleMarketTicker("usdtngn");
-                const usdtNgnRate = parseFloat(marketData.data?.ticker?.last || "0");
+                const usdtNgnRate = Number.parseFloat(marketData.data?.ticker?.last || "0");
 
                 if (usdtNgnRate > 0) {
                     // NGN/USD = (USDT/USD) / (USDT/NGN)
@@ -97,13 +97,13 @@ export class WalletManagementService {
 
             if (walletsResponse.data) {
                 wallets = walletsResponse.data.map((wallet: any) => {
-                    const balance = parseFloat(wallet.balance) || 0;
-                    const locked = parseFloat(wallet.locked) || 0;
-                    const staked = parseFloat(wallet.staked) || 0;
+                    const balance = Number.parseFloat(wallet.balance) || 0;
+                    const locked = Number.parseFloat(wallet.locked) || 0;
+                    const staked = Number.parseFloat(wallet.staked) || 0;
                     const availableBalance = balance - locked - staked;
 
                     // Get converted balance in NGN (using Quidax's converted_balance if available)
-                    const ngnValue = parseFloat(wallet.converted_balance) || 0;
+                    const ngnValue = Number.parseFloat(wallet.converted_balance) || 0;
                     // Use dynamic NGN/USD rate instead of hardcoded value
                     const usdValue = ngnValue * ngnUsdRate;
 
@@ -191,7 +191,7 @@ export class WalletManagementService {
             );
 
             if (threshold && threshold.alertEnabled) {
-                const balance = parseFloat(wallet.availableBalance);
+                const balance = Number.parseFloat(wallet.availableBalance);
 
                 if (balance < threshold.minBalance) {
                     breaches.push({ wallet, threshold, breachType: 'low' });

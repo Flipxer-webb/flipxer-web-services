@@ -252,7 +252,7 @@ export class WithdrawalWebhookHandler {
 
         const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
         if (buyOrderMatch) {
-            const buyOrderId = parseInt(buyOrderMatch[1], 10);
+            const buyOrderId = Number.parseInt(buyOrderMatch[1], 10);
             await this.failBuyOrder(buyOrderId, transaction);
         }
 
@@ -281,7 +281,7 @@ export class WithdrawalWebhookHandler {
     private async handleSellOrderDone(transaction: any): Promise<boolean> {
         const buyOrderMatch = transaction.transaction_note?.match(/^BUY:(\d+)$/);
         if (buyOrderMatch) {
-            const buyOrderId = parseInt(buyOrderMatch[1], 10);
+            const buyOrderId = Number.parseInt(buyOrderMatch[1], 10);
             await this.completeBuyOrder(buyOrderId, transaction);
             return true;
         }

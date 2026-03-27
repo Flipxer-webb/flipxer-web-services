@@ -1,4 +1,4 @@
-import { SwaggerResponse, ApiResponse, buildResponse } from "@/utils/api-response-util";
+import { buildResponse } from "@/utils/api-response-util";
 import {
     Body,
     Controller,
@@ -17,7 +17,6 @@ import { RateService } from "@/modules/api/trade/services/rate.service";
 import {
     ApiTags,
     ApiOperation,
-    ApiResponse as SwaggerApiResponse,
     ApiBearerAuth,
 } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";

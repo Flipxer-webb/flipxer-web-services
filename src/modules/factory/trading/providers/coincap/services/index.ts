@@ -86,9 +86,9 @@ export class CoinCapService {
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 const response = await this.apiClient.get(`/assets/${coinId}`);
-                const rate = parseFloat(response.data?.data?.priceUsd);
+                const rate = Number.parseFloat(response.data?.data?.priceUsd);
 
-                if (!rate || isNaN(rate)) throw new Error(`No price data for ${asset}`);
+                if (!rate || Number.isNaN(rate)) throw new Error(`No price data for ${asset}`);
 
                 await this.redisCacheService.set(cacheKey, rate, 300); // Cache 5 min
                 this.logger.debug(`Price for ${asset}: $${rate}`);
@@ -131,8 +131,8 @@ export class CoinCapService {
 
                 if (assetKey) {
                     result[assetKey.toLowerCase()] = {
-                        price: parseFloat(coin.priceUsd) || 0,
-                        change24h: parseFloat(coin.changePercent24Hr) || 0,
+                        price: Number.parseFloat(coin.priceUsd) || 0,
+                        change24h: Number.parseFloat(coin.changePercent24Hr) || 0,
                     };
                 }
             });
@@ -192,13 +192,13 @@ export class CoinCapService {
                 // Convert to [timestamp, price] format
                 const prices: [number, number][] = history.map(point => [
                     point.time,
-                    parseFloat(point.priceUsd),
+                    Number.parseFloat(point.priceUsd),
                 ]);
 
                 // Calculate 24h high/low
                 const oneDayAgo = end - 24 * 60 * 60 * 1000;
                 const last24h = history.filter(p => p.time >= oneDayAgo);
-                const rates24h = last24h.map(p => parseFloat(p.priceUsd));
+                const rates24h = last24h.map(p => Number.parseFloat(p.priceUsd));
                 const high24h = rates24h.length > 0 ? Math.max(...rates24h) : null;
                 const low24h = rates24h.length > 0 ? Math.min(...rates24h) : null;
 

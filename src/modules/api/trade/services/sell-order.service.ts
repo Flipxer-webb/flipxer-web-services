@@ -8,7 +8,6 @@ import {
     LedgerType,
     OrderCategory,
     OrderStatus,
-    PaymentMethod,
     User,
 } from "@prisma/client";
 import {

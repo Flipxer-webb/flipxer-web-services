@@ -1,11 +1,8 @@
-import { forwardRef, Injectable, Logger } from "@nestjs/common";
-import { Inject } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import * as Utils from "@/utils";
-import { Socket } from "socket.io";
-
+import { Socket, Server } from "socket.io";
 import { User, UserType } from "@prisma/client";
-import { Server } from "socket.io";
 import { IWsNewNotification, IWsTransactionUpdate } from "../interfaces/trade";
 import { GetUserAssetsDto } from "../../user/dtos";
 import { UserService } from "../../user/services";
@@ -148,7 +145,7 @@ export class WsService {
 
                         const walletData =
                             await this.userService.getUserWallets(
-                                parseInt(userId),
+                                Number.parseInt(userId),
                                 {} as GetUserAssetsDto
                             );
 

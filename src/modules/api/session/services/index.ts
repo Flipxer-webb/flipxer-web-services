@@ -8,7 +8,7 @@ import {
     InvalidSessionException,
 } from "../errors";
 import { REFRESH_TOKEN_EXPIRATION } from "@/config";
-import { isLikelyBotTraffic, getBotTrafficReason, isCloudProviderIP, isSuspiciousCombination } from "../utils/bot-detection";
+import { getBotTrafficReason, isCloudProviderIP, isSuspiciousCombination } from "../utils/bot-detection";
 
 // Server-side inactivity limit (30 minutes) - sessions inactive beyond this are considered invalid
 const SERVER_INACTIVITY_LIMIT_MS = 30 * 60 * 1000;
@@ -29,7 +29,7 @@ export class SessionService {
         const match = duration.match(/^(\d+)([dhms])$/);
         if (!match) return 7 * 24 * 60 * 60 * 1000; // Default 7 days
 
-        const value = parseInt(match[1]);
+        const value = Number.parseInt(match[1]);
         const unit = match[2];
 
         switch (unit) {

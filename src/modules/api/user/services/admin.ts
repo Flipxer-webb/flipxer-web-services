@@ -3,10 +3,7 @@ import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildPaginationMeta, defaultPagination } from "@/utils";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
-import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { UploadFactory } from "@/modules/core/upload/services";
-import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
-import { ImagekitService } from "@/modules/core/upload/services/imagekit";
+import { HttpStatus, Injectable } from "@nestjs/common";
 import {
     startOfDay,
     endOfDay,

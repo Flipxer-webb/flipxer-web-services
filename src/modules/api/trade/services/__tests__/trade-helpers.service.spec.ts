@@ -90,7 +90,7 @@ describe("TradeHelpersService", () => {
 
         it("should return null for invalid amounts", () => {
             expect(service.parseAmount("abc")).toBeNull();
-            expect(service.parseAmount(NaN)).toBeNull();
+            expect(service.parseAmount(Number.NaN)).toBeNull();
             expect(service.parseAmount(Infinity)).toBeNull();
             expect(service.parseAmount(-1)).toBeNull();
         });

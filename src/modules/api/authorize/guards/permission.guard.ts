@@ -11,10 +11,9 @@ import {
     RoleNotFoundException,
 } from "../error/role";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { UserNotFoundException } from "../../user";
+import { UserNotFoundException, UserWithRoles } from "../../user";
 import { RoleEnum } from "../enums/role";
 import { Permissions } from "../decorator";
-import { UserWithRoles } from "../../user";
 
 @Injectable()
 export class PermissionGuard implements CanActivate {

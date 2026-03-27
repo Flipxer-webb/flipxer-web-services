@@ -1,5 +1,5 @@
 import { Controller, Post, Get, Body, Headers, HttpCode, Logger, UnauthorizedException } from "@nestjs/common";
-import { NombaWebhookPayload, NombaWebhookEventType } from "../dtos/nomba-webhook.dto";
+import { NombaWebhookEventType } from "../dtos/nomba-webhook.dto";
 import { NormalizedPaymentEvent } from "../types/payment-event.interface";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TransactionStatus, OrderCategory, OrderStatus } from "@prisma/client";

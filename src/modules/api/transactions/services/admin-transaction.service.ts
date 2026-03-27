@@ -1,8 +1,8 @@
 import { Injectable, Logger, BadRequestException, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
-import { buildPaginationMeta, defaultPagination } from "@/utils";
-import { Order, OrderStreamlinedStatus, Prisma, LedgerType, SweepStatus, User, OrderStatus, OrderCategory, TransactionStatus } from "@prisma/client";
+import { buildPaginationMeta } from "@/utils";
+import { OrderStreamlinedStatus, Prisma, LedgerType, SweepStatus, User, OrderStatus, OrderCategory, TransactionStatus } from "@prisma/client";
 import { LedgerService, LedgerOperationResult } from "@/modules/api/trade/services/ledger/ledger.service";
 import { SettingService } from "@/modules/api/settings/services";
 import {
@@ -25,7 +25,7 @@ import {
     RefundTransactionDto,
     BulkTransactionActionDto,
 } from "../dtos";
-import { shapeTransaction, TransactionIncludeOptions } from "../types";
+import { shapeTransaction } from "../types";
 import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
 import { SwapService } from "@/modules/api/trade/services/swap.service";
 import { WithdrawalWebhookHandler } from "@/modules/api/trade/services/webhook-handlers/withdrawal-webhook.handler";
@@ -353,7 +353,7 @@ export class AdminTransactionService {
                 status: "confirmed",
                 fulfilled: true, // already set by atomic guard above; explicit for clarity
                 ...(dto.overrideAmount && {
-                    amountInFiat: parseFloat(dto.overrideAmount)
+                    amountInFiat: Number.parseFloat(dto.overrideAmount)
                 }),
             },
             include: { user: { select: { firstName: true, lastName: true } } },

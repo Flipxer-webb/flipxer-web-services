@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsObject } from 'class-validator';
 
 /**
  * Fincra Webhook Payload DTO

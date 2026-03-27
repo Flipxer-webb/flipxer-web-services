@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { EmailService } from "@/modules/core/email/services";
 import * as cf from "@/config";

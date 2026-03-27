@@ -1,7 +1,7 @@
 import { PrismaService } from "@/modules/core/prisma/services";
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import * as dto from "../dtos/notification.dto";
-import { Prisma, NotificationType, NotificationBeneficiary, NotificationStatus, UserType } from "@prisma/client";
+import { NotificationType, NotificationBeneficiary, NotificationStatus, UserType } from "@prisma/client";
 import * as Utils from "@/utils";
 import * as e from "../errors/notification.error";
 import { NotificationEvent } from "../events/notification.event";

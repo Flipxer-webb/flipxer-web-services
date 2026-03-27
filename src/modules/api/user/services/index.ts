@@ -1,4 +1,4 @@
-import { storageDirConfig } from "@/config";
+import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
@@ -28,22 +28,15 @@ import {
     VerifyRecoveryEmailOtpDto,
     GetUserListDto,
 } from "../dtos";
-import { UserNotFoundException, AuthGenericException } from "../../auth/errors";
+import { UserNotFoundException, AuthGenericException, InvalidVerificationCodeException, VerificationCodeExpiredException, DuplicateVerificationException } from "../../auth/errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
-import { AssetWallet, OrderStatus, Prisma, User, UserType, DocumentVerificationStatus } from "@prisma/client";
-import { DuplicateUserException, IncorrectPasswordException } from "../errors";
+import { OrderStatus, Prisma, User, UserType, DocumentVerificationStatus } from "@prisma/client";
+import { IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
-import { emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
-import {
-    InvalidVerificationCodeException,
-    VerificationCodeExpiredException,
-    DuplicateVerificationException,
-} from "../../auth/errors";
 import { Ticker } from "@/libs/quidax/types/trade";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
-import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { LedgerService } from "@/modules/api/trade/services/ledger/ledger.service";
 import { RateService } from "@/modules/api/trade/services/rate.service";
 
@@ -680,15 +673,15 @@ export class UserService {
     calculatePercentageChange(ticker: Ticker): number | null {
         if (!ticker?.open || !ticker?.last) return null;
 
-        const open = parseFloat(ticker.open);
-        const last = parseFloat(ticker.last);
+        const open = Number.parseFloat(ticker.open);
+        const last = Number.parseFloat(ticker.last);
 
-        if (isNaN(open) || open === 0 || isNaN(last)) {
+        if (Number.isNaN(open) || open === 0 || Number.isNaN(last)) {
             return null;
         }
 
         const change = ((last - open) / open) * 100;
-        return parseFloat(change.toFixed(2));
+        return Number.parseFloat(change.toFixed(2));
     }
 
     async updateProfilePassword(options: UpdateProfilePasswordDto, user: User) {

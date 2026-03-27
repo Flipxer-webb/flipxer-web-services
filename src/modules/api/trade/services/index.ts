@@ -7,18 +7,15 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
-import { GetUserWalletResponse, IPaymentAddress } from "@/libs/quidax";
+import { GetUserWalletResponse, GetPaymentAddressByIdOptions } from "@/libs/quidax";
 import {
     AccountCreationException,
-    AssetNotFoundException,
     GeneralTransactionException,
     IncompleteAccountSetupException,
     OutOfRangeException,
     QuidaxApiException,
-    TransactionCompletedException,
     TransactionNotFoundException,
     UnknownFeeStructureException,
-    WalletAddressNotFoundException,
 } from "../errors";
 import {
     BuyQuoteResponse,
@@ -26,7 +23,6 @@ import {
     getStreamlinedStatus,
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
-    OrderType,
     SellQuoteResponse,
     SupportedAssets,
     SwapTransactionHandlerOptions,
@@ -42,12 +38,7 @@ import {
     NotificationStatus,
     NotificationType,
     OrderCategory,
-    OrderSide,
     OrderStatus,
-    PaymentMethod,
-    TransactionFeeCategory,
-    TransactionStatus,
-    TransactionType,
     User,
     UserNotificationTarget,
 } from "@prisma/client";
@@ -71,14 +62,8 @@ import {
 } from "../dtos";
 import { UserNotFoundException } from "../../user";
 import { CryptoAccountQueueProducer } from "../queues/producers/producer.service";
-import { GetPaymentAddressByIdOptions } from "@/libs/quidax";
 import { generateId } from "@/utils";
-import { COMPANY_NAME } from "@/config";
-import {
-    CryptoRateNotFoundException,
-    CryptoTransactionFeeNotFoundException,
-} from "../../settings/errors";
-import { BankDetailNotFoundException } from "../../banks/errors";
+
 
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../gateway/v1";
@@ -94,10 +79,7 @@ import { LedgerService } from "./ledger/ledger.service";
 import { SweepService } from "./ledger/sweep.service";
 import { WebhookHandlerService } from "./webhook-handler.service";
 import {
-    SUPPORTED_ASSETS,
-    QUOTE_EXPIRY_MS,
     DEFAULT_TRANSACTION_TIMEOUT_MS,
-    EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
 } from "../constants";
 

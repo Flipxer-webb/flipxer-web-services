@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse } from "@/utils/api-response-util";
-import { User, Prisma } from "@prisma/client";
+import { User } from "@prisma/client";
 
 export interface UpdateUserPreferencesDto {
     theme?: "light" | "dark" | "system";

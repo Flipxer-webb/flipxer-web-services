@@ -1,7 +1,6 @@
 import {
     Body,
     Controller,
-    Get,
     HttpCode,
     HttpStatus,
     Post,
@@ -11,7 +10,6 @@ import {
 import {
     ApiTags,
     ApiOperation,
-    ApiResponse as SwaggerApiResponse,
 } from "@nestjs/swagger";
 import { SignInDto, Reset2FARateLimitDto } from "../../dtos";
 import { AuthService } from "../../services";

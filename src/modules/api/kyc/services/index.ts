@@ -1,8 +1,8 @@
 import { Injectable, Logger, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
-import { buildPaginationMeta, defaultPagination } from "@/utils";
-import { Prisma, UserType, Status } from "@prisma/client";
+import { buildPaginationMeta } from "@/utils";
+import { Prisma, UserType } from "@prisma/client";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
 import {
     GetKycQueueDto,
