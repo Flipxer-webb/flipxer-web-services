@@ -45,8 +45,12 @@ export class AdminSystemSettingsController {
      * Get a specific setting by key
      */
     @Get(":key")
-    async getSetting(@Param("key") keyParam: string | string[]) {
-        const key = this.requireSingleParamValue(keyParam, "key");
+    async getSetting(@Param("key") keyParam: unknown) {
+        if (typeof keyParam !== "string") {
+            throw new BadRequestException('"key" must be a single string value');
+        }
+
+        const key = keyParam;
         const value = await this.settingsService.getSetting(key);
         return buildResponse({
             message: "Setting retrieved successfully",
@@ -88,8 +92,12 @@ export class AdminSystemSettingsController {
      * Delete a setting
      */
     @Delete(":key")
-    async deleteSetting(@Param("key") keyParam: string | string[]) {
-        const key = this.requireSingleParamValue(keyParam, "key");
+    async deleteSetting(@Param("key") keyParam: unknown) {
+        if (typeof keyParam !== "string") {
+            throw new BadRequestException('"key" must be a single string value');
+        }
+
+        const key = keyParam;
         await this.settingsService.deleteSetting(key);
         return buildResponse({
             message: "Setting deleted successfully",
@@ -155,12 +163,5 @@ export class AdminSystemSettingsController {
             message: "Maintenance configuration updated successfully",
             data: result,
         });
-    }
-
-    private requireSingleParamValue(value: string | string[], name: string): string {
-        if (Array.isArray(value)) {
-            throw new BadRequestException(`"${name}" must be a single string value`);
-        }
-        return value;
     }
 }

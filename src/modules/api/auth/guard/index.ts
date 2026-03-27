@@ -701,11 +701,6 @@ export class TwoFactorGuard implements CanActivate {
         const legacyCode = request.body?.twoFactorCode || request.headers["x-2fa-code"];
         const routeTemplate = this.getRequestRouteTemplate(request);
 
-        // Smart detection: If legacy code looks like a JWT, treat it as a verification token
-        if (!verificationToken && legacyCode && legacyCode.length > 20) {
-            verificationToken = legacyCode;
-        }
-
         // New multi-factor verification token
         if (verificationToken) {
             const isValid = await this.verifyMultiFactorTokens(

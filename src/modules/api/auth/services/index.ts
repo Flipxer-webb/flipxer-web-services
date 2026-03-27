@@ -2595,10 +2595,9 @@ export class AuthService {
 
         // For Dojah verification we need the CAC image buffer.
         // Since we already uploaded to ImageKit, fetch it back as base64.
-        this.runDojahBusinessVerificationFromUrl(
+        this.runDojahBusinessVerificationFromStoredDocument(
             user.id,
             dto.cacDocumentNumber,
-            getField("cacImage")?.url
         ).catch((err) => {
             this.logger.error(
                 `[SubmitBusinessDocuments][DojahVerification] Background verification failed for user ${user.id}: ${err?.message}`,
@@ -2735,11 +2734,16 @@ export class AuthService {
      * instead of requiring a Multer file buffer.
      * Used by the sequential-upload submit flow.
      */
-    private async runDojahBusinessVerificationFromUrl(
+    private async runDojahBusinessVerificationFromStoredDocument(
         userId: number,
         cacDocumentNumber: string,
-        cacImageUrl?: string
     ): Promise<void> {
+        const businessDocument = await this.prisma.businessDocument.findUnique({
+            where: { userId },
+            select: { cacImageUrl: true },
+        });
+        const cacImageUrl = businessDocument?.cacImageUrl;
+
         if (!cacImageUrl) {
             this.logger.warn(
                 `[DojahBusinessVerificationFromUrl] No CAC image URL for user ${userId}, skipping`
