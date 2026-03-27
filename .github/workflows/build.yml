@@ -34,7 +34,8 @@ jobs:
         run: pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Generate coverage report
-        run: pnpm exec jest --coverage --passWithNoTests
+        timeout-minutes: 10
+        run: pnpm exec jest --coverage --passWithNoTests --runInBand --detectOpenHandles --forceExit
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
