@@ -33,10 +33,12 @@ import { IdentityComplianceInjectionToken } from "@/modules/factory/identityComp
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
+type DocumentType = "address" | "income" | "business";
+
 @Injectable()
 export class TierVerificationService {
     private readonly logger = new Logger(TierVerificationService.name);
-    private uploadService: ImagekitService | CloudinaryService;
+    private readonly uploadService: ImagekitService | CloudinaryService;
     private readonly SALT_ROUNDS = 10;
 
     constructor(
@@ -512,7 +514,14 @@ export class TierVerificationService {
         });
 
         // Create audit record for Dojah widget verification
-        const verificationType = idType === "bvn" ? "BVN" : (idType === "nin" ? "NIN" : "DOCUMENT");
+        let verificationType: string;
+        if (idType === "bvn") {
+            verificationType = "BVN";
+        } else if (idType === "nin") {
+            verificationType = "NIN";
+        } else {
+            verificationType = "DOCUMENT";
+        }
         await this.prisma.kycVerification.create({
             data: {
                 userId: user.id,
@@ -686,7 +695,7 @@ export class TierVerificationService {
      */
     async sendReviewNotification(
         userId: number,
-        documentType: "address" | "income" | "business",
+        documentType: DocumentType,
         approved: boolean,
         rejectionReason?: string
     ): Promise<void> {

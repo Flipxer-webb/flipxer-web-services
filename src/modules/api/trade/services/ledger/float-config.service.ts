@@ -41,7 +41,7 @@ export class FloatConfigService {
     private readonly DEFAULT_ALERT_THRESHOLD = new Decimal(80);
 
     // Cache TTL for float configs (5 minutes)
-    private configCache: Map<
+    private readonly configCache: Map<
         string,
         { config: FloatConfig; cachedAt: number }
     > = new Map();

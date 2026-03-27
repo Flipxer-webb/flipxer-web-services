@@ -245,7 +245,7 @@ export class AdminLedgerController {
     ) {
         this.logger.log(`Admin fetching ledger history for user ${userId}, currency ${currency}`);
 
-        const parsedLimit = limit ? parseInt(limit, 10) : 100;
+        const parsedLimit = limit ? Number.parseInt(limit, 10) : 100;
         const history = await this.ledgerService.getHistory(
             userId,
             currency.toUpperCase(),

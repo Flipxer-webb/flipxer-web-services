@@ -187,7 +187,7 @@ export class UserService {
                 assetWallet: defaultWallet,
                 // Tier info — sourced from DB column, kept in sync by syncTierAndCache
                 tier: userTier,
-                withdrawalLimit: this.tierService.getWithdrawalLimit(userTier as any),
+                withdrawalLimit: this.tierService.getWithdrawalLimit(userTier),
                 canTransact: userTier > 0,
                 // Verification requirements to guide frontend
                 verificationRequirements: this.getVerificationRequirements(profile),
@@ -263,7 +263,7 @@ export class UserService {
         const userTier = (user as any).tier ?? 0;
         const tierInfo = {
             tier: userTier,
-            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier as any),
+            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier),
             canTransact: userTier > 0,
         };
 
@@ -505,7 +505,7 @@ export class UserService {
                 usedRate = rateData.sellRate;
             }
 
-            if (usedRate > 0 && !isNaN(balance)) {
+            if (usedRate > 0 && !Number.isNaN(balance)) {
                 totalBalance += balance * usedRate;
             }
         }
@@ -615,9 +615,6 @@ export class UserService {
                 const heldBalance = ledgerBalance
                     ? Number(ledgerBalance.held)
                     : 0;
-                const totalBalance = ledgerBalance
-                    ? Number(ledgerBalance.total)
-                    : 0;
 
                 // Dynamic rate lookup (from RateService - uses LiveCoinWatch)
                 const dynamicRate = dynamicRatesMap.get(assetCurrency);
@@ -643,8 +640,8 @@ export class UserService {
                     liveConvertedBalance = (balance * sellRate).toFixed(2);
                 } else if (ticker?.sell) {
                     // Fallback to Quidax ticker if dynamic rate unavailable
-                    const rate = parseFloat(ticker.sell);
-                    if (!isNaN(rate) && !isNaN(balance)) {
+                    const rate = Number.parseFloat(ticker.sell);
+                    if (!Number.isNaN(rate) && !Number.isNaN(balance)) {
                         liveConvertedBalance = (balance * rate).toFixed(2);
                     }
                 }

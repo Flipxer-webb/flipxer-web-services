@@ -263,7 +263,7 @@ export class BankService {
         });
 
         // SECURITY: Verify the bank detail belongs to the requesting user
-        if (!bankDetail || bankDetail.userId !== userId) {
+        if (bankDetail?.userId !== userId) {
             throw new BankDetailNotFoundException(
                 "Bank detail not found or does not belong to this user",
                 HttpStatus.NOT_FOUND

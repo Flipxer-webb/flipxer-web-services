@@ -111,7 +111,7 @@ export class TransactionService {
         const normalizedCurrency = currency.toLowerCase() as SupportedAssets;
 
         const amountInUSD = await this.getAmountInUSD(normalizedCurrency, amount);
-        if (!amountInUSD || !amountInUSD.amount) {
+        if (!amountInUSD?.amount) {
             const transactionId = uuidv4();
             const reason = `Failed to convert ${amount} ${currency} to USD. Please try again later.`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
@@ -158,7 +158,7 @@ export class TransactionService {
 
         // Try atomic Redis increment for daily limit
         if (!hasUnlimitedWithdrawal) {
-            const dailyLimit = tierWithdrawalLimit as number;
+            const dailyLimit = tierWithdrawalLimit;
             const consumed = await this.checkRedisDailyLimit({ user, amount, currency, amountUSD, key: dailyKey, limit: dailyLimit, tierInfo, path });
             if (consumed) usedRedis = true;
         }
@@ -173,7 +173,7 @@ export class TransactionService {
         // ==================== DB FALLBACK (if Redis unavailable) ====================
         if (!usedRedis) {
             this.logger.warn(`Redis unavailable for user ${user.id} - using DB fallback for limit check`);
-            await this.validateLimitsWithDbFallback(user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, monthlyLimit, path);
+            await this.validateLimitsWithDbFallback({ user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, monthlyLimit, path });
         }
     }
 
@@ -229,16 +229,17 @@ export class TransactionService {
      * Wraps in a Prisma transaction with SELECT FOR UPDATE to serialize
      * concurrent limit checks for the same user, preventing race conditions.
      */
-    private async validateLimitsWithDbFallback(
-        user: User,
-        amount: number,
-        currency: string,
-        amountUSD: number,
-        tierInfo: TierInfo,
-        hasUnlimitedWithdrawal: boolean,
-        monthlyLimit: number,
-        path: string
-    ): Promise<void> {
+    private async validateLimitsWithDbFallback(opts: {
+        user: User;
+        amount: number;
+        currency: string;
+        amountUSD: number;
+        tierInfo: TierInfo;
+        hasUnlimitedWithdrawal: boolean;
+        monthlyLimit: number;
+        path: string;
+    }): Promise<void> {
+        const { user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, monthlyLimit, path } = opts;
         await this.prisma.$transaction(async (tx) => {
             // Acquire row-level lock on user to serialize concurrent limit checks
             await tx.$queryRaw`SELECT id FROM "Users" WHERE id = ${user.id} FOR UPDATE`;

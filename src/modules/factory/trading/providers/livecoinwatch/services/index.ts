@@ -233,7 +233,7 @@ export class LiveCoinWatchService {
 
         const batchKey = `lcw:batch-usdt:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
         if (this.inFlightBatchUsdtRequests.has(batchKey)) {
-            return this.inFlightBatchUsdtRequests.get(batchKey)!;
+            return this.inFlightBatchUsdtRequests.get(batchKey);
         }
 
         const requestPromise = (async () => {
@@ -533,7 +533,7 @@ export class LiveCoinWatchService {
                 const history = await this.getHistoricalData(asset, 7);
                 result[asset.toLowerCase()] = history.prices.map(p => p[1]);
             } catch (error) {
-                this.logger.warn(`Failed to get sparkline for ${asset}`);
+                this.logger.warn(`Failed to get sparkline for ${asset}: ${error.message}`);
                 result[asset.toLowerCase()] = [];
             }
         });
@@ -557,7 +557,7 @@ export class LiveCoinWatchService {
 
         const batchKey = `lcw:batch-market:inflight:${[...normalizedAssets].sort((a, b) => a.localeCompare(b)).join(",")}`;
         if (this.inFlightBatchMarketRequests.has(batchKey)) {
-            return this.inFlightBatchMarketRequests.get(batchKey)!;
+            return this.inFlightBatchMarketRequests.get(batchKey);
         }
 
         const requestPromise = (async () => {

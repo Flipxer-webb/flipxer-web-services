@@ -21,7 +21,7 @@ import * as e from "../errors/nomba.error";
 import { TransactionShortDescription } from "@/modules/api/transactions/types";
 
 export class NombaBank implements TNomba.INombaBank {
-    constructor(private nomba: NombaLib, private prisma: PrismaService) {}
+    constructor(private readonly nomba: NombaLib, private readonly prisma: PrismaService) {}
 
     /**
      * Get list of Nigerian banks

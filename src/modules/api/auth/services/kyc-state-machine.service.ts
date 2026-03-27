@@ -92,10 +92,10 @@ export class KycStateMachineService {
             orderBy: { version: "desc" },
         });
 
-        const fromKey = current ? current.status : "null";
+        const fromKey = current?.status ?? "null";
 
         // ── Idempotency: already in desired state ──
-        if (current && current.status === toStatus) {
+        if (current?.status === toStatus) {
             this.logger.log(
                 `[KYC-SM] No-op: user ${userId} ${verificationType} already ${toStatus}`,
             );
@@ -109,7 +109,7 @@ export class KycStateMachineService {
 
         // ── Validate transition legality ──
         const allowed = LEGAL_TRANSITIONS[fromKey];
-        if (!allowed || !allowed.has(toStatus)) {
+        if (!allowed?.has(toStatus)) {
             throw new BadRequestException(
                 `Illegal KYC transition for ${verificationType}: ${fromKey} → ${toStatus}`,
             );
@@ -130,7 +130,7 @@ export class KycStateMachineService {
 
         // ── Resubmission: deactivate old record, bump version ──
         if (toStatus === "RESUBMITTED" as any) {
-            return this.handleResubmission(userId, verificationType, current!, metadata);
+            return this.handleResubmission(userId, verificationType, current, metadata);
         }
 
         // ── Create or update ──

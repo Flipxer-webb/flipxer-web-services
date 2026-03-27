@@ -403,7 +403,8 @@ export class SlackWebhookService {
             return { sent: false, error: 'SLACK_WEBHOOK_URL not configured' };
         }
 
-        const emoji = severity === 'error' ? '🔴' : severity === 'warning' ? '🟡' : 'ℹ️';
+        const emojiMap = { error: '🔴', warning: '🟡', info: 'ℹ️' } as const;
+        const emoji = emojiMap[severity];
 
         const slackMessage: SlackMessage = {
             text: `${emoji} [${category.toUpperCase()}] ${title}`,

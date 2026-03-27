@@ -1354,7 +1354,7 @@ export class TradingService {
                     data: sparklines,
                 });
             } catch (ccErr) {
-                this.logger.error(`Both LCW and CoinCap sparklines failed`);
+                this.logger.error(`Both LCW and CoinCap sparklines failed: ${ccErr.message}`);
                 // Return empty sparklines instead of throwing
                 const empty: Record<string, number[]> = {};
                 assets.forEach(a => { empty[a.toLowerCase()] = []; });

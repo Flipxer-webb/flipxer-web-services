@@ -1,10 +1,9 @@
-import { Injectable, Logger, Inject } from "@nestjs/common";
+import { Injectable, Logger, Inject, HttpStatus } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
-import { HttpStatus } from "@nestjs/common";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 
 export interface AssetRate {
@@ -125,7 +124,7 @@ export class RateService {
 
         // USDT is always 1:1
         if (normalizedCurrency === "USDT") {
-            return 1.0;
+            return 1;
         }
 
         // Check scheduler cache first (updated every 60s)
@@ -179,7 +178,7 @@ export class RateService {
                 buyRate: usdtRate.buyRate,
                 sellRate: usdtRate.sellRate,
                 source: "database",
-                usdtPrice: 1.0,
+                usdtPrice: 1,
                 lastUpdated: new Date(),
             };
         }

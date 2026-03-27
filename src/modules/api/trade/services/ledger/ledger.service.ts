@@ -19,6 +19,8 @@ export interface LedgerOperationResult {
     error?: string;
 }
 
+type DecimalLike = Decimal | number | string;
+
 /**
  * Options for creating a ledger entry
  */
@@ -26,7 +28,7 @@ export interface CreateLedgerEntryOptions {
     userId: number;
     currency: string;
     type: LedgerType;
-    amount: Decimal | number | string;
+    amount: DecimalLike;
     reference: string;
     tradeGroupId?: string;
     description?: string;
@@ -40,7 +42,7 @@ export interface CreateLedgerEntryOptions {
 export interface HoldOptions {
     userId: number;
     currency: string;
-    amount: Decimal | number | string;
+    amount: DecimalLike;
     reference: string;
     type: LedgerType;
     description?: string;
@@ -88,7 +90,7 @@ export interface PairedCreditOptions extends CreateLedgerEntryOptions {
  */
 export interface PairedDebitOptions extends CreateLedgerEntryOptions {
     createPlatformEntry?: boolean; // Default true (creates platform credit)
-    networkFee?: Decimal | number | string; // Optional network fee to deduct
+    networkFee?: DecimalLike; // Optional network fee to deduct
 }
 
 /**
@@ -100,7 +102,7 @@ export interface ReleaseHoldWithPlatformOptions {
     description?: string;
     tradeGroupId?: string;
     createPlatformEntry?: boolean; // Default true if settle=true
-    networkFee?: Decimal | number | string; // Optional network fee to capture upon release
+    networkFee?: DecimalLike; // Optional network fee to capture upon release
 }
 
 /**
@@ -189,17 +191,17 @@ export class LedgerService {
             return await this.lockService.withLock(
                 lockKey,
                 async () =>
-                    this.executeCredit(
+                    this.executeCredit({
                         userId,
-                        currency.toUpperCase(),
+                        currency: currency.toUpperCase(),
                         type,
-                        creditAmount,
+                        amount: creditAmount,
                         reference,
                         tradeGroupId,
                         description,
                         metadata,
-                        sweepStatus
-                    ),
+                        sweepStatus,
+                    }),
                 { ttlMs: 10000, maxWaitMs: 15000, strict: true }
             );
         } catch (error) {
@@ -219,17 +221,18 @@ export class LedgerService {
     /**
      * Internal credit execution within distributed lock
      */
-    private async executeCredit(
-        userId: number,
-        currency: string,
-        type: LedgerType,
-        amount: Decimal,
-        reference: string,
-        tradeGroupId?: string,
-        description?: string,
-        metadata?: Record<string, any>,
-        sweepStatus?: SweepStatus
-    ): Promise<LedgerOperationResult> {
+    private async executeCredit(opts: {
+        userId: number;
+        currency: string;
+        type: LedgerType;
+        amount: Decimal;
+        reference: string;
+        tradeGroupId?: string;
+        description?: string;
+        metadata?: Record<string, any>;
+        sweepStatus?: SweepStatus;
+    }): Promise<LedgerOperationResult> {
+        const { userId, currency, type, amount, reference, tradeGroupId, description, metadata, sweepStatus } = opts;
         return await this.prisma.$transaction(
             async (tx) => {
                 // Check for idempotency - same type+reference means duplicate
@@ -2287,7 +2290,7 @@ export class LedgerService {
 
         return await this.prisma.$transaction(async (tx) => {
             const currentHold = await tx.ledgerEntry.findUnique({ where: { id: holdEntry.id } });
-            if (!currentHold || currentHold.status !== EntryStatus.HOLD) {
+            if (currentHold?.status !== EntryStatus.HOLD) {
                 return { success: false, error: "Hold entry not valid or already released" };
             }
 

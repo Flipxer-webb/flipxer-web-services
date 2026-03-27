@@ -14,7 +14,6 @@ import {
     OrderStatus,
     Prisma,
     SweepStatus,
-    User,
 } from "@prisma/client";
 import { generateId } from "@/utils";
 import { NotificationEvent } from "../../../notification/events/notification.event";
@@ -325,7 +324,7 @@ export class DepositWebhookHandler {
         options: DepositTransaction,
         transactionId: string
     ) {
-        const depositAmount = parseFloat(options.amount);
+        const depositAmount = Number.parseFloat(options.amount);
         const currency = options.currency.toUpperCase();
 
         // Phase 4: Check float threshold before crediting

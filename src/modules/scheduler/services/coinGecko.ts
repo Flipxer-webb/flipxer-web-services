@@ -18,7 +18,7 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 export class PriceCacheSchedulerService implements OnModuleInit {
     private readonly logger = new Logger(PriceCacheSchedulerService.name);
     private mutex = new Mutex();
-    private usdtPriceMutex = new Mutex();
+    private readonly usdtPriceMutex = new Mutex();
     private readonly coins = [
         "btc", "eth", "usdt", "usdc", "bnb", "sol", "xrp", "ada", "dot", "doge",
         "shib", "matic", "link", "ltc", "bch", "xlm", "algo", "aave", "fil", "trx"

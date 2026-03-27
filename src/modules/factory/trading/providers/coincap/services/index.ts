@@ -244,7 +244,7 @@ export class CoinCapService {
                 const history = await this.getHistoricalData(asset, 7);
                 result[asset.toLowerCase()] = history.prices.map(p => p[1]);
             } catch (error) {
-                this.logger.warn(`Failed to get sparkline for ${asset}`);
+                this.logger.warn(`Failed to get sparkline for ${asset}: ${error.message}`);
                 result[asset.toLowerCase()] = [];
             }
             // Small delay between requests to avoid rate limiting

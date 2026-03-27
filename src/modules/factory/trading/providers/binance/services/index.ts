@@ -2,7 +2,7 @@ import { Injectable, HttpStatus, Logger } from "@nestjs/common";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
 import axios, { AxiosInstance } from "axios";
-import { setTimeout } from "timers/promises";
+import { setTimeout } from "node:timers/promises";
 
 interface BinanceTickerPrice {
     symbol: string;
@@ -75,7 +75,7 @@ export class BinanceService {
 
         // USDT itself is always 1:1
         if (normalizedAsset === "USDT") {
-            return 1.0;
+            return 1;
         }
 
         this.logger.debug(`Fetching USDT price for: ${asset}`);
@@ -100,9 +100,9 @@ export class BinanceService {
                     { params: { symbol } }
                 );
 
-                const price = parseFloat(response.data?.price);
+                const price = Number.parseFloat(response.data?.price);
 
-                if (!price || isNaN(price)) {
+                if (!price || Number.isNaN(price)) {
                     throw new Error(`Invalid price data for ${asset}`);
                 }
 
@@ -167,7 +167,7 @@ export class BinanceService {
                 const baseAsset = symbol.replace("USDT", "");
                 const price = priceMap.get(baseAsset);
 
-                if (price && !isNaN(price)) {
+                if (price && !Number.isNaN(price)) {
                     result.set(asset.toUpperCase(), price);
                     const cacheKey = `binance:price:${asset.toLowerCase()}:usdt`;
                     await this.redisCacheService.set(cacheKey, price, 60);

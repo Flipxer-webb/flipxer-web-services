@@ -16,7 +16,6 @@ import {
     OrderCategory,
     OrderStatus,
     OrderStreamlinedStatus,
-    User,
 } from "@prisma/client";
 
 import { generateId } from "@/utils";

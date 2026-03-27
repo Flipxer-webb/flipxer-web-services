@@ -78,7 +78,7 @@ export class SwapService {
             user,
             dto.from_currency,
             dto.to_currency,
-            dto.from_amount ? parseFloat(dto.from_amount.toString()) : 0
+            dto.from_amount ? Number.parseFloat(dto.from_amount.toString()) : 0
         );
 
         return buildResponse({
@@ -118,7 +118,7 @@ export class SwapService {
             }
         });
 
-        if (swapPair && swapPair.isActive && swapPair.rate > 0) {
+        if (swapPair?.isActive && swapPair.rate > 0) {
             // Use Admin Rate
             rate = swapPair.rate;
             // For fiat amount (e.g. NGN value), we still need to estimate it for limits/logging
@@ -150,10 +150,7 @@ export class SwapService {
         const toAmount = amount * rate;
 
         // If fiatAmount wasn't set by the SellQuote fallback, ensure we have reasonable value for limits
-        if (fiatAmount === null) {
-            // Should have been set in override block, but double check
-            fiatAmount = 0;
-        }
+        fiatAmount ??= 0;
 
         const quotationId = generateId({ type: "reference" });
         const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MS).toISOString();
@@ -516,7 +513,7 @@ export class SwapService {
 
             // Parse narration "Swap BTC -> USDT" as fallback
             const parts = order.narration?.split('->');
-            if (!parts || parts.length !== 2) {
+            if (parts?.length !== 2) {
                 throw new GeneralTransactionException("Could not determine destination currency from order", HttpStatus.INTERNAL_SERVER_ERROR);
             }
             toCurrency = parts[1].trim();

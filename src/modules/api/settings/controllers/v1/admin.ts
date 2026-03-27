@@ -37,8 +37,8 @@ import {
 })
 export class AdminSettingController {
     constructor(
-        private settingService: SettingService,
-        private rateService: RateService
+        private readonly settingService: SettingService,
+        private readonly rateService: RateService
     ) {}
 
     @HttpCode(HttpStatus.OK)

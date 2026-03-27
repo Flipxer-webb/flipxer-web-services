@@ -127,11 +127,14 @@ export class ReconciliationService {
         // Determine overall status
         const hasCritical = results.some((r) => r.action === "pause");
         const hasWarning = results.some((r) => r.action === "alert");
-        const overallStatus = hasCritical
-            ? "critical"
-            : hasWarning
-                ? "warning"
-                : "ok";
+        let overallStatus: "ok" | "warning" | "critical";
+        if (hasCritical) {
+            overallStatus = "critical";
+        } else if (hasWarning) {
+            overallStatus = "warning";
+        } else {
+            overallStatus = "ok";
+        }
 
         const report: ReconciliationReport = {
             timestamp,

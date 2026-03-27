@@ -45,8 +45,8 @@ import { User as UserModel } from "@prisma/client";
 @UseGuards(RateLimiterGuard)
 export class SettingController {
     constructor(
-        private settingService: SettingService,
-        private rateService: RateService
+        private readonly settingService: SettingService,
+        private readonly rateService: RateService
     ) {}
 
     @HttpCode(HttpStatus.OK)

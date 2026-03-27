@@ -18,9 +18,6 @@ import {
     InsufficientBalanceException,
     WalletAddressNotFoundException,
 } from "../errors";
-import {
-    CryptoRateNotFoundException,
-} from "../../settings/errors";
 import { BankDetailNotFoundException } from "../../banks/errors";
 import { SellQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
 import { InitiateSellOrderDto, SellCryptoOrderDto } from "../dtos";

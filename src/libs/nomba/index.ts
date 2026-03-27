@@ -403,9 +403,9 @@ export class NombaLib {
             return data;
         } catch (error) {
             this.logger.error(`Error fetching bank list: ${JSON.stringify({
-                message: (error as Error).message,
-                response: (error as any).response?.data,
-                status: (error as any).response?.status,
+                message: error.message,
+                response: error.response?.data,
+                status: error.response?.status,
             })}`);
             this.handleError(error as AxiosError);
             throw error;

@@ -11,7 +11,6 @@ import {
 } from "../../interfaces/trade";
 import {
     OrderStatus,
-    User,
 } from "@prisma/client";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../../gateway/v1";

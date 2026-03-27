@@ -17,7 +17,6 @@ import {
     AuthGuard,
     CountryBlockGuard,
     TransactionAmountGuard,
-    TwoFactorGuard,
 } from "@/modules/api/auth/guard";
 import { TransactionSecurityGuard } from "../../guards";
 // import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";

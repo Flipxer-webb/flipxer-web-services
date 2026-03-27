@@ -13,7 +13,6 @@ import {
     OrderStatus,
     PaymentMethod,
     SweepStatus,
-    TransactionFeeCategory,
     TransactionStatus,
     TransactionType,
     User,
@@ -23,10 +22,6 @@ import {
     IncompleteAccountSetupException,
     WalletAddressNotFoundException,
 } from "../errors";
-import {
-    CryptoRateNotFoundException,
-    CryptoTransactionFeeNotFoundException,
-} from "../../settings/errors";
 import { BuyQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
 import { BuyCryptoOrderDto, InitiateBuyOrderDto } from "../dtos";
 import { WsGateway } from "../gateway/v1";

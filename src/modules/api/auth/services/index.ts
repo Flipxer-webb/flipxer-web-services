@@ -79,6 +79,9 @@ import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
 import { UploadApiResponse } from "cloudinary";
+
+type UploadResult = UploadResponse | UploadApiResponse;
+
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import {
@@ -2184,11 +2187,11 @@ export class AuthService {
             }
         };
 
-        let cacImage: UploadResponse | UploadApiResponse | null = null;
-        let articleImage: UploadResponse | UploadApiResponse | null = null;
-        let boardResolutionImage: UploadResponse | UploadApiResponse | null = null;
-        let proofOfAddressImage: UploadResponse | UploadApiResponse | null = null;
-        let meansOfIdImage: UploadResponse | UploadApiResponse | null = null;
+        let cacImage: UploadResult | null = null;
+        let articleImage: UploadResult | null = null;
+        let boardResolutionImage: UploadResult | null = null;
+        let proofOfAddressImage: UploadResult | null = null;
+        let meansOfIdImage: UploadResult | null = null;
 
         try {
             [

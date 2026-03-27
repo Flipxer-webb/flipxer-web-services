@@ -14,7 +14,7 @@ import {
     QueueReason,
     User,
 } from "@prisma/client";
-import { IncompleteAccountSetupException, UnknownFeeStructureException, RateLimitExceededException, GeneralTransactionException } from "../errors";
+import { IncompleteAccountSetupException, RateLimitExceededException, GeneralTransactionException } from "../errors";
 import {
     CancelWithdrawerRequestDto,
     GetCryptoWithdrawerFeeDto,
@@ -24,7 +24,6 @@ import { WsGateway } from "../gateway/v1";
 import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { getStreamlinedStatus } from "../interfaces/trade";
-import { DEFAULT_TRANSACTION_TIMEOUT_MS } from "../constants";
 import { RateLimiterService } from "@/modules/core/rate-limit/services/rate-limiter.service";
 import { LedgerService } from "./ledger/ledger.service";
 import { WithdrawalQueueService } from "./ledger/withdrawal-queue.service";
@@ -390,7 +389,7 @@ export class SendService {
      */
     private resolveNetwork(
         userId: number, 
-        explicitNetwork: NetworkTypes | string | undefined, 
+        explicitNetwork: string | undefined, 
         address: string
     ): NetworkTypes | undefined {
         if (explicitNetwork) return explicitNetwork as NetworkTypes;
@@ -487,7 +486,7 @@ export class SendService {
 
         if (/^0x[a-fA-F0-9]{40}$/.test(trimmed)) return "evm";
         if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "trc20";
-        if (/^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/i.test(trimmed)) return "btc";
+        if (/^(bc1|[13])[A-HJ-NP-Z0-9]{25,62}$/i.test(trimmed)) return "btc";
         if (/^L[1-9A-HJ-NP-Za-km-z]{26,33}$/.test(trimmed)) return "ltc";
         if (/^D[5-9A-HJ-NP-Ua-km-z]{32}$/.test(trimmed)) return "doge";
         if (/^X[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "dash";
@@ -776,11 +775,11 @@ export class SendService {
 
         if (hasLiquidity) {
             // Execute withdrawal from main wallet immediately
-            return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId as string, resolvedNetwork);
+            return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId, resolvedNetwork);
         } else {
             // Add to queue - withdrawal will be processed when liquidity is available
             const queueResult = await this.withdrawalQueueService.addToQueue({
-                holdEntryId: holdResult.entryId as string,
+                holdEntryId: holdResult.entryId,
                 userId: user.id,
                 currency: currency,
                 amount: totalAmount,
@@ -815,10 +814,10 @@ export class SendService {
 
             // WebSocket: Notify user their withdrawal is queued
             this.wsGateway.notifyWithdrawalQueued(user.id, {
-                queueId: queueResult.queueEntry!.id,
+                queueId: queueResult.queueEntry?.id,
                 currency,
                 amount: totalAmount.toString(),
-                position: queueResult.queueEntry!.position,
+                position: queueResult.queueEntry?.position,
                 reason: "LOW_LIQUIDITY",
             });
 

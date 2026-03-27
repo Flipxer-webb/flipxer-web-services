@@ -271,7 +271,7 @@ export class AdminOrderController {
     ) {
         await this.requireAdmin(user.id);
 
-        const id = parseInt(orderId);
+        const id = Number.parseInt(orderId);
         this.logger.log(`Admin ${user.id} request to retry fulfillment for order ${id}`);
 
         const order = await this.prisma.order.findUnique({
@@ -367,7 +367,7 @@ export class AdminOrderController {
     ) {
         await this.requireAdmin(user.id);
 
-        const id = parseInt(orderId);
+        const id = Number.parseInt(orderId);
         this.logger.log(`Admin ${user.id} request to retry swap order ${id}`);
 
         return await this.swapService.retryPendingSwap(id);
