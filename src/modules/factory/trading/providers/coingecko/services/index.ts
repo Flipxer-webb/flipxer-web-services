@@ -404,9 +404,9 @@ export class CoinGeckoService {
             };
         }
 
-        const lastPrice = chartPrices?.length > 0 ? chartPrices.at(-1)![1] : null;
+        const lastPrice = chartPrices?.length > 0 ? chartPrices.at(-1)[1] : null;
         const priceChange = chartPrices?.length >= 2
-            ? ((chartPrices.at(-1)![1] - chartPrices[0][1]) / chartPrices[0][1]) * 100
+            ? ((chartPrices.at(-1)[1] - chartPrices[0][1]) / chartPrices[0][1]) * 100
             : null;
 
         return {

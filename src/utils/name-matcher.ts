@@ -101,7 +101,7 @@ export function normaliseName(name: string): string {
         .toLowerCase()
         .normalize("NFD")
         .replaceAll(/[\u0300-\u036f]/g, "") // strip combining diacritical marks
-        .replaceAll(/-/g, " ")           // hyphens → spaces
+        .replaceAll("-", " ")           // hyphens → spaces
         .replaceAll(/\s+/g, " ")            // collapse whitespace
         .trim();
 }

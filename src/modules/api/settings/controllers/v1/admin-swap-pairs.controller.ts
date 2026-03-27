@@ -64,14 +64,13 @@ export class AdminSwapPairController {
         let count = 0;
 
         // Transaction is safer
-        await this.prisma.$transaction(async (tx) => {
-            const db = tx as any;
+        await this.prisma.$transaction(async (tx: any) => {
             for (const fromC of assets) {
                 for (const toC of assets) {
                     if (fromC === toC) continue;
 
                     // Check if exists
-                    const exists = await db.swapPair.findUnique({
+                    const exists = await tx.swapPair.findUnique({
                         where: {
                             fromCurrency_toCurrency: {
                                 fromCurrency: fromC,
@@ -81,7 +80,7 @@ export class AdminSwapPairController {
                     });
 
                     if (!exists) {
-                        await db.swapPair.create({
+                        await tx.swapPair.create({
                             data: {
                                 fromCurrency: fromC,
                                 toCurrency: toC,
@@ -121,12 +120,11 @@ export class AdminSwapPairController {
             const pairs = await this.db.swapPair.findMany({ where: whereClause });
             let updatedCount = 0;
 
-            await this.prisma.$transaction(async (tx) => {
-                const db = tx as any;
+            await this.prisma.$transaction(async (tx: any) => {
                 for (const p of pairs) {
                     if (p.rate > 0) {
                         const newRate = p.rate * rateMultiplier;
-                        await db.swapPair.update({
+                        await tx.swapPair.update({
                             where: { fromCurrency_toCurrency: { fromCurrency: p.fromCurrency, toCurrency: p.toCurrency } },
                             data: { rate: newRate, ...(isActive !== undefined && { isActive }) }
                         });
