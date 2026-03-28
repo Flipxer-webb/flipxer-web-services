@@ -1,19 +1,19 @@
 import { Test, TestingModule } from "@nestjs/testing";
 
 jest.mock("@/modules/api/auth/guard", () => ({
-    AuthGuard: class {},
-    CountryBlockGuard: class {},
-    EnabledAccountGuard: class {},
+    AuthGuard: class { isStub() { return true; } },
+    CountryBlockGuard: class { isStub() { return true; } },
+    EnabledAccountGuard: class { isStub() { return true; } },
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
-    RoleGuard: class {},
+    RoleGuard: class { isStub() { return true; } },
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
-    PermissionGuard: class {},
+    PermissionGuard: class { isStub() { return true; } },
     __esModule: true,
 }));
 

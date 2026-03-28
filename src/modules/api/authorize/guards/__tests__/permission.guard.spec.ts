@@ -1,4 +1,3 @@
-import { HttpStatus } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { UserType } from "@prisma/client";
 

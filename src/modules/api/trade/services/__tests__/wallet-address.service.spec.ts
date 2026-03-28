@@ -1,5 +1,4 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { HttpStatus } from "@nestjs/common";
 import { NetworkTypes, CryptoWalletStatus } from "@prisma/client";
 
 jest.mock("@/modules/api/user", () => ({

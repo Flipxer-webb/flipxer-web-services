@@ -1,12 +1,12 @@
 import { Test, TestingModule } from "@nestjs/testing";
 
 jest.mock("../../../auth/guard", () => ({
-    FincraWebhookGuard: class {},
+    FincraWebhookGuard: class { isStub() { return true; } },
     __esModule: true,
 }));
 
 jest.mock("../../services", () => ({
-    BankService: class {},
+    BankService: class { isStub() { return true; } },
     __esModule: true,
 }));
 
