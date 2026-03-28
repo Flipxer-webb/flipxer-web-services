@@ -1,6 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { BadRequestException } from "@nestjs/common";
-import { OrderStreamlinedStatus } from "@prisma/client";
+import { OrderCategory, OrderStatus, OrderStreamlinedStatus, TransactionStatus } from "@prisma/client";
 
 import { AdminTransactionService } from "../admin-transaction.service";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -19,8 +19,15 @@ function makePrisma() {
             groupBy: jest.fn(),
             findUnique: jest.fn(),
             update: jest.fn(),
+            updateMany: jest.fn(),
         },
-        auditLog: { create: jest.fn() },
+        payment: {
+            updateMany: jest.fn(),
+        },
+        ledgerEntry: {
+            findFirst: jest.fn(),
+        },
+        auditLog: { create: jest.fn(), findMany: jest.fn() },
         $transaction: jest.fn(),
     };
 }
@@ -28,20 +35,33 @@ function makePrisma() {
 describe("AdminTransactionService", () => {
     let service: AdminTransactionService;
     let prisma: ReturnType<typeof makePrisma>;
+    let ledgerService: { credit: jest.Mock; runWithLock: jest.Mock };
+    let settingService: { verify2FACode: jest.Mock };
+    let buyOrderService: { fulfillBuyOrder: jest.Mock };
+    let swapService: { retryPendingSwap: jest.Mock };
+    let withdrawalWebhookHandler: { retryFiatPayout: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
         prisma.$transaction.mockImplementation(async (ops: any[]) => Promise.all(ops));
+        ledgerService = {
+            credit: jest.fn(),
+            runWithLock: jest.fn().mockImplementation(async (_u: number, _c: string, cb: () => any) => cb()),
+        };
+        settingService = { verify2FACode: jest.fn() };
+        buyOrderService = { fulfillBuyOrder: jest.fn() };
+        swapService = { retryPendingSwap: jest.fn() };
+        withdrawalWebhookHandler = { retryFiatPayout: jest.fn() };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 AdminTransactionService,
                 { provide: PrismaService, useValue: prisma },
-                { provide: LedgerService, useValue: { credit: jest.fn() } },
-                { provide: SettingService, useValue: { verify2FACode: jest.fn() } },
-                { provide: BuyOrderService, useValue: {} },
-                { provide: SwapService, useValue: {} },
-                { provide: WithdrawalWebhookHandler, useValue: {} },
+                { provide: LedgerService, useValue: ledgerService },
+                { provide: SettingService, useValue: settingService },
+                { provide: BuyOrderService, useValue: buyOrderService },
+                { provide: SwapService, useValue: swapService },
+                { provide: WithdrawalWebhookHandler, useValue: withdrawalWebhookHandler },
             ],
         }).compile();
 
@@ -130,5 +150,256 @@ describe("AdminTransactionService", () => {
         prisma.order.findUnique.mockResolvedValue({ streamlinedStatus: OrderStreamlinedStatus.completed });
 
         await expect(service.refundTransaction("TX-1", {} as any, 2)).rejects.toThrow(BadRequestException);
+    });
+
+    it("manual approve should throw when 2FA is invalid", async () => {
+        settingService.verify2FACode.mockResolvedValue(false);
+
+        await expect(
+            service.manualApproveTransaction("TX-1", { twoFactorCode: "123456", confirmed: true } as any, { id: 90 } as any),
+        ).rejects.toThrow("Invalid 2FA code");
+    });
+
+    it("manual approve should return already completed when atomic claim loses", async () => {
+        settingService.verify2FACode.mockResolvedValue(true);
+        prisma.order.findUnique.mockResolvedValue({
+            transactionId: "TX-1",
+            orderCategory: OrderCategory.BUY,
+            userId: 1,
+            currency: "btc",
+            amount: 10,
+        });
+        prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+        const result = await service.manualApproveTransaction(
+            "TX-1",
+            { twoFactorCode: "123456", confirmed: true } as any,
+            { id: 90 } as any,
+        );
+
+        expect(result.message).toContain("already completed");
+    });
+
+    it("manual approve should complete BUY with ledger credit", async () => {
+        settingService.verify2FACode.mockResolvedValue(true);
+        prisma.order.findUnique.mockResolvedValue({
+            id: 1,
+            transactionId: "TX-1",
+            orderCategory: OrderCategory.BUY,
+            userId: 22,
+            currency: "btc",
+            amount: 15,
+            amountInFiat: 900000,
+        });
+        prisma.order.updateMany.mockResolvedValue({ count: 1 });
+        ledgerService.credit.mockResolvedValue({ success: true, entryId: "ledger-1" });
+        prisma.order.update.mockResolvedValue({
+            transactionId: "TX-1",
+            status: "confirmed",
+            streamlinedStatus: OrderStreamlinedStatus.completed,
+            user: { firstName: "A", lastName: "B" },
+        });
+
+        const result = await service.manualApproveTransaction(
+            "TX-1",
+            { twoFactorCode: "123456", confirmed: true } as any,
+            { id: 90 } as any,
+        );
+
+        expect(ledgerService.credit).toHaveBeenCalled();
+        expect(prisma.auditLog.create).toHaveBeenCalled();
+        expect(result.message).toContain("manually approved");
+    });
+
+    it("manual approve should rollback fulfilled flag when ledger credit fails", async () => {
+        settingService.verify2FACode.mockResolvedValue(true);
+        prisma.order.findUnique.mockResolvedValue({
+            transactionId: "TX-1",
+            orderCategory: OrderCategory.BUY,
+            userId: 22,
+            currency: "btc",
+            amount: 15,
+        });
+        prisma.order.updateMany.mockResolvedValue({ count: 1 });
+        ledgerService.credit.mockResolvedValue({ success: false, error: "credit failed" });
+
+        await expect(
+            service.manualApproveTransaction(
+                "TX-1",
+                { twoFactorCode: "123456", confirmed: true } as any,
+                { id: 90 } as any,
+            ),
+        ).rejects.toThrow("Failed to credit ledger");
+
+        expect(prisma.order.update).toHaveBeenCalledWith(
+            expect.objectContaining({ data: { fulfilled: false } }),
+        );
+    });
+
+    it("refund should reject when existing refund ledger entry is found", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 1,
+            orderReference: "REF-1",
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+        });
+        prisma.ledgerEntry.findFirst.mockResolvedValue({ id: "entry-1" });
+
+        await expect(
+            service.refundTransaction("TX-1", { reason: "duplicate" } as any, 7),
+        ).rejects.toThrow("already been refunded");
+    });
+
+    it("refund should process successfully for failed SELL transaction", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 1,
+            transactionId: "TX-1",
+            orderReference: "REF-1",
+            userId: 12,
+            orderCategory: OrderCategory.SELL,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+            currency: "btc",
+            total: 30,
+            amount: 20,
+        });
+        prisma.ledgerEntry.findFirst.mockResolvedValue(null);
+        ledgerService.credit.mockResolvedValue({ success: true, entryId: "ledger-refund-1" });
+        prisma.order.update.mockResolvedValue({
+            transactionId: "TX-1",
+            user: { firstName: "A", lastName: "B" },
+        });
+
+        const result = await service.refundTransaction("TX-1", { reason: "manual" } as any, 7);
+
+        expect(ledgerService.runWithLock).toHaveBeenCalled();
+        expect(ledgerService.credit).toHaveBeenCalled();
+        expect(result.message).toContain("Refund processed successfully");
+    });
+
+    it("retry should reject done/completed status", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            transactionId: "TX-1",
+            status: OrderStatus.done,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+        });
+
+        const result = await service.retryTransaction("TX-1", 2);
+        expect(result.message).toContain("Cannot retry completed transaction");
+    });
+
+    it("retry BUY should invoke payment reset and fulfillBuyOrder", async () => {
+        prisma.order.findUnique
+            .mockResolvedValueOnce({
+                id: 11,
+                transactionId: "TX-1",
+                streamlinedStatus: OrderStreamlinedStatus.failed,
+                status: "failed",
+                orderCategory: OrderCategory.BUY,
+                orderReference: "ORD-1",
+                reason: null,
+            })
+            .mockResolvedValueOnce({
+                transactionId: "TX-1",
+                user: { firstName: "A", lastName: "B" },
+                status: "confirmed",
+                streamlinedStatus: OrderStreamlinedStatus.completed,
+            });
+        prisma.order.update.mockResolvedValue({});
+        prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+        buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
+
+        const result = await service.retryTransaction("TX-1", 2);
+
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: {
+                    status: TransactionStatus.PENDING,
+                    paymentStatus: TransactionStatus.PENDING,
+                },
+            }),
+        );
+        expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith("ORD-1");
+        expect(result.message).toContain("retry initiated/completed successfully");
+    });
+
+    it("retry SELL should invoke retryFiatPayout", async () => {
+        prisma.order.findUnique
+            .mockResolvedValueOnce({
+                id: 77,
+                transactionId: "TX-SELL",
+                streamlinedStatus: OrderStreamlinedStatus.failed,
+                status: "failed",
+                orderCategory: OrderCategory.SELL,
+            })
+            .mockResolvedValueOnce({
+                transactionId: "TX-SELL",
+                user: { firstName: "A", lastName: "B" },
+            });
+        prisma.order.update.mockResolvedValue({});
+        withdrawalWebhookHandler.retryFiatPayout.mockResolvedValue(undefined);
+
+        await service.retryTransaction("TX-SELL", 2);
+
+        expect(withdrawalWebhookHandler.retryFiatPayout).toHaveBeenCalledWith(77);
+    });
+
+    it("retry SEND should fail with retry not supported", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 88,
+            transactionId: "TX-SEND",
+            streamlinedStatus: OrderStreamlinedStatus.pending,
+            status: "pending",
+            orderCategory: OrderCategory.SEND,
+            reason: null,
+        });
+        prisma.order.update.mockResolvedValue({});
+
+        await expect(service.retryTransaction("TX-SEND", 2)).rejects.toThrow("Retry failed");
+    });
+
+    it("bulkUpdateStatus should report successful and failed counts", async () => {
+        const spy = jest.spyOn(service, "updateTransactionStatus")
+            .mockResolvedValueOnce({ message: "ok", data: {} } as any)
+            .mockRejectedValueOnce(new Error("boom"));
+
+        const result = await service.bulkUpdateStatus(
+            { transactionIds: ["TX-1", "TX-2"], status: OrderStreamlinedStatus.failed, reason: "bulk" } as any,
+            3,
+        );
+
+        expect(spy).toHaveBeenCalledTimes(2);
+        expect(result.data).toEqual({ total: 2, successful: 1, failed: 1 });
+    });
+
+    it("getTransactionAuditLogs should return logs", async () => {
+        prisma.auditLog.findMany.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+
+        const result = await service.getTransactionAuditLogs("TX-1");
+
+        expect(prisma.auditLog.findMany).toHaveBeenCalled();
+        expect(result.data).toHaveLength(2);
+    });
+
+    it("exportTransactions should produce csv and json formats", async () => {
+        prisma.order.findMany.mockResolvedValue([
+            {
+                id: 1,
+                transactionId: "TX-1",
+                orderCategory: OrderCategory.BUY,
+                streamlinedStatus: OrderStreamlinedStatus.completed,
+                amountInFiat: 2500,
+                currency: "BTC",
+                fee: 10,
+                createdAt: new Date("2026-01-01T00:00:00Z"),
+                user: { firstName: "A", lastName: "B", email: "a@b.com" },
+            },
+        ]);
+
+        const csv = await service.exportTransactions({} as any, "csv");
+        const json = await service.exportTransactions({} as any, "json");
+
+        expect(csv.data.format).toBe("csv");
+        expect(csv.data.content).toContain("Transaction ID");
+        expect(json.data.format).toBe("json");
+        expect(json.data.records).toHaveLength(1);
     });
 });
