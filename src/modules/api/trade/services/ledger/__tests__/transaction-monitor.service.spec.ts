@@ -3,7 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class {},
+    UserModule: class { readonly __stub = true },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -29,7 +29,6 @@ describe("TransactionMonitorService", () => {
     let service: TransactionMonitorService;
     let prisma: ReturnType<typeof makePrisma>;
     let ledgerService: { getBalance: jest.Mock };
-    let slackService: { sendSystemAlert: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -49,7 +48,6 @@ describe("TransactionMonitorService", () => {
 
         service = module.get(TransactionMonitorService);
         ledgerService = module.get(LedgerService);
-        slackService = module.get(SlackWebhookService);
     });
 
     afterEach(() => jest.clearAllMocks());

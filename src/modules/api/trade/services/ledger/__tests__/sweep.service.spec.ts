@@ -3,7 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class {},
+    UserModule: class { readonly __stub = true },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -17,7 +17,6 @@ jest.mock("@/config", () => ({
 
 import { SweepService } from "../sweep.service";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { LedgerService } from "../ledger.service";
@@ -48,7 +47,6 @@ describe("SweepService", () => {
     let quidaxService: { createWithdrawerRequest: jest.Mock };
     let lockService: { withLock: jest.Mock };
     let ledgerService: { updateSweepStatus: jest.Mock };
-    let slackService: { sendWebhookFailureAlert: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -74,7 +72,6 @@ describe("SweepService", () => {
         quidaxService = module.get(TradingInjectionToken.QUIDAX);
         lockService = module.get(DistributedLockService);
         ledgerService = module.get(LedgerService);
-        slackService = module.get(SlackWebhookService);
     });
 
     afterEach(() => jest.clearAllMocks());

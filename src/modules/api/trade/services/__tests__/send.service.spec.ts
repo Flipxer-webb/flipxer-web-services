@@ -3,7 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class {},
+    UserModule: class { readonly __stub = true },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -24,7 +24,6 @@ import { RateService } from "../rate.service";
 import { TransactionMonitorService } from "../ledger/transaction-monitor.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
-import { Decimal } from "@prisma/client/runtime/library";
 
 function makePrisma() {
     return {
@@ -45,8 +44,6 @@ describe("SendService", () => {
     let prisma: ReturnType<typeof makePrisma>;
     let quidaxService: { getWithdrawerFees: jest.Mock; getUserWalletList: jest.Mock; createWithdrawerRequest: jest.Mock; cancelWithdrawerRequest: jest.Mock };
     let rateLimiter: { checkLimit: jest.Mock };
-    let ledgerService: { getBalance: jest.Mock; hold: jest.Mock; releaseHold: jest.Mock };
-    let sweepService: { hasPendingSweeps: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -106,8 +103,6 @@ describe("SendService", () => {
         service = module.get(SendService);
         quidaxService = module.get(TradingInjectionToken.QUIDAX);
         rateLimiter = module.get(RateLimiterService);
-        ledgerService = module.get(LedgerService);
-        sweepService = module.get(SweepService);
     });
 
     afterEach(() => jest.clearAllMocks());

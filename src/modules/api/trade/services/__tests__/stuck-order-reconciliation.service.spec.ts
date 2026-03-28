@@ -3,7 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class {},
+    UserModule: class { readonly __stub = true },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -13,7 +13,7 @@ import { StuckOrderReconciliationService } from "../stuck-order-reconciliation.s
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BuyOrderService } from "../buy-order.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
-import { OrderCategory, OrderStatus, TransactionStatus } from "@prisma/client";
+import { OrderCategory, TransactionStatus } from "@prisma/client";
 
 function makePrisma() {
     return {

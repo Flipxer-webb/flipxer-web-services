@@ -4,7 +4,7 @@ import { JwtService } from "@nestjs/jwt";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class {},
+    UserModule: class { readonly __stub = true },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     DuplicateUserException: class extends Error {},
@@ -81,8 +81,6 @@ describe("AuthService", () => {
     let jwtService: { signAsync: jest.Mock; verify: jest.Mock; verifyAsync: jest.Mock };
     let emailService: { sendMailWithTemplate: jest.Mock };
     let redisCacheService: { set: jest.Mock; get: jest.Mock; del: jest.Mock };
-    let sessionService: { createSession: jest.Mock; validateSession: jest.Mock };
-    let distributedLockService: { withLock: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -144,8 +142,6 @@ describe("AuthService", () => {
         jwtService = module.get(JwtService);
         emailService = module.get(EmailService);
         redisCacheService = module.get(RedisCacheService);
-        sessionService = module.get(SessionService);
-        distributedLockService = module.get(DistributedLockService);
     });
 
     afterEach(() => jest.clearAllMocks());

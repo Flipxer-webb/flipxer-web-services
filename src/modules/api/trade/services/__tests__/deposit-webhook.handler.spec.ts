@@ -17,7 +17,7 @@ jest.mock("@/modules/api/user", () => {
     return {
         User: () => () => {},
         ClientData: () => () => {},
-        UserModule: class {},
+        UserModule: class { readonly __stub = true },
         AccountDeletedException,
         UserNotFoundException,
         __esModule: true,
@@ -26,11 +26,9 @@ jest.mock("@/modules/api/user", () => {
 
 import { DepositWebhookHandler } from '../webhook-handlers/deposit-webhook.handler';
 import { PrismaService } from '@/modules/core/prisma/services';
-import { QuidaxService } from '@/modules/factory/trading/providers/quidax/services';
 import { NotificationEvent } from '../../../notification/events/notification.event';
 import { NotificationMessageService } from '@/modules/core/messages/services/notification.service';
 import { WsGateway } from '../../gateway/v1';
-import { TradeHelpersService } from '../trade-helpers.service';
 import { WalletAddressService } from '../wallet-address.service';
 import { DistributedLockService } from '@/modules/core/redisCache/services/distributed-lock.service';
 import { SlackWebhookService } from '@/modules/api/operations/services/slack-webhook.service';
@@ -43,6 +41,28 @@ import { OrderStatus, OrderCategory } from '@prisma/client';
 import { createMockPrismaService, mockDataFactories, MockPrismaClient } from '@/test/mocks';
 import { DepositTransaction } from '../../interfaces/trade';
 
+/** Build a valid DepositTransaction (flat shape, matching the interface) */
+function makeDeposit(overrides: Partial<DepositTransaction> = {}): DepositTransaction {
+  return {
+    status: OrderStatus.accepted,
+    txid: 'blockchain-tx-123',
+    referenceId: 'ref-123',
+    type: 'deposit',
+    fee: '0.0001',
+    amount: '0.1',
+    recipient: 'recipient-addr',
+    payment_address: 'sender-addr',
+    payment_address_id: 'pa-123',
+    network: 'trc20',
+    quidaxUserId: 'quidax-123',
+    currency: 'btc',
+    reason: '',
+    created_at: new Date().toISOString(),
+    done_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 describe('DepositWebhookHandler', () => {
   let handler: DepositWebhookHandler;
   let prisma: MockPrismaClient;
@@ -51,28 +71,6 @@ describe('DepositWebhookHandler', () => {
 
   const mockUser = mockDataFactories.user();
   const mockTicker = mockDataFactories.ticker();
-
-  /** Build a valid DepositTransaction (flat shape, matching the interface) */
-  function makeDeposit(overrides: Partial<DepositTransaction> = {}): DepositTransaction {
-    return {
-      status: OrderStatus.accepted,
-      txid: 'blockchain-tx-123',
-      referenceId: 'ref-123',
-      type: 'deposit',
-      fee: '0.0001',
-      amount: '0.1',
-      recipient: 'recipient-addr',
-      payment_address: 'sender-addr',
-      payment_address_id: 'pa-123',
-      network: 'trc20',
-      quidaxUserId: 'quidax-123',
-      currency: 'btc',
-      reason: '',
-      created_at: new Date().toISOString(),
-      done_at: new Date().toISOString(),
-      ...overrides,
-    };
-  }
 
   beforeEach(async () => {
     prisma = createMockPrismaService();

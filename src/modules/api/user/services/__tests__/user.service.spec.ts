@@ -10,7 +10,7 @@ jest.mock("@/modules/api/user", () => {
     return {
         User: () => () => {},
         ClientData: () => () => {},
-        UserModule: class {},
+        UserModule: class { readonly __stub = true },
         AccountDeletedException,
         UserNotFoundException,
         DuplicateUserException,

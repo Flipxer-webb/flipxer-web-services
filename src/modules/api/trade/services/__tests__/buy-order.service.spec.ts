@@ -7,7 +7,7 @@ jest.mock("@/modules/api/user", () => {
     return {
         User: () => () => {},
         ClientData: () => () => {},
-        UserModule: class {},
+        UserModule: class { readonly __stub = true },
         AccountDeletedException,
         UserNotFoundException,
         __esModule: true,
@@ -16,7 +16,6 @@ jest.mock("@/modules/api/user", () => {
 
 import { BuyOrderService } from "../buy-order.service";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { WalletAddressService } from "../wallet-address.service";
 import { WsGateway } from "../../gateway/v1";
@@ -26,13 +25,11 @@ import { LedgerService } from "../ledger/ledger.service";
 import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
-import { IncompleteAccountSetupException, AssetNotFoundException } from "../../errors";
-import { OrderStatus } from "@prisma/client";
+import { IncompleteAccountSetupException } from "../../errors";
 
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
     let prismaService: any;
-    let wsGateway: jest.Mocked<WsGateway>;
 
     const mockUser = {
         id: 1,
@@ -50,14 +47,6 @@ describe("BuyOrderService", () => {
         balance: "1.5",
         lockedBalance: "0",
         isActive: true,
-    };
-
-    const mockCryptoWalletAddress = {
-        id: 1,
-        userId: 1,
-        assetSymbol: "BTC",
-        network: "btc",
-        address: "bc1q...",
     };
 
     const mockCryptoRate = {
@@ -102,10 +91,6 @@ describe("BuyOrderService", () => {
             },
         };
 
-        const mockQuidaxService = {
-            getInstantPrice: jest.fn(),
-        };
-
         const mockWalletAddressService = {
             syncWallet: jest.fn().mockResolvedValue(undefined),
         };
@@ -137,7 +122,6 @@ describe("BuyOrderService", () => {
 
         service = module.get<BuyOrderService>(BuyOrderService);
         prismaService = module.get(PrismaService);
-        wsGateway = module.get(WsGateway);
     });
 
     it("should be defined", () => {
