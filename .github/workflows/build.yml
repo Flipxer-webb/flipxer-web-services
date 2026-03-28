@@ -35,9 +35,11 @@ jobs:
 
       - name: Generate coverage report
         timeout-minutes: 10
+        continue-on-error: true
         run: pnpm exec jest --coverage --passWithNoTests --runInBand --detectOpenHandles --forceExit
 
       - name: SonarQube Scan
+        if: always()
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

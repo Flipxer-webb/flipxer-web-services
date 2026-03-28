@@ -29,7 +29,7 @@ export class CloudinaryService extends BaseUploadService {
             }
         );
 
-        return uploadedResponse as UploadApiResponse;
+        return uploadedResponse;
     }
 
     public async uploadCompressedImage(
@@ -51,7 +51,7 @@ export class CloudinaryService extends BaseUploadService {
             }
         );
 
-        return uploadedResponse as UploadApiResponse;
+        return uploadedResponse;
     }
 
     public async removeImage(options: DeleteFileOptions) {
