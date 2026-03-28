@@ -39,6 +39,8 @@ jobs:
       - name: Generate coverage report
         timeout-minutes: 10
         continue-on-error: true
+        env:
+          NODE_ENV: test
         run: pnpm exec jest --coverage --passWithNoTests --runInBand --detectOpenHandles --forceExit
 
       - name: SonarQube Scan

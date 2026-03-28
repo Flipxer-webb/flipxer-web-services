@@ -159,7 +159,7 @@ console.log(`Present (${presentVars.length}):`, presentVars.join(", "));
 console.log(`Missing (${missingVars.length}):`, missingVars.join(", "));
 console.log("==================================");
 
-if (missingVars.length > 0) {
+if (process.env.NODE_ENV !== 'test' && missingVars.length > 0) {
     const varList = missingVars.map((v) => `  - ${v}`).join("\n");
     console.error(`\n❌ FATAL: Missing required environment variables:\n${varList}\n`);
     console.error(
@@ -169,12 +169,14 @@ if (missingVars.length > 0) {
     process.exit(1);
 }
 
-try {
-    validate(runtimeEnvironment);
-} catch (error) {
-    console.error("\n❌ Environment validation failed:");
-    console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
+if (process.env.NODE_ENV !== 'test') {
+    try {
+        validate(runtimeEnvironment);
+    } catch (error) {
+        console.error("\n❌ Environment validation failed:");
+        console.error("Error:", error instanceof Error ? error.message : error);
+        process.exit(1);
+    }
 }
 
 // App
