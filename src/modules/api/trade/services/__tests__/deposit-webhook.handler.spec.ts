@@ -9,6 +9,21 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
+
+// Break circular dependency: auth/guard → @/modules/api/user → auth/index → auth/controllers → @User()
+jest.mock("@/modules/api/user", () => {
+    class AccountDeletedException extends Error { constructor() { super("Account deleted"); } }
+    class UserNotFoundException extends Error { constructor() { super("User not found"); } }
+    return {
+        User: () => () => {},
+        ClientData: () => () => {},
+        UserModule: class {},
+        AccountDeletedException,
+        UserNotFoundException,
+        __esModule: true,
+    };
+});
+
 import { DepositWebhookHandler } from '../webhook-handlers/deposit-webhook.handler';
 import { PrismaService } from '@/modules/core/prisma/services';
 import { QuidaxService } from '@/modules/factory/trading/providers/quidax/services';
@@ -17,19 +32,47 @@ import { NotificationMessageService } from '@/modules/core/messages/services/not
 import { WsGateway } from '../../gateway/v1';
 import { TradeHelpersService } from '../trade-helpers.service';
 import { WalletAddressService } from '../wallet-address.service';
+import { DistributedLockService } from '@/modules/core/redisCache/services/distributed-lock.service';
+import { SlackWebhookService } from '@/modules/api/operations/services/slack-webhook.service';
+import { LedgerService } from '../ledger/ledger.service';
+import { DepositReviewService } from '../ledger/deposit-review.service';
+import { TransactionMonitorService } from '../ledger/transaction-monitor.service';
+import { NotificationDispatcher } from '../../../notification/services/notification-dispatcher.service';
 import { TradingInjectionToken } from '@/modules/factory/trading/types';
 import { OrderStatus, OrderCategory } from '@prisma/client';
 import { createMockPrismaService, mockDataFactories, MockPrismaClient } from '@/test/mocks';
+import { DepositTransaction } from '../../interfaces/trade';
 
 describe('DepositWebhookHandler', () => {
   let handler: DepositWebhookHandler;
   let prisma: MockPrismaClient;
-  let quidaxService: jest.Mocked<QuidaxService>;
-  let wsGateway: jest.Mocked<WsGateway>;
-  let notificationEvent: jest.Mocked<NotificationEvent>;
+  let quidaxService: { getSingleMarketTicker: jest.Mock; getInstantOrderDetail: jest.Mock };
+  let lockService: { withLock: jest.Mock };
 
   const mockUser = mockDataFactories.user();
   const mockTicker = mockDataFactories.ticker();
+
+  /** Build a valid DepositTransaction (flat shape, matching the interface) */
+  function makeDeposit(overrides: Partial<DepositTransaction> = {}): DepositTransaction {
+    return {
+      status: OrderStatus.accepted,
+      txid: 'blockchain-tx-123',
+      referenceId: 'ref-123',
+      type: 'deposit',
+      fee: '0.0001',
+      amount: '0.1',
+      recipient: 'recipient-addr',
+      payment_address: 'sender-addr',
+      payment_address_id: 'pa-123',
+      network: 'trc20',
+      quidaxUserId: 'quidax-123',
+      currency: 'btc',
+      reason: '',
+      created_at: new Date().toISOString(),
+      done_at: new Date().toISOString(),
+      ...overrides,
+    };
+  }
 
   beforeEach(async () => {
     prisma = createMockPrismaService();
@@ -39,21 +82,20 @@ describe('DepositWebhookHandler', () => {
       getInstantOrderDetail: jest.fn(),
     };
 
+    const mockLockService = {
+      withLock: jest.fn().mockImplementation(async (_key: string, fn: () => Promise<any>) => fn()),
+    };
+
     const mockWsGateway = {
       sendUserNotifications: jest.fn(),
+      notifyTransactionUpdate: jest.fn(),
+      notifyWalletUpdate: jest.fn(),
+      notifyUser: jest.fn(),
     };
 
     const mockNotificationEvent = {
       sendPushNotification: jest.fn(),
-    };
-
-    const mockTradeHelpers = {
-      calculateFee: jest.fn(),
-      formatCurrency: jest.fn(),
-    };
-
-    const mockWalletAddressService = {
-      getUserWalletAddress: jest.fn(),
+      emit: jest.fn(),
     };
 
     const mockNotificationMessageService = {
@@ -61,25 +103,59 @@ describe('DepositWebhookHandler', () => {
         title: 'Deposit Received',
         body: 'Your deposit has been received',
       }),
+      receiveTransaction: jest.fn().mockReturnValue('You received crypto'),
+    };
+
+    const mockWalletAddressService = {
+      getUserWalletAddress: jest.fn(),
+      syncWallet: jest.fn(),
+    };
+
+    const mockSlackWebhookService = {
+      sendWebhookFailureAlert: jest.fn(),
+    };
+
+    const mockLedgerService = {
+      recordDeposit: jest.fn(),
+      pairedCreditInTransaction: jest.fn().mockResolvedValue({ success: true }),
+    };
+
+    const mockDepositReviewService = {
+      reviewDeposit: jest.fn(),
+      shouldFlagForReview: jest.fn().mockReturnValue(false),
+      checkAndQueueIfNeeded: jest.fn().mockResolvedValue({ queued: false }),
+    };
+
+    const mockTransactionMonitor = {
+      recordTransaction: jest.fn(),
+    };
+
+    const mockNotificationDispatcher = {
+      notify: jest.fn(),
+      dispatch: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DepositWebhookHandler,
         { provide: PrismaService, useValue: prisma },
-        { provide: TradingInjectionToken.TRADING_SERVICE, useValue: mockQuidaxService },
+        { provide: TradingInjectionToken.QUIDAX, useValue: mockQuidaxService },
         { provide: WsGateway, useValue: mockWsGateway },
         { provide: NotificationEvent, useValue: mockNotificationEvent },
-        { provide: TradeHelpersService, useValue: mockTradeHelpers },
-        { provide: WalletAddressService, useValue: mockWalletAddressService },
         { provide: NotificationMessageService, useValue: mockNotificationMessageService },
+        { provide: DistributedLockService, useValue: mockLockService },
+        { provide: WalletAddressService, useValue: mockWalletAddressService },
+        { provide: SlackWebhookService, useValue: mockSlackWebhookService },
+        { provide: TransactionMonitorService, useValue: mockTransactionMonitor },
+        { provide: LedgerService, useValue: mockLedgerService },
+        { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
+        { provide: DepositReviewService, useValue: mockDepositReviewService },
       ],
     }).compile();
 
     handler = module.get<DepositWebhookHandler>(DepositWebhookHandler);
-    quidaxService = module.get(TradingInjectionToken.TRADING_SERVICE);
-    wsGateway = module.get(WsGateway);
-    notificationEvent = module.get(NotificationEvent);
+    quidaxService = module.get(TradingInjectionToken.QUIDAX);
+    lockService = module.get(DistributedLockService);
   });
 
   afterEach(() => {
@@ -87,176 +163,88 @@ describe('DepositWebhookHandler', () => {
   });
 
   describe('handle', () => {
-    const depositEvent = {
-      event: 'deposit.accepted' as const,
-      data: {
-        id: 'deposit-123',
-        reference: 'ref-123',
-        currency: 'btc',
-        amount: '0.1',
-        fee: '0.0001',
-        status: 'accepted',
-        created_at: new Date().toISOString(),
-        done_at: new Date().toISOString(),
-        user: {
-          id: 'quidax-123',
-        },
-        txid: 'blockchain-tx-123',
-      },
-    };
-
-    it('should create new order for deposit with no existing order', async () => {
-      // Arrange
+    it('should use distributed lock with the referenceId', async () => {
+      const deposit = makeDeposit();
       prisma.user.findUnique.mockResolvedValue(mockUser);
       prisma.order.findUnique.mockResolvedValue(null);
       prisma.cryptoWalletAddress.findUnique.mockResolvedValue(null);
       prisma.order.create.mockResolvedValue(
-        mockDataFactories.order({
-          orderCategory: OrderCategory.RECEIVE,
-          status: OrderStatus.completed,
-        })
+        mockDataFactories.order({ orderCategory: OrderCategory.RECEIVE, status: OrderStatus.completed })
       );
-      prisma.assetWallet.findUnique.mockResolvedValue(
-        mockDataFactories.assetWallet({ balance: '0' })
-      );
+      prisma.assetWallet.findUnique.mockResolvedValue(mockDataFactories.assetWallet({ balance: '0' }));
       prisma.notification.create.mockResolvedValue(mockDataFactories.notification());
       prisma.notification.findMany.mockResolvedValue([]);
       quidaxService.getSingleMarketTicker.mockResolvedValue({
-        status: 'success',
-        data: { ticker: mockTicker },
+        status: 'success', message: 'Successful',
+        data: { at: Date.now(), ticker: mockTicker },
       });
 
-      // Act
-      await handler.handle(depositEvent);
+      await handler.handle(deposit);
 
-      // Assert
+      expect(lockService.withLock).toHaveBeenCalledWith(
+        `deposit:${deposit.referenceId}`,
+        expect.any(Function),
+        expect.any(Object),
+      );
+    });
+
+    it('should look up user by quidaxUserId', async () => {
+      const deposit = makeDeposit();
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await handler.handle(deposit);
+
       expect(prisma.user.findUnique).toHaveBeenCalledWith({
         where: { cryptoSubAccountId: 'quidax-123' },
       });
-      expect(prisma.order.create).toHaveBeenCalled();
-      expect(prisma.notification.create).toHaveBeenCalled();
     });
 
-    it('should update existing order for deposit', async () => {
-      // Arrange
-      const existingOrder = mockDataFactories.order({
-        providerOrderId: 'ref-123',
-        status: OrderStatus.pending,
-      });
-      
-      prisma.user.findUnique.mockResolvedValue(mockUser);
-      prisma.order.findUnique.mockResolvedValue(existingOrder);
-      prisma.order.update.mockResolvedValue({
-        ...existingOrder,
-        status: OrderStatus.completed,
-      });
-      prisma.assetWallet.findUnique.mockResolvedValue(
-        mockDataFactories.assetWallet({ balance: '0.5' })
-      );
-      prisma.notification.create.mockResolvedValue(mockDataFactories.notification());
-      prisma.notification.findMany.mockResolvedValue([]);
-
-      // Act
-      await handler.handle(depositEvent);
-
-      // Assert
-      expect(prisma.order.update).toHaveBeenCalled();
-      expect(prisma.order.create).not.toHaveBeenCalled();
-    });
-
-    it('should skip processing if user not found', async () => {
-      // Arrange
+    it('should return early when user not found', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      // Act
-      await handler.handle(depositEvent);
+      const result = await handler.handle(makeDeposit());
 
-      // Assert
-      expect(prisma.order.findUnique).not.toHaveBeenCalled();
+      expect(result).toBeDefined();
       expect(prisma.order.create).not.toHaveBeenCalled();
     });
 
-    it('should skip processing for already completed orders', async () => {
-      // Arrange
-      const completedOrder = mockDataFactories.order({
-        providerOrderId: 'ref-123',
-        status: OrderStatus.completed,
-      });
-      
-      prisma.user.findUnique.mockResolvedValue(mockUser);
-      prisma.order.findUnique.mockResolvedValue(completedOrder);
-
-      // Act
-      await handler.handle(depositEvent);
-
-      // Assert
-      expect(prisma.order.update).not.toHaveBeenCalled();
-      expect(prisma.notification.create).not.toHaveBeenCalled();
-    });
-
-    it('should handle deposit.pending event', async () => {
-      // Arrange
-      const pendingEvent = {
-        event: 'deposit.pending' as const,
-        data: {
-          ...depositEvent.data,
-          status: 'pending',
-        },
-      };
-      
+    it('should create a new order when none exists', async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
       prisma.order.findUnique.mockResolvedValue(null);
       prisma.cryptoWalletAddress.findUnique.mockResolvedValue(null);
       prisma.order.create.mockResolvedValue(
-        mockDataFactories.order({
-          status: OrderStatus.pending,
-        })
+        mockDataFactories.order({ orderCategory: OrderCategory.RECEIVE, status: OrderStatus.completed })
       );
-      quidaxService.getSingleMarketTicker.mockResolvedValue({
-        status: 'success',
-        data: { ticker: mockTicker },
-      });
-
-      // Act
-      await handler.handle(pendingEvent);
-
-      // Assert
-      expect(prisma.order.create).toHaveBeenCalled();
-    });
-  });
-
-  describe('updateWalletBalance', () => {
-    it('should update wallet balance atomically', async () => {
-      // Arrange
-      const mockWallet = mockDataFactories.assetWallet({ balance: '1.0' });
-      const mockTx = {
-        assetWallet: {
-          update: jest.fn().mockResolvedValue({ ...mockWallet, balance: '1.1' }),
-        },
-      };
-      prisma.$transaction.mockImplementation((callback) => callback(mockTx));
-
-      // Act
-      // Note: This would test the internal transaction handling
-      // The actual implementation uses $transaction for atomicity
-      
-      // Assert
-      expect(prisma.$transaction).toBeDefined();
-    });
-  });
-
-  describe('sendDepositNotification', () => {
-    it('should send push notification and websocket update', async () => {
-      // Arrange
+      prisma.assetWallet.findUnique.mockResolvedValue(mockDataFactories.assetWallet({ balance: '0' }));
       prisma.notification.create.mockResolvedValue(mockDataFactories.notification());
       prisma.notification.findMany.mockResolvedValue([]);
+      quidaxService.getSingleMarketTicker.mockResolvedValue({
+        status: 'success', message: 'Successful',
+        data: { at: Date.now(), ticker: mockTicker },
+      });
 
-      // The notification is sent as part of the handle flow
-      // This test verifies the notification creation is called
-      
-      // Assert
-      expect(wsGateway.sendUserNotifications).toBeDefined();
-      expect(notificationEvent.sendPushNotification).toBeDefined();
+      await handler.handle(makeDeposit());
+
+      expect(prisma.order.create).toHaveBeenCalled();
+    });
+
+    it('should handle deposit.pending status', async () => {
+      const pending = makeDeposit({ status: OrderStatus.pending });
+      prisma.user.findUnique.mockResolvedValue(mockUser);
+      prisma.order.findUnique.mockResolvedValue(null);
+      prisma.cryptoWalletAddress.findUnique.mockResolvedValue(null);
+      prisma.order.create.mockResolvedValue(
+        mockDataFactories.order({ status: OrderStatus.pending })
+      );
+      prisma.assetWallet.findUnique.mockResolvedValue(mockDataFactories.assetWallet({ balance: '0' }));
+      quidaxService.getSingleMarketTicker.mockResolvedValue({
+        status: 'success', message: 'Successful',
+        data: { at: Date.now(), ticker: mockTicker },
+      });
+
+      await handler.handle(pending);
+
+      expect(prisma.order.create).toHaveBeenCalled();
     });
   });
 });

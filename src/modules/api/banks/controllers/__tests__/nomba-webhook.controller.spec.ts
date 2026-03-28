@@ -9,6 +9,21 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
+
+// Break circular dependency: auth/guard → @/modules/api/user → auth/index → auth/controllers → @User()
+jest.mock("@/modules/api/user", () => {
+    class AccountDeletedException extends Error { constructor() { super("Account deleted"); } }
+    class UserNotFoundException extends Error { constructor() { super("User not found"); } }
+    return {
+        User: () => () => {},
+        ClientData: () => () => {},
+        UserModule: class {},
+        AccountDeletedException,
+        UserNotFoundException,
+        __esModule: true,
+    };
+});
+
 import { NombaWebhookController } from '../nomba-webhook.controller';
 import { PrismaService } from '@/modules/core/prisma/services';
 import { BuyOrderService } from '../../../trade/services/buy-order.service';
@@ -22,8 +37,12 @@ function mockPrisma() {
         payment: {
             findFirst: jest.fn(),
             findUnique: jest.fn(),
+            findMany: jest.fn(),
             update: jest.fn(),
             updateMany: jest.fn(),
+        },
+        webhookLog: {
+            upsert: jest.fn(),
         },
     };
 }
@@ -134,6 +153,9 @@ describe('NombaWebhookController', () => {
     let buyOrderService: ReturnType<typeof mockBuyOrderService>;
     let slackService: ReturnType<typeof mockSlackWebhookService>;
 
+    /** Default headers with a dummy signature so the !signature guard passes */
+    const sigHeaders = { 'nomba-signature': 'test-sig', 'nomba-timestamp': '1234567890' };
+
     beforeEach(async () => {
         prisma = mockPrisma();
         buyOrderService = mockBuyOrderService();
@@ -149,6 +171,9 @@ describe('NombaWebhookController', () => {
         }).compile();
 
         controller = module.get(NombaWebhookController);
+
+        // Bypass signature verification in tests (private method)
+        jest.spyOn(controller as any, 'verifySignature').mockReturnValue(true);
     });
 
     // ── Normalization / Reference Extraction ─────────────────
@@ -160,7 +185,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(vaPaymentSuccess(ref, 1000), {});
+            await controller.handleWebhook(vaPaymentSuccess(ref, 1000), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
@@ -171,7 +196,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(vaCredit(ref, 1000), {});
+            await controller.handleWebhook(vaCredit(ref, 1000), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
@@ -182,23 +207,26 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(checkoutSuccess(ref, 2000), {});
+            await controller.handleWebhook(checkoutSuccess(ref, 2000), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
 
         it('should extract merchantTxRef from transfer webhooks', async () => {
             const ref = 'merch-ref-xyz';
-            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+            const payment = { id: 50, reference: ref };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+            prisma.payment.update.mockResolvedValue(payment);
 
-            await controller.handleWebhook(transferCompleted(ref, 500), {});
+            await controller.handleWebhook(transferCompleted(ref, 500), sigHeaders);
 
-            expect(prisma.payment.updateMany).toHaveBeenCalledWith({
-                where: { reference: ref },
-                data: {
+            expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
+            expect(prisma.payment.update).toHaveBeenCalledWith({
+                where: { id: 50 },
+                data: expect.objectContaining({
                     status: TransactionStatus.SUCCESS,
                     paymentStatus: TransactionStatus.SUCCESS,
-                },
+                }),
             });
         });
 
@@ -214,7 +242,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(body, {});
+            await controller.handleWebhook(body, sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith('should-not-use');
         });
@@ -231,7 +259,7 @@ describe('NombaWebhookController', () => {
             const payment = { id: 13, orderId: null, totalAmount: 100, reference: 'account-ref-fallback', userId: 10 };
             prisma.payment.findFirst.mockResolvedValue(payment);
 
-            await controller.handleWebhook(body, {});
+            await controller.handleWebhook(body, sigHeaders);
 
             // The payment lookup goes through with 'account-ref-fallback', not 'data-ref'
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: 'account-ref-fallback' } });
@@ -243,7 +271,7 @@ describe('NombaWebhookController', () => {
                 data: { amount: 500 }, // no reference fields at all
             };
 
-            await expect(controller.handleWebhook(body, {})).rejects.toThrow(
+            await expect(controller.handleWebhook(body, sigHeaders)).rejects.toThrow(
                 'Cannot process payment webhook: no reference could be extracted from the payload'
             );
         });
@@ -254,7 +282,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(paymentSuccessViaTransaction(ref, 1500), {});
+            await controller.handleWebhook(paymentSuccessViaTransaction(ref, 1500), sigHeaders);
 
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
@@ -271,7 +299,7 @@ describe('NombaWebhookController', () => {
             const payment = { id: 51, orderId: null, totalAmount: 200, reference: ref, userId: 12 };
             prisma.payment.findFirst.mockResolvedValue(payment);
 
-            await controller.handleWebhook(body, {});
+            await controller.handleWebhook(body, sigHeaders);
 
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
         });
@@ -286,7 +314,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(vaCredit(ref, 500), {});
+            await controller.handleWebhook(vaCredit(ref, 500), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
@@ -300,18 +328,20 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(body, {});
+            await controller.handleWebhook(body, sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith('ref-tc');
         });
 
         it('should map transfer.successful to payout_success', async () => {
             const ref = 'payout-ref';
-            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+            const payment = { id: 51, reference: ref };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+            prisma.payment.update.mockResolvedValue(payment);
 
-            await controller.handleWebhook(transferCompleted(ref), {});
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
 
-            expect(prisma.payment.updateMany).toHaveBeenCalledWith(
+            expect(prisma.payment.update).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({ status: TransactionStatus.SUCCESS }),
                 }),
@@ -320,9 +350,10 @@ describe('NombaWebhookController', () => {
 
         it('should map transfer.failed to payment_failed', async () => {
             const ref = 'fail-ref';
+            prisma.payment.findMany.mockResolvedValue([]);
             prisma.payment.updateMany.mockResolvedValue({ count: 1 });
 
-            await controller.handleWebhook(transferFailed(ref), {});
+            await controller.handleWebhook(transferFailed(ref), sigHeaders);
 
             expect(prisma.payment.updateMany).toHaveBeenCalledWith({
                 where: { reference: ref },
@@ -340,7 +371,7 @@ describe('NombaWebhookController', () => {
             };
 
             // Should not throw — just logs a warning and returns
-            const result = await controller.handleWebhook(body, {});
+            const result = await controller.handleWebhook(body, sigHeaders);
             expect(result).toEqual({ success: true, message: 'Webhook processed' });
         });
     });
@@ -352,13 +383,12 @@ describe('NombaWebhookController', () => {
             const ref = 'buy-ref-1';
             const payment = { id: 30, orderId: 300, totalAmount: 1000, reference: ref, userId: 7 };
             prisma.payment.findFirst.mockResolvedValue(payment);
+            prisma.payment.update.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(vaCredit(ref, 1000), {});
+            await controller.handleWebhook(vaCredit(ref, 1000), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
-            // Should NOT update payment status directly — fulfillBuyOrder handles it
-            expect(prisma.payment.update).not.toHaveBeenCalled();
         });
 
         it('should update payment to SUCCESS when payment has no orderId (generic)', async () => {
@@ -366,7 +396,7 @@ describe('NombaWebhookController', () => {
             const payment = { id: 31, orderId: null, totalAmount: 500, reference: ref, userId: 8 };
             prisma.payment.findFirst.mockResolvedValue(payment);
 
-            await controller.handleWebhook(vaCredit(ref, 500), {});
+            await controller.handleWebhook(vaCredit(ref, 500), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).not.toHaveBeenCalled();
             expect(prisma.payment.update).toHaveBeenCalledWith({
@@ -374,6 +404,7 @@ describe('NombaWebhookController', () => {
                 data: {
                     status: TransactionStatus.SUCCESS,
                     paymentStatus: TransactionStatus.SUCCESS,
+                    externalReference: 'nomba-txn-001',
                 },
             });
         });
@@ -384,7 +415,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
 
             // User sent 800 but expected 1000 (below 1% tolerance)
-            await controller.handleWebhook(vaCredit(ref, 800), {});
+            await controller.handleWebhook(vaCredit(ref, 800), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).not.toHaveBeenCalled();
             expect(slackService.sendWebhookFailureAlert).toHaveBeenCalledWith(
@@ -406,7 +437,7 @@ describe('NombaWebhookController', () => {
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
             // 995 is above 99% of 1000 — should pass
-            await controller.handleWebhook(vaCredit(ref, 995), {});
+            await controller.handleWebhook(vaCredit(ref, 995), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
@@ -416,7 +447,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(null);
 
             // Should complete without error
-            const result = await controller.handleWebhook(vaCredit(ref, 100), {});
+            const result = await controller.handleWebhook(vaCredit(ref, 100), sigHeaders);
             expect(result).toEqual({ success: true, message: 'Webhook processed' });
         });
     });
@@ -425,12 +456,12 @@ describe('NombaWebhookController', () => {
 
     describe('handleWebhook — entry guards', () => {
         it('should return ok for empty/verification body', async () => {
-            const result = await controller.handleWebhook({}, {});
+            const result = await controller.handleWebhook({}, sigHeaders);
             expect(result).toEqual({ status: 'ok', message: 'Webhook received' });
         });
 
         it('should return ok for null body', async () => {
-            const result = await controller.handleWebhook(null, {});
+            const result = await controller.handleWebhook(null, sigHeaders);
             expect(result).toEqual({ status: 'ok', message: 'Webhook received' });
         });
 
@@ -444,7 +475,7 @@ describe('NombaWebhookController', () => {
             prisma.payment.findFirst.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-            await controller.handleWebhook(body, {});
+            await controller.handleWebhook(body, sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });

@@ -1,7 +1,23 @@
 import { Test, TestingModule } from "@nestjs/testing";
+
+// Break circular dependency: auth/guard → @/modules/api/user → auth/index → auth/controllers → @User()
+jest.mock("@/modules/api/user", () => {
+    class AccountDeletedException extends Error { constructor() { super("Account deleted"); } }
+    class UserNotFoundException extends Error { constructor() { super("User not found"); } }
+    return {
+        User: () => () => {},
+        ClientData: () => () => {},
+        UserModule: class {},
+        AccountDeletedException,
+        UserNotFoundException,
+        __esModule: true,
+    };
+});
+
 import { KycService } from "../index";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TierService } from "@/modules/api/auth/services/tier.service";
+import { KycStateMachineService } from "@/modules/api/auth/services/kyc-state-machine.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { EmailService } from "@/modules/core/email/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -37,11 +53,11 @@ describe("KycService", () => {
     };
 
     const mockNotificationDispatcher = {
-        notify: jest.fn(),
+        notify: jest.fn().mockResolvedValue(undefined),
     };
 
     const mockEmailService = {
-        send: jest.fn(),
+        send: jest.fn().mockResolvedValue(undefined),
     };
 
     const mockWsGateway = {
@@ -54,6 +70,7 @@ describe("KycService", () => {
                 KycService,
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: TierService, useValue: mockTierService },
+                { provide: KycStateMachineService, useValue: { transition: jest.fn().mockResolvedValue(undefined) } },
                 { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
                 { provide: EmailService, useValue: mockEmailService },
                 { provide: RedisCacheService, useValue: mockRedisCacheService },

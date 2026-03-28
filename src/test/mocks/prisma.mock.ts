@@ -243,7 +243,7 @@ export const mockDataFactories = {
     high: '1550000',
     open: '1500000',
     last: '1510000',
-    volume: '100',
+    vol: '100',
     ...overrides,
   }),
 };

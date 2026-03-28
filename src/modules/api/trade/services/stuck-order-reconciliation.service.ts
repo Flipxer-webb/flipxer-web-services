@@ -201,11 +201,11 @@ export class StuckOrderReconciliationService {
 
         for (const payment of stuckPayments) {
             const detail: StuckOrderReconciliationResult["stuckBuyOrders"]["details"][number] = {
-                orderId: payment.order!.id,
+                orderId: payment.order.id,
                 paymentId: payment.id,
                 reference: payment.reference,
-                amount: Number(payment.order!.amount),
-                currency: payment.order!.currency,
+                amount: Number(payment.order.amount),
+                currency: payment.order.currency,
                 action: "retried",
                 error: undefined,
             };
@@ -237,7 +237,7 @@ export class StuckOrderReconciliationService {
                     result.stuckBuyOrders.skippedNoWebhook++;
 
                     this.logger.warn(
-                        `SKIPPED Order #${payment.order!.id} — no WebhookLog proof for reference ${payment.reference}. Alerting for manual review.`,
+                        `SKIPPED Order #${payment.order.id} — no WebhookLog proof for reference ${payment.reference}. Alerting for manual review.`,
                     );
 
                     result.stuckBuyOrders.details.push(detail);
@@ -245,7 +245,7 @@ export class StuckOrderReconciliationService {
                 }
 
                 this.logger.log(
-                    `WebhookLog verified for Order #${payment.order!.id} | webhookId: ${webhookByRef.id}`,
+                    `WebhookLog verified for Order #${payment.order.id} | webhookId: ${webhookByRef.id}`,
                 );
 
                 // Reset payment to PENDING so fulfillBuyOrder's atomic claim can succeed
@@ -258,14 +258,14 @@ export class StuckOrderReconciliationService {
                 });
 
                 this.logger.log(
-                    `Retrying fulfillment for Order #${payment.order!.id} | payment: ${payment.reference}`,
+                    `Retrying fulfillment for Order #${payment.order.id} | payment: ${payment.reference}`,
                 );
 
                 await this.buyOrderService.fulfillBuyOrder(payment.reference);
 
                 result.stuckBuyOrders.autoRetried++;
                 this.logger.log(
-                    `Successfully retried Order #${payment.order!.id}`,
+                    `Successfully retried Order #${payment.order.id}`,
                 );
             } catch (error) {
                 detail.action = "retry_failed";
@@ -273,7 +273,7 @@ export class StuckOrderReconciliationService {
                 result.stuckBuyOrders.retryFailed++;
 
                 this.logger.error(
-                    `Failed to retry Order #${payment.order!.id}: ${error.message}`,
+                    `Failed to retry Order #${payment.order.id}: ${error.message}`,
                     error.stack,
                 );
             }

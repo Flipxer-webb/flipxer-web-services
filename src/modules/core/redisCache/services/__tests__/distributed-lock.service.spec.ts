@@ -8,6 +8,8 @@ jest.mock("ioredis", () => {
         set: jest.fn(),
         get: jest.fn(),
         del: jest.fn(),
+        eval: jest.fn(),
+        exists: jest.fn(),
         quit: jest.fn(),
     };
     return jest.fn(() => mockRedis);
@@ -75,30 +77,27 @@ describe("DistributedLockService", () => {
     describe("releaseLock", () => {
         it("should release lock when token matches", async () => {
             const token = "test-token";
-            mockRedis.get.mockResolvedValue(token);
-            mockRedis.del.mockResolvedValue(1);
+            mockRedis.eval.mockResolvedValue(1);
             
             const result = await service.releaseLock("test-key", token);
             
             expect(result).toBe(true);
-            expect(mockRedis.del).toHaveBeenCalled();
+            expect(mockRedis.eval).toHaveBeenCalled();
         });
 
         it("should not release lock when token does not match", async () => {
-            mockRedis.get.mockResolvedValue("different-token");
+            mockRedis.eval.mockResolvedValue(0);
             
             const result = await service.releaseLock("test-key", "wrong-token");
             
             expect(result).toBe(false);
-            expect(mockRedis.del).not.toHaveBeenCalled();
         });
     });
 
     describe("withLock", () => {
         it("should execute callback when lock is acquired", async () => {
             mockRedis.set.mockResolvedValue("OK");
-            mockRedis.get.mockResolvedValue(expect.any(String));
-            mockRedis.del.mockResolvedValue(1);
+            mockRedis.eval.mockResolvedValue(1);
             
             const callback = jest.fn().mockResolvedValue("result");
             
@@ -122,8 +121,7 @@ describe("DistributedLockService", () => {
 
         it("should release lock even if callback throws", async () => {
             mockRedis.set.mockResolvedValue("OK");
-            mockRedis.get.mockResolvedValue(expect.any(String));
-            mockRedis.del.mockResolvedValue(1);
+            mockRedis.eval.mockResolvedValue(1);
             
             const callback = jest.fn().mockRejectedValue(new Error("Callback error"));
             
@@ -132,13 +130,13 @@ describe("DistributedLockService", () => {
             ).rejects.toThrow("Callback error");
             
             // Lock should still be released
-            expect(mockRedis.del).toHaveBeenCalled();
+            expect(mockRedis.eval).toHaveBeenCalled();
         });
     });
 
     describe("isLocked", () => {
         it("should return true when key is locked", async () => {
-            mockRedis.get.mockResolvedValue("some-token");
+            mockRedis.exists.mockResolvedValue(1);
             
             const result = await service.isLocked("test-key");
             
@@ -146,7 +144,7 @@ describe("DistributedLockService", () => {
         });
 
         it("should return false when key is not locked", async () => {
-            mockRedis.get.mockResolvedValue(null);
+            mockRedis.exists.mockResolvedValue(0);
             
             const result = await service.isLocked("test-key");
             

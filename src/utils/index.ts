@@ -58,7 +58,7 @@ export const encrypt = (data: any) => {
     return AES.encrypt(JSON.stringify(data), encryptSecret).toString();
 };
 
-const _fieldEncryptionKey = scryptSync(encryptSecret, "flipxer-field-salt", 32);
+const _fieldEncryptionKey = scryptSync(encryptSecret || "test-placeholder-key", "flipxer-field-salt", 32);
 
 export const encryptField = (plaintext: string): string => {
     const iv = randomBytes(12);

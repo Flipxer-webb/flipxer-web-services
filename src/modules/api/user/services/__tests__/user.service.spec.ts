@@ -1,12 +1,31 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
+
+// Break circular dependency: auth/services → @/modules/api/user → auth/index → auth/controllers → @User()
+jest.mock("@/modules/api/user", () => {
+    class AccountDeletedException extends Error { constructor() { super("Account deleted"); } }
+    class UserNotFoundException extends Error { constructor() { super("User not found"); } }
+    class DuplicateUserException extends Error { constructor() { super("Duplicate user"); } }
+    class IncorrectPasswordException extends Error { constructor() { super("Incorrect password"); } }
+    return {
+        User: () => () => {},
+        ClientData: () => () => {},
+        UserModule: class {},
+        AccountDeletedException,
+        UserNotFoundException,
+        DuplicateUserException,
+        IncorrectPasswordException,
+        __esModule: true,
+    };
+});
+
 import { UserService } from '../index';
 import { PrismaService } from '@/modules/core/prisma/services';
-import { AuthService } from '../../auth/services';
+import { AuthService } from '@/modules/api/auth/services';
 import { EmailService } from '@/modules/core/email/services';
 import { UploadFactory } from '@/modules/core/upload/services';
 import { QuidaxCacheService } from '@/modules/core/redisCache/services/quidax-cache.service';
-import { TierService } from '../../auth/services/tier.service';
+import { TierService } from '@/modules/api/auth/services/tier.service';
 import { RedisCacheService } from '@/modules/core/redisCache/services/redis-cache.service';
 import { LedgerService } from '@/modules/api/trade/services/ledger/ledger.service';
 import { RateService } from '@/modules/api/trade/services/rate.service';
@@ -34,6 +53,7 @@ describe('UserService', () => {
 
     const mockTierService = {
         getTierInfo: jest.fn(),
+        getWithdrawalLimit: jest.fn().mockReturnValue(1000),
     };
 
     const mockUploadFactory = {
@@ -76,7 +96,7 @@ describe('UserService', () => {
             isPhoneVerified: true,
             businessRecordCompleted: false,
             businessDocumentsUploaded: false,
-            businessDocumentVerificationStatus: DocumentVerificationStatus.NOT_UPLOADED,
+            businessDocumentVerificationStatus: null,
             isDocumentVerified: false,
         };
 
