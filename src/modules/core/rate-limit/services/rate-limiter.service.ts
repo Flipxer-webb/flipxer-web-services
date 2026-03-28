@@ -121,8 +121,12 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
     const windowStart = now - windowSeconds * 1000;
     const resetTime = now + windowSeconds * 1000;
 
+    if (!this.client) {
+      throw new Error('Redis client is not initialized');
+    }
+
     // Use Redis sorted set for sliding window
-    const multi = this.client!.multi();
+    const multi = this.client.multi();
     
     // Remove old entries outside the window
     multi.zremrangebyscore(key, '-inf', windowStart);
@@ -142,7 +146,7 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
       throw new Error('Redis multi exec returned null');
     }
 
-    const count = results[2]?.[1] as number ?? 0;
+    const count = Number(results[2]?.[1] ?? 0);
     const remaining = Math.max(0, limit - count);
     const allowed = count <= limit;
 
