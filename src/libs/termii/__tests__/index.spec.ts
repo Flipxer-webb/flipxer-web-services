@@ -138,4 +138,26 @@ describe("TermiiLib", () => {
         const lib = new TermiiLib({ apiKey: "x" });
         await expect(lib.getBalance()).rejects.toBeInstanceOf(TermiiAuthorizationError);
     });
+
+    it("rethrows original sendSms error when handler does not throw", async () => {
+        const originalError = new Error("raw-send-error");
+        postMock.mockRejectedValueOnce(originalError);
+
+        const lib = new TermiiLib({ apiKey: "k7" });
+        jest.spyOn(lib as any, "handleTermiiError").mockImplementation(() => undefined);
+
+        await expect(
+            lib.sendSms({ to: "1", from: "f", sms: "m", type: "plain", channel: "generic" })
+        ).rejects.toBe(originalError);
+    });
+
+    it("rethrows original getBalance error when handler does not throw", async () => {
+        const originalError = new Error("raw-balance-error");
+        getMock.mockRejectedValueOnce(originalError);
+
+        const lib = new TermiiLib({ apiKey: "k8" });
+        jest.spyOn(lib as any, "handleTermiiError").mockImplementation(() => undefined);
+
+        await expect(lib.getBalance()).rejects.toBe(originalError);
+    });
 });

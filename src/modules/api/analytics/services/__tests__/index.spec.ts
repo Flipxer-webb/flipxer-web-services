@@ -268,6 +268,18 @@ describe("AnalyticsService", () => {
 
             expect(res.data.chartData.length).toBeGreaterThanOrEqual(1);
         });
+
+        it("falls back to daily handling for unsupported granularity", async () => {
+            prisma.order.findMany.mockResolvedValue([]);
+            prisma.order.groupBy.mockResolvedValue([]);
+
+            const res = await service.getTransactionVolume(
+                customDateQuery({ granularity: "custom-granularity" }) as any,
+            );
+
+            expect(res.data.chartData.length).toBeGreaterThan(0);
+            expect(res.data.chartData[0].date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        });
     });
 
     // ==================== getTransactionsByStatus ====================

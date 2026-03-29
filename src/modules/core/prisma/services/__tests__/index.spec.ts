@@ -119,6 +119,27 @@ describe("PrismaService", () => {
         await expect(service.isHealthy()).resolves.toBe(false);
     });
 
+    it("logs slow query and prisma errors via registered listeners", async () => {
+        process.env.NODE_ENV = "test";
+
+        const listeners: Record<string, (event: any) => void> = {};
+        (service as any).$connect = jest.fn().mockResolvedValue(undefined);
+        (service as any).$on = jest.fn((event: string, handler: (payload: any) => void) => {
+            listeners[event] = handler;
+        });
+
+        const warnSpy = jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
+        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+
+        await service.onModuleInit();
+
+        listeners.query?.({ duration: 1501, query: "SELECT 1" });
+        listeners.error?.({ message: "db event" });
+
+        expect(warnSpy).toHaveBeenCalledWith("Slow query (1501ms): SELECT 1");
+        expect(errorSpy).toHaveBeenCalledWith("Prisma error: db event");
+    });
+
     it("executes transactions with defaults and overrides", async () => {
         const callback = jest.fn().mockResolvedValue("done");
 

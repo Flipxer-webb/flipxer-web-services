@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { ExecutionContext, ForbiddenException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { createHmac } from "node:crypto";
+import { authenticator } from "otplib";
 import { quidaxConfig } from "@/config";
 
 jest.mock("@/modules/api/user", () => ({
@@ -32,6 +33,11 @@ jest.mock("@/config", () => ({
 
 jest.mock("moment-logger", () => ({ error: jest.fn(), warn: jest.fn() }));
 
+jest.mock("@/utils", () => ({
+    decryptField: jest.fn((value: string) => value),
+    __esModule: true,
+}));
+
 import {
     AuthGuard,
     EnabledAccountGuard,
@@ -40,6 +46,7 @@ import {
     CountryBlockGuard,
     SocketAuthGuard,
     TransactionAmountGuard,
+    TwoFactorGuard,
 } from "../index";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { GeoIPService } from "@/modules/core/geoip/geoip.service";
@@ -442,6 +449,218 @@ describe("TransactionAmountGuard", () => {
 
         const result = await guard.canActivate(ctx);
         expect(result).toBe(true);
+    });
+});
+
+// ==================== TwoFactorGuard ====================
+
+describe("TwoFactorGuard", () => {
+    let guard: TwoFactorGuard;
+    let prisma: any;
+    let jwtService: any;
+    let rateLimitService: any;
+    let settingService: any;
+
+    beforeEach(() => {
+        prisma = {
+            user: { findUnique: jest.fn() },
+            cryptoRate: { findFirst: jest.fn() },
+        };
+        jwtService = { verifyAsync: jest.fn() };
+        rateLimitService = {
+            checkAttempt: jest.fn().mockResolvedValue({ allowed: true }),
+            recordFailedAttempt: jest.fn().mockResolvedValue({}),
+            recordSuccessfulAttempt: jest.fn().mockResolvedValue(undefined),
+        };
+        settingService = {
+            verifyBackupCode: jest.fn().mockResolvedValue(false),
+        };
+
+        guard = new TwoFactorGuard(
+            prisma as any,
+            jwtService as any,
+            rateLimitService,
+            settingService,
+        );
+
+        jest.spyOn((guard as any).logger, "debug").mockImplementation(() => undefined);
+        jest.spyOn((guard as any).logger, "warn").mockImplementation(() => undefined);
+    });
+
+    it("should throw when request user is missing", async () => {
+        const ctx = mockContext({ path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+
+        await expect(guard.canActivate(ctx)).rejects.toThrow("User not found in request");
+    });
+
+    it("should allow when no security method is enabled", async () => {
+        const ctx = mockContext({ user: { id: 1 }, path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        (ctx.switchToHttp().getRequest() as any).user = { id: 1 };
+        prisma.user.findUnique.mockResolvedValue({
+            securityMethods: null,
+            isTwoFactorEnabled: false,
+            twoFactorSecret: null,
+        });
+
+        await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it("should allow when verification is not required", async () => {
+        const ctx = mockContext({ user: { id: 2 }, path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        (ctx.switchToHttp().getRequest() as any).user = { id: 2 };
+        prisma.user.findUnique.mockResolvedValue({
+            securityMethods: { authenticator: true },
+            isTwoFactorEnabled: true,
+            twoFactorSecret: "secret",
+        });
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(false);
+
+        await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it("should allow when security credentials are valid", async () => {
+        const ctx = mockContext({ user: { id: 3 }, path: "/api/v1/buy/order", body: { verificationToken: "a" } });
+        (ctx.switchToHttp().getRequest() as any).user = { id: 3 };
+        prisma.user.findUnique.mockResolvedValue({
+            securityMethods: { sms: true },
+            isTwoFactorEnabled: false,
+            twoFactorSecret: null,
+            requiredMethodCount: 1,
+            isPhoneVerified: true,
+        });
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(true);
+        jest.spyOn(guard as any, "tryValidateSecurityCredentials").mockResolvedValue(true);
+
+        await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it("should reject when security verification fails", async () => {
+        const ctx = mockContext({ user: { id: 4 }, path: "/api/v1/buy/order", body: {} });
+        (ctx.switchToHttp().getRequest() as any).user = { id: 4 };
+        prisma.user.findUnique.mockResolvedValue({
+            securityMethods: { sms: true, email: true },
+            isTwoFactorEnabled: true,
+            twoFactorSecret: "secret",
+            requiredMethodCount: 2,
+            isPhoneVerified: true,
+            isEmailVerified: true,
+        });
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(true);
+        jest.spyOn(guard as any, "tryValidateSecurityCredentials").mockResolvedValue(false);
+
+        await expect(guard.canActivate(ctx)).rejects.toThrow("SECURITY_VERIFICATION_REQUIRED");
+    });
+
+    it("should parse security methods and extract tokens", () => {
+        expect((guard as any).parseSecurityMethods({ sms: true })).toEqual({ sms: true });
+        expect((guard as any).parseSecurityMethods('{"email":true}')).toEqual({ email: true });
+        expect((guard as any).parseSecurityMethods("bad-json")).toEqual({});
+
+        const req = {
+            headers: { "x-security-token": "header-token", "x-2fa-code": "222222" },
+            body: { verificationToken: "body-token", twoFactorCode: "111111" },
+        };
+
+        expect((guard as any).extractVerificationToken(req)).toBe("header-token");
+        expect((guard as any).extractLegacyCode(req)).toBe("111111");
+    });
+
+    it("should validate token payload shape and expiry", async () => {
+        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
+        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBe("sms");
+
+        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 10, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
+        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+
+        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "wrong_type", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
+        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+
+        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) - 1 });
+        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+
+        jwtService.verifyAsync.mockRejectedValueOnce(new Error("bad token"));
+        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+    });
+
+    it("should validate multi-factor token counts with swap override", async () => {
+        jest.spyOn(guard as any, "validateVerificationTokenAndGetMethod")
+            .mockResolvedValueOnce("sms")
+            .mockResolvedValueOnce("email")
+            .mockResolvedValueOnce("sms");
+
+        await expect(
+            (guard as any).verifyMultiFactorTokens(1, "a,b", { requiredMethodCount: 2 }, "/api/v1/buy/order"),
+        ).resolves.toBe(true);
+
+        await expect(
+            (guard as any).verifyMultiFactorTokens(1, "c", { requiredMethodCount: 2 }, "/api/v1/execute-atomic-swap"),
+        ).resolves.toBe(true);
+    });
+
+    it("should return fallback path when route template is unavailable", () => {
+        const request = { route: undefined, path: "/api/v1/fallback" };
+
+        expect((guard as any).getRequestRouteTemplate(request)).toBe("/api/v1/fallback");
+    });
+
+    it("should handle legacy 2FA validation and rate limits", async () => {
+        const verifySpy = jest.spyOn(authenticator, "verify").mockReturnValueOnce(false).mockReturnValueOnce(true);
+        settingService.verifyBackupCode.mockResolvedValueOnce(true);
+
+        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(true);
+        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(true);
+        expect(rateLimitService.recordSuccessfulAttempt).toHaveBeenCalled();
+
+        rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: false, lockoutDuration: 60 });
+        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).rejects.toThrow("Too many failed 2FA attempts");
+
+        verifySpy.mockReturnValueOnce(false);
+        settingService.verifyBackupCode.mockResolvedValueOnce(false);
+        rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: true });
+        rateLimitService.recordFailedAttempt.mockResolvedValueOnce({ lockoutEndsAt: 1, lockoutDuration: 120 });
+        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).rejects.toThrow("Invalid 2FA code. Account locked for 120 seconds.");
+
+        verifySpy.mockReturnValueOnce(false);
+        settingService.verifyBackupCode.mockResolvedValueOnce(false);
+        rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: true });
+        rateLimitService.recordFailedAttempt.mockResolvedValueOnce({});
+        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(false);
+
+        verifySpy.mockRestore();
+    });
+
+    it("should expose all enabled available security methods", () => {
+        const methods = {
+            sms: true,
+            email: true,
+            authenticator: true,
+            tradingPassword: true,
+            biometric: true,
+        };
+
+        const available = (guard as any).getAvailableMethods(methods, {
+            isPhoneVerified: true,
+            isEmailVerified: true,
+            twoFactorSecret: "secret",
+            tradingPassword: "hashed",
+        });
+
+        expect(available).toEqual([
+            "sms",
+            "email",
+            "authenticator",
+            "tradingPassword",
+            "biometric",
+            "backupCode",
+        ]);
+    });
+
+    it("should resolve crypto rates and safely handle lookup failures", async () => {
+        prisma.cryptoRate.findFirst.mockResolvedValueOnce({ buyRate: 1200 });
+        prisma.cryptoRate.findFirst.mockRejectedValueOnce(new Error("db issue"));
+
+        await expect((guard as any).getCryptoRateToNGN("BTC")).resolves.toBe(1200);
+        await expect((guard as any).getCryptoRateToNGN("ETH")).resolves.toBeNull();
     });
 });
 

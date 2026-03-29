@@ -616,6 +616,30 @@ describe("QuidaxWebhookService", () => {
                 expect.objectContaining({ status: "accepted" }),
             );
         });
+
+        it("handles deposit switch default branch when normalized status is unknown", async () => {
+            const normalizeSpy = jest
+                .spyOn(service as any, "normalizeDepositStatus")
+                .mockReturnValue("unhandled_status");
+
+            await service.depositHandler(depositData() as any);
+
+            expect(tradingService.depositHandler).toHaveBeenCalledWith(
+                expect.objectContaining({ status: "unhandled_status" }),
+            );
+
+            normalizeSpy.mockRestore();
+        });
+    });
+
+    describe("swapTransactionHandlerHandler", () => {
+        it("no-ops on unhandled swap status", async () => {
+            await service.swapTransactionHandlerHandler(
+                swapEventData("completed", { status: "mystery" }) as any,
+            );
+
+            expect(tradingService.swapTransactionHandler).not.toHaveBeenCalled();
+        });
     });
 
     // ==================== Unhandled Events ====================
