@@ -577,6 +577,53 @@ describe("LedgerService", () => {
         });
     });
 
+    // ── lock helpers ─────────────────────────────────────────
+
+    describe("lock helpers", () => {
+        it("runWithLock should call distributed lock with uppercase currency key", async () => {
+            const result = await service.runWithLock(7, "btc", async () => "ok");
+
+            expect(result).toBe("ok");
+            expect(lockService.withLock).toHaveBeenCalledWith(
+                "ledger:7:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 15000, maxWaitMs: 20000, strict: true }),
+            );
+        });
+
+        it("runWithLock should throw when lock acquisition fails", async () => {
+            lockService.withLock.mockRejectedValueOnce(new Error("lock timeout"));
+
+            await expect(
+                service.runWithLock(7, "btc", async () => "noop"),
+            ).rejects.toThrow("lock timeout");
+        });
+
+        it("runWithMultiUserLocks should sort lock keys and delegate to withLocks", async () => {
+            const withLocksSpy = jest
+                .spyOn(service as any, "withLocks")
+                .mockResolvedValueOnce("done");
+
+            const result = await service.runWithMultiUserLocks([9, 2, 5], "eth", async () => "x");
+
+            expect(result).toBe("done");
+            expect(withLocksSpy).toHaveBeenCalledWith(
+                ["ledger:2:ETH", "ledger:5:ETH", "ledger:9:ETH"],
+                expect.any(Function),
+            );
+        });
+
+        it("runWithMultiUserLocks should throw when delegated lock flow fails", async () => {
+            jest
+                .spyOn(service as any, "withLocks")
+                .mockRejectedValueOnce(new Error("multi-lock failed"));
+
+            await expect(
+                service.runWithMultiUserLocks([2, 3], "usdt", async () => "x"),
+            ).rejects.toThrow("multi-lock failed");
+        });
+    });
+
     // ── Static constants ─────────────────────────────────────
 
     describe("constants", () => {
