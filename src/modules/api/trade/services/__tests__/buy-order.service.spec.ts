@@ -193,6 +193,26 @@ describe("BuyOrderService", () => {
             expect(quote.buyRate).toBeDefined();
             expect(quote.cryptoBuyAmount).toBeDefined();
         });
+
+        it("throws when requested asset wallet is missing", async () => {
+            prismaService.assetWallet.findFirst.mockResolvedValue(null);
+
+            await expect(
+                service.calculateBuyQuote(mockUser as any, { asset: "XRP", amount: 0.2 } as any),
+            ).rejects.toThrow("Asset XRP not found for the user");
+        });
+
+        it("throws when wallet exists without a deposit address/network", async () => {
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                depositAddress: null,
+                defaultNetwork: null,
+            });
+
+            await expect(
+                service.calculateBuyQuote(mockUser as any, { asset: "BTC", amount: 0.2 } as any),
+            ).rejects.toThrow("No wallet address found for asset BTC");
+        });
     });
 
     describe("buyCryptoOrder", () => {
@@ -209,6 +229,130 @@ describe("BuyOrderService", () => {
             await expect(
                 service.buyCryptoOrder(userWithoutAccount, orderDto)
             ).rejects.toThrow();
+        });
+
+        it("rejects idempotency keys tied to another user", async () => {
+            prismaService.payment.findUnique.mockResolvedValue({
+                id: 88,
+                userId: 999,
+                reference: "idem-ref-1",
+                createdAt: new Date(Date.now() - 5 * 60 * 1000),
+                totalAmount: "250000",
+                destinationBankAccountNumber: "0123456789",
+                destinationBankAccountName: "Wrong User",
+                destinationBankName: "Bank",
+                order: { id: 200, amount: 0.01, currency: "BTC" },
+            });
+
+            await expect(
+                service.buyCryptoOrder(mockUser as any, { ...orderDto, idempotencyKey: "idem-1" }),
+            ).rejects.toThrow("Idempotency key belongs to a different user");
+        });
+
+        it("returns an existing order for matching idempotency keys", async () => {
+            prismaService.payment.findUnique.mockResolvedValue({
+                id: 89,
+                userId: mockUser.id,
+                reference: "idem-ref-2",
+                createdAt: new Date(Date.now() - 5 * 60 * 1000),
+                totalAmount: "250000",
+                destinationBankAccountNumber: "0123456789",
+                destinationBankAccountName: "Test User",
+                destinationBankName: "Bank",
+                order: { id: 201, amount: 0.01, currency: "BTC" },
+            });
+
+            const res = await service.buyCryptoOrder(mockUser as any, {
+                ...orderDto,
+                idempotencyKey: "idem-2",
+            });
+
+            expect(res.message).toContain("Order already exists");
+            expect(res.data.paymentInfo.reference).toBe("idem-ref-2");
+        });
+
+        it("returns an existing pending order for same user/asset/amount within expiry window", async () => {
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue({
+                id: 90,
+                orderId: 202,
+                userId: mockUser.id,
+                reference: "pending-ref-1",
+                createdAt: new Date(Date.now() - 5 * 60 * 1000),
+                totalAmount: "250000",
+                destinationBankAccountNumber: "1234567890",
+                destinationBankAccountName: "Test User",
+                destinationBankName: "Bank",
+                order: { id: 202, amount: 0.01, currency: "BTC" },
+            });
+
+            const res = await service.buyCryptoOrder(mockUser as any, orderDto);
+
+            expect(res.message).toContain("Order already exists");
+            expect(res.data.order.id).toBe(202);
+        });
+
+        it("creates a new buy order and returns VA payment instructions", async () => {
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                depositAddress: "bc1qnewaddress",
+                defaultNetwork: "btc",
+            });
+
+            (service as any).nombaService.initializePaymentViaVirtualAccount = jest
+                .fn()
+                .mockResolvedValue({
+                    data: {
+                        reference: "va-ref-1",
+                        accountNumber: "0099009900",
+                        accountName: "Flipxer User",
+                        bankName: "Nomba",
+                        bankCode: "0900",
+                        expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                    },
+                });
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    order: {
+                        create: jest.fn().mockResolvedValue({
+                            id: 303,
+                            amount: 0.01,
+                            currency: "BTC",
+                            status: OrderStatus.pending,
+                            streamlinedStatus: "pending",
+                            orderCategory: OrderStatus.pending,
+                            transactionId: "tx-303",
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                        }),
+                    },
+                    payment: {
+                        create: jest.fn().mockResolvedValue({ id: 404 }),
+                    },
+                }),
+            );
+
+            const ws = (service as any).wsGateway;
+            const notify = (service as any).notificationDispatcher.notify as jest.Mock;
+
+            const result = await service.buyCryptoOrder(mockUser as any, {
+                ...orderDto,
+                idempotencyKey: "new-idem-1",
+            });
+
+            expect(result.message).toContain("Order placed successfully");
+            expect(result.data.paymentInfo.reference).toBe("va-ref-1");
+            expect(result.data.order.id).toBe(303);
+            expect(ws.notifyWalletUpdate).toHaveBeenCalledWith(mockUser.id);
+            expect(notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: mockUser.id,
+                    title: "Buy order initiated",
+                }),
+            );
         });
     });
 
@@ -440,6 +584,49 @@ describe("BuyOrderService", () => {
     });
 
     describe("stuck/expiry/underpayment and internal buy flows", () => {
+        it("fulfillBuyOrder alerts ops when payment is already FAILED and returns", async () => {
+            const slack = (service as any).slackWebhookService.sendWebhookFailureAlert as jest.Mock;
+
+            prismaService.payment.updateMany.mockResolvedValue({ count: 0 });
+            prismaService.payment.findUnique.mockResolvedValue({
+                id: 500,
+                orderId: 600,
+                userId: 700,
+                totalAmount: "150000",
+                status: TransactionStatus.FAILED,
+            });
+
+            await expect(service.fulfillBuyOrder("failed-ref-1")).resolves.toBeUndefined();
+            expect(slack).toHaveBeenCalledWith(
+                "nomba",
+                "failed-ref-1",
+                expect.stringContaining("Manual refund required"),
+                expect.objectContaining({ orderId: 600, userId: 700 }),
+            );
+        });
+
+        it("fulfillBuyOrder exits safely when claimed payment disappears", async () => {
+            prismaService.payment.updateMany.mockResolvedValue({ count: 1 });
+            prismaService.payment.findUnique.mockResolvedValue(null);
+
+            await expect(service.fulfillBuyOrder("missing-payment-ref")).resolves.toBeUndefined();
+            expect(prismaService.order.findUnique).not.toHaveBeenCalled();
+        });
+
+        it("fulfillBuyOrder exits safely when the related order is missing", async () => {
+            prismaService.payment.updateMany.mockResolvedValue({ count: 1 });
+            prismaService.payment.findUnique.mockResolvedValue({
+                id: 501,
+                orderId: 999,
+                userId: 44,
+                user: { id: 44, cryptoSubAccountId: "sub-44", email: "u44@flipxer.com" },
+            });
+            prismaService.order.findUnique.mockResolvedValue(null);
+
+            await expect(service.fulfillBuyOrder("missing-order-ref")).resolves.toBeUndefined();
+            expect((service as any).ledgerService.pairedCreditInTransaction).toBeUndefined();
+        });
+
         it("detectStuckConfirmedOrders returns 0 when no stale confirmations exist", async () => {
             prismaService.payment.findMany.mockResolvedValue([]);
 
@@ -543,6 +730,70 @@ describe("BuyOrderService", () => {
             );
         });
 
+        it("cancelExpiredBuyOrders skips notifications when atomic claim fails", async () => {
+            const notify = (service as any).notificationDispatcher.notify as jest.Mock;
+            const ws = (service as any).wsGateway;
+
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 602,
+                    reference: "pay-602",
+                    orderId: 802,
+                    userId: 78,
+                    status: TransactionStatus.PENDING,
+                    createdAt: new Date(Date.now() - 40 * 60 * 1000),
+                    totalAmount: "100000",
+                    receivedAmount: null,
+                    order: {
+                        id: 802,
+                        amount: 0.2,
+                        currency: "ETH",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-802",
+                    },
+                    user: { id: 78, email: "u78@flipxer.com" },
+                },
+            ]);
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    payment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+                    order: { update: jest.fn() },
+                }),
+            );
+
+            await expect(service.cancelExpiredBuyOrders()).resolves.toBe(1);
+            expect(ws.notifyWalletUpdate).not.toHaveBeenCalled();
+            expect(notify).not.toHaveBeenCalled();
+        });
+
+        it("cancelExpiredBuyOrders continues when a payment cancellation throws", async () => {
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 603,
+                    reference: "pay-603",
+                    orderId: 803,
+                    userId: 79,
+                    status: TransactionStatus.PENDING,
+                    createdAt: new Date(Date.now() - 40 * 60 * 1000),
+                    totalAmount: "100000",
+                    receivedAmount: null,
+                    order: {
+                        id: 803,
+                        amount: 0.2,
+                        currency: "ETH",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-803",
+                    },
+                    user: { id: 79, email: "u79@flipxer.com" },
+                },
+            ]);
+
+            prismaService.$transaction = jest.fn().mockRejectedValue(new Error("db timeout"));
+
+            await expect(service.cancelExpiredBuyOrders()).resolves.toBe(1);
+        });
+
         it("cancelUnderpaidBuyOrders cancels underpaid orders and sends ops alert", async () => {
             const notify = (service as any).notificationDispatcher.notify as jest.Mock;
             const slack = (service as any).slackWebhookService.sendWebhookFailureAlert as jest.Mock;
@@ -612,6 +863,70 @@ describe("BuyOrderService", () => {
                     userId: 88,
                 }),
             );
+        });
+
+        it("cancelUnderpaidBuyOrders skips when atomic update finds already-claimed payment", async () => {
+            const notify = (service as any).notificationDispatcher.notify as jest.Mock;
+            const slack = (service as any).slackWebhookService.sendWebhookFailureAlert as jest.Mock;
+
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 703,
+                    reference: "pay-703",
+                    orderId: 903,
+                    userId: 90,
+                    status: TransactionStatus.PENDING,
+                    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+                    totalAmount: "120000",
+                    receivedAmount: "60000",
+                    order: {
+                        id: 903,
+                        amount: 0.9,
+                        currency: "BTC",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-903",
+                    },
+                    user: { id: 90, email: "u90@flipxer.com" },
+                },
+            ]);
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    payment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+                    order: { update: jest.fn() },
+                }),
+            );
+
+            await expect(service.cancelUnderpaidBuyOrders()).resolves.toBe(1);
+            expect(notify).not.toHaveBeenCalled();
+            expect(slack).not.toHaveBeenCalled();
+        });
+
+        it("cancelUnderpaidBuyOrders continues processing when a cancellation attempt throws", async () => {
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 704,
+                    reference: "pay-704",
+                    orderId: 904,
+                    userId: 91,
+                    status: TransactionStatus.PENDING,
+                    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+                    totalAmount: "120000",
+                    receivedAmount: "60000",
+                    order: {
+                        id: 904,
+                        amount: 0.9,
+                        currency: "BTC",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-904",
+                    },
+                    user: { id: 91, email: "u91@flipxer.com" },
+                },
+            ]);
+
+            prismaService.$transaction = jest.fn().mockRejectedValue(new Error("db lock timeout"));
+
+            await expect(service.cancelUnderpaidBuyOrders()).resolves.toBe(1);
         });
 
         it("executeInternalBuy returns success payload and throws on ledger credit failure", async () => {

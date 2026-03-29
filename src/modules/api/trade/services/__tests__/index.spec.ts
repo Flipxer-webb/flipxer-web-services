@@ -982,6 +982,172 @@ describe("TradingService (index)", () => {
             expect(res.message).toContain("Swap failed");
         });
 
+        it("refreshTransactionStatus throws when transaction does not exist", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(null);
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-404"),
+            ).rejects.toBeInstanceOf(TransactionNotFoundException);
+        });
+
+        it("refreshTransactionStatus handles additional final statuses", async () => {
+            const { service, prisma } = makeDeps();
+            const user = { id: 10, cryptoSubAccountId: "sub-1" } as any;
+
+            prisma.order.findFirst
+                .mockResolvedValueOnce(pendingOrder({ status: OrderStatus.completed, streamlinedStatus: "completed" }))
+                .mockResolvedValueOnce(pendingOrder({ status: OrderStatus.failed, streamlinedStatus: "failed" }))
+                .mockResolvedValueOnce(pendingOrder({ status: OrderStatus.cancelled, streamlinedStatus: "cancelled" }));
+
+            await expect(service.refreshTransactionStatus(user, "TX-final-1")).resolves.toMatchObject({
+                message: "Transaction status is already final",
+                data: { status: OrderStatus.completed },
+            });
+            await expect(service.refreshTransactionStatus(user, "TX-final-2")).resolves.toMatchObject({
+                message: "Transaction status is already final",
+                data: { status: OrderStatus.failed },
+            });
+            await expect(service.refreshTransactionStatus(user, "TX-final-3")).resolves.toMatchObject({
+                message: "Transaction status is already final",
+                data: { status: OrderStatus.cancelled },
+            });
+        });
+
+        it("refreshTransactionStatus rejects non-final transactions when sub-account is missing", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(
+                pendingOrder({ status: OrderStatus.processing, streamlinedStatus: "processing" }),
+            );
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: null } as any, "TX-no-sub"),
+            ).rejects.toThrow("Account setup incomplete");
+        });
+
+        it("refreshTransactionStatus returns unsupported response for non-SEND/SELL/SWAP categories", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(
+                pendingOrder({ orderCategory: OrderCategory.BUY, status: OrderStatus.processing }),
+            );
+
+            const res = await service.refreshTransactionStatus(
+                { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                "TX-buy",
+            );
+
+            expect(res.message).toContain("does not support manual refresh");
+            expect(res.data.status).toBe(OrderStatus.processing);
+        });
+
+        it("refreshTransactionStatus handles SEND rejected, still-processing, and provider failure paths", async () => {
+            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+
+            prisma.order.findFirst
+                .mockResolvedValueOnce(
+                    pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: "ref-rejected" }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: "ref-pending" }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: "ref-error" }),
+                );
+
+            quidaxService.getWithdrawerByReference
+                .mockResolvedValueOnce({ data: { status: OrderStatus.rejected, txid: "tx-rej" } })
+                .mockResolvedValueOnce({ data: { status: "processing", txid: "tx-proc" } })
+                .mockRejectedValueOnce(new Error("provider down"));
+
+            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue({ ok: true });
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-1"),
+            ).resolves.toMatchObject({ message: "Transaction was rejected" });
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-2"),
+            ).resolves.toMatchObject({ message: "Transaction is still processing" });
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-3"),
+            ).resolves.toMatchObject({ message: "Unable to refresh status. Please try again later." });
+        });
+
+        it("refreshTransactionStatus rejects SEND transactions without order reference", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(
+                pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: null }),
+            );
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-missing-ref"),
+            ).rejects.toBeInstanceOf(GeneralTransactionException);
+        });
+
+        it("refreshTransactionStatus handles SWAP completed, still-processing, and provider failure paths", async () => {
+            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+
+            prisma.order.findFirst
+                .mockResolvedValueOnce(
+                    pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: "swap-done" }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: "swap-processing" }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: "swap-error" }),
+                );
+
+            quidaxService.getSwapTransaction
+                .mockResolvedValueOnce({ data: { status: OrderStatus.completed } })
+                .mockResolvedValueOnce({ data: { status: OrderStatus.processing } })
+                .mockRejectedValueOnce(new Error("swap provider down"));
+
+            webhookHandlerService.swapTransactionHandler.mockResolvedValue({ ok: true });
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-1"),
+            ).resolves.toMatchObject({ message: "Swap completed successfully" });
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-2"),
+            ).resolves.toMatchObject({ message: "Swap is still processing" });
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-3"),
+            ).resolves.toMatchObject({ message: "Unable to refresh status. Please try again later." });
+        });
+
+        it("refreshTransactionStatus rejects SWAP transactions without provider order id", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(
+                pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: null }),
+            );
+
+            await expect(
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-missing-provider-id"),
+            ).rejects.toBeInstanceOf(GeneralTransactionException);
+        });
+
+        it("normalizes deposit statuses and detects BUY-related deposits by amount tolerance", async () => {
+            const { service, prisma } = makeDeps();
+
+            expect((service as any).normalizeDepositStatus("successful")).toBe(OrderStatus.accepted);
+            expect((service as any).normalizeDepositStatus("pending")).toBe(OrderStatus.pending);
+            expect((service as any).normalizeDepositStatus("failed")).toBe(OrderStatus.rejected);
+            expect((service as any).normalizeDepositStatus("unknown-status")).toBe(OrderStatus.pending);
+
+            prisma.order.findMany
+                .mockResolvedValueOnce([{ amount: 100 }])
+                .mockResolvedValueOnce([{ amount: 100 }])
+                .mockResolvedValueOnce([{ amount: 0 }]);
+
+            await expect((service as any).isBuyOrderRelatedDeposit(10, "btc", 90)).resolves.toBe(true);
+            await expect((service as any).isBuyOrderRelatedDeposit(10, "btc", 160)).resolves.toBe(false);
+            await expect((service as any).isBuyOrderRelatedDeposit(10, "btc", 1)).resolves.toBe(false);
+        });
+
         it("debugUserWallet returns combined db/provider information", async () => {
             const { service, prisma, quidaxService } = makeDeps();
             prisma.user.findUnique.mockResolvedValue({

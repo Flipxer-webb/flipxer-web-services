@@ -23,6 +23,7 @@ jest.mock("bcryptjs", () => ({
 jest.mock("otplib", () => ({
     authenticator: {
         check: jest.fn(),
+        verify: jest.fn(),
         generateSecret: jest.fn().mockReturnValue("TESTBASE32SECRET"),
     },
 }));
@@ -63,6 +64,7 @@ import { KycStateMachineService } from "../kyc-state-machine.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { DocumentType, Status, UserType } from "@prisma/client";
+import { authenticator } from "otplib";
 import * as bcrypt from "bcryptjs";
 
 function makePrisma() {
@@ -112,8 +114,19 @@ describe("AuthService", () => {
         const mock2FA = {
             checkAndIncrement: jest.fn().mockResolvedValue({ allowed: true }),
             reset: jest.fn(),
+            checkAttempt: jest.fn().mockResolvedValue({ allowed: true }),
+            recordFailedAttempt: jest.fn().mockResolvedValue({
+                remainingAttempts: 4,
+                lockoutDuration: 0,
+                lockoutEndsAt: null,
+            }),
+            recordSuccessfulAttempt: jest.fn().mockResolvedValue(undefined),
+            resetAttempts: jest.fn().mockResolvedValue(undefined),
         };
-        const mockSettings = { getSetting: jest.fn() };
+        const mockSettings = {
+            getSetting: jest.fn(),
+            verifyBackupCode: jest.fn().mockResolvedValue(false),
+        };
         const mockTier = {};
         const mockRedis = {
             set: jest.fn().mockResolvedValue(undefined),
@@ -499,6 +512,62 @@ describe("AuthService", () => {
             await expect(service.refreshToken({ refreshToken: "invalid" } as any)).rejects.toThrow();
             validateSpy.mockRestore();
         });
+
+        it("invalidates the token family when reuse is detected", async () => {
+            jwtService.verify.mockReturnValue({ sub: 1 });
+            prisma.user.update.mockResolvedValue({});
+
+            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+                .mockResolvedValue({ valid: false, reuse: true });
+
+            await expect(service.refreshToken({ refreshToken: "stolen-token" } as any)).rejects.toThrow(
+                "Invalid refresh token",
+            );
+
+            expect(prisma.user.update).toHaveBeenCalledWith({
+                where: { id: 1 },
+                data: { refreshToken: null, refreshTokenFamily: null },
+            });
+
+            validateSpy.mockRestore();
+        });
+
+        it("rejects refresh when session is no longer valid", async () => {
+            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-x" });
+            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+                .mockResolvedValue({ valid: true, family: "family-1" });
+
+            (service as any).sessionService.validateSession.mockResolvedValue(false);
+
+            await expect(service.refreshToken({ refreshToken: "refresh-with-session" } as any)).rejects.toThrow(
+                "Session expired or invalid",
+            );
+
+            validateSpy.mockRestore();
+        });
+
+        it("preserves sessionId and family on successful rotation", async () => {
+            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-abc" });
+
+            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+                .mockResolvedValue({ valid: true, family: "family-xyz" });
+            const generateSpy = jest.spyOn(service, "generateTokens")
+                .mockResolvedValue({ accessToken: "next-access", refreshToken: "next-refresh" } as any);
+            const saveSpy = jest.spyOn(service, "saveRefreshToken")
+                .mockResolvedValue({} as any);
+
+            (service as any).sessionService.validateSession.mockResolvedValue(true);
+
+            const result = await service.refreshToken({ refreshToken: "refresh-with-session" } as any);
+
+            expect(result.data).toMatchObject({ accessToken: "next-access", refreshToken: "next-refresh" });
+            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, sessionId: "session-abc" });
+            expect(saveSpy).toHaveBeenCalledWith(1, "next-refresh", "family-xyz");
+
+            validateSpy.mockRestore();
+            generateSpy.mockRestore();
+            saveSpy.mockRestore();
+        });
     });
 
     // ── saveRefreshToken ─────────────────────────────────────
@@ -528,6 +597,207 @@ describe("AuthService", () => {
             const result = await service.validateRefreshToken(1, "token");
 
             expect(result.valid).toBe(false);
+        });
+
+        it("returns invalid with reuse hint when token length mismatches", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                refreshToken: "short-token",
+                refreshTokenFamily: "family-1",
+            });
+
+            const hashSpy = jest.spyOn(service as any, "hashToken").mockReturnValue("this-hash-is-much-longer");
+            const result = await service.validateRefreshToken(1, "token");
+
+            expect(result).toEqual({ valid: false, reuse: true });
+            hashSpy.mockRestore();
+        });
+
+        it("returns valid when timing-safe hash comparison matches", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                refreshToken: "abc123",
+                refreshTokenFamily: "family-2",
+            });
+
+            const hashSpy = jest.spyOn(service as any, "hashToken").mockReturnValue("abc123");
+            const result = await service.validateRefreshToken(1, "token");
+
+            expect(result).toEqual({ valid: true, family: "family-2" });
+            hashSpy.mockRestore();
+        });
+
+        it("returns invalid with reuse hint when same-length hashes do not match", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                refreshToken: "abc123",
+                refreshTokenFamily: "family-3",
+            });
+
+            const hashSpy = jest.spyOn(service as any, "hashToken").mockReturnValue("def456");
+            const result = await service.validateRefreshToken(1, "token");
+
+            expect(result).toEqual({ valid: false, reuse: true });
+            hashSpy.mockRestore();
+        });
+    });
+
+    describe("verify2FALogin + reset2FARateLimit", () => {
+        const base2FADto = {
+            tempToken: "tmp-2fa",
+            code: "123456",
+            deviceName: "Chrome",
+            deviceType: "desktop",
+            browser: "Chrome",
+            os: "Windows",
+        };
+
+        const base2FAUser = {
+            id: 1,
+            twoFactorSecret: "encrypted-secret",
+            isTwoFactorEnabled: true,
+            userType: "INDIVIDUAL",
+            isEmailVerified: true,
+            isPhoneVerified: true,
+            isPasswordCreated: true,
+            isBvnVerified: true,
+            isDocumentVerified: false,
+            businessRecordCompleted: false,
+            businessDocumentVerificationStatus: null,
+        };
+
+        it("rejects invalid or expired temporary 2FA token", async () => {
+            jwtService.verifyAsync.mockRejectedValue(new Error("jwt invalid"));
+
+            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
+                "Invalid or expired token. Please log in again.",
+            );
+        });
+
+        it("rejects invalid 2FA token type", async () => {
+            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "wrong", platform: "USER" });
+
+            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
+                "Invalid token type",
+            );
+        });
+
+        it("rejects users without enabled 2FA configuration", async () => {
+            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            prisma.user.findUnique.mockResolvedValue({ ...base2FAUser, isTwoFactorEnabled: false });
+
+            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
+                "2FA is not enabled for this account",
+            );
+        });
+
+        it("locks immediately when rate-limit check denies attempts", async () => {
+            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            prisma.user.findUnique.mockResolvedValue(base2FAUser);
+            (authenticator.verify as jest.Mock).mockReturnValue(false);
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(false);
+            (service as any).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
+                allowed: false,
+                lockoutDuration: 120,
+            });
+
+            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
+                "Too many failed 2FA attempts",
+            );
+        });
+
+        it("applies lockout after recording failed attempts", async () => {
+            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            prisma.user.findUnique.mockResolvedValue(base2FAUser);
+            (authenticator.verify as jest.Mock).mockReturnValue(false);
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(false);
+            (service as any).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
+                allowed: true,
+            });
+            (service as any).twoFactorRateLimitService.recordFailedAttempt.mockResolvedValue({
+                lockoutEndsAt: new Date().toISOString(),
+                lockoutDuration: 300,
+                remainingAttempts: 0,
+            });
+
+            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
+                "Invalid verification code",
+            );
+        });
+
+        it("returns remaining-attempts error for invalid 2FA code without lockout", async () => {
+            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            prisma.user.findUnique.mockResolvedValue(base2FAUser);
+            (authenticator.verify as jest.Mock).mockReturnValue(false);
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(false);
+            (service as any).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
+                allowed: true,
+            });
+            (service as any).twoFactorRateLimitService.recordFailedAttempt.mockResolvedValue({
+                lockoutEndsAt: null,
+                lockoutDuration: 0,
+                remainingAttempts: 2,
+            });
+
+            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
+                "2 attempts remaining.",
+            );
+        });
+
+        it("completes login with backup code and tolerates session creation failure", async () => {
+            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            prisma.user.findUnique.mockResolvedValue({
+                ...base2FAUser,
+                userType: "BUSINESS",
+                businessRecordCompleted: true,
+                businessDocumentVerificationStatus: "PENDING",
+            });
+            (authenticator.verify as jest.Mock).mockReturnValue(false);
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(true);
+            (service as any).sessionService.createSession.mockRejectedValue(new Error("redis unavailable"));
+
+            const generateSpy = jest.spyOn(service, "generateTokens")
+                .mockResolvedValue({ accessToken: "2fa-access", refreshToken: "2fa-refresh" } as any);
+            const saveSpy = jest.spyOn(service, "saveRefreshToken")
+                .mockResolvedValue({} as any);
+            prisma.user.update.mockResolvedValue({});
+
+            const result = await service.verify2FALogin(base2FADto as any, "127.0.0.1");
+
+            expect(result.data.accessToken).toBe("2fa-access");
+            expect(result.data.userType).toBe("business");
+            expect(result.data.verificationStatus.businessRecordCompleted).toBe(true);
+            expect((service as any).twoFactorRateLimitService.recordSuccessfulAttempt).toHaveBeenCalledWith("1", "login");
+            expect(saveSpy).toHaveBeenCalledWith(1, "2fa-refresh");
+            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER" });
+
+            generateSpy.mockRestore();
+            saveSpy.mockRestore();
+        });
+
+        it("reset2FARateLimit throws when user is missing", async () => {
+            prisma.user.findUnique.mockResolvedValue(null);
+
+            await expect(service.reset2FARateLimit({ userId: 999 })).rejects.toThrow("User not found");
+        });
+
+        it("reset2FARateLimit supports context-specific and global resets", async () => {
+            prisma.user.findUnique
+                .mockResolvedValueOnce({ id: 8, email: "u8@flipxer.com", isTwoFactorEnabled: true })
+                .mockResolvedValueOnce({ id: 8, email: "u8@flipxer.com", isTwoFactorEnabled: true });
+
+            const withContext = await service.reset2FARateLimit({ userId: 8, context: "login" });
+            const withoutContext = await service.reset2FARateLimit({ userId: 8 });
+
+            expect(withContext.message).toContain("login 2FA rate limit");
+            expect(withoutContext.message).toContain("all 2FA rate limits");
+            expect((service as any).twoFactorRateLimitService.resetAttempts).toHaveBeenNthCalledWith(
+                1,
+                "8",
+                "login",
+            );
+            expect((service as any).twoFactorRateLimitService.resetAttempts).toHaveBeenNthCalledWith(
+                2,
+                "8",
+                undefined,
+            );
         });
     });
 
