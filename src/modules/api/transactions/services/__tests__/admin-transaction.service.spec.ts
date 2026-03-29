@@ -402,4 +402,194 @@ describe("AdminTransactionService", () => {
         expect(json.data.format).toBe("json");
         expect(json.data.records).toHaveLength(1);
     });
+
+    it("manual approve should return not found when transaction is missing", async () => {
+        settingService.verify2FACode.mockResolvedValue(true);
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        const result = await service.manualApproveTransaction(
+            "TX-missing",
+            { twoFactorCode: "123456", confirmed: true } as any,
+            { id: 90 } as any,
+        );
+
+        expect(result.message).toContain("not found");
+    });
+
+    it("manual approve should require explicit confirmation", async () => {
+        settingService.verify2FACode.mockResolvedValue(true);
+        prisma.order.findUnique.mockResolvedValue({
+            transactionId: "TX-1",
+            orderCategory: OrderCategory.BUY,
+            userId: 1,
+            currency: "btc",
+            amount: 10,
+        });
+
+        const result = await service.manualApproveTransaction(
+            "TX-1",
+            { twoFactorCode: "123456", confirmed: false } as any,
+            { id: 90 } as any,
+        );
+
+        expect(result.message).toContain("requires confirmation");
+    });
+
+    it("refund should return not found for missing transaction", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        const result = await service.refundTransaction("TX-missing", { reason: "none" } as any, 2);
+
+        expect(result.message).toContain("not found");
+    });
+
+    it("refund should reject zero or invalid amount", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 2,
+            transactionId: "TX-1",
+            orderReference: "REF-1",
+            userId: 12,
+            orderCategory: OrderCategory.BUY,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+            currency: "btc",
+            total: 0,
+            amount: 0,
+        });
+        prisma.ledgerEntry.findFirst.mockResolvedValue(null);
+
+        await expect(
+            service.refundTransaction("TX-1", { reason: "invalid" } as any, 7),
+        ).rejects.toThrow("zero or invalid");
+    });
+
+    it("refund should reject when duplicate refund is detected inside lock", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 1,
+            transactionId: "TX-1",
+            orderReference: "REF-1",
+            userId: 12,
+            orderCategory: OrderCategory.SELL,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+            currency: "btc",
+            total: 30,
+            amount: 20,
+        });
+        prisma.ledgerEntry.findFirst
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ id: "entry-2" });
+
+        await expect(
+            service.refundTransaction("TX-1", { reason: "duplicate-lock" } as any, 7),
+        ).rejects.toThrow("already been refunded");
+    });
+
+    it("refund should throw internal error when credit fails", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 1,
+            transactionId: "TX-1",
+            orderReference: "REF-1",
+            userId: 12,
+            orderCategory: OrderCategory.SELL,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+            currency: "btc",
+            total: 30,
+            amount: 20,
+        });
+        prisma.ledgerEntry.findFirst
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+        ledgerService.credit.mockResolvedValue({ success: false, error: "credit failed" });
+
+        await expect(
+            service.refundTransaction("TX-1", { reason: "manual" } as any, 7),
+        ).rejects.toThrow("Refund failed: credit failed");
+    });
+
+    it("retry should return not found when transaction is missing", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        const result = await service.retryTransaction("TX-missing", 2);
+
+        expect(result.message).toContain("not found");
+    });
+
+    it("retry should reject statuses outside failed or pending", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            transactionId: "TX-1",
+            streamlinedStatus: OrderStreamlinedStatus.completed,
+            status: "pending",
+        });
+
+        const result = await service.retryTransaction("TX-1", 2);
+        expect(result.message).toContain("Only failed or pending");
+    });
+
+    it("retry BUY should fail when order reference is missing", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 11,
+            transactionId: "TX-1",
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+            status: "failed",
+            orderCategory: OrderCategory.BUY,
+            orderReference: null,
+            reason: null,
+        });
+        prisma.order.update.mockResolvedValue({});
+
+        await expect(service.retryTransaction("TX-1", 2)).rejects.toThrow(
+            "Retry failed: Missing order reference required for payment lookup"
+        );
+    });
+
+    it("retry SWAP should invoke retryPendingSwap", async () => {
+        prisma.order.findUnique
+            .mockResolvedValueOnce({
+                id: 91,
+                transactionId: "TX-SWAP",
+                streamlinedStatus: OrderStreamlinedStatus.failed,
+                status: "failed",
+                orderCategory: OrderCategory.SWAP,
+                reason: null,
+            })
+            .mockResolvedValueOnce({
+                transactionId: "TX-SWAP",
+                user: { firstName: "A", lastName: "B" },
+            });
+        prisma.order.update.mockResolvedValue({});
+        swapService.retryPendingSwap.mockResolvedValue(undefined);
+
+        const result = await service.retryTransaction("TX-SWAP", 2);
+
+        expect(swapService.retryPendingSwap).toHaveBeenCalledWith(91);
+        expect(result.message).toContain("retry initiated/completed successfully");
+    });
+
+    it("retry should fail for unknown category", async () => {
+        prisma.order.findUnique.mockResolvedValue({
+            id: 88,
+            transactionId: "TX-UNKNOWN",
+            streamlinedStatus: OrderStreamlinedStatus.pending,
+            status: "pending",
+            orderCategory: "UNKNOWN",
+            reason: null,
+        });
+        prisma.order.update.mockResolvedValue({});
+
+        await expect(service.retryTransaction("TX-UNKNOWN", 2)).rejects.toThrow(
+            "Retry failed: Retry not implemented for category UNKNOWN"
+        );
+    });
+
+    it("getTransactionStats should handle all date-range periods", async () => {
+        prisma.order.count.mockResolvedValue(0);
+        prisma.order.aggregate.mockResolvedValue({ _sum: { amountInFiat: 0 } });
+        prisma.order.findMany.mockResolvedValue([]);
+        prisma.order.groupBy.mockResolvedValue([]);
+
+        for (const period of ["today", "week", "quarter", "year", "all", "unknown"]) {
+            const result = await service.getTransactionStats(period);
+            expect(result.data.period.start).toBeDefined();
+            expect(result.data.period.end).toBeDefined();
+        }
+    });
 });
