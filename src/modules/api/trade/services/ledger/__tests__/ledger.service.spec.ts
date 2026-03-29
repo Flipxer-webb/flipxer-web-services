@@ -624,6 +624,395 @@ describe("LedgerService", () => {
         });
     });
 
+    // ── pairedCredit / pairedCreditInTransaction ──────────
+
+    describe("pairedCredit", () => {
+        const opts = {
+            userId: 7,
+            currency: "BTC",
+            type: LedgerType.DEPOSIT,
+            amount: "0.5",
+            reference: "paired-credit-001",
+            description: "paired credit",
+        };
+
+        it("should create user credit and platform debit entries", async () => {
+            tx.ledgerEntry.findUnique.mockResolvedValue(null);
+            tx.ledgerEntry.findFirst
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("1.0") })
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("10.0") });
+            tx.ledgerEntry.create
+                .mockResolvedValueOnce({ id: "u-credit-1", reference: opts.reference })
+                .mockResolvedValueOnce({ id: "p-debit-1", reference: `platform:${opts.reference}` });
+
+            const result = await service.pairedCredit(opts);
+
+            expect(result.success).toBe(true);
+            expect(result.userEntry?.id).toBe("u-credit-1");
+            expect(result.platformEntry?.reference).toBe(`platform:${opts.reference}`);
+            expect(lockService.withLock).toHaveBeenNthCalledWith(
+                1,
+                "ledger:0:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 20000 }),
+            );
+            expect(lockService.withLock).toHaveBeenNthCalledWith(
+                2,
+                "ledger:7:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 20000 }),
+            );
+        });
+
+        it("should skip platform entry when createPlatformEntry is false", async () => {
+            tx.ledgerEntry.findUnique.mockResolvedValue(null);
+            tx.ledgerEntry.findFirst.mockResolvedValueOnce({ balanceAfter: new Decimal("1.0") });
+            tx.ledgerEntry.create.mockResolvedValueOnce({ id: "u-credit-2", reference: opts.reference });
+
+            const result = await service.pairedCredit({ ...opts, createPlatformEntry: false });
+
+            expect(result.success).toBe(true);
+            expect(result.platformEntry).toBeNull();
+            expect(tx.ledgerEntry.create).toHaveBeenCalledTimes(1);
+            expect(lockService.withLock).toHaveBeenCalledTimes(1);
+            expect(lockService.withLock).toHaveBeenCalledWith(
+                "ledger:7:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 20000 }),
+            );
+        });
+
+        it("should return existing user entry when reference already exists", async () => {
+            tx.ledgerEntry.findUnique.mockResolvedValue({
+                id: "existing-user-entry",
+                balanceAfter: new Decimal("2.5"),
+                reference: opts.reference,
+            });
+
+            const result = await service.pairedCredit(opts);
+
+            expect(result.success).toBe(true);
+            expect(result.userEntry?.id).toBe("existing-user-entry");
+            expect(tx.ledgerEntry.create).not.toHaveBeenCalled();
+        });
+
+        it("should reject platform user id", async () => {
+            const result = await service.pairedCredit({
+                ...opts,
+                userId: LedgerService.PLATFORM_USER_ID,
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("Cannot use pairedCredit for platform user");
+            expect(lockService.withLock).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("pairedCreditInTransaction", () => {
+        const opts = {
+            userId: 9,
+            currency: "USDT",
+            type: LedgerType.DEPOSIT,
+            amount: "1.25",
+            reference: "paired-credit-tx-001",
+        };
+
+        it("should return error for non-positive amount", async () => {
+            const result = await service.pairedCreditInTransaction(tx as any, {
+                ...opts,
+                amount: "0",
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("Amount must be positive");
+        });
+
+        it("should catch transaction-client failures", async () => {
+            tx.ledgerEntry.findUnique.mockRejectedValueOnce(new Error("tx-failure"));
+
+            const result = await service.pairedCreditInTransaction(tx as any, opts);
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("tx-failure");
+        });
+    });
+
+    // ── pairedDebit ────────────────────────────────────────
+
+    describe("pairedDebit", () => {
+        const opts = {
+            userId: 11,
+            currency: "BTC",
+            type: LedgerType.WITHDRAWAL,
+            amount: "0.8",
+            reference: "paired-debit-001",
+            description: "paired debit",
+            createPlatformEntry: true,
+        };
+
+        it("should create user debit, platform credit, and fee entries", async () => {
+            tx.ledgerEntry.findFirst
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("5.0") })
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("20.0") })
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("2.0") });
+            tx.ledgerEntry.aggregate.mockResolvedValue({ _sum: { holdAmount: null } });
+            tx.ledgerEntry.findUnique.mockResolvedValue(null);
+            tx.ledgerEntry.create
+                .mockResolvedValueOnce({ id: "user-debit-1" })
+                .mockResolvedValueOnce({ id: "platform-credit-1" })
+                .mockResolvedValueOnce({ id: "user-fee-1" })
+                .mockResolvedValueOnce({ id: "fee-account-1" });
+
+            const result = await service.pairedDebit({ ...opts, networkFee: "0.05" as any });
+
+            expect(result.success).toBe(true);
+            expect(result.userEntry?.id).toBe("user-debit-1");
+            expect(result.platformEntry?.id).toBe("platform-credit-1");
+            expect(tx.ledgerEntry.create).toHaveBeenCalledTimes(4);
+            expect(lockService.withLock).toHaveBeenNthCalledWith(
+                1,
+                "ledger:-1:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 20000 }),
+            );
+            expect(lockService.withLock).toHaveBeenNthCalledWith(
+                2,
+                "ledger:0:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 20000 }),
+            );
+            expect(lockService.withLock).toHaveBeenNthCalledWith(
+                3,
+                "ledger:11:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 20000 }),
+            );
+        });
+
+        it("should fail when available balance is insufficient", async () => {
+            tx.ledgerEntry.findFirst.mockResolvedValueOnce({ balanceAfter: new Decimal("0.2") });
+            tx.ledgerEntry.aggregate.mockResolvedValue({ _sum: { holdAmount: null } });
+
+            const result = await service.pairedDebit(opts);
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("Insufficient balance");
+            expect(tx.ledgerEntry.create).not.toHaveBeenCalled();
+        });
+
+        it("should be idempotent when debit reference already exists", async () => {
+            tx.ledgerEntry.findFirst.mockResolvedValueOnce({ balanceAfter: new Decimal("3.0") });
+            tx.ledgerEntry.aggregate.mockResolvedValue({ _sum: { holdAmount: null } });
+            tx.ledgerEntry.findUnique.mockResolvedValue({
+                id: "existing-paired-debit",
+                balanceAfter: new Decimal("2.2"),
+            });
+
+            const result = await service.pairedDebit(opts);
+
+            expect(result.success).toBe(true);
+            expect(result.userEntry?.id).toBe("existing-paired-debit");
+            expect(tx.ledgerEntry.create).not.toHaveBeenCalled();
+        });
+
+        it("should reject platform user id", async () => {
+            const result = await service.pairedDebit({
+                ...opts,
+                userId: LedgerService.PLATFORM_USER_ID,
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("Cannot use pairedDebit for platform user");
+            expect(lockService.withLock).not.toHaveBeenCalled();
+        });
+    });
+
+    // ── releaseHoldWithPlatformEntry ───────────────────────
+
+    describe("releaseHoldWithPlatformEntry", () => {
+        const holdEntry = {
+            id: "hold-platform-1",
+            userId: 17,
+            currency: "BTC",
+            balanceAfter: new Decimal("1.5"),
+            holdAmount: new Decimal("0.4"),
+            status: EntryStatus.HOLD,
+            type: LedgerType.HOLD,
+            reference: "hold-platform-ref-1",
+            tradeGroupId: "tg-1",
+            description: "held",
+        };
+
+        it("should settle hold and create platform + fee entries", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue(holdEntry);
+            tx.ledgerEntry.findUnique.mockResolvedValue(holdEntry);
+            tx.ledgerEntry.update.mockResolvedValue({ ...holdEntry, status: EntryStatus.SETTLED });
+            tx.ledgerEntry.findFirst
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("10.0") })
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("1.0") });
+            tx.ledgerEntry.create
+                .mockResolvedValueOnce({ id: "platform-credit-2" })
+                .mockResolvedValueOnce({ id: "fee-credit-2" });
+
+            const result = await service.releaseHoldWithPlatformEntry({
+                holdReference: holdEntry.reference,
+                settle: true,
+                createPlatformEntry: true,
+                networkFee: "0.05" as any,
+                description: "settle hold",
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.userEntry?.id).toBe("hold-platform-1");
+            expect(result.platformEntry?.id).toBe("platform-credit-2");
+            expect(tx.ledgerEntry.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: "hold-platform-1" },
+                    data: expect.objectContaining({ status: EntryStatus.SETTLED }),
+                }),
+            );
+            expect(tx.ledgerEntry.create).toHaveBeenCalledTimes(2);
+        });
+
+        it("should cancel hold on refund path without creating platform entries", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue(holdEntry);
+            tx.ledgerEntry.findUnique.mockResolvedValue(holdEntry);
+            tx.ledgerEntry.update.mockResolvedValue({ ...holdEntry, status: EntryStatus.CANCELLED });
+
+            const result = await service.releaseHoldWithPlatformEntry({
+                holdReference: holdEntry.reference,
+                settle: false,
+                createPlatformEntry: false,
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.platformEntry).toBeNull();
+            expect(tx.ledgerEntry.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ status: EntryStatus.CANCELLED }),
+                }),
+            );
+            expect(tx.ledgerEntry.create).not.toHaveBeenCalled();
+        });
+
+        it("should fail when hold reference is not found", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue(null);
+
+            const result = await service.releaseHoldWithPlatformEntry({
+                holdReference: "missing-hold",
+                settle: true,
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("Hold entry not found");
+        });
+
+        it("should fail when hold is no longer valid in transaction", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue(holdEntry);
+            tx.ledgerEntry.findUnique.mockResolvedValue({ ...holdEntry, status: EntryStatus.SETTLED });
+
+            const result = await service.releaseHoldWithPlatformEntry({
+                holdReference: holdEntry.reference,
+                settle: true,
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("already released");
+        });
+    });
+
+    // ── transfer ────────────────────────────────────────────
+
+    describe("transfer", () => {
+        it("should transfer between users when source has sufficient balance", async () => {
+            tx.ledgerEntry.findUnique.mockResolvedValue(null);
+            tx.ledgerEntry.findFirst
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("2.0") })
+                .mockResolvedValueOnce({ balanceAfter: new Decimal("1.2") });
+            tx.ledgerEntry.aggregate.mockResolvedValue({ _sum: { holdAmount: null } });
+            tx.ledgerEntry.create
+                .mockResolvedValueOnce({ id: "transfer-debit-1" })
+                .mockResolvedValueOnce({ id: "transfer-credit-1" });
+
+            const result = await service.transfer(
+                3,
+                8,
+                "btc",
+                "0.5",
+                LedgerType.SEND,
+                "transfer-001",
+            );
+
+            expect(result.success).toBe(true);
+            expect(result.entryId).toBe("transfer-debit-1");
+            expect(lockService.withLock).toHaveBeenNthCalledWith(
+                1,
+                "ledger:3:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 45000 }),
+            );
+            expect(lockService.withLock).toHaveBeenNthCalledWith(
+                2,
+                "ledger:8:BTC",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 15000 }),
+            );
+        });
+
+        it("should be idempotent when transfer debit reference exists", async () => {
+            tx.ledgerEntry.findUnique.mockResolvedValue({
+                id: "existing-transfer",
+                balanceAfter: new Decimal("1.0"),
+            });
+
+            const result = await service.transfer(
+                3,
+                8,
+                "BTC",
+                "0.5",
+                LedgerType.SEND,
+                "transfer-002",
+            );
+
+            expect(result.success).toBe(true);
+            expect(result.entryId).toBe("existing-transfer");
+            expect(tx.ledgerEntry.create).not.toHaveBeenCalled();
+        });
+
+        it("should fail when non-platform source has insufficient balance", async () => {
+            tx.ledgerEntry.findUnique.mockResolvedValue(null);
+            tx.ledgerEntry.findFirst.mockResolvedValueOnce({ balanceAfter: new Decimal("0.1") });
+            tx.ledgerEntry.aggregate.mockResolvedValue({ _sum: { holdAmount: null } });
+
+            const result = await service.transfer(
+                4,
+                9,
+                "BTC",
+                "0.5",
+                LedgerType.SEND,
+                "transfer-003",
+            );
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("Insufficient balance");
+        });
+
+        it("should reject non-positive transfer amount", async () => {
+            const result = await service.transfer(
+                4,
+                9,
+                "BTC",
+                "0",
+                LedgerType.SEND,
+                "transfer-004",
+            );
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("must be positive");
+            expect(lockService.withLock).not.toHaveBeenCalled();
+        });
+    });
+
     // ── Static constants ─────────────────────────────────────
 
     describe("constants", () => {
