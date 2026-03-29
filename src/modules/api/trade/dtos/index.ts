@@ -132,6 +132,11 @@ export class BuyCryptoOrderDto {
     @IsNumber()
     totalAmountToPayInFiat: number;
 
+    @ApiProperty({ description: "Security verification token", required: false })
+    @IsOptional()
+    @IsString()
+    verificationToken?: string;
+
     @ApiProperty({ description: "Unique key to prevent duplicate buy orders", required: true })
     @IsNotEmpty()
     @IsString()
