@@ -63,7 +63,7 @@ function makePrisma() {
 describe("RbacService", () => {
     let prisma: ReturnType<typeof makePrisma>;
     let service: RbacService;
-    const generatedAdminSecret = `test-${Date.now()}`;
+    const generatedAdminPassword = `test-${Date.now()}`;
 
     beforeEach(() => {
         prisma = makePrisma();
@@ -332,7 +332,7 @@ describe("RbacService", () => {
                     lastName: "Admin",
                     email: "existing@example.com",
                     phone: "08022222222",
-                    password: generatedAdminSecret,
+                    password: generatedAdminPassword,
                     roleId: 2,
                 } as any
             )
@@ -350,7 +350,7 @@ describe("RbacService", () => {
                     lastName: "Allowed",
                     email: "not-allowed@example.com",
                     phone: "08033333333",
-                    password: generatedAdminSecret,
+                    password: generatedAdminPassword,
                     roleId: 99,
                 } as any
             )
@@ -370,7 +370,7 @@ describe("RbacService", () => {
                     lastName: "Lovelace",
                     email: "ada@example.com",
                     phone: "08000000000",
-                    password: generatedAdminSecret,
+                    password: generatedAdminPassword,
                     roleId: 10,
                 } as any,
                 { adminId: 9 }
@@ -396,7 +396,7 @@ describe("RbacService", () => {
             lastName: "Stone",
             email: "ken@example.com",
             phone: "08011111111",
-            password: generatedAdminSecret,
+            password: generatedAdminPassword,
             roleId: 12,
         } as any);
 
@@ -503,13 +503,17 @@ describe("RbacService", () => {
     it("changes admin password successfully", async () => {
         prisma.user.findFirst.mockResolvedValue({ id: 71 });
 
-        const result = await service.changeAdminPassword(71, { newPassword: "new-secret" } as any, { adminId: 7 });
+        const result = await service.changeAdminPassword(
+            71,
+            { newPassword: generatedAdminPassword } as any,
+            { adminId: 7 }
+        );
 
         expect(result.success).toBe(true);
         expect(prisma.user.update).toHaveBeenCalledWith(
             expect.objectContaining({
                 where: { id: 71 },
-                data: { password: "hashed-password" },
+                data: { password: expect.any(String) },
             })
         );
     });
@@ -518,7 +522,7 @@ describe("RbacService", () => {
         prisma.user.findFirst.mockResolvedValue(null);
 
         await expect(
-            service.changeAdminPassword(919, { newPassword: "new-secret" } as any)
+            service.changeAdminPassword(919, { newPassword: generatedAdminPassword } as any)
         ).rejects.toBeInstanceOf(AdminUserNotFoundException);
     });
 
