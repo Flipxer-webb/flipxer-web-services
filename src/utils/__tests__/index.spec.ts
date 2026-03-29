@@ -10,13 +10,15 @@ jest.mock("ioredis", () =>
     }))
 );
 
-const shapeTransactionMock = jest.fn((tx: any) => ({
+const shapeTransactionMock = jest.fn((tx: any, filter?: boolean) => ({
     id: tx.id,
     shaped: true,
+    filter,
 }));
 
 jest.mock("@/modules/api/transactions/types", () => ({
-    shapeTransaction: (tx: unknown) => shapeTransactionMock(tx),
+    shapeTransaction: (tx: unknown, filter?: boolean) =>
+        shapeTransactionMock(tx, filter),
 }));
 
 import Redis from "ioredis";
@@ -45,6 +47,13 @@ describe("utils/index", () => {
         expect(generateId({ type: "reference" })?.length).toBe(30);
         expect(generateId({ type: "transaction" })?.length).toBe(15);
         expect(generateId({ type: "identifier" })?.length).toBe(16);
+        expect(generateId({ type: "custom_lower_case", length: 6 })).toMatch(
+            /^[0-9a-h]{6}$/
+        );
+        expect(generateId({ type: "custom_upper_case", length: 6 })).toMatch(
+            /^[0-9A-H]{6}$/
+        );
+        expect(generateId({ type: "sessionId" })).toMatch(/^\d{15}$/);
 
         const numeric = generateId({ type: "numeric", length: 8 });
         expect(numeric).toMatch(/^\d{8}$/);
@@ -110,6 +119,13 @@ describe("utils/index", () => {
         const RedisMock = Redis as unknown as jest.Mock;
         expect(RedisMock).toHaveBeenCalledTimes(1);
         expect(redisOnceMock).toHaveBeenCalledWith("connect", expect.any(Function));
+
+        const options = RedisMock.mock.calls[0][0];
+        expect(options.retryStrategy(2)).toBe(400);
+        expect(options.retryStrategy(11)).toBeNull();
+        expect(options.reconnectOnError(new Error("READONLY replica"))).toBe(true);
+        expect(options.reconnectOnError(new Error("Too many requests"))).toBe(true);
+        expect(options.reconnectOnError(new Error("ECONNRESET"))).toBe(false);
     });
 
     it("formats local phone to international form without plus", () => {
@@ -133,6 +149,17 @@ describe("utils/index", () => {
         expect(grouped.length).toBeGreaterThanOrEqual(2);
         expect(shapeTransactionMock).toHaveBeenCalled();
         expect(grouped.flatMap((g) => g.transactions).every((t: any) => t.shaped)).toBe(true);
+    });
+
+    it("uses default filter=false when grouping transactions", () => {
+        shapeTransactionMock.mockClear();
+
+        groupTransactionsByDate([{ id: 99, createdAt: new Date() }] as any);
+
+        expect(shapeTransactionMock).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 99 }),
+            false
+        );
     });
 
     it("formats compact timestamps and file names", () => {
