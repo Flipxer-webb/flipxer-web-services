@@ -24,6 +24,7 @@ import { RateService } from "../rate.service";
 import { TransactionMonitorService } from "../ledger/transaction-monitor.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { NetworkTypes } from "@prisma/client";
 
 function makePrisma() {
     return {
@@ -260,6 +261,103 @@ describe("SendService", () => {
 
             expect(result.allowed).toBe(false);
             expect(result.reason).toContain("pending");
+        });
+
+        it("auto-fails stale pending orders and allows new withdrawal", async () => {
+            rateLimiter.checkLimit.mockResolvedValue({ allowed: true });
+            prisma.order.findFirst.mockResolvedValue({
+                id: 2,
+                orderReference: "ref-stale",
+                amount: 0.7,
+                status: "submitted",
+                createdAt: new Date(Date.now() - 40 * 60 * 1000),
+            });
+
+            const autoFailSpy = jest
+                .spyOn(service as any, "autoFailStuckOrder")
+                .mockResolvedValue(undefined);
+
+            const result = await (service as any).checkWithdrawalRateLimits(1, "BTC");
+
+            expect(result.allowed).toBe(true);
+            expect(autoFailSpy).toHaveBeenCalled();
+        });
+    });
+
+    describe("network/address validation helpers", () => {
+        it("resolveNetwork respects explicit network and auto-detects from address", () => {
+            expect((service as any).resolveNetwork(1, "trc20", "TYaLG5i4fhGAZDr7EsJFZEsxTCvNbfqLNi")).toBe(
+                "trc20",
+            );
+            expect(
+                (service as any).resolveNetwork(
+                    1,
+                    undefined,
+                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16",
+                ),
+            ).toBe(NetworkTypes.erc20);
+            expect((service as any).resolveNetwork(1, undefined, "invalid-address")).toBeUndefined();
+        });
+
+        it("validateWalletAddress falls back to local validation when provider rejects known format", async () => {
+            const walletAddressService = (service as any).walletAddressService;
+            walletAddressService.verifyWalletAddress.mockResolvedValueOnce({ data: { valid: false } });
+
+            await expect(
+                (service as any).validateWalletAddress(
+                    1,
+                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16",
+                    "ETH",
+                    NetworkTypes.erc20,
+                ),
+            ).resolves.toBeUndefined();
+
+            walletAddressService.verifyWalletAddress.mockResolvedValueOnce({ data: { valid: false } });
+            await expect(
+                (service as any).validateWalletAddress(1, "invalid-address", "ETH", NetworkTypes.erc20),
+            ).rejects.toThrow("Invalid wallet address for selected currency");
+        });
+
+        it("validateWalletAddress handles provider failures based on local address confidence", async () => {
+            const walletAddressService = (service as any).walletAddressService;
+            walletAddressService.verifyWalletAddress.mockRejectedValueOnce(new Error("provider unavailable"));
+
+            await expect(
+                (service as any).validateWalletAddress(
+                    1,
+                    "TYaLG5i4fhGAZDr7EsJFZEsxTCvNbfqLNi",
+                    "USDT",
+                    NetworkTypes.trc20,
+                ),
+            ).resolves.toBeUndefined();
+
+            walletAddressService.verifyWalletAddress.mockRejectedValueOnce(new Error("provider unavailable"));
+            await expect(
+                (service as any).validateWalletAddress(1, "@@bad", "USDT", NetworkTypes.trc20),
+            ).rejects.toThrow("Unable to verify wallet address. Please check the address and try again.");
+        });
+    });
+
+    describe("getCryptoWithdrawerFee edge cases", () => {
+        it("throws on unknown provider fee structure", async () => {
+            quidaxService.getWithdrawerFees.mockResolvedValue({ data: { type: "mystery" } });
+
+            await expect(
+                service.getCryptoWithdrawerFee({ amount: 10, currency: "btc" as any } as any),
+            ).rejects.toThrow("Unknown fee structure");
+        });
+
+        it("throws on range fee when amount is outside all ranges", async () => {
+            quidaxService.getWithdrawerFees.mockResolvedValue({
+                data: {
+                    type: "range",
+                    fee: [{ min: 0, max: 5, type: "flat", value: 1 }],
+                },
+            });
+
+            await expect(
+                service.getCryptoWithdrawerFee({ amount: 50, currency: "btc" as any } as any),
+            ).rejects.toThrow("Amount is out of range.");
         });
     });
 

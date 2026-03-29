@@ -21,13 +21,17 @@ import {
 
 const VALID_USER_ID = "123e4567-e89b-12d3-a456-426614174000";
 
-const makeResponse = (data: any = { ok: true }) => ({
+const makeResponse = (data?: any) => {
+    const payload = data ?? { ok: true };
+
+    return ({
     data: {
         status: "success",
         message: "ok",
-        data,
+        data: payload,
     },
 });
+};
 
 describe("QuidaxLib", () => {
     let lib: QuidaxLib;

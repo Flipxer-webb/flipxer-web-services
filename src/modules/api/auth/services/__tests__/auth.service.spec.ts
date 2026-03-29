@@ -58,7 +58,7 @@ import { DistributedLockService } from "@/modules/core/redisCache/services/distr
 import { KycStateMachineService } from "../kyc-state-machine.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
-import { Status, UserType } from "@prisma/client";
+import { DocumentType, Status, UserType } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 
 function makePrisma() {
@@ -403,7 +403,6 @@ describe("AuthService", () => {
             });
             (bcrypt.compare as jest.Mock).mockResolvedValue(false);
             prisma.user.update.mockResolvedValue({});
-
             await expect(service.userSignIn(signInDto as any, "127.0.0.1")).rejects.toThrow();
         });
 
@@ -517,6 +516,138 @@ describe("AuthService", () => {
             const result = await service.validateRefreshToken(1, "token");
 
             expect(result.valid).toBe(false);
+        });
+    });
+
+    describe("private helper coverage", () => {
+        it("masks sensitive IDs correctly", () => {
+            expect((service as any).maskSensitiveId()).toBe("N/A");
+            expect((service as any).maskSensitiveId("1234")).toBe("1234");
+            expect((service as any).maskSensitiveId("1234567890")).toBe("******7890");
+            expect((service as any).maskSensitiveId("1234567890", 2)).toBe("********90");
+        });
+
+        it("maps Dojah errors to friendly user messages", () => {
+            expect(
+                (service as any).mapDojahErrorToUserMessage({
+                    name: "NetworkTimeoutError",
+                    message: "socket timeout",
+                }),
+            ).toContain("Connection issue");
+
+            expect(
+                (service as any).mapDojahErrorToUserMessage({
+                    name: "ValidationError",
+                    message: "invalid image base64",
+                    status: 400,
+                }),
+            ).toContain("Invalid image format");
+
+            expect(
+                (service as any).mapDojahErrorToUserMessage({
+                    name: "NotFoundError",
+                    message: "not found",
+                    status: 404,
+                }),
+            ).toContain("Could not recognize this document type");
+
+            expect(
+                (service as any).mapDojahErrorToUserMessage({
+                    name: "UnknownError",
+                    message: "upstream failed",
+                }),
+            ).toContain("Document verification failed");
+        });
+
+        it("validates document expiry across formats", () => {
+            expect((service as any).isDocumentExpired("2030-01-01")).toBe(false);
+            expect((service as any).isDocumentExpired("01/01/2030")).toBe(false);
+            expect((service as any).isDocumentExpired("01-01-2030")).toBe(false);
+            expect((service as any).isDocumentExpired("2010-01-01")).toBe(true);
+            expect((service as any).isDocumentExpired("bad-date-format")).toBe(false);
+            expect((service as any).isDocumentExpired(undefined)).toBe(false);
+        });
+
+        it("enforces post-validation hard rejects and expiry handling", () => {
+            const logger = { warn: jest.fn(), log: jest.fn() } as any;
+
+            const parsed = { expiryDate: "2010-01-01", reason: undefined, hasExtractedText: true };
+            expect(() =>
+                (service as any).applyDojahPostValidation(true, parsed, 1, logger),
+            ).toThrow("Document appears to be expired");
+            expect(parsed.reason).toBe("Document has expired");
+
+            expect(() =>
+                (service as any).applyDojahPostValidation(
+                    false,
+                    { reason: "UNSUPPORTED_DOCUMENT", hasExtractedText: true },
+                    1,
+                    logger,
+                ),
+            ).toThrow("This document type is not supported");
+
+            expect(() =>
+                (service as any).applyDojahPostValidation(
+                    false,
+                    { reason: "NOT_VALID", hasExtractedText: true },
+                    1,
+                    logger,
+                ),
+            ).not.toThrow();
+        });
+
+        it("validates login platform and default security methods", () => {
+            expect(() =>
+                (service as any).validateLoginPlatform(UserType.INDIVIDUAL, "ADMIN"),
+            ).toThrow("Incorrect email or password");
+
+            expect(() =>
+                (service as any).validateLoginPlatform(UserType.INDIVIDUAL, "USER"),
+            ).not.toThrow();
+
+            expect(() =>
+                (service as any).validateLoginPlatform(UserType.INDIVIDUAL, "MOBILE"),
+            ).toThrow("Invalid login platform");
+
+            expect((service as any).getDefaultSecurityMethods()).toEqual({
+                sms: false,
+                email: false,
+                authenticator: false,
+                tradingPassword: false,
+            });
+        });
+
+        it("maps Dojah reasons and document types", () => {
+            expect((service as any).mapDojahReasonToUserMessage("not_valid")).toContain(
+                "could not be verified",
+            );
+            expect((service as any).mapDojahReasonToUserMessage("too_blurry")).toContain("unclear");
+            expect((service as any).mapDojahReasonToUserMessage("expired_document")).toContain("expired");
+            expect((service as any).mapDojahReasonToUserMessage("unsupported")).toContain("not supported");
+            expect((service as any).mapDojahReasonToUserMessage("CUSTOM_REASON")).toBe("CUSTOM_REASON");
+
+            expect((service as any).mapDojahToDocumentType("passport", undefined)).toBe(
+                DocumentType.INTERNATIONAL_PASSPORT,
+            );
+            expect((service as any).mapDojahToDocumentType("drivers license", undefined)).toBe(
+                DocumentType.DRIVER_LICENSE,
+            );
+            expect((service as any).mapDojahToDocumentType(undefined, "driver_license")).toBe(
+                DocumentType.DRIVER_LICENSE,
+            );
+            expect((service as any).mapDojahToDocumentType(undefined, "nin")).toBe(DocumentType.NIN);
+        });
+
+        it("only accepts trusted HTTPS document URLs", () => {
+            const trustedOrigins = (service as any).getTrustedDocumentOrigins() as Set<string>;
+            expect(trustedOrigins.has("https://ik.imagekit.io")).toBe(true);
+
+            const trusted = (service as any).resolveTrustedDocumentUrl("https://ik.imagekit.io/folder/id.png");
+            expect(trusted).toBeInstanceOf(URL);
+
+            expect((service as any).resolveTrustedDocumentUrl("http://ik.imagekit.io/folder/id.png")).toBeNull();
+            expect((service as any).resolveTrustedDocumentUrl("https://malicious.example/id.png")).toBeNull();
+            expect((service as any).resolveTrustedDocumentUrl("not-a-url")).toBeNull();
         });
     });
 });
