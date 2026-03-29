@@ -226,6 +226,7 @@
             "!modules/scheduler/**",
             "!modules/core/logger/**",
             "!modules/api/auth/**",
+            "modules/api/auth/errors/**/*.ts",
             "!modules/api/kyc/**",
             "!modules/api/session/**",
             "!modules/api/trade/services/webhook-handlers/**",
