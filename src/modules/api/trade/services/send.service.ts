@@ -1088,7 +1088,15 @@ export class SendService {
             reference = `INT-${dto.idempotencyKey}`;
             const existingOrder = await this.prisma.order.findFirst({
                 where: { orderReference: reference },
-                select: { transactionId: true, recipient: true },
+                select: {
+                    transactionId: true,
+                    recipient: true,
+                    amount: true,
+                    currency: true,
+                    fee: true,
+                    total: true,
+                    createdAt: true,
+                },
             });
 
             if (existingOrder) {
@@ -1097,7 +1105,21 @@ export class SendService {
                     data: {
                         transactionId: existingOrder.transactionId,
                         status: "completed",
-                        recipient: existingOrder.recipient,
+                        amount: String(existingOrder.amount ?? totalAmount),
+                        currency: existingOrder.currency ?? currency,
+                        fee: String(existingOrder.fee ?? 0),
+                        total: String(existingOrder.total ?? existingOrder.amount ?? totalAmount),
+                        recipient: {
+                            details: {
+                                address: existingOrder.recipient || recipient.email,
+                                destination_tag: "",
+                                name: null,
+                            },
+                            type: "internal",
+                        },
+                        created_at:
+                            existingOrder.createdAt?.toISOString() ||
+                            new Date().toISOString(),
                     },
                 });
             }

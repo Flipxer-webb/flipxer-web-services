@@ -231,11 +231,17 @@ export class SwapService {
         // Issue #4 FIX: Database-level idempotency to handle edge case where Redis succeeded but DB failed
         const existingOrder = await this.prisma.order.findFirst({
             where: { quotationId: dto.quotationId },
-            select: { id: true, transactionId: true, status: true }
         });
         if (existingOrder) {
             this.logger.warn(`Swap already processed for quotation ${dto.quotationId} | Order: ${existingOrder.id}`);
-            return buildResponse({ message: "Swap already processed", data: existingOrder });
+            return buildResponse({
+                message: "Swap already processed",
+                data: this.mapToSwapResponse(
+                    existingOrder,
+                    this.buildQuoteFromExistingOrder(existingOrder, dto.quotationId),
+                    user,
+                ),
+            });
         }
 
         const order = await this.prisma.order.create({
@@ -474,6 +480,31 @@ export class SwapService {
         });
     }
 
+    private buildQuoteFromExistingOrder(order: any, quotationId: string) {
+        const fromAmount = order.fromAmount ?? order.amount ?? 0;
+        const rate = order.quoted_price ?? order.rateAtConversion ?? 0;
+        const toAmount =
+            order.toAmount ?? Number(fromAmount) * Number(rate);
+        const fromCurrency = order.fromCurrency ?? order.currency ?? "";
+
+        let toCurrency = order.toCurrency ?? "";
+        if (!toCurrency && typeof order.narration === "string") {
+            const narrationMatch = order.narration.match(/->\s*([A-Z0-9]+)/i);
+            if (narrationMatch) {
+                toCurrency = narrationMatch[1].toUpperCase();
+            }
+        }
+
+        return {
+            id: quotationId,
+            from_amount: fromAmount,
+            from_currency: fromCurrency,
+            to_amount: toAmount,
+            to_currency: toCurrency,
+            rate,
+        };
+    }
+
 
 
     /**
@@ -614,9 +645,12 @@ export class SwapService {
         }
     }
     private mapToSwapResponse(order: any, quote: any, user: User) {
+        const createdAt = order.createdAt ?? order.updatedAt ?? new Date();
+        const updatedAt = order.updatedAt ?? order.createdAt ?? new Date();
+
         return {
-            id: order.id.toString(),
-            created_at: order.createdAt.toISOString(),
+            id: Number(order.id),
+            created_at: createdAt.toISOString(),
             from_amount: quote.from_amount.toString(),
             from_currency: quote.from_currency,
             to_currency: quote.to_currency,
@@ -624,7 +658,7 @@ export class SwapService {
             execution_price: quote.rate.toString(),
             status: order.streamlinedStatus || order.status,
             transactionId: order.transactionId,
-            updated_at: order.updatedAt.toISOString(),
+            updated_at: updatedAt.toISOString(),
             swap_quotation: {
                 id: quote.id,
                 from_amount: quote.from_amount.toString(),
