@@ -25,6 +25,7 @@ describe("TierService", () => {
 
     it("calculates individual tiers from verification status", () => {
         expect(service.calculateTier({ isEmailVerified: false })).toBe(0);
+        expect(service.calculateTier({ isEmailVerified: true })).toBe(0);
         expect(service.calculateTier({ isEmailVerified: true, isBvnVerified: true })).toBe(1);
         expect(service.calculateTier({ isEmailVerified: true, isNinVerified: true, isDocumentVerified: true })).toBe(2);
         expect(service.calculateTier({ isEmailVerified: true, isBvnVerified: true, isDocumentVerified: true, isAddressVerified: true })).toBe(3);
