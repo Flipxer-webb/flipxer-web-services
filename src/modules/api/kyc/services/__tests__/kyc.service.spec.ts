@@ -26,14 +26,22 @@ import { UserType } from "@prisma/client";
 
 describe("KycService", () => {
     let service: KycService;
+    const mockKycStateMachine = {
+        transition: jest.fn().mockResolvedValue(undefined),
+    };
 
     const mockPrismaService = {
+        $transaction: jest.fn(),
         user: {
             findUnique: jest.fn(),
             update: jest.fn(),
+            findMany: jest.fn(),
+            count: jest.fn(),
+            groupBy: jest.fn(),
         },
         auditLog: {
             create: jest.fn(),
+            findMany: jest.fn(),
         },
         kycVerification: {
             findFirst: jest.fn(),
@@ -70,7 +78,7 @@ describe("KycService", () => {
                 KycService,
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: TierService, useValue: mockTierService },
-                { provide: KycStateMachineService, useValue: { transition: jest.fn().mockResolvedValue(undefined) } },
+                { provide: KycStateMachineService, useValue: mockKycStateMachine },
                 { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
                 { provide: EmailService, useValue: mockEmailService },
                 { provide: RedisCacheService, useValue: mockRedisCacheService },
@@ -273,6 +281,166 @@ describe("KycService", () => {
 
             // Verify the DTO shape has no newTier property
             expect(dto).not.toHaveProperty("newTier");
+        });
+    });
+
+    describe("getKycQueue", () => {
+        it("returns paginated KYC queue with verification summaries", async () => {
+            const users = [
+                {
+                    id: 10,
+                    identifier: "usr-10",
+                    firstName: "Jane",
+                    lastName: "Doe",
+                    email: "jane@flipxer.com",
+                    phone: "08000000000",
+                    photo: null,
+                    userType: UserType.INDIVIDUAL,
+                    tier: 1,
+                    status: "ACTIVE",
+                    bvn: "12345678901",
+                    nin: null,
+                    isBvnVerified: false,
+                    isNinVerified: false,
+                    isDocumentVerified: false,
+                    isAddressVerified: false,
+                    isIncomeVerified: false,
+                    isEmailVerified: true,
+                    isPhoneVerified: false,
+                    businessDocumentsUploaded: false,
+                    businessDocumentVerificationStatus: null,
+                    userDocument: { id: 1, type: "PASSPORT", documentNumber: "A1", documentImageUrl: "u", documentImageUrl2: null },
+                    businessDocument: null,
+                    businessRecord: null,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            ];
+
+            mockPrismaService.$transaction.mockResolvedValue([users, 1]);
+
+            const result = await service.getKycQueue({
+                pageNumber: 1,
+                pageSize: 20,
+                status: "PENDING",
+                sortBy: "desc",
+            } as any);
+
+            expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+            expect(result.message).toBe("KYC queue retrieved successfully");
+            expect(result.data.records).toHaveLength(1);
+            expect(result.data.records[0].pendingVerifications).toContain("document");
+            expect(result.data.records[0].pendingVerifications).toContain("address");
+        });
+    });
+
+    describe("getKycStats", () => {
+        it("returns aggregate stats and tier distribution", async () => {
+            mockPrismaService.user.count
+                .mockResolvedValueOnce(100)
+                .mockResolvedValueOnce(30)
+                .mockResolvedValueOnce(70)
+                .mockResolvedValueOnce(60)
+                .mockResolvedValueOnce(40)
+                .mockResolvedValueOnce(20)
+                .mockResolvedValueOnce(15);
+            mockPrismaService.user.groupBy.mockResolvedValue([
+                { tier: 0, _count: { _all: 10 } },
+                { tier: 1, _count: { _all: 20 } },
+                { tier: 2, _count: { _all: 30 } },
+                { tier: 3, _count: { _all: 25 } },
+                { tier: 4, _count: { _all: 15 } },
+            ]);
+
+            const result = await service.getKycStats({ period: "month" } as any);
+
+            expect(result.message).toBe("KYC statistics retrieved successfully");
+            expect(result.data.overview.totalUsers).toBe(100);
+            expect(result.data.overview.pendingKyc).toBe(30);
+            expect(result.data.tierDistribution.tier2.count).toBe(30);
+            expect(result.data.verificationBreakdown.bvn.verified).toBe(70);
+            expect(result.data.periodMetrics.newUsers).toBe(20);
+        });
+    });
+
+    describe("updateUserVerification", () => {
+        it("updates verification flags, audits changes, and syncs tier", async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                id: 4,
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+            });
+
+            mockPrismaService.user.update.mockResolvedValue({
+                id: 4,
+                email: "u@flipxer.com",
+                isBvnVerified: true,
+                isNinVerified: true,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+            });
+            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockTierService.syncTierAndCache.mockResolvedValue({ id: 4, tier: 1 });
+
+            const result = await service.updateUserVerification(
+                4,
+                { isBvnVerified: true, isNinVerified: true, reason: "validated" } as any,
+                9,
+            );
+
+            expect(result.message).toBe("User verification status updated successfully");
+            expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        action: "UPDATE_USER_VERIFICATION",
+                    }),
+                }),
+            );
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(4);
+        });
+    });
+
+    describe("document decision wrappers", () => {
+        it("approveDocument maps address to ADDRESS verification", async () => {
+            const processSpy = jest
+                .spyOn(service, "processKycDecision")
+                .mockResolvedValue({ message: "ok", data: {} } as any);
+
+            await service.approveDocument({ userId: 3, documentType: "address" } as any, 99);
+
+            expect(processSpy).toHaveBeenCalledWith(
+                {
+                    userId: 3,
+                    action: "APPROVE",
+                    verificationType: "ADDRESS",
+                },
+                99,
+            );
+        });
+
+        it("rejectDocument maps business to BUSINESS_DOCUMENT verification", async () => {
+            const processSpy = jest
+                .spyOn(service, "processKycDecision")
+                .mockResolvedValue({ message: "ok", data: {} } as any);
+
+            await service.rejectDocument(
+                { userId: 3, documentType: "business", reason: "invalid CAC" } as any,
+                99,
+            );
+
+            expect(processSpy).toHaveBeenCalledWith(
+                {
+                    userId: 3,
+                    action: "REJECT",
+                    verificationType: "BUSINESS_DOCUMENT",
+                    note: "invalid CAC",
+                },
+                99,
+            );
         });
     });
 });

@@ -232,6 +232,20 @@ describe("AdminUserService", () => {
         expect(result.message).toContain("unflagged successfully");
     });
 
+    it("should unflag user by creating flagged record when flaggedId is missing", async () => {
+        prisma.user.findUnique.mockResolvedValue({
+            id: 8,
+            flaggedId: null,
+            flaggedRecord: { flagged: true, reason: "risk" },
+        });
+
+        const result = await service.unflagUser({ id: 8 } as any);
+
+        expect(prisma.__tx.flagged.create).toHaveBeenCalled();
+        expect(prisma.__tx.user.update).toHaveBeenCalled();
+        expect(result.message).toContain("unflagged successfully");
+    });
+
     it("should return already flagged in flagUser", async () => {
         prisma.user.findUnique.mockResolvedValue({
             id: 5,
@@ -256,5 +270,57 @@ describe("AdminUserService", () => {
 
         expect(prisma.__tx.flagged.update).toHaveBeenCalled();
         expect(result.data.flaggedRecord).toEqual({ flagged: true, reason: "aml" });
+    });
+
+    it("should apply date range branch when analytics overview receives custom dates", async () => {
+        prisma.user.count.mockResolvedValueOnce(12).mockResolvedValueOnce(2);
+        prisma.order.aggregate
+            .mockResolvedValueOnce({ _sum: { amountInFiat: 20000 } })
+            .mockResolvedValueOnce({ _sum: { amountInFiat: 5000 } });
+
+        const result = await service.getAnalyticsOverview(
+            undefined,
+            "2026-01-01",
+            "2026-01-31",
+        );
+
+        expect(result.data.totalUsers).toBe(12);
+        expect(result.data.transactionsInPeriod).toBe(5000);
+        expect(prisma.user.count).toHaveBeenCalledTimes(2);
+    });
+
+    it("should build transaction filters for asset and search text", async () => {
+        prisma.order.findMany.mockResolvedValue([]);
+        prisma.order.count.mockResolvedValue(0);
+
+        await service.getUserTransactionList(
+            {
+                type: "BUY",
+                asset: "btc",
+                searchText: "101",
+                startDate: "2026-01-01",
+                endDate: "2026-01-31",
+                sortBy: "desc",
+                paginated: "true",
+                pageNumber: 1,
+                pageSize: 10,
+            } as any,
+            14,
+        );
+
+        expect(prisma.order.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    userId: 14,
+                    orderCategory: "BUY",
+                    id: 101,
+                    OR: expect.any(Array),
+                    createdAt: expect.objectContaining({
+                        gte: expect.any(Date),
+                        lte: expect.any(Date),
+                    }),
+                }),
+            }),
+        );
     });
 });
