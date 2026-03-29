@@ -37,8 +37,8 @@ const appMock = {
     get: jest.fn(),
 };
 
-class MockHttpAdapterHost {}
-class MockPrismaService {}
+const MockHttpAdapterHost = Symbol("MockHttpAdapterHost");
+const MockPrismaService = Symbol("MockPrismaService");
 
 const NestFactoryMock = {
     create: jest.fn(async () => appMock),
@@ -105,14 +105,16 @@ jest.mock("@nestjs/swagger", () => ({
 
 jest.mock("@/modules", () => ({
     __esModule: true,
-    AppModule: class MockAppModule {},
+    AppModule: { marker: "app-module" },
 }));
+
+const AllExceptionsFilterMock = jest.fn(function AllExceptionsFilterMock(this: { host?: unknown }, host: unknown) {
+    this.host = host;
+});
 
 jest.mock("@/core/exception/http", () => ({
     __esModule: true,
-    AllExceptionsFilter: class AllExceptionsFilter {
-        constructor(public readonly host: unknown) {}
-    },
+    AllExceptionsFilter: AllExceptionsFilterMock,
 }));
 
 jest.mock("@/core/pipe", () => ({
@@ -248,9 +250,11 @@ describe("createServer", () => {
             whitelistedDomains: [],
         });
 
-        const routeHandlers = new Map<string, Function>();
-        for (const [route, handler] of expressPostMock.mock.calls) {
-            routeHandlers.set(route as string, handler as Function);
+        const routeHandlers = new Map();
+        for (const call of expressPostMock.mock.calls) {
+            const route = String(call[0]);
+            const handler = call[1];
+            routeHandlers.set(route, handler);
         }
 
         const rootHandler = routeHandlers.get("/");
@@ -258,36 +262,40 @@ describe("createServer", () => {
         const quidaxHandler = routeHandlers.get("/quidax");
         const quidaxApiHandler = routeHandlers.get("/api/webhook/quidax");
 
-        expect(rootHandler).toBeDefined();
-        expect(fincraApiHandler).toBeDefined();
-        expect(quidaxHandler).toBeDefined();
-        expect(quidaxApiHandler).toBeDefined();
+        if (
+            typeof rootHandler !== "function" ||
+            typeof fincraApiHandler !== "function" ||
+            typeof quidaxHandler !== "function" ||
+            typeof quidaxApiHandler !== "function"
+        ) {
+            throw new TypeError("Expected webhook handlers to be registered");
+        }
 
-        const fincraReq = { headers: { "x-fincra-signature": "sig" }, url: "/" } as any;
+        const fincraReq = { headers: { "x-fincra-signature": "sig" }, url: "/" };
         const fincraNext = jest.fn();
-        rootHandler!(fincraReq, {} as any, fincraNext);
+        rootHandler(fincraReq, {}, fincraNext);
         expect(fincraReq.url).toBe("/webhook/fincra");
         expect(fincraNext).toHaveBeenCalled();
 
-        const nonFincraReq = { headers: {}, url: "/" } as any;
+        const nonFincraReq = { headers: {}, url: "/" };
         const nonFincraNext = jest.fn();
-        rootHandler!(nonFincraReq, {} as any, nonFincraNext);
+        rootHandler(nonFincraReq, {}, nonFincraNext);
         expect(nonFincraReq.url).toBe("/");
         expect(nonFincraNext).toHaveBeenCalled();
 
-        const fincraApiReq = { headers: {}, url: "/api/webhook/fincra" } as any;
+        const fincraApiReq = { headers: {}, url: "/api/webhook/fincra" };
         const fincraApiNext = jest.fn();
-        fincraApiHandler!(fincraApiReq, {} as any, fincraApiNext);
+        fincraApiHandler(fincraApiReq, {}, fincraApiNext);
         expect(fincraApiReq.url).toBe("/webhook/fincra");
 
-        const quidaxReq = { headers: {}, url: "/quidax" } as any;
+        const quidaxReq = { headers: {}, url: "/quidax" };
         const quidaxNext = jest.fn();
-        quidaxHandler!(quidaxReq, {} as any, quidaxNext);
+        quidaxHandler(quidaxReq, {}, quidaxNext);
         expect(quidaxReq.url).toBe("/webhook/quidax");
 
-        const quidaxApiReq = { headers: {}, url: "/api/webhook/quidax" } as any;
+        const quidaxApiReq = { headers: {}, url: "/api/webhook/quidax" };
         const quidaxApiNext = jest.fn();
-        quidaxApiHandler!(quidaxApiReq, {} as any, quidaxApiNext);
+        quidaxApiHandler(quidaxApiReq, {}, quidaxApiNext);
         expect(quidaxApiReq.url).toBe("/webhook/quidax");
     });
 
@@ -301,7 +309,7 @@ describe("createServer", () => {
         const res = { locals: {} as Record<string, string> };
         const next = jest.fn();
 
-        nonceMiddleware({} as any, res as any, next);
+        nonceMiddleware({}, res, next);
 
         expect(randomBytesMock).toHaveBeenCalledWith(16);
         expect(res.locals.cspNonce).toBe("nonce-value");

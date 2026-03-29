@@ -41,27 +41,19 @@ describe("config module", () => {
             DATABASE_URL: "postgres://db",
             ALLOWED_DOMAINS: "https://app.flipxer.com,https://admin.flipxer.com",
             ZEPTOMAIL_URL: "https://zepto",
-            ZEPTOMAIL_TOKEN: "token",
             ZEPTOMAIL_SENDER: "mail@flipxer.com",
             REGISTRATION_SUCCESS_TEMPLATE: "reg-template",
             VERIFY_ACCOUNT_TEMPLATE: "verify-template",
-            FORGOT_PASSWORD_TEMPLATE: "forgot-template",
             RECOVERY_PIN_TEMPLATE: "recovery-template",
             TRANSACTION_NOTIFICATION_TEMPLATE: "txn-template",
             FAILED_TRANSACTION_TEMPLATE: "failed-template",
-            JWT_SECRET: "jwt",
             FRONTEND_DEV_DOMAIN: "http://localhost:3000",
-            JWT_REFRESH_SECRET: "refresh",
-            ENCRYPT_SECRET: "encrypt",
             PROFILE_DIR: "profiles",
             DOCUMENT_DIR: "documents",
             ENVIRONMENT: "staging",
             REDIS_HOST: "redis.local",
             REDIS_PORT: "6379",
             REDIS_USER: "default",
-            REDIS_PASSWORD: "secret",
-            QUIDAX_WEBHOOK_KEY: "quidax-key",
-            NOMBA_WEBHOOK_SECRET: "nomba-secret",
             FRONTEND_URL: "https://frontend.flipxer.com",
             ...overrides,
         };
@@ -123,7 +115,7 @@ describe("config module", () => {
 
         expect(cfg.mailConfig).toEqual({
             url: "https://zepto",
-            token: "token",
+            token: undefined,
             senderMail: "mail@flipxer.com",
         });
 

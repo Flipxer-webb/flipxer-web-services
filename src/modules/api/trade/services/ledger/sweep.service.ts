@@ -932,7 +932,7 @@ export class SweepService {
             select: { sweepStatus: true, type: true },
         });
 
-        if (!entry || entry.type !== LedgerType.DEPOSIT) {
+        if (entry?.type !== LedgerType.DEPOSIT) {
             return true; // Not a deposit, no sweep required
         }
 

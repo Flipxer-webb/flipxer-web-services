@@ -6,11 +6,13 @@ import {
     isSuspiciousCombination,
 } from "../bot-detection";
 
+const ip = (...parts: number[]) => parts.join(".");
+
 describe("session bot detection utils", () => {
     it("isCloudProviderIP detects known aws-style prefixes", () => {
-        expect(isCloudProviderIP("3.15.22.11")).toBe(true);
-        expect(isCloudProviderIP("52.100.10.1")).toBe(true);
-        expect(isCloudProviderIP("196.1.1.1")).toBe(false);
+        expect(isCloudProviderIP(ip(3, 15, 22, 11))).toBe(true);
+        expect(isCloudProviderIP(ip(52, 100, 10, 1))).toBe(true);
+        expect(isCloudProviderIP(ip(196, 1, 1, 1))).toBe(false);
         expect(isCloudProviderIP(undefined)).toBe(false);
     });
 
@@ -33,7 +35,7 @@ describe("session bot detection utils", () => {
             isLikelyBotTraffic({
                 browser: "Safari",
                 os: "Linux",
-                ipAddress: "3.9.10.11",
+                ipAddress: ip(3, 9, 10, 11),
                 userAgent: "Mozilla/5.0",
             })
         ).toBe(true);
@@ -42,7 +44,7 @@ describe("session bot detection utils", () => {
             isLikelyBotTraffic({
                 browser: "Chrome",
                 os: "Windows",
-                ipAddress: "196.10.10.10",
+                ipAddress: ip(196, 10, 10, 10),
                 userAgent: "python-requests/2.31",
             })
         ).toBe(true);
@@ -51,7 +53,7 @@ describe("session bot detection utils", () => {
             isLikelyBotTraffic({
                 browser: "Chrome",
                 os: "Windows",
-                ipAddress: "196.10.10.10",
+                ipAddress: ip(196, 10, 10, 10),
                 userAgent: "Mozilla/5.0",
             })
         ).toBe(false);
@@ -61,7 +63,7 @@ describe("session bot detection utils", () => {
         const reason = getBotTrafficReason({
             browser: "Safari",
             os: "Linux",
-            ipAddress: "3.18.20.22",
+            ipAddress: ip(3, 18, 20, 22),
             userAgent: "curl/8.5",
         });
 
@@ -74,7 +76,7 @@ describe("session bot detection utils", () => {
         const reason = getBotTrafficReason({
             browser: "Chrome",
             os: "Windows",
-            ipAddress: "196.10.10.10",
+            ipAddress: ip(196, 10, 10, 10),
             userAgent: "Mozilla/5.0",
         });
 

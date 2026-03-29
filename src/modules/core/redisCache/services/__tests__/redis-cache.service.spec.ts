@@ -511,7 +511,7 @@ describe("RedisCacheService - cleanup interval callbacks", () => {
     it("runs cleanup callback in Redis-disabled mode", () => {
         process.env.REDIS_DISABLED = "true";
 
-        const intervalSpy = jest.spyOn(global, "setInterval").mockImplementation(((cb: any) => {
+        const intervalSpy = jest.spyOn(globalThis, "setInterval").mockImplementation(((cb: any) => {
             cb();
             return 1 as any;
         }) as any);
@@ -530,7 +530,7 @@ describe("RedisCacheService - cleanup interval callbacks", () => {
     it("runs cleanup callback in Redis-enabled mode", () => {
         delete process.env.REDIS_DISABLED;
 
-        const intervalSpy = jest.spyOn(global, "setInterval").mockImplementation(((cb: any) => {
+        const intervalSpy = jest.spyOn(globalThis, "setInterval").mockImplementation(((cb: any) => {
             cb();
             return 1 as any;
         }) as any);

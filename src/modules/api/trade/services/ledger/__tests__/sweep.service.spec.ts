@@ -385,6 +385,23 @@ describe("SweepService", () => {
     // ── canWithdraw ──────────────────────────────────────────
 
     describe("canWithdraw", () => {
+        it("should return true when entry is missing", async () => {
+            prisma.ledgerEntry.findUnique.mockResolvedValue(null);
+
+            const result = await service.canWithdraw("le-missing");
+            expect(result).toBe(true);
+        });
+
+        it("should return true when entry is not a deposit", async () => {
+            prisma.ledgerEntry.findUnique.mockResolvedValue({
+                sweepStatus: SweepStatus.PENDING,
+                type: LedgerType.WITHDRAWAL,
+            });
+
+            const result = await service.canWithdraw("le-1");
+            expect(result).toBe(true);
+        });
+
         it("should return true when sweep is COMPLETED", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
                 sweepStatus: SweepStatus.COMPLETED, type: LedgerType.DEPOSIT,

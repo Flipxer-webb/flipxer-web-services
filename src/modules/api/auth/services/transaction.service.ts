@@ -96,7 +96,7 @@ export class TransactionService {
         this.logger.log(`validateTransactionLimits called with currency: ${currency}, amount: ${amount}, path: ${path}`);
 
         // Validate currency
-        const allowedCurrencies = Object.values(SupportedAssets) as string[];
+        const allowedCurrencies = Object.values(SupportedAssets);
         if (!currency || typeof currency !== 'string' || !allowedCurrencies.some(ac => ac.toLowerCase() === currency.toLowerCase())) {
             const transactionId = uuidv4();
             const reason = `Invalid currency: ${currency || 'null'}. Must be one of ${allowedCurrencies.join(', ')}.`;

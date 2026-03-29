@@ -1,57 +1,5 @@
 import { UnauthorizedException } from "@nestjs/common";
 
-jest.mock("@/modules/api/auth/guard", () => ({
-    AuthGuard: class {
-        readonly __stub = true;
-    },
-    EnabledAccountGuard: class {
-        readonly __stub = true;
-    },
-    SocketAuthGuard: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
-    RoleGuard: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
-    PermissionGuard: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/authorize/decorator", () => ({
-    UserTypes: () => () => undefined,
-    Permissions: () => () => undefined,
-    ADMIN_USER_TYPES: ["SUPER_ADMIN"],
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/user", () => ({
-    User: () => () => undefined,
-    ClientData: () => () => undefined,
-    UserModule: class {
-        readonly __stub = true;
-    },
-    AccountDeletedException: class extends Error {},
-    UserNotFoundException: class extends Error {},
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/auth", () => ({
-    AuthModule: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
 import { KycController } from "../index";
 
 describe("KycController", () => {

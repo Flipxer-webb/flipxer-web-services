@@ -1,0 +1,776 @@
+﻿{
+    "projectKey":  "Flipxer-web_resolve-web-services",
+    "generatedAtUtc":  "2026-03-29T09:02:21.5354944Z",
+    "totalDirectories":  128,
+    "totalUncoveredLines":  7760,
+    "directories":  [
+                        {
+                            "directory":  "src/modules/api/auth/services",
+                            "files":  7,
+                            "uncoveredLines":  1214,
+                            "zeroCoverageFiles":  7
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/services",
+                            "files":  12,
+                            "uncoveredLines":  1008,
+                            "zeroCoverageFiles":  4
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/services/ledger",
+                            "files":  10,
+                            "uncoveredLines":  441,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/quidax",
+                            "files":  1,
+                            "uncoveredLines":  411,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/auth/guard",
+                            "files":  1,
+                            "uncoveredLines":  325,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/services/webhook-handlers",
+                            "files":  3,
+                            "uncoveredLines":  277,
+                            "zeroCoverageFiles":  3
+                        },
+                        {
+                            "directory":  "src/modules/api/notification/services",
+                            "files":  4,
+                            "uncoveredLines":  252,
+                            "zeroCoverageFiles":  4
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/providers/livecoinwatch/services",
+                            "files":  1,
+                            "uncoveredLines":  234,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/scheduler/services",
+                            "files":  5,
+                            "uncoveredLines":  227,
+                            "zeroCoverageFiles":  5
+                        },
+                        {
+                            "directory":  "src/modules/api/operations/services",
+                            "files":  3,
+                            "uncoveredLines":  219,
+                            "zeroCoverageFiles":  3
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/providers/coingecko/services",
+                            "files":  1,
+                            "uncoveredLines":  179,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/bank/providers",
+                            "files":  2,
+                            "uncoveredLines":  174,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules/api/kyc/services",
+                            "files":  1,
+                            "uncoveredLines":  157,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/crons",
+                            "files":  4,
+                            "uncoveredLines":  147,
+                            "zeroCoverageFiles":  4
+                        },
+                        {
+                            "directory":  "src/modules/api/rbac/services",
+                            "files":  1,
+                            "uncoveredLines":  136,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/system-config/services",
+                            "files":  3,
+                            "uncoveredLines":  135,
+                            "zeroCoverageFiles":  3
+                        },
+                        {
+                            "directory":  "src/libs/nomba",
+                            "files":  2,
+                            "uncoveredLines":  131,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/providers/quidax/services",
+                            "files":  9,
+                            "uncoveredLines":  124,
+                            "zeroCoverageFiles":  9
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/providers/quidax",
+                            "files":  1,
+                            "uncoveredLines":  98,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/providers/coincap/services",
+                            "files":  1,
+                            "uncoveredLines":  96,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/identityCompliance/providers/dojah/services",
+                            "files":  1,
+                            "uncoveredLines":  95,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/providers/binance/services",
+                            "files":  1,
+                            "uncoveredLines":  93,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/dojah",
+                            "files":  1,
+                            "uncoveredLines":  82,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/www",
+                            "files":  1,
+                            "uncoveredLines":  81,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/session/services",
+                            "files":  1,
+                            "uncoveredLines":  79,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/core/logger/services",
+                            "files":  1,
+                            "uncoveredLines":  68,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/auth/controllers/v1",
+                            "files":  2,
+                            "uncoveredLines":  56,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/config",
+                            "files":  2,
+                            "uncoveredLines":  56,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules/api/system-config/controllers/v1/admin",
+                            "files":  2,
+                            "uncoveredLines":  51,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules/api/user/services",
+                            "files":  3,
+                            "uncoveredLines":  49,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/settings/controllers/v1",
+                            "files":  2,
+                            "uncoveredLines":  47,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/banks/controllers",
+                            "files":  4,
+                            "uncoveredLines":  46,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/queues/processors",
+                            "files":  2,
+                            "uncoveredLines":  42,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules/core/logger/middleware",
+                            "files":  1,
+                            "uncoveredLines":  36,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/controllers/v1",
+                            "files":  2,
+                            "uncoveredLines":  36,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/operations/controllers/v1/admin",
+                            "files":  3,
+                            "uncoveredLines":  35,
+                            "zeroCoverageFiles":  3
+                        },
+                        {
+                            "directory":  "src/modules/core/upload/services",
+                            "files":  3,
+                            "uncoveredLines":  31,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/session/utils",
+                            "files":  1,
+                            "uncoveredLines":  30,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/analytics/controllers",
+                            "files":  1,
+                            "uncoveredLines":  27,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/auth/utils",
+                            "files":  2,
+                            "uncoveredLines":  25,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules",
+                            "files":  1,
+                            "uncoveredLines":  23,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/webhook/quidax/controllers",
+                            "files":  1,
+                            "uncoveredLines":  22,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/sendchamp",
+                            "files":  1,
+                            "uncoveredLines":  22,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/user/controllers/v1",
+                            "files":  2,
+                            "uncoveredLines":  21,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/transactions/services",
+                            "files":  1,
+                            "uncoveredLines":  21,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/auth/errors",
+                            "files":  1,
+                            "uncoveredLines":  21,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api",
+                            "files":  1,
+                            "uncoveredLines":  19,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/core/exception/ws",
+                            "files":  1,
+                            "uncoveredLines":  19,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/sendchamp/errors",
+                            "files":  1,
+                            "uncoveredLines":  18,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/kyc/controllers",
+                            "files":  1,
+                            "uncoveredLines":  18,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/gateway/v1",
+                            "files":  1,
+                            "uncoveredLines":  18,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/factory",
+                            "files":  1,
+                            "uncoveredLines":  18,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/webhook/quidax/events",
+                            "files":  1,
+                            "uncoveredLines":  18,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/core/redisCache/services",
+                            "files":  3,
+                            "uncoveredLines":  17,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/rbac/controllers",
+                            "files":  2,
+                            "uncoveredLines":  16,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules/api/transactions/controllers/v1",
+                            "files":  1,
+                            "uncoveredLines":  15,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/utils",
+                            "files":  1,
+                            "uncoveredLines":  15,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/banks",
+                            "files":  1,
+                            "uncoveredLines":  15,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/fincra",
+                            "files":  1,
+                            "uncoveredLines":  14,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/core/rate-limit/services",
+                            "files":  1,
+                            "uncoveredLines":  12,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/core/rate-limit/interceptors",
+                            "files":  1,
+                            "uncoveredLines":  12,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/notification/controllers/v1",
+                            "files":  2,
+                            "uncoveredLines":  12,
+                            "zeroCoverageFiles":  2
+                        },
+                        {
+                            "directory":  "src/modules/api/session/controllers/v1",
+                            "files":  1,
+                            "uncoveredLines":  11,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/core/pipe",
+                            "files":  1,
+                            "uncoveredLines":  11,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/core/email/services",
+                            "files":  1,
+                            "uncoveredLines":  11,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/transactions",
+                            "files":  1,
+                            "uncoveredLines":  10,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/banks/services",
+                            "files":  1,
+                            "uncoveredLines":  10,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/reports/services",
+                            "files":  2,
+                            "uncoveredLines":  10,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/core/middleware",
+                            "files":  1,
+                            "uncoveredLines":  10,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/core/exception/ws/pipe",
+                            "files":  2,
+                            "uncoveredLines":  10,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/settings/services",
+                            "files":  1,
+                            "uncoveredLines":  9,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/guards",
+                            "files":  1,
+                            "uncoveredLines":  9,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/core",
+                            "files":  1,
+                            "uncoveredLines":  9,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/webhook/fincra/controllers",
+                            "files":  1,
+                            "uncoveredLines":  8,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/notification/events",
+                            "files":  1,
+                            "uncoveredLines":  8,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/webhook/quidax",
+                            "files":  1,
+                            "uncoveredLines":  8,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/rbac/errors",
+                            "files":  1,
+                            "uncoveredLines":  8,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/ocr",
+                            "files":  1,
+                            "uncoveredLines":  7,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/system-config/middleware",
+                            "files":  1,
+                            "uncoveredLines":  7,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/errors",
+                            "files":  1,
+                            "uncoveredLines":  7,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/authorize/services",
+                            "files":  1,
+                            "uncoveredLines":  7,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/authorize/controllers/v1",
+                            "files":  1,
+                            "uncoveredLines":  7,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/bank/factory",
+                            "files":  1,
+                            "uncoveredLines":  6,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading",
+                            "files":  1,
+                            "uncoveredLines":  6,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/authorize",
+                            "files":  1,
+                            "uncoveredLines":  6,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/webhook/fincra",
+                            "files":  1,
+                            "uncoveredLines":  6,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/webExtension/controllers",
+                            "files":  1,
+                            "uncoveredLines":  6,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/user/decorators",
+                            "files":  1,
+                            "uncoveredLines":  6,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/events",
+                            "files":  1,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/factory/identityCompliance/factory",
+                            "files":  1,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/core/geoip",
+                            "files":  2,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/reports",
+                            "files":  1,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/authorize/dto",
+                            "files":  1,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/health",
+                            "files":  1,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/bank/errors",
+                            "files":  1,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/webhook",
+                            "files":  1,
+                            "uncoveredLines":  5,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/webExtension",
+                            "files":  1,
+                            "uncoveredLines":  4,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/termii/errors",
+                            "files":  1,
+                            "uncoveredLines":  4,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/session/errors",
+                            "files":  1,
+                            "uncoveredLines":  4,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade/queues/producers",
+                            "files":  1,
+                            "uncoveredLines":  4,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/analytics/services",
+                            "files":  1,
+                            "uncoveredLines":  4,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/webhook/quidax/services",
+                            "files":  1,
+                            "uncoveredLines":  4,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/core/email/errors",
+                            "files":  1,
+                            "uncoveredLines":  4,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/utils/decorators",
+                            "files":  1,
+                            "uncoveredLines":  3,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/analytics",
+                            "files":  1,
+                            "uncoveredLines":  3,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/core/prisma/services",
+                            "files":  1,
+                            "uncoveredLines":  3,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/webExtension/services",
+                            "files":  1,
+                            "uncoveredLines":  3,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/factory/identityCompliance",
+                            "files":  1,
+                            "uncoveredLines":  3,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/rbac/enums",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/libs/termii",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/settings/errors",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/core/email",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/libs/quidax/errors",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/trade",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/factory/trading/providers/quidax/errors",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/user/errors",
+                            "files":  1,
+                            "uncoveredLines":  2,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/core/logger",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/authorize/guards",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/reports/controllers",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/user",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/core/validators",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/core/redisCache",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/reports/controllers/v1/admin",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/utils/errors",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/reports/controllers/v1",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  1
+                        },
+                        {
+                            "directory":  "src/modules/api/settings",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/banks/errors",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  0
+                        },
+                        {
+                            "directory":  "src/modules/api/system-config",
+                            "files":  1,
+                            "uncoveredLines":  1,
+                            "zeroCoverageFiles":  1
+                        }
+                    ]
+}

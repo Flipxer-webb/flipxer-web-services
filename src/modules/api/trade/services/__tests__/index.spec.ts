@@ -27,8 +27,10 @@ function makeDeps() {
         },
         order: {
             findFirst: jest.fn(),
+            findMany: jest.fn(),
             update: jest.fn(),
             create: jest.fn(),
+            findUnique: jest.fn(),
         },
         notification: {
             create: jest.fn(),
@@ -42,6 +44,8 @@ function makeDeps() {
         },
         cryptoWalletAddress: {
             findUnique: jest.fn(),
+            findFirst: jest.fn(),
+            findMany: jest.fn(),
             update: jest.fn(),
         },
         ledgerEntry: {
@@ -73,6 +77,8 @@ function makeDeps() {
         cancelWithdrawerRequest: jest.fn(),
         getPaymentAddressById: jest.fn(),
         getUserWallet: jest.fn(),
+        getUserWalletList: jest.fn(),
+        createPaymentAddress: jest.fn(),
         createInstantSwapRequest: jest.fn(),
         confirmInstantSwap: jest.fn(),
         getSwapTransaction: jest.fn(),
@@ -817,6 +823,192 @@ describe("TradingService (index)", () => {
                 service.walletAddressCreatedSuccessHandler({ walletAddressId: "wa-1" } as any),
             ).resolves.toBeUndefined();
             expect(prisma.cryptoWalletAddress.update).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("deposit sync and status refresh", () => {
+        it("syncUserDeposits throws when user is missing sub-account", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                cryptoSubAccountId: null,
+            });
+
+            await expect(service.syncUserDeposits(10)).rejects.toBeInstanceOf(Error);
+        });
+
+        it("syncUserDeposits creates only missing deposits", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+                { assetSymbol: "USDT" },
+            ]);
+            quidaxService.fetchDeposits.mockImplementation(
+                async ({ currency }: { currency: string }) => {
+                    if (currency === "usdt") {
+                        return {
+                            data: [
+                                {
+                                    id: "dep-new-1",
+                                    amount: "25",
+                                    fee: "0",
+                                    status: "successful",
+                                    txid: "tx-1",
+                                    created_at: "2026-03-28T12:00:00Z",
+                                },
+                                {
+                                    id: "dep-existing-1",
+                                    amount: "10",
+                                    fee: "0",
+                                    status: "successful",
+                                    txid: "tx-2",
+                                    created_at: "2026-03-28T12:01:00Z",
+                                },
+                            ],
+                        };
+                    }
+                    return { data: [] };
+                },
+            );
+            prisma.order.findUnique.mockImplementation(async ({ where }: any) => {
+                if (where.providerOrderId === "dep-existing-1") {
+                    return { id: 99, providerOrderId: "dep-existing-1" };
+                }
+                return null;
+            });
+            prisma.order.findMany.mockResolvedValue([]);
+            quidaxService.getSingleMarketTicker.mockResolvedValue({
+                data: { ticker: { buy: "1000" } },
+            });
+
+            const res = await service.syncUserDeposits(10);
+
+            expect(res.data.synced).toBe(1);
+            expect(res.data.skipped).toBeGreaterThanOrEqual(1);
+            expect(prisma.order.create).toHaveBeenCalledTimes(1);
+        });
+
+        it("getOrderStatus returns selected order payload", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue({
+                transactionId: "txn-1",
+                status: OrderStatus.processing,
+                streamlinedStatus: "pending",
+                orderCategory: OrderCategory.SEND,
+                updatedAt: new Date("2026-03-29T10:00:00Z"),
+            });
+
+            const res = await service.getOrderStatus({ id: 10 } as any, "txn-1");
+
+            expect(res.data.transactionId).toBe("txn-1");
+            expect(res.data.status).toBe(OrderStatus.processing);
+        });
+
+        it("refreshTransactionStatus returns early for final transaction states", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(
+                pendingOrder({ status: OrderStatus.done, streamlinedStatus: "completed" }),
+            );
+
+            const res = await service.refreshTransactionStatus(
+                { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                "TX-1",
+            );
+
+            expect(res.message).toContain("already final");
+            expect(res.data.status).toBe(OrderStatus.done);
+        });
+
+        it("refreshTransactionStatus refreshes SEND transactions from provider", async () => {
+            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(
+                pendingOrder({
+                    orderCategory: OrderCategory.SEND,
+                    status: OrderStatus.processing,
+                    orderReference: "ref-send-1",
+                }),
+            );
+            quidaxService.getWithdrawerByReference.mockResolvedValue({
+                data: { status: OrderStatus.done, txid: "tx-hash-1" },
+            });
+            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue({ ok: true });
+
+            const res = await service.refreshTransactionStatus(
+                { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                "TX-1",
+            );
+
+            expect(webhookHandlerService.withdrawerTransactionHandler).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    orderReference: "ref-send-1",
+                    status: OrderStatus.done,
+                }),
+            );
+            expect(res.message).toContain("completed successfully");
+        });
+
+        it("refreshTransactionStatus refreshes SWAP transactions from provider", async () => {
+            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue(
+                pendingOrder({
+                    orderCategory: OrderCategory.SWAP,
+                    status: OrderStatus.processing,
+                    providerOrderId: "swap-provider-1",
+                }),
+            );
+            quidaxService.getSwapTransaction.mockResolvedValue({
+                data: { status: OrderStatus.failed },
+            });
+            webhookHandlerService.swapTransactionHandler.mockResolvedValue({ ok: true });
+
+            const res = await service.refreshTransactionStatus(
+                { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                "TX-1",
+            );
+
+            expect(webhookHandlerService.swapTransactionHandler).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    orderId: "swap-provider-1",
+                    status: OrderStatus.failed,
+                }),
+            );
+            expect(res.message).toContain("Swap failed");
+        });
+
+        it("debugUserWallet returns combined db/provider information", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                id: 1,
+                assetSymbol: "USDT",
+            });
+            quidaxService.getUserWalletList.mockResolvedValue({
+                data: [{ currency: "usdt", balance: "100" }],
+            });
+            quidaxService.createPaymentAddress.mockResolvedValue({
+                data: { address: "Tabc123" },
+            });
+            quidaxService.fetchDeposits.mockResolvedValue({
+                data: [{ id: "dep-1", amount: "5" }],
+            });
+
+            const res = await service.debugUserWallet(10, "usdt");
+
+            expect(res.user.email).toBe("user@example.com");
+            expect(res.quidax.wallet.currency).toBe("usdt");
+            expect(Array.isArray(res.quidax.deposits)).toBe(true);
+            expect(res.quidax.deposits.length).toBe(1);
         });
     });
 });

@@ -117,11 +117,15 @@ async function main() {
     console.log("────────────────────────────────────────────────");
 }
 
-main()
-    .catch((e) => {
+async function bootstrap() {
+    try {
+        await main();
+    } catch (e) {
         console.error("❌ Error:", e);
         process.exit(1);
-    })
-    .finally(async () => {
+    } finally {
         await prisma.$disconnect();
-    });
+    }
+}
+
+void bootstrap();

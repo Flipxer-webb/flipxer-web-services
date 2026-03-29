@@ -138,6 +138,14 @@ describe("TransactionService", () => {
             ).rejects.toThrow(GeneralTransactionException);
         });
 
+        it("should throw for non-string currency", async () => {
+            prisma.order.create.mockResolvedValue({});
+
+            await expect(
+                service.validateTransactionLimits(mockUser, 100, 123 as any, "BUY" as any, "/api/v1/buy/order")
+            ).rejects.toThrow(GeneralTransactionException);
+        });
+
         it("should throw when USD conversion fails", async () => {
             // All rate look-ups fail
             prisma.cryptoRate.findUnique.mockResolvedValue(null);
@@ -218,6 +226,22 @@ describe("TransactionService", () => {
 
             await expect(
                 service.validateTransactionLimits(mockUser, 0.001, "BTC", "BUY" as any, "/api/v1/buy/order")
+            ).resolves.toBeUndefined();
+        });
+
+        it("should accept lowercase valid currency", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "BTC", sellRate: 50000000 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1500 });
+
+            mockTierService.getWithdrawalLimit.mockReturnValue(5000);
+
+            mockRedisCache.incrbyfloat
+                .mockResolvedValueOnce(100)
+                .mockResolvedValueOnce(200);
+
+            await expect(
+                service.validateTransactionLimits(mockUser, 0.001, "btc", "BUY" as any, "/api/v1/buy/order")
             ).resolves.toBeUndefined();
         });
     });

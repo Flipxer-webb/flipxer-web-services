@@ -45,6 +45,7 @@ function makePrisma() {
 
 describe("SettingService coverage wave", () => {
     const mockUser = { id: 7, email: "user@test.com", firstName: "User", tier: 2 } as any;
+    const STORED_TRADING_HASH = "stored-trading-value";
 
     let prisma: ReturnType<typeof makePrisma>;
     let service: SettingService;
@@ -134,7 +135,7 @@ describe("SettingService coverage wave", () => {
     });
 
     it("verifySecurityMethod handles trading password validation", async () => {
-        prisma.user.findUnique.mockResolvedValue({ tradingPassword: "stored-trading-secret" });
+        prisma.user.findUnique.mockResolvedValue({ tradingPassword: STORED_TRADING_HASH });
 
         (bcrypt.compare as jest.Mock).mockResolvedValueOnce(false);
         await expect(

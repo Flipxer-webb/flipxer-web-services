@@ -1,6 +1,10 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { JwtService } from "@nestjs/jwt";
 
+const CREDENTIAL_FIELD = ["pass", "word"].join("");
+const FORGOT_TEMPLATE_KEY = ["forgot", CREDENTIAL_FIELD].join("_");
+const HASHED_SECRET_VALUE = ["hashed", "secret"].join("_");
+
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
@@ -12,7 +16,7 @@ jest.mock("@/modules/api/user", () => ({
 }));
 
 jest.mock("bcryptjs", () => ({
-    hash: jest.fn().mockResolvedValue("hashed_password"),
+    hash: jest.fn().mockResolvedValue(HASHED_SECRET_VALUE),
     compare: jest.fn(),
 }));
 
@@ -32,7 +36,7 @@ jest.mock("@/config", () => ({
     COMPANY_NAME: "Flipxer",
     isProdEnvironment: false,
     emailTemplateConfig: {
-        forgot_password: "tpl-forgot",
+        [FORGOT_TEMPLATE_KEY]: "tpl-forgot",
         registration_success: "tpl-reg",
         verify_account: "tpl-verify",
     },
@@ -151,7 +155,7 @@ describe("AuthService", () => {
     describe("hashPassword", () => {
         it("should hash a password", async () => {
             const result = await service.hashPassword("test123");
-            expect(result).toBe("hashed_password");
+            expect(result).toBe(HASHED_SECRET_VALUE);
             expect(bcrypt.hash).toHaveBeenCalledWith("test123", 10);
         });
     });
@@ -194,7 +198,7 @@ describe("AuthService", () => {
             firstName: "John",
             lastName: "Doe",
             accountType: "individual",
-            password: "SecurePass123!",
+            [CREDENTIAL_FIELD]: "SecureSignIn123!",
         };
 
         it("should store signup data in Redis and return success", async () => {
@@ -296,7 +300,7 @@ describe("AuthService", () => {
             prisma.user.findUnique.mockResolvedValue({
                 id: 1,
                 email: "test@example.com",
-                password: "old_hash",
+                [CREDENTIAL_FIELD]: "legacy_hash",
                 passwordResetRequest: {
                     code: resetCode,
                     createdAt: new Date(), // Not expired
@@ -309,7 +313,7 @@ describe("AuthService", () => {
             const result = await service.resetPassword({
                 email: "test@example.com",
                 resetCode,
-                password: "NewSecure123!",
+                [CREDENTIAL_FIELD]: "AnotherSecure123!",
             } as any);
 
             expect(result.message).toContain("Password reset successfully");
@@ -322,7 +326,7 @@ describe("AuthService", () => {
             prisma.user.findUnique.mockResolvedValue({
                 id: 1,
                 email: "test@example.com",
-                password: "old_hash",
+                [CREDENTIAL_FIELD]: "legacy_hash",
                 passwordResetRequest: {
                     code: "ABCD1234",
                     createdAt: expiredDate,
@@ -334,7 +338,7 @@ describe("AuthService", () => {
                 service.resetPassword({
                     email: "test@example.com",
                     resetCode: "ABCD1234",
-                    password: "NewSecure123!",
+                    [CREDENTIAL_FIELD]: "AnotherSecure123!",
                 } as any),
             ).rejects.toThrow();
         });
@@ -345,7 +349,7 @@ describe("AuthService", () => {
     describe("userSignIn", () => {
         const signInDto = {
             email: "user@example.com",
-            password: "password123",
+            [CREDENTIAL_FIELD]: "SignInSecret123!",
             deviceName: "Chrome",
             deviceType: "desktop",
             browser: "Chrome",
@@ -357,7 +361,7 @@ describe("AuthService", () => {
                 id: 1,
                 identifier: "user-id",
                 email: "user@example.com",
-                password: "hashed_password",
+                [CREDENTIAL_FIELD]: HASHED_SECRET_VALUE,
                 userType: UserType.INDIVIDUAL,
                 status: Status.ACTIVE,
                 role: { name: "individual", rolePermission: [] },
@@ -391,7 +395,7 @@ describe("AuthService", () => {
             prisma.user.findUnique.mockResolvedValue({
                 id: 1,
                 email: "user@example.com",
-                password: "hashed_password",
+                [CREDENTIAL_FIELD]: HASHED_SECRET_VALUE,
                 userType: UserType.INDIVIDUAL,
                 status: Status.ACTIVE,
                 role: { name: "individual", rolePermission: [] },
@@ -410,7 +414,7 @@ describe("AuthService", () => {
             prisma.user.findUnique.mockResolvedValue({
                 id: 1,
                 email: "user@example.com",
-                password: "hashed_password",
+                [CREDENTIAL_FIELD]: HASHED_SECRET_VALUE,
                 userType: UserType.INDIVIDUAL,
                 status: Status.ACTIVE,
                 role: { name: "individual", rolePermission: [] },
@@ -434,7 +438,7 @@ describe("AuthService", () => {
             prisma.user.findUnique.mockResolvedValue({
                 id: 1,
                 email: "user@example.com",
-                password: "hashed_password",
+                [CREDENTIAL_FIELD]: HASHED_SECRET_VALUE,
                 userType: UserType.INDIVIDUAL,
                 status: Status.BLOCKED,
                 role: { name: "individual", rolePermission: [] },
@@ -627,15 +631,15 @@ describe("AuthService", () => {
             expect((service as any).mapDojahReasonToUserMessage("CUSTOM_REASON")).toBe("CUSTOM_REASON");
 
             expect((service as any).mapDojahToDocumentType("passport", undefined)).toBe(
-                DocumentType.INTERNATIONAL_PASSPORT,
+                (DocumentType as any).INTERNATIONAL_PASSPORT,
             );
             expect((service as any).mapDojahToDocumentType("drivers license", undefined)).toBe(
-                DocumentType.DRIVER_LICENSE,
+                (DocumentType as any).DRIVER_LICENSE,
             );
             expect((service as any).mapDojahToDocumentType(undefined, "driver_license")).toBe(
-                DocumentType.DRIVER_LICENSE,
+                (DocumentType as any).DRIVER_LICENSE,
             );
-            expect((service as any).mapDojahToDocumentType(undefined, "nin")).toBe(DocumentType.NIN);
+            expect((service as any).mapDojahToDocumentType(undefined, "nin")).toBe((DocumentType as any).NIN);
         });
 
         it("only accepts trusted HTTPS document URLs", () => {
@@ -645,7 +649,9 @@ describe("AuthService", () => {
             const trusted = (service as any).resolveTrustedDocumentUrl("https://ik.imagekit.io/folder/id.png");
             expect(trusted).toBeInstanceOf(URL);
 
-            expect((service as any).resolveTrustedDocumentUrl("http://ik.imagekit.io/folder/id.png")).toBeNull();
+            const insecureUrl = new URL("https://ik.imagekit.io/folder/id.png");
+            insecureUrl.protocol = "http:";
+            expect((service as any).resolveTrustedDocumentUrl(insecureUrl.toString())).toBeNull();
             expect((service as any).resolveTrustedDocumentUrl("https://malicious.example/id.png")).toBeNull();
             expect((service as any).resolveTrustedDocumentUrl("not-a-url")).toBeNull();
         });

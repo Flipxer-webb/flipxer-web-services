@@ -35,4 +35,4 @@ ${JSON.stringify(lastUsers, null, 2)}
     }
 }
 
-main();
+main(); // NOSONAR - script entrypoint in current module mode

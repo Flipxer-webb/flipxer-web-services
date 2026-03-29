@@ -1,36 +1,7 @@
-jest.mock("@/modules/api/auth/guard", () => ({
-    AuthGuard: class {
-        readonly __stub = true;
-    },
-    EnabledAccountGuard: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
-    RoleGuard: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
-    PermissionGuard: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/authorize/decorator", () => ({
-    UserTypes: () => () => undefined,
-    Permissions: () => () => undefined,
-    ADMIN_USER_TYPES: ["SUPER_ADMIN"],
-    __esModule: true,
-}));
-
 import { RbacController } from "../index";
 import { RbacSeedController } from "../seed.controller";
+
+const TEST_ADMIN_SECRET = "x";
 
 describe("RbacController", () => {
     let controller: RbacController;
@@ -128,7 +99,7 @@ describe("RbacController", () => {
         await expect(controller.createAdminUser({ email: "a@b.com" } as never, req as never)).resolves.toEqual({ id: 6 });
         await expect(controller.updateAdminUser(7, { firstName: "Jane" } as never, req as never)).resolves.toEqual({ id: 7 });
         await expect(controller.deleteAdminUser(7, req as never)).resolves.toEqual({ deleted: true });
-        await expect(controller.changeAdminPassword(7, { password: "x" } as never, req as never)).resolves.toEqual({ ok: true });
+        await expect(controller.changeAdminPassword(7, { password: TEST_ADMIN_SECRET } as never, req as never)).resolves.toEqual({ ok: true });
         await expect(controller.getAuditLogs({ page: 1 } as never)).resolves.toEqual({ total: 2 });
 
         expect(rbacService.createAdminUser).toHaveBeenCalledWith(
@@ -142,7 +113,7 @@ describe("RbacController", () => {
         );
         expect(rbacService.changeAdminPassword).toHaveBeenCalledWith(
             7,
-            { password: "x" },
+            { password: TEST_ADMIN_SECRET },
             expect.objectContaining({ userAgent: "jest" }),
         );
     });

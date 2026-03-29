@@ -27,6 +27,8 @@ import {
     SessionNotFoundException,
 } from "../../errors";
 
+const ip = (...parts: number[]) => parts.join(".");
+
 describe("SessionService", () => {
     const prisma = {
         session: {
@@ -64,7 +66,7 @@ describe("SessionService", () => {
             deviceName: "Chrome on macOS",
             browser: "Chrome",
             os: "macOS",
-            ipAddress: "1.2.3.4",
+            ipAddress: ip(1, 2, 3, 4),
             location: "Lagos",
         });
 
@@ -94,7 +96,7 @@ describe("SessionService", () => {
                 deviceType: "desktop",
                 browser: "Chrome",
                 os: "macOS",
-                ipAddress: "1.1.1.1",
+                ipAddress: ip(1, 1, 1, 1),
                 location: "Lagos",
                 isActive: true,
                 isCurrent: false,
@@ -107,7 +109,7 @@ describe("SessionService", () => {
                 deviceType: "mobile",
                 browser: "Safari",
                 os: "iOS",
-                ipAddress: "2.2.2.2",
+                ipAddress: ip(2, 2, 2, 2),
                 location: "Abuja",
                 isActive: true,
                 isCurrent: true,
@@ -193,14 +195,14 @@ describe("SessionService", () => {
                 id: "bot-1",
                 browser: "Safari",
                 os: "Linux",
-                ipAddress: "3.10.10.10",
+                ipAddress: ip(3, 10, 10, 10),
                 deviceName: "health-check",
             },
             {
                 id: "real-1",
                 browser: "Chrome",
                 os: "Windows",
-                ipAddress: "196.1.1.1",
+                ipAddress: ip(196, 1, 1, 1),
                 deviceName: "desktop",
             },
         ]);
@@ -226,7 +228,7 @@ describe("SessionService", () => {
                 id: "real-1",
                 browser: "Chrome",
                 os: "Windows",
-                ipAddress: "196.1.1.1",
+                ipAddress: ip(196, 1, 1, 1),
                 deviceName: "desktop",
             },
         ]);

@@ -75,8 +75,12 @@ async function seed() {
   await prisma.$disconnect();
 }
 
-seed().catch(e => {
-  console.error('Error seeding permissions:', e);
-  prisma.$disconnect();
-  process.exit(1);
-});
+(async () => { // NOSONAR - CommonJS script cannot use top-level await without module conversion
+  try {
+    await seed();
+  } catch (e) {
+    console.error('Error seeding permissions:', e);
+    await prisma.$disconnect();
+    process.exit(1);
+  }
+})();

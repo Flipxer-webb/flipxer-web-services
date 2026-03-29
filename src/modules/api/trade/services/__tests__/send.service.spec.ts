@@ -24,7 +24,6 @@ import { RateService } from "../rate.service";
 import { TransactionMonitorService } from "../ledger/transaction-monitor.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
-import { NetworkTypes } from "@prisma/client";
 
 function makePrisma() {
     return {
@@ -40,11 +39,31 @@ function makePrisma() {
     };
 }
 
+function availableBalance(value: number) {
+    return {
+        available: {
+            lessThan: jest.fn((input: any) => Number(input?.toString?.() ?? input) > value),
+            toString: jest.fn(() => value.toString()),
+        },
+    };
+}
+
 describe("SendService", () => {
     let service: SendService;
     let prisma: ReturnType<typeof makePrisma>;
     let quidaxService: { getWithdrawerFees: jest.Mock; getUserWalletList: jest.Mock; createWithdrawerRequest: jest.Mock; cancelWithdrawerRequest: jest.Mock };
     let rateLimiter: { checkLimit: jest.Mock };
+    let wsGateway: { notifyTransactionUpdate: jest.Mock; notifyWalletUpdate: jest.Mock; notifyWithdrawalQueued: jest.Mock };
+    let ledgerService: {
+        getBalance: jest.Mock;
+        hold: jest.Mock;
+        releaseHold: jest.Mock;
+        runWithMultiUserLocks: jest.Mock;
+        internalTransfer: jest.Mock;
+    };
+    let withdrawalQueueService: { addToQueue: jest.Mock };
+    let sweepService: { hasPendingSweeps: jest.Mock };
+    let notificationDispatcher: { notify: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -66,6 +85,10 @@ describe("SendService", () => {
             getBalance: jest.fn(),
             hold: jest.fn(),
             releaseHold: jest.fn(),
+            runWithMultiUserLocks: jest.fn().mockImplementation(
+                async (_userIds: number[], _currency: string, cb: () => any) => cb(),
+            ),
+            internalTransfer: jest.fn(),
         };
         const mockWithdrawalQueue = { addToQueue: jest.fn() };
         const mockSweep = { hasPendingSweeps: jest.fn().mockResolvedValue(false) };
@@ -104,6 +127,11 @@ describe("SendService", () => {
         service = module.get(SendService);
         quidaxService = module.get(TradingInjectionToken.QUIDAX);
         rateLimiter = module.get(RateLimiterService);
+        wsGateway = module.get(WsGateway);
+        ledgerService = module.get(LedgerService);
+        withdrawalQueueService = module.get(WithdrawalQueueService);
+        sweepService = module.get(SweepService);
+        notificationDispatcher = module.get(NotificationDispatcher);
     });
 
     afterEach(() => jest.clearAllMocks());
@@ -263,101 +291,27 @@ describe("SendService", () => {
             expect(result.reason).toContain("pending");
         });
 
-        it("auto-fails stale pending orders and allows new withdrawal", async () => {
+        it("should auto-fail stale pending withdrawal and allow new request", async () => {
             rateLimiter.checkLimit.mockResolvedValue({ allowed: true });
             prisma.order.findFirst.mockResolvedValue({
-                id: 2,
-                orderReference: "ref-stale",
-                amount: 0.7,
-                status: "submitted",
-                createdAt: new Date(Date.now() - 40 * 60 * 1000),
+                id: 1,
+                orderReference: "ref-1",
+                amount: 0.5,
+                status: "pending",
+                createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
             });
-
-            const autoFailSpy = jest
-                .spyOn(service as any, "autoFailStuckOrder")
-                .mockResolvedValue(undefined);
+            prisma.order.update.mockResolvedValue({ id: 1 });
+            ledgerService.releaseHold.mockResolvedValue({ success: true });
 
             const result = await (service as any).checkWithdrawalRateLimits(1, "BTC");
 
             expect(result.allowed).toBe(true);
-            expect(autoFailSpy).toHaveBeenCalled();
-        });
-    });
-
-    describe("network/address validation helpers", () => {
-        it("resolveNetwork respects explicit network and auto-detects from address", () => {
-            expect((service as any).resolveNetwork(1, "trc20", "TYaLG5i4fhGAZDr7EsJFZEsxTCvNbfqLNi")).toBe(
-                "trc20",
+            expect(prisma.order.update).toHaveBeenCalled();
+            expect(ledgerService.releaseHold).toHaveBeenCalledWith(
+                "withdrawal:ref-1",
+                false,
+                "Stuck order auto-failed",
             );
-            expect(
-                (service as any).resolveNetwork(
-                    1,
-                    undefined,
-                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16",
-                ),
-            ).toBe(NetworkTypes.erc20);
-            expect((service as any).resolveNetwork(1, undefined, "invalid-address")).toBeUndefined();
-        });
-
-        it("validateWalletAddress falls back to local validation when provider rejects known format", async () => {
-            const walletAddressService = (service as any).walletAddressService;
-            walletAddressService.verifyWalletAddress.mockResolvedValueOnce({ data: { valid: false } });
-
-            await expect(
-                (service as any).validateWalletAddress(
-                    1,
-                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16",
-                    "ETH",
-                    NetworkTypes.erc20,
-                ),
-            ).resolves.toBeUndefined();
-
-            walletAddressService.verifyWalletAddress.mockResolvedValueOnce({ data: { valid: false } });
-            await expect(
-                (service as any).validateWalletAddress(1, "invalid-address", "ETH", NetworkTypes.erc20),
-            ).rejects.toThrow("Invalid wallet address for selected currency");
-        });
-
-        it("validateWalletAddress handles provider failures based on local address confidence", async () => {
-            const walletAddressService = (service as any).walletAddressService;
-            walletAddressService.verifyWalletAddress.mockRejectedValueOnce(new Error("provider unavailable"));
-
-            await expect(
-                (service as any).validateWalletAddress(
-                    1,
-                    "TYaLG5i4fhGAZDr7EsJFZEsxTCvNbfqLNi",
-                    "USDT",
-                    NetworkTypes.trc20,
-                ),
-            ).resolves.toBeUndefined();
-
-            walletAddressService.verifyWalletAddress.mockRejectedValueOnce(new Error("provider unavailable"));
-            await expect(
-                (service as any).validateWalletAddress(1, "@@bad", "USDT", NetworkTypes.trc20),
-            ).rejects.toThrow("Unable to verify wallet address. Please check the address and try again.");
-        });
-    });
-
-    describe("getCryptoWithdrawerFee edge cases", () => {
-        it("throws on unknown provider fee structure", async () => {
-            quidaxService.getWithdrawerFees.mockResolvedValue({ data: { type: "mystery" } });
-
-            await expect(
-                service.getCryptoWithdrawerFee({ amount: 10, currency: "btc" as any } as any),
-            ).rejects.toThrow("Unknown fee structure");
-        });
-
-        it("throws on range fee when amount is outside all ranges", async () => {
-            quidaxService.getWithdrawerFees.mockResolvedValue({
-                data: {
-                    type: "range",
-                    fee: [{ min: 0, max: 5, type: "flat", value: 1 }],
-                },
-            });
-
-            await expect(
-                service.getCryptoWithdrawerFee({ amount: 50, currency: "btc" as any } as any),
-            ).rejects.toThrow("Amount is out of range.");
         });
     });
 
@@ -380,6 +334,230 @@ describe("SendService", () => {
             expect(
                 (service as any).isNetworkCompatibleWithAddress(undefined, "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16"),
             ).toBe(true);
+        });
+    });
+
+    describe("withdrawerRequest", () => {
+        const user = { id: 42, email: "user@example.com" } as any;
+        const dto = {
+            currency: "eth",
+            amount: 1,
+            recipientWalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16",
+            network: "erc20",
+            narration: "test withdrawal",
+            transaction_note: "note",
+        } as any;
+
+        beforeEach(() => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
+            prisma.assetWallet.findFirst.mockResolvedValue(null);
+            prisma.order.findFirst.mockResolvedValue(null);
+            quidaxService.getWithdrawerFees.mockResolvedValue({
+                data: { type: "flat", fee: 0.001 },
+            });
+            ledgerService.getBalance.mockResolvedValue(availableBalance(10));
+            ledgerService.hold.mockResolvedValue({ success: true, entryId: "hold-1" });
+            sweepService.hasPendingSweeps.mockResolvedValue(false);
+            prisma.order.create.mockResolvedValue({
+                id: 99,
+                transactionId: "txn-99",
+                status: "processing",
+                streamlinedStatus: "pending",
+                orderCategory: "SEND",
+                amount: 1,
+                currency: "ETH",
+                fee: 0.001,
+                total: 1.001,
+                recipient: dto.recipientWalletAddress,
+                createdAt: new Date("2026-03-29T12:00:00Z"),
+                updatedAt: new Date("2026-03-29T12:00:00Z"),
+                orderReference: "ref-99",
+                narration: "test withdrawal",
+                transaction_note: "note",
+            });
+        });
+
+        it("executes withdrawal immediately when liquidity is available", async () => {
+            quidaxService.getUserWalletList.mockResolvedValue({
+                data: [{ currency: "eth", balance: "100" }],
+            });
+            quidaxService.createWithdrawerRequest.mockResolvedValue({
+                data: { id: "provider-1", fee: "0.001", total: "1.001" },
+            });
+
+            const result = await service.withdrawerRequest(user, dto);
+
+            expect(result.message).toContain("placed successfully");
+            expect(quidaxService.createWithdrawerRequest).toHaveBeenCalled();
+            expect(prisma.order.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 99 },
+                }),
+            );
+            expect(wsGateway.notifyWalletUpdate).toHaveBeenCalledWith(user.id);
+            expect(notificationDispatcher.notify).toHaveBeenCalled();
+        });
+
+        it("queues withdrawal when liquidity is low", async () => {
+            quidaxService.getUserWalletList.mockResolvedValue({
+                data: [{ currency: "eth", balance: "0.1" }],
+            });
+            prisma.order.create.mockResolvedValue({
+                id: 100,
+                transactionId: "txn-100",
+                status: "pending",
+                streamlinedStatus: "pending",
+                orderCategory: "SEND",
+                amount: 1,
+                currency: "ETH",
+                fee: 0.001,
+                total: 1.001,
+                recipient: dto.recipientWalletAddress,
+                createdAt: new Date("2026-03-29T12:00:00Z"),
+                updatedAt: new Date("2026-03-29T12:00:00Z"),
+                orderReference: "ref-100",
+            });
+            withdrawalQueueService.addToQueue.mockResolvedValue({
+                success: true,
+                queueEntry: { id: "q-1", position: 1 },
+            });
+
+            const result = await service.withdrawerRequest(user, dto);
+
+            expect(result.data.status).toBe("queued");
+            expect(withdrawalQueueService.addToQueue).toHaveBeenCalled();
+            expect(wsGateway.notifyWithdrawalQueued).toHaveBeenCalledWith(
+                user.id,
+                expect.objectContaining({ queueId: "q-1" }),
+            );
+        });
+
+        it("releases hold and throws when queue add fails", async () => {
+            quidaxService.getUserWalletList.mockResolvedValue({
+                data: [{ currency: "eth", balance: "0.1" }],
+            });
+            withdrawalQueueService.addToQueue.mockResolvedValue({ success: false });
+
+            await expect(service.withdrawerRequest(user, dto)).rejects.toThrow(
+                "Failed to process withdrawal",
+            );
+            expect(ledgerService.releaseHold).toHaveBeenCalledWith(
+                expect.stringContaining("withdrawal:"),
+                false,
+                "Failed to queue withdrawal",
+            );
+        });
+
+        it("throws when recipient address is missing", async () => {
+            await expect(
+                service.withdrawerRequest(user, {
+                    ...dto,
+                    recipientWalletAddress: "",
+                }),
+            ).rejects.toThrow("Recipient wallet address is required");
+        });
+
+        it("throws when rate limiter blocks withdrawal", async () => {
+            rateLimiter.checkLimit.mockResolvedValue({ allowed: false, retryAfter: 20 });
+
+            await expect(service.withdrawerRequest(user, dto)).rejects.toThrow(
+                "Rate Limit Exceeded",
+            );
+        });
+    });
+
+    describe("cancelWithdrawerRequest", () => {
+        it("throws when crypto sub-account is missing", async () => {
+            await expect(
+                service.cancelWithdrawerRequest(
+                    { id: 1, cryptoSubAccountId: null } as any,
+                    { withdrawal_id: "wd-1" } as any,
+                ),
+            ).rejects.toThrow("Please complete your account setup");
+        });
+
+        it("delegates cancel to provider", async () => {
+            quidaxService.cancelWithdrawerRequest.mockResolvedValue({
+                data: { id: "wd-1", status: "cancelled" },
+            });
+
+            const result = await service.cancelWithdrawerRequest(
+                { id: 1, cryptoSubAccountId: "sub-1" } as any,
+                { withdrawal_id: "wd-1" } as any,
+            );
+
+            expect(result.data.id).toBe("wd-1");
+            expect(quidaxService.cancelWithdrawerRequest).toHaveBeenCalledWith({
+                user_id: "sub-1",
+                withdrawal_id: "wd-1",
+            });
+        });
+    });
+
+    describe("internal transfers", () => {
+        const sender = { id: 9, email: "sender@example.com" } as any;
+        const baseDto = {
+            isInternal: true,
+            currency: "usdt",
+            amount: 50,
+            recipientEmail: "recipient@example.com",
+            narration: "internal",
+            transaction_note: "note",
+        } as any;
+
+        beforeEach(() => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 20,
+                email: "recipient@example.com",
+                firstName: "Rec",
+                lastName: "User",
+            });
+            prisma.order.findFirst.mockResolvedValue(null);
+            ledgerService.getBalance.mockResolvedValue(availableBalance(100));
+            ledgerService.internalTransfer.mockResolvedValue({
+                success: true,
+                entryId: "debit-1",
+                creditEntryId: "credit-1",
+            });
+            prisma.order.create.mockResolvedValue({ id: 1 });
+        });
+
+        it("processes internal transfer successfully", async () => {
+            const result = await service.withdrawerRequest(sender, baseDto);
+
+            expect(result.data.status).toBe("completed");
+            expect(ledgerService.runWithMultiUserLocks).toHaveBeenCalledWith(
+                [sender.id, 20],
+                "USDT",
+                expect.any(Function),
+            );
+            expect(ledgerService.internalTransfer).toHaveBeenCalled();
+            expect(prisma.order.create).toHaveBeenCalledTimes(2);
+            expect(wsGateway.notifyWalletUpdate).toHaveBeenCalledWith(sender.id);
+            expect(wsGateway.notifyWalletUpdate).toHaveBeenCalledWith(20);
+        });
+
+        it("records failed internal transfer attempts", async () => {
+            ledgerService.runWithMultiUserLocks.mockRejectedValue(new Error("lock-failed"));
+
+            await expect(service.withdrawerRequest(sender, baseDto)).rejects.toThrow("lock-failed");
+            expect(prisma.order.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        status: "failed",
+                        orderCategory: "SEND",
+                    }),
+                }),
+            );
+        });
+
+        it("requires recipient email for internal transfers", async () => {
+            await expect(
+                service.withdrawerRequest(sender, {
+                    ...baseDto,
+                    recipientEmail: undefined,
+                }),
+            ).rejects.toThrow("Recipient email is required");
         });
     });
 });

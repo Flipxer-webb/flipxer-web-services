@@ -1,28 +1,3 @@
-jest.mock("@/modules/api/auth/guard", () => ({
-    SocketAuthGuard: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/user", () => ({
-    User: () => () => undefined,
-    ClientData: () => () => undefined,
-    UserModule: class {
-        readonly __stub = true;
-    },
-    AccountDeletedException: class extends Error {},
-    UserNotFoundException: class extends Error {},
-    __esModule: true,
-}));
-
-jest.mock("@/modules/api/auth", () => ({
-    AuthModule: class {
-        readonly __stub = true;
-    },
-    __esModule: true,
-}));
-
 import { WsGateway } from "../index";
 
 describe("WsGateway", () => {

@@ -1,127 +1,106 @@
-const mockLoggerLog = jest.fn();
-const mockLoggerError = jest.fn();
-const mockQuidaxLib = jest.fn();
-const mockQuidaxService = jest.fn();
-const mockQuidaxTradingProvider = jest.fn();
+import { Logger } from "@nestjs/common";
 
-jest.mock("@nestjs/common", () => ({
-    Logger: jest.fn().mockImplementation(() => ({
-        log: mockLoggerLog,
-        error: mockLoggerError,
-    })),
-}));
+const quidaxLibCtor = jest.fn().mockImplementation((options) => ({ options }));
+const quidaxServiceCtor = jest.fn().mockImplementation((quidax) => ({ quidax, type: "service" }));
+const tradingProviderCtor = jest.fn().mockImplementation((service) => ({ service, type: "provider" }));
 
 jest.mock("@/libs/quidax", () => ({
-    QuidaxLib: mockQuidaxLib,
+    QuidaxLib: quidaxLibCtor,
+    __esModule: true,
 }));
 
 jest.mock("../../providers/quidax/services", () => ({
-    QuidaxService: mockQuidaxService,
+    QuidaxService: quidaxServiceCtor,
+    __esModule: true,
 }));
 
 jest.mock("../../providers/quidax/quidax-trading-provider", () => ({
-    QuidaxTradingProvider: mockQuidaxTradingProvider,
+    QuidaxTradingProvider: tradingProviderCtor,
+    __esModule: true,
 }));
 
 import { TradingFactory } from "../index";
 
 describe("TradingFactory", () => {
-    const validConfig = {
+    const tradingConfig = {
         quidax: {
             api_public: "public-key",
             api_secret: "secret-key",
-            baseUrl: "https://api.quidax.com",
-            rampBaseUrl: "https://ramp.quidax.com",
+            baseUrl: "https://api.quidax.test",
+            rampBaseUrl: "https://ramp.quidax.test",
         },
     } as any;
 
     beforeEach(() => {
         jest.clearAllMocks();
-        mockQuidaxLib.mockImplementation((options) => ({ __type: "quidax-lib", options }));
-        mockQuidaxService.mockImplementation((quidax) => ({ __type: "quidax-service", quidax }));
-        mockQuidaxTradingProvider.mockImplementation((service) => ({ __type: "provider", service }));
     });
 
-    it("buildQuidaxService should create and return QuidaxService", () => {
-        const factory = new TradingFactory(validConfig);
+    it("buildQuidaxService creates QuidaxLib and QuidaxService", () => {
+        const factory = new TradingFactory(tradingConfig);
 
-        const result = factory.buildQuidaxService();
+        const service = factory.buildQuidaxService() as any;
 
-        expect(mockQuidaxLib).toHaveBeenCalledWith({
+        expect(quidaxLibCtor).toHaveBeenCalledWith({
             api_public: "public-key",
             api_secret: "secret-key",
-            baseURL: "https://api.quidax.com",
-            rampBaseURL: "https://ramp.quidax.com",
+            baseURL: "https://api.quidax.test",
+            rampBaseURL: "https://ramp.quidax.test",
         });
-        expect(mockQuidaxService).toHaveBeenCalledTimes(1);
-        expect(result).toEqual({
-            __type: "quidax-service",
-            quidax: {
-                __type: "quidax-lib",
-                options: {
-                    api_public: "public-key",
-                    api_secret: "secret-key",
-                    baseURL: "https://api.quidax.com",
-                    rampBaseURL: "https://ramp.quidax.com",
-                },
-            },
-        });
-    });
-
-    it("build should throw for unknown provider", () => {
-        const factory = new TradingFactory(validConfig);
-
-        expect(() => (factory as any).build({ provider: "unknown" })).toThrow(
-            "Unknown provider: unknown"
+        expect(quidaxServiceCtor).toHaveBeenCalledWith(
+            expect.objectContaining({
+                options: expect.any(Object),
+            })
         );
+        expect(service.type).toBe("service");
     });
 
-    it("buildProvider should return QuidaxTradingProvider for quidax", () => {
-        const factory = new TradingFactory(validConfig);
+    it("buildQuidaxService returns service for configured provider", () => {
+        const factory = new TradingFactory(tradingConfig);
 
-        const result = factory.buildProvider({ provider: "quidax" } as any);
+        const service = factory.buildQuidaxService() as any;
 
-        expect(mockQuidaxTradingProvider).toHaveBeenCalledTimes(1);
-        expect(result).toEqual({
-            __type: "provider",
-            service: {
-                __type: "quidax-service",
-                quidax: {
-                    __type: "quidax-lib",
-                    options: {
-                        api_public: "public-key",
-                        api_secret: "secret-key",
-                        baseURL: "https://api.quidax.com",
-                        rampBaseURL: "https://ramp.quidax.com",
-                    },
-                },
-            },
-        });
+        expect(service.type).toBe("service");
+        expect(quidaxServiceCtor).toHaveBeenCalledTimes(1);
     });
 
-    it("buildProvider should throw for unknown provider", () => {
-        const factory = new TradingFactory(validConfig);
+    it("buildProvider returns provider wrapper for quidax", () => {
+        const factory = new TradingFactory(tradingConfig);
+
+        const provider = factory.buildProvider({ provider: "quidax" } as any) as any;
+
+        expect(tradingProviderCtor).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: "service",
+            })
+        );
+        expect(provider.type).toBe("provider");
+    });
+
+    it("buildProvider throws for unknown provider", () => {
+        const factory = new TradingFactory(tradingConfig);
 
         expect(() => factory.buildProvider({ provider: "unknown" } as any)).toThrow(
             "Unknown provider: unknown"
         );
     });
 
-    it("should log config error when required values are missing", () => {
-        const missingConfig = {
+    it("logs missing config details when baseUrl or secret is absent", () => {
+        const loggerErrorSpy = jest
+            .spyOn(Logger.prototype, "error")
+            .mockImplementation(() => undefined);
+
+        const factory = new TradingFactory({
             quidax: {
-                api_public: "public-key",
-                api_secret: "",
                 baseUrl: "",
-                rampBaseUrl: "https://ramp.quidax.com",
+                rampBaseUrl: "",
+                api_public: "",
+                api_secret: "",
             },
-        } as any;
-        const factory = new TradingFactory(missingConfig);
+        } as any);
 
         factory.buildQuidaxService();
 
-        expect(mockLoggerLog).toHaveBeenCalled();
-        expect(mockLoggerError).toHaveBeenCalled();
+        expect(loggerErrorSpy).toHaveBeenCalled();
+        loggerErrorSpy.mockRestore();
     });
 });
-

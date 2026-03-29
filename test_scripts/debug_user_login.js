@@ -47,11 +47,15 @@ async function main() {
     }
 }
 
-main()
-    .catch((e) => {
+async function bootstrap() {
+    try {
+        await main();
+    } catch (e) {
         console.error(e);
         process.exit(1);
-    })
-    .finally(async () => {
+    } finally {
         await prisma.$disconnect();
-    });
+    }
+}
+
+void bootstrap(); // NOSONAR - CommonJS script entrypoint
