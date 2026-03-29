@@ -66,6 +66,7 @@ import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { DocumentType, Status, UserType } from "@prisma/client";
 import { authenticator } from "otplib";
 import * as bcrypt from "bcryptjs";
+import axios from "axios";
 
 function makePrisma() {
     return {
@@ -125,8 +126,12 @@ describe("AuthService", () => {
         const mockUploadFactory = { build: jest.fn().mockReturnValue({}) };
         const mockDojah = {
             verifyDocumentWithNameMatch: jest.fn(),
+            verifyBusinessDocuments: jest.fn(),
         };
-        const mockCryptoQueue = { addJob: jest.fn() };
+        const mockCryptoQueue = {
+            addJob: jest.fn(),
+            enqueue: jest.fn().mockResolvedValue(undefined),
+        };
         const mockSms = { sendSms: jest.fn() };
         const mockSession = {
             createSession: jest.fn().mockResolvedValue({ sessionId: "session-1" }),
@@ -495,6 +500,79 @@ describe("AuthService", () => {
 
             await expect(service.userSignIn(signInDto as any, "127.0.0.1")).rejects.toThrow();
         });
+
+        it("returns admin payload for successful adminSignIn", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 9,
+                identifier: "admin-id",
+                email: "admin@example.com",
+                [CREDENTIAL_FIELD]: HASHED_SECRET_VALUE,
+                userType: "ADMIN",
+                status: Status.ACTIVE,
+                role: { name: "admin", rolePermission: [] },
+                flaggedRecord: null,
+                isTwoFactorEnabled: false,
+                twoFactorSecret: null,
+                failedLoginAttempts: 0,
+                lastFailedLogin: null,
+                lockedUntil: null,
+            });
+            (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+            jwtService.signAsync
+                .mockResolvedValueOnce("admin-access")
+                .mockResolvedValueOnce("admin-refresh");
+            prisma.user.update.mockResolvedValue({});
+
+            const result = await service.adminSignIn(
+                { email: "admin@example.com", [CREDENTIAL_FIELD]: "AdminSecret123!" } as any,
+                "127.0.0.1",
+            );
+
+            expect(result.data).toMatchObject({
+                accessToken: "admin-access",
+                refreshToken: "admin-refresh",
+                userType: "ADMIN",
+            });
+        });
+
+        it("includes business verification fields for successful business user sign-in", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                identifier: "biz-id",
+                email: "biz@example.com",
+                [CREDENTIAL_FIELD]: HASHED_SECRET_VALUE,
+                userType: "BUSINESS",
+                status: Status.ACTIVE,
+                role: { name: "business", rolePermission: [] },
+                flaggedRecord: null,
+                isTwoFactorEnabled: false,
+                twoFactorSecret: null,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+                isBvnVerified: true,
+                isDocumentVerified: false,
+                businessRecordCompleted: true,
+                businessDocumentVerificationStatus: "PENDING",
+                failedLoginAttempts: 0,
+                lastFailedLogin: null,
+                lockedUntil: null,
+            });
+            (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+            jwtService.signAsync
+                .mockResolvedValueOnce("biz-access")
+                .mockResolvedValueOnce("biz-refresh");
+            prisma.user.update.mockResolvedValue({});
+
+            const result = await service.userSignIn(
+                { ...signInDto, email: "biz@example.com" } as any,
+                "127.0.0.1",
+            );
+
+            expect(result.data.userType).toBe("business");
+            expect(result.data.verificationStatus.businessRecordCompleted).toBe(true);
+            expect(result.data.verificationStatus.businessDocumentVerificationStatus).toBe("PENDING");
+        });
     });
 
     // ── refreshToken ─────────────────────────────────────────
@@ -658,6 +736,7 @@ describe("AuthService", () => {
             expect(result).toEqual({ valid: false, reuse: true });
             hashSpy.mockRestore();
         });
+
     });
 
     describe("verify2FALogin + reset2FARateLimit", () => {
@@ -788,6 +867,32 @@ describe("AuthService", () => {
             expect((service as any).twoFactorRateLimitService.recordSuccessfulAttempt).toHaveBeenCalledWith("1", "login");
             expect(saveSpy).toHaveBeenCalledWith(1, "2fa-refresh");
             expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER" });
+
+            generateSpy.mockRestore();
+            saveSpy.mockRestore();
+        });
+
+        it("completes 2FA login with session creation success", async () => {
+            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            prisma.user.findUnique.mockResolvedValue(base2FAUser);
+            (authenticator.verify as jest.Mock).mockReturnValue(true);
+
+            (service as any).sessionService.createSession.mockResolvedValue({ sessionId: "session-2fa-ok" });
+
+            const generateSpy = jest.spyOn(service, "generateTokens")
+                .mockResolvedValue({ accessToken: "ok-access", refreshToken: "ok-refresh" } as any);
+            const saveSpy = jest.spyOn(service, "saveRefreshToken")
+                .mockResolvedValue({} as any);
+            prisma.user.update.mockResolvedValue({});
+
+            const result = await service.verify2FALogin(base2FADto as any, "127.0.0.1");
+
+            expect(result.data.sessionId).toBe("session-2fa-ok");
+            expect(generateSpy).toHaveBeenCalledWith({
+                sub: 1,
+                platform: "USER",
+                sessionId: "session-2fa-ok",
+            });
 
             generateSpy.mockRestore();
             saveSpy.mockRestore();
@@ -1028,6 +1133,162 @@ describe("AuthService", () => {
             );
             expect(runDojahSpy).toHaveBeenCalledWith(2, "RC-999");
             runDojahSpy.mockRestore();
+        });
+    });
+
+    describe("additional auth flow coverage", () => {
+        it("uploadSingleBusinessDocumentFile validates field names", async () => {
+            await expect(
+                service.uploadSingleBusinessDocumentFile(
+                    { id: 50 } as any,
+                    { originalname: "doc.png" } as any,
+                    { fieldName: "unknownField" } as any,
+                ),
+            ).rejects.toThrow("Invalid field name: unknownField");
+        });
+
+        it("uploadSingleBusinessDocumentFile uploads valid dynamic director/shareholder fields", async () => {
+            jest.spyOn(service as any, "uploadAsFile").mockResolvedValue({
+                url: "https://img/uploaded.png",
+                fileId: "file-1",
+            });
+
+            const result = await service.uploadSingleBusinessDocumentFile(
+                { id: 51 } as any,
+                { originalname: "director-id.png" } as any,
+                { fieldName: "directors[0].idDocument" } as any,
+            );
+
+            expect(result.message).toBe("File uploaded successfully");
+            expect(result.data).toMatchObject({
+                fieldName: "directors[0].idDocument",
+                url: "https://img/uploaded.png",
+                fileId: "file-1",
+            });
+        });
+
+        it("uploadSingleBusinessDocumentFile rethrows upload errors", async () => {
+            jest.spyOn(service as any, "uploadAsFile").mockRejectedValue(new Error("upload failed"));
+
+            await expect(
+                service.uploadSingleBusinessDocumentFile(
+                    { id: 52 } as any,
+                    { originalname: "shareholder-id.png" } as any,
+                    { fieldName: "shareholders[0].idDocument" } as any,
+                ),
+            ).rejects.toThrow("upload failed");
+        });
+
+        it("runDojahBusinessVerification updates business document fields on success", async () => {
+            prisma.businessRecord.findUnique.mockResolvedValue({
+                businessName: "Acme Ltd",
+                taxIdentificationNumber: "TIN-123",
+            });
+            (dojahService as any).verifyBusinessDocuments.mockResolvedValue({
+                cac: {
+                    verified: true,
+                    companyName: "Acme Ltd",
+                    companyStatus: "ACTIVE",
+                    registrationDate: "2022-01-01",
+                    nameMatches: true,
+                    rawResponse: { cac: true },
+                },
+                tin: {
+                    verified: true,
+                    taxpayerName: "Acme Ltd",
+                    nameMatches: true,
+                    rawResponse: { tin: true },
+                },
+                ocr: {
+                    verified: true,
+                    extractedNumber: "RC-123",
+                    extractedName: "Acme Ltd",
+                    numberMatches: true,
+                    rawResponse: { ocr: true },
+                },
+            });
+            prisma.businessDocument.update.mockResolvedValue({ id: 9 });
+
+            await expect(
+                (service as any).runDojahBusinessVerification(9, "RC-123", {
+                    buffer: Buffer.from("fake-image"),
+                }),
+            ).resolves.toBeUndefined();
+
+            expect((dojahService as any).verifyBusinessDocuments).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cacDocumentNumber: "RC-123",
+                    taxIdentificationNumber: "TIN-123",
+                    businessName: "Acme Ltd",
+                }),
+            );
+            expect(prisma.businessDocument.update).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { userId: 9 } }),
+            );
+        });
+
+        it("runDojahBusinessVerification swallows provider failures", async () => {
+            prisma.businessRecord.findUnique.mockResolvedValue({ businessName: "Acme", taxIdentificationNumber: null });
+            (dojahService as any).verifyBusinessDocuments.mockRejectedValue(new Error("provider down"));
+
+            await expect((service as any).runDojahBusinessVerification(10, "RC-404")).resolves.toBeUndefined();
+        });
+
+        it("runDojahBusinessVerificationFromStoredDocument handles missing and untrusted URLs", async () => {
+            prisma.businessDocument.findUnique
+                .mockResolvedValueOnce({ cacImageUrl: null })
+                .mockResolvedValueOnce({ cacImageUrl: "https://malicious.example/cac.png" });
+
+            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(11, "RC-1")).resolves.toBeUndefined();
+            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(11, "RC-2")).resolves.toBeUndefined();
+        });
+
+        it("runDojahBusinessVerificationFromStoredDocument fetches trusted URL and forwards synthetic file", async () => {
+            prisma.businessDocument.findUnique.mockResolvedValue({ cacImageUrl: "https://ik.imagekit.io/folder/cac.webp" });
+            const axiosSpy = jest.spyOn(axios, "get").mockResolvedValue({ data: Buffer.from("binary") } as any);
+            const runSpy = jest.spyOn(service as any, "runDojahBusinessVerification").mockResolvedValue(undefined);
+
+            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(12, "RC-12")).resolves.toBeUndefined();
+
+            expect(axiosSpy).toHaveBeenCalledWith("https://ik.imagekit.io/folder/cac.webp", expect.any(Object));
+            expect(runSpy).toHaveBeenCalledWith(
+                12,
+                "RC-12",
+                expect.objectContaining({ fieldname: "cacImage", mimetype: "image/webp" }),
+            );
+
+            axiosSpy.mockRestore();
+            runSpy.mockRestore();
+        });
+
+        it("submitBusinessRecord persists data and enqueues account setup", async () => {
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    businessRecord: {
+                        upsert: jest.fn().mockResolvedValue({ id: 501, businessName: "Acme Ltd" }),
+                    },
+                    user: {
+                        update: jest.fn().mockResolvedValue({ id: 33 }),
+                    },
+                }),
+            );
+
+            const result = await service.submitBusinessRecord(
+                { id: 33 } as any,
+                {
+                    firstName: "Jane",
+                    lastName: "Doe",
+                    businessName: "Acme Ltd",
+                    natureOfBusiness: "Trading",
+                    expectedTransactionFrequency: "DAILY",
+                    expectedTransactionVolumes: "HIGH",
+                    taxIdentificationNumber: "TIN-77",
+                } as any,
+            );
+
+            expect(result.message).toBe("Business record submitted successfully");
+            expect((service as any).cryptoAccountQueueProducer.enqueue).toHaveBeenCalledWith(33);
+            expect((service as any).redisCacheService.del).toHaveBeenCalled();
         });
     });
 
