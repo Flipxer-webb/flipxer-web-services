@@ -71,7 +71,7 @@ describe("TradingFactory", () => {
     it("build should throw for unknown provider", () => {
         const factory = new TradingFactory(validConfig);
 
-        expect(() => factory.build({ provider: "unknown" } as any)).toThrow(
+        expect(() => (factory as any).build({ provider: "unknown" })).toThrow(
             "Unknown provider: unknown"
         );
     });
@@ -124,3 +124,4 @@ describe("TradingFactory", () => {
         expect(mockLoggerError).toHaveBeenCalled();
     });
 });
+

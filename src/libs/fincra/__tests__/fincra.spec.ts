@@ -94,6 +94,52 @@ describe("FincraLib", () => {
         );
     });
 
+    it("should verify payment without business header when businessId is missing", async () => {
+        mockAxiosInstance.mockResolvedValue({
+            data: { status: true, message: "ok", data: { status: "success", reference: "r2", amount: 500, currency: "NGN" } },
+        });
+
+        const lib = new FincraLib({
+            baseUrl: "https://api.fincra.com",
+            secretKey: "secret-key",
+            publicKey: "public-key",
+        });
+        await lib.verifyPayment("merchant-ref-2");
+
+        expect(mockAxiosInstance).toHaveBeenCalledWith(
+            expect.objectContaining({
+                method: "GET",
+                url: "/checkout/payments/merchant-reference/merchant-ref-2",
+                headers: undefined,
+            }),
+        );
+    });
+
+    it("should fetch banks with default and custom country mapping", async () => {
+        mockAxiosInstance.mockResolvedValue({ data: { success: true, message: "ok", data: [] } });
+
+        const lib = new FincraLib(baseOptions);
+        await lib.getBanks();
+        await lib.getBanks("GH");
+
+        expect(mockAxiosInstance).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                method: "GET",
+                url: "/core/banks",
+                params: { currency: "NGN" },
+            }),
+        );
+        expect(mockAxiosInstance).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                method: "GET",
+                url: "/core/banks",
+                params: { currency: "GH" },
+            }),
+        );
+    });
+
     it("should resolve bank account with defaults", async () => {
         mockAxiosInstance.mockResolvedValue({
             data: { success: true, message: "ok", data: { accountNumber: "0123", accountName: "Test", bankCode: "001" } },
@@ -174,5 +220,24 @@ describe("FincraLib", () => {
         const lib = new FincraLib(baseOptions);
 
         await expect(lib.verifyPayoutByCustomerReference("cust-ref")).rejects.toThrow("network down");
+    });
+
+    it("should map axios error fallback message when response message is absent", async () => {
+        mockIsAxiosError.mockReturnValue(true);
+        mockAxiosInstance.mockRejectedValue({
+            isAxios: true,
+            message: "request failed hard",
+            response: {
+                status: 502,
+                data: {},
+            },
+        });
+
+        const lib = new FincraLib(baseOptions);
+
+        await expect(lib.verifyPayoutByReference("ref-500")).rejects.toMatchObject({
+            message: "request failed hard",
+            status: 502,
+        });
     });
 });

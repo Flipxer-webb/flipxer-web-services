@@ -85,12 +85,31 @@ describe("DistributedLockService", () => {
             ).rejects.toThrow("Redis lock service unavailable");
         });
 
+        it("should fail open in non-strict mode when lock service is unavailable", async () => {
+            const closeHandler = mockRedis.on.mock.calls.find(
+                (call: any[]) => call[0] === "close"
+            );
+            closeHandler?.[1]();
+
+            const token = await service.acquireLock("non-strict-unavailable", { maxWaitMs: 0 });
+
+            expect(token).toBeTruthy();
+        });
+
         it("should throw strict lock error when redis set fails while connected", async () => {
             mockRedis.set.mockRejectedValue(new Error("redis set down"));
 
             await expect(
                 service.acquireLock("strict-error", { strict: true, maxWaitMs: 0 })
             ).rejects.toThrow("Redis lock error for strict-error: redis set down");
+        });
+
+        it("should fail open in non-strict mode when redis set throws", async () => {
+            mockRedis.set.mockRejectedValue(new Error("redis set down"));
+
+            const token = await service.acquireLock("non-strict-error", { maxWaitMs: 0 });
+
+            expect(token).toBeTruthy();
         });
     });
 

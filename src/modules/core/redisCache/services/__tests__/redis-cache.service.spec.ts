@@ -95,6 +95,15 @@ describe("RedisCacheService", () => {
             const result = await service.get("key1000");
             expect(result).toBe("value1000");
         });
+
+        it("should return null when fallback cache is disabled", () => {
+            (service as any).FALLBACK_ENABLED = false;
+
+            (service as any).setFallback("disabled-key", "value", 60);
+
+            expect((service as any).fallbackCache.has("disabled-key")).toBe(false);
+            expect((service as any).getFallback("disabled-key")).toBeNull();
+        });
     });
 
     describe("incrbyfloat (Redis disabled)", () => {
@@ -312,6 +321,15 @@ describe("RedisCacheService - circuit breaker", () => {
         expect((service as any).getFallback("cb-key")).toBe("value");
     });
 
+    it("should delete fallback entry via getDel when circuit breaker is open", async () => {
+        (service as any).setFallback("cb-gd", "cached", 60);
+        (service as any).consecutiveFailures = 3;
+        (service as any).lastFailureTime = Date.now();
+
+        await expect(service.getDel("cb-gd")).resolves.toBe("cached");
+        expect((service as any).getFallback("cb-gd")).toBeNull();
+    });
+
     it("should use fallback when getDel multi returns get error", async () => {
         (service as any).setFallback("gd-key", "cached", 60);
         mockClient.multi.mockReturnValue({
@@ -324,6 +342,18 @@ describe("RedisCacheService - circuit breaker", () => {
 
         expect(result).toBe("cached");
         expect((service as any).getFallback("gd-key")).toBeNull();
+    });
+
+    it("should return parsed value on successful getDel multi execution", async () => {
+        (service as any).setFallback("gd-success", "stale", 60);
+        mockClient.multi.mockReturnValue({
+            get: jest.fn().mockReturnThis(),
+            del: jest.fn().mockReturnThis(),
+            exec: jest.fn().mockResolvedValue([[null, "{\"ok\":true}"], [null, 1]]),
+        });
+
+        await expect(service.getDel<{ ok: boolean }>("gd-success")).resolves.toEqual({ ok: true });
+        expect((service as any).getFallback("gd-success")).toBeNull();
     });
 
     it("should handle del and exists errors without throwing", async () => {
@@ -373,6 +403,22 @@ describe("RedisCacheService - circuit breaker", () => {
         await expect(service.decrbyfloat("counter", 8)).resolves.toBe(8);
         expect(spy).toHaveBeenCalledWith("counter", -8);
         spy.mockRestore();
+    });
+
+    it("should keep fallback value when Redis set throws while connected", async () => {
+        mockClient.set.mockRejectedValue(new Error("set-failed"));
+
+        await expect(service.set("set-fail", "value", 60)).resolves.toBeUndefined();
+        expect((service as any).getFallback("set-fail")).toBe("value");
+    });
+
+    it("should return early for del and getCounter when not connected", async () => {
+        (service as any).setFallback("del-key", "value", 60);
+        (service as any).isConnected = false;
+
+        await expect(service.del("del-key")).resolves.toBeUndefined();
+        await expect(service.getCounter("counter")).resolves.toBeNull();
+        expect(mockClient.del).not.toHaveBeenCalled();
     });
 });
 
@@ -439,6 +485,8 @@ describe("RedisCacheService - module init with Redis enabled", () => {
         listeners.get("close")?.();
         expect(service.getStats().isConnected).toBe(false);
 
+        listeners.get("reconnecting")?.();
+
         listeners.get("error")?.(new Error("redis-down"));
         expect(service.getStats().isConnected).toBe(false);
     });
@@ -451,5 +499,50 @@ describe("RedisCacheService - module init with Redis enabled", () => {
 
         expect(await service.get("fresh")).toBe("ok");
         expect(await service.get("expired")).toBeNull();
+    });
+});
+
+describe("RedisCacheService - cleanup interval callbacks", () => {
+    afterEach(() => {
+        delete process.env.REDIS_DISABLED;
+        jest.restoreAllMocks();
+    });
+
+    it("runs cleanup callback in Redis-disabled mode", () => {
+        process.env.REDIS_DISABLED = "true";
+
+        const intervalSpy = jest.spyOn(global, "setInterval").mockImplementation(((cb: any) => {
+            cb();
+            return 1 as any;
+        }) as any);
+
+        const service = new RedisCacheService();
+        const cleanupSpy = jest.spyOn(service as any, "cleanupFallbackCache");
+
+        service.onModuleInit();
+
+        expect(intervalSpy).toHaveBeenCalled();
+        expect(cleanupSpy).toHaveBeenCalled();
+
+        service.onModuleDestroy();
+    });
+
+    it("runs cleanup callback in Redis-enabled mode", () => {
+        delete process.env.REDIS_DISABLED;
+
+        const intervalSpy = jest.spyOn(global, "setInterval").mockImplementation(((cb: any) => {
+            cb();
+            return 1 as any;
+        }) as any);
+
+        const service = new RedisCacheService();
+        const cleanupSpy = jest.spyOn(service as any, "cleanupFallbackCache");
+
+        service.onModuleInit();
+
+        expect(intervalSpy).toHaveBeenCalled();
+        expect(cleanupSpy).toHaveBeenCalled();
+
+        service.onModuleDestroy();
     });
 });

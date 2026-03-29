@@ -158,5 +158,21 @@ describe("CoinGeckoCacheService", () => {
             });
             expect((service as any).logger.error).toHaveBeenCalled();
         });
+
+        it("should log rate limit warning when market data batch fetch returns 429", async () => {
+            redisCacheService.get
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce(null);
+            coinGeckoService.getBatchMarketData.mockRejectedValue(new Error("429 too many requests"));
+
+            const result = await service.getBatchMarketData(["BTC", "ETH"]);
+
+            expect(result).toEqual({
+                btc: null,
+                eth: null,
+            });
+            expect((service as any).logger.error).toHaveBeenCalled();
+            expect((service as any).logger.warn).toHaveBeenCalled();
+        });
     });
 });
