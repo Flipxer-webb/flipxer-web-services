@@ -1,3 +1,30 @@
+jest.mock("@nestjs/common", () => {
+    const actual = jest.requireActual("@nestjs/common");
+    return {
+        ...actual,
+        UseGuards: () => () => undefined,
+        UsePipes: () => () => undefined,
+    };
+});
+
+jest.mock("@/modules/api/auth/guard", () => ({
+    SocketAuthGuard: class SocketAuthGuard {
+        canActivate() {
+            return true;
+        }
+    },
+}));
+
+jest.mock("@/modules/api/auth/guard/index", () => ({
+    SocketAuthGuard: class SocketAuthGuard {
+        canActivate() {
+            return true;
+        }
+    },
+}));
+
+jest.mock("@/modules/api/auth", () => ({}));
+
 import { WsGateway } from "../index";
 
 describe("WsGateway", () => {
