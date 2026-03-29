@@ -73,9 +73,13 @@ function makePrisma() {
             update: jest.fn(),
             delete: jest.fn(),
         },
+        flagged: {
+            upsert: jest.fn(),
+        },
         role: { findUnique: jest.fn() },
         accountVerificationRequest: { upsert: jest.fn(), findUnique: jest.fn() },
         passwordResetRequest: { create: jest.fn(), delete: jest.fn(), deleteMany: jest.fn() },
+        $transaction: jest.fn(),
     };
 }
 
@@ -85,6 +89,7 @@ describe("AuthService", () => {
     let jwtService: { signAsync: jest.Mock; verify: jest.Mock; verifyAsync: jest.Mock };
     let emailService: { sendMailWithTemplate: jest.Mock };
     let redisCacheService: { set: jest.Mock; get: jest.Mock; del: jest.Mock };
+    let dojahService: { verifyDocumentWithNameMatch: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -95,7 +100,9 @@ describe("AuthService", () => {
         };
         const mockEmail = { sendMailWithTemplate: jest.fn().mockResolvedValue(undefined) };
         const mockUploadFactory = { build: jest.fn().mockReturnValue({}) };
-        const mockDojah = {};
+        const mockDojah = {
+            verifyDocumentWithNameMatch: jest.fn(),
+        };
         const mockCryptoQueue = { addJob: jest.fn() };
         const mockSms = { sendSms: jest.fn() };
         const mockSession = {
@@ -146,6 +153,7 @@ describe("AuthService", () => {
         jwtService = module.get(JwtService);
         emailService = module.get(EmailService);
         redisCacheService = module.get(RedisCacheService);
+        dojahService = module.get(IdentityComplianceInjectionToken.DOJAH);
     });
 
     afterEach(() => jest.clearAllMocks());
@@ -654,6 +662,140 @@ describe("AuthService", () => {
             expect((service as any).resolveTrustedDocumentUrl(insecureUrl.toString())).toBeNull();
             expect((service as any).resolveTrustedDocumentUrl("https://malicious.example/id.png")).toBeNull();
             expect((service as any).resolveTrustedDocumentUrl("not-a-url")).toBeNull();
+        });
+
+        it("returns structured success result from Dojah document verification call", async () => {
+            dojahService.verifyDocumentWithNameMatch.mockResolvedValue({
+                isValid: true,
+                nameMatches: true,
+                parsed: { documentType: "passport" },
+            });
+
+            const logger = { log: jest.fn(), error: jest.fn() } as any;
+            const result = await (service as any).callDojahDocumentVerification(
+                "front-base64",
+                "back-base64",
+                { id: 42, firstName: "Jane", lastName: "Doe" },
+                { imageFrontBase64: "front-base64", imageBackBase64: "back-base64" },
+                Date.now(),
+                logger,
+            );
+
+            expect(dojahService.verifyDocumentWithNameMatch).toHaveBeenCalledWith(
+                {
+                    inputType: "base64",
+                    imageFrontSide: "front-base64",
+                    imageBackSide: "back-base64",
+                },
+                "Jane",
+                "Doe",
+            );
+            expect(result.success).toBe(true);
+            expect(result.isValid).toBe(true);
+            expect(result.nameMatches).toBe(true);
+            expect(result.error).toBeNull();
+        });
+
+        it("returns structured failure result from Dojah document verification errors", async () => {
+            dojahService.verifyDocumentWithNameMatch.mockRejectedValue({
+                name: "ThirdPartyServiceError",
+                message: "gateway unavailable",
+                status: 424,
+                stack: "stack-trace",
+            });
+
+            const logger = { log: jest.fn(), error: jest.fn() } as any;
+            const result = await (service as any).callDojahDocumentVerification(
+                "front-base64",
+                undefined,
+                { id: 77, firstName: "John", lastName: "Smith" },
+                { imageFrontBase64: "front-base64", imageBackBase64: "" },
+                Date.now(),
+                logger,
+            );
+
+            expect(result.success).toBe(false);
+            expect(result.isValid).toBe(false);
+            expect(result.nameMatches).toBe(false);
+            expect(result.error).toEqual(
+                expect.objectContaining({
+                    name: "ThirdPartyServiceError",
+                    message: "gateway unavailable",
+                    status: 424,
+                }),
+            );
+        });
+
+        it("blocks login when account is currently locked", async () => {
+            const lockedUser = {
+                id: 1,
+                failedLoginAttempts: 4,
+                lockedUntil: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+            } as any;
+
+            await expect(
+                (service as any).handleFailedLogin(lockedUser, "127.0.0.1"),
+            ).rejects.toThrow("Account temporarily locked due to too many failed attempts");
+
+            expect(prisma.user.update).not.toHaveBeenCalled();
+        });
+
+        it("locks account and flags user after max failed attempts", async () => {
+            const tx = {
+                flagged: {
+                    upsert: jest.fn().mockResolvedValue({ id: 900 }),
+                },
+                user: {
+                    update: jest.fn().mockResolvedValue({ id: 2 }),
+                },
+            };
+            prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+            const user = {
+                id: 2,
+                failedLoginAttempts: 4,
+                lastFailedLogin: new Date().toISOString(),
+            } as any;
+
+            await expect((service as any).handleFailedLogin(user, "client-ip-1")).rejects.toThrow(
+                "Account temporarily locked due to too many failed attempts",
+            );
+
+            expect(tx.flagged.upsert).toHaveBeenCalled();
+            expect(tx.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 2 },
+                    data: expect.objectContaining({
+                        failedLoginAttempts: 5,
+                        flaggedId: 900,
+                    }),
+                }),
+            );
+        });
+
+        it("resets stale failed-attempt counter and updates user without lockout", async () => {
+            prisma.user.update.mockResolvedValue({ id: 3 });
+
+            const user = {
+                id: 3,
+                failedLoginAttempts: 3,
+                lastFailedLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                lockedUntil: null,
+            } as any;
+
+            await expect(
+                (service as any).handleFailedLogin(user, "client-ip-2"),
+            ).resolves.toBeUndefined();
+
+            expect(prisma.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 3 },
+                    data: expect.objectContaining({
+                        failedLoginAttempts: 1,
+                        ipAddress: "client-ip-2",
+                    }),
+                }),
+            );
         });
     });
 });
