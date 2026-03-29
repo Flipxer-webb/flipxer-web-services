@@ -2,6 +2,8 @@ import { ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
 import { User, ClientData } from "../index";
 
 describe("User decorators", () => {
+    const TEST_CLIENT_ADDRESS = "client-address-test";
+
     class TestController {
         test(@User("id") _userId: unknown, @ClientData() _client: unknown) {
             return undefined;
@@ -10,7 +12,9 @@ describe("User decorators", () => {
 
     function getDecoratorFactories() {
         const metadata = Reflect.getMetadata(ROUTE_ARGS_METADATA, TestController, "test");
-        const entries = Object.values(metadata) as Array<{ data?: unknown; factory?: Function }>;
+        const entries = Object.values(metadata ?? {}).filter(
+            (entry): entry is { data?: unknown; factory?: Function } => typeof entry === "object" && entry !== null,
+        );
 
         const userFactory = entries.find((e) => e.data === "id" && typeof e.factory === "function")?.factory;
         const clientFactory = entries.find((e) => e.data === undefined && typeof e.factory === "function")?.factory;
@@ -34,11 +38,11 @@ describe("User decorators", () => {
         const { clientFactory } = getDecoratorFactories();
         const ctx = {
             switchToHttp: () => ({
-                getRequest: () => ({ ip: "10.0.0.2" }),
+                getRequest: () => ({ ip: TEST_CLIENT_ADDRESS }),
             }),
         } as any;
 
         expect(clientFactory).toBeDefined();
-        expect(clientFactory?.(undefined, ctx)).toEqual({ ipAddress: "10.0.0.2" });
+        expect(clientFactory?.(undefined, ctx)).toEqual({ ipAddress: TEST_CLIENT_ADDRESS });
     });
 });

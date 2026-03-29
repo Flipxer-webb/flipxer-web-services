@@ -21,7 +21,9 @@ jest.mock("../../../guards/role.guard", () => ({
 
 jest.mock("../../../services/authorize.service", () => ({
     __esModule: true,
-    default: class AuthorizationServiceMock {},
+    default: class AuthorizationServiceMock {
+        isMock = true;
+    },
 }));
 
 describe("AuthorizationController", () => {
