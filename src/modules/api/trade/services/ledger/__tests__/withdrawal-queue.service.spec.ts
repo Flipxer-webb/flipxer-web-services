@@ -33,6 +33,13 @@ function makePrisma() {
             aggregate: jest.fn(),
             groupBy: jest.fn(),
         },
+        systemSetting: {
+            findUnique: jest.fn(),
+            upsert: jest.fn(),
+        },
+        order: {
+            findMany: jest.fn(),
+        },
     };
 }
 
@@ -170,6 +177,23 @@ describe("WithdrawalQueueService", () => {
         });
     });
 
+    describe("markReleased", () => {
+        it("should update queue entry with releasedAt", async () => {
+            prisma.withdrawalQueue.update.mockResolvedValue({ id: "wq-1" });
+
+            await service.markReleased("wq-1");
+
+            expect(prisma.withdrawalQueue.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: "wq-1" },
+                    data: expect.objectContaining({
+                        releasedAt: expect.any(Date),
+                    }),
+                }),
+            );
+        });
+    });
+
     // ── getQueuePosition ─────────────────────────────────────
 
     describe("getQueuePosition", () => {
@@ -247,12 +271,174 @@ describe("WithdrawalQueueService", () => {
             expect(ledgerService.releaseHold).toHaveBeenCalledWith("hold-ref-1", false, expect.any(String));
         });
 
+        it("should skip entries already claimed by another process", async () => {
+            const timedOut = [
+                {
+                    id: "wq-1", holdEntryId: "hold-1", userId: 1, currency: "BTC",
+                    amount: new Decimal("0.5"), queuedAt: new Date("2026-01-01"),
+                    holdEntry: { reference: "hold-ref-1" },
+                    user: { id: 1, email: "test@example.com" },
+                },
+            ];
+            prisma.withdrawalQueue.findMany.mockResolvedValue(timedOut);
+            prisma.withdrawalQueue.updateMany.mockResolvedValue({ count: 0 });
+
+            const count = await service.processTimeouts();
+
+            expect(count).toBe(0);
+            expect(ledgerService.releaseHold).not.toHaveBeenCalled();
+        });
+
+        it("should roll back releasedAt claim when hold release fails", async () => {
+            const timedOut = [
+                {
+                    id: "wq-1", holdEntryId: "hold-1", userId: 1, currency: "BTC",
+                    amount: new Decimal("0.5"), queuedAt: new Date("2026-01-01"),
+                    holdEntry: { reference: "hold-ref-1" },
+                    user: { id: 1, email: "test@example.com" },
+                },
+            ];
+            prisma.withdrawalQueue.findMany.mockResolvedValue(timedOut);
+            prisma.withdrawalQueue.updateMany.mockResolvedValue({ count: 1 });
+            ledgerService.releaseHold.mockResolvedValue({ success: false, error: "boom" });
+            prisma.withdrawalQueue.update.mockResolvedValue({ id: "wq-1" });
+
+            const count = await service.processTimeouts();
+
+            expect(count).toBe(0);
+            expect(prisma.withdrawalQueue.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: "wq-1" },
+                    data: { releasedAt: null },
+                }),
+            );
+        });
+
         it("should return 0 when no timed-out entries", async () => {
             prisma.withdrawalQueue.findMany.mockResolvedValue([]);
 
             const count = await service.processTimeouts();
 
             expect(count).toBe(0);
+        });
+    });
+
+    // ── admin helpers and settings ──────────────────────────
+
+    describe("admin helpers and settings", () => {
+        it("should return admin queue stats with averages and breakdown", async () => {
+            const now = Date.now();
+            prisma.withdrawalQueue.findMany.mockResolvedValue([
+                {
+                    currency: "BTC",
+                    amount: new Decimal("0.5"),
+                    queuedAt: new Date(now - 10_000),
+                },
+                {
+                    currency: "USDT",
+                    amount: new Decimal("25"),
+                    queuedAt: new Date(now - 20_000),
+                },
+            ]);
+
+            const stats = await service.getAdminQueueStats();
+
+            expect(stats.totalPending).toBe(2);
+            expect(stats.currencyBreakdown.BTC).toBe(1);
+            expect(stats.totalPendingAmount.USDT).toBe(25);
+            expect(stats.averageWaitTime).toBeGreaterThan(0);
+        });
+
+        it("should return queued amount by currency", async () => {
+            prisma.withdrawalQueue.aggregate.mockResolvedValue({
+                _sum: { amount: new Decimal("3.25") },
+            });
+
+            const amount = await service.getQueuedAmountByCurrency("btc");
+
+            expect(amount).toEqual(new Decimal("3.25"));
+            expect(prisma.withdrawalQueue.aggregate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ currency: "BTC" }),
+                }),
+            );
+        });
+
+        it("should return zero queued amount when aggregate sum is null", async () => {
+            prisma.withdrawalQueue.aggregate.mockResolvedValue({ _sum: { amount: null } });
+
+            const amount = await service.getQueuedAmountByCurrency("btc");
+
+            expect(amount).toEqual(new Decimal(0));
+        });
+
+        it("should read pause flag and support pause/resume updates", async () => {
+            prisma.systemSetting.findUnique.mockResolvedValueOnce({ value: "true" });
+            prisma.systemSetting.upsert.mockResolvedValue({ key: "withdrawal_queue_paused" });
+
+            await expect(service.isProcessingPaused()).resolves.toBe(true);
+            await expect(service.pauseProcessing("maintenance")).resolves.toBeUndefined();
+            await expect(service.resumeProcessing()).resolves.toBeUndefined();
+
+            expect(prisma.systemSetting.upsert).toHaveBeenCalledTimes(2);
+        });
+    });
+
+    describe("getPendingQueue", () => {
+        it("should map queue entries with user and linked order metadata", async () => {
+            prisma.withdrawalQueue.findMany.mockResolvedValue([
+                {
+                    id: "q1",
+                    userId: 7,
+                    currency: "BTC",
+                    amount: new Decimal("0.25"),
+                    holdEntryId: "hold-1",
+                    reason: QueueReason.DEPOSIT_SETTLING,
+                    position: 1,
+                    queuedAt: new Date("2026-01-01T00:00:00.000Z"),
+                    holdEntry: {
+                        metadata: {
+                            destinationAddress: "bc1xyz",
+                            network: "bitcoin",
+                        },
+                    },
+                    user: {
+                        id: 7,
+                        email: "user@example.com",
+                        firstName: "Ada",
+                        lastName: "Lovelace",
+                    },
+                },
+            ]);
+            prisma.order.findMany.mockResolvedValue([
+                {
+                    id: 101,
+                    transactionId: "tx-101",
+                    recipient: "bc1alt",
+                    ledgerEntryId: "hold-1",
+                    createdAt: new Date("2026-01-02T00:00:00.000Z"),
+                },
+            ]);
+
+            const result = await service.getPendingQueue("btc");
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toEqual(
+                expect.objectContaining({
+                    id: "q1",
+                    userId: 7,
+                    currency: "BTC",
+                    amount: 0.25,
+                    reason: "DEPOSIT_SETTLING",
+                    user: expect.objectContaining({ full_name: "Ada Lovelace" }),
+                    order: expect.objectContaining({
+                        id: 101,
+                        transactionId: "tx-101",
+                        walletAddress: "bc1xyz",
+                        network: "bitcoin",
+                    }),
+                }),
+            );
         });
     });
 });
