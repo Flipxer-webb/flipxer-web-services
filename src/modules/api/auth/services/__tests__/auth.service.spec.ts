@@ -75,6 +75,27 @@ function makePrisma() {
             update: jest.fn(),
             delete: jest.fn(),
         },
+        userDocument: {
+            findUnique: jest.fn(),
+            upsert: jest.fn(),
+        },
+        businessDocument: {
+            findUnique: jest.fn(),
+            upsert: jest.fn(),
+            update: jest.fn(),
+        },
+        businessDirector: {
+            deleteMany: jest.fn(),
+            createMany: jest.fn(),
+        },
+        businessShareholder: {
+            deleteMany: jest.fn(),
+            createMany: jest.fn(),
+        },
+        businessRecord: {
+            findUnique: jest.fn(),
+            upsert: jest.fn(),
+        },
         flagged: {
             upsert: jest.fn(),
         },
@@ -127,7 +148,7 @@ describe("AuthService", () => {
             getSetting: jest.fn(),
             verifyBackupCode: jest.fn().mockResolvedValue(false),
         };
-        const mockTier = {};
+        const mockTier = { syncTierAndCache: jest.fn().mockResolvedValue(undefined) };
         const mockRedis = {
             set: jest.fn().mockResolvedValue(undefined),
             get: jest.fn(),
@@ -136,7 +157,7 @@ describe("AuthService", () => {
         const mockLock = {
             withLock: jest.fn().mockImplementation(async (_key: string, cb: () => any) => cb()),
         };
-        const mockKyc = {};
+        const mockKyc = { transition: jest.fn().mockResolvedValue(undefined) };
         const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
         const mockWsGateway = { sendToUser: jest.fn() };
 
@@ -798,6 +819,215 @@ describe("AuthService", () => {
                 "8",
                 undefined,
             );
+        });
+    });
+
+    describe("document + business document coverage paths", () => {
+        const base64Dto = {
+            imageFrontBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0x",
+            imageBackBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0y",
+            documentType: "passport",
+            country: "NG",
+            documentNumber: "P12345",
+        };
+
+        it("documentVerificationBase64 rejects already-verified users", async () => {
+            await expect(
+                service.documentVerificationBase64({ id: 1, isDocumentVerified: true } as any, base64Dto as any),
+            ).rejects.toThrow("Document has already been verified");
+        });
+
+        it("documentVerificationBase64 rejects duplicate pending verification", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue({ verificationStatus: "PENDING" });
+
+            await expect(
+                service.documentVerificationBase64({ id: 1, isDocumentVerified: false } as any, base64Dto as any),
+            ).rejects.toThrow("Document verification is pending review");
+        });
+
+        it("documentVerificationBase64 auto-approves valid documents", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-1" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-1" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: true,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: "1990-01-01",
+                    documentNumber: "P12345",
+                    expiryDate: "2030-01-01",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 11 }) },
+                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                { id: 1, isDocumentVerified: false } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document verified successfully");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                1,
+                "DOCUMENT",
+                "APPROVED",
+                expect.any(Object),
+            );
+            expect((service as any).tierService.syncTierAndCache).toHaveBeenCalledWith(1);
+        });
+
+        it("documentVerificationBase64 marks invalid documents as pending review", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-2" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-2" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: false,
+                nameMatches: false,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    documentNumber: "P99999",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(false);
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 12 }) },
+                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                { id: 1, isDocumentVerified: false } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document verification is pending review");
+            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 1,
+                    title: "Document Submitted",
+                }),
+            );
+        });
+
+        it("submitBusinessDocumentsFromUrls validates required CAC image", async () => {
+            await expect(
+                service.submitBusinessDocumentsFromUrls(
+                    {
+                        id: 2,
+                        businessDocumentsUploaded: false,
+                        businessDocumentVerificationStatus: null,
+                    } as any,
+                    { uploadedFiles: {}, cacDocumentNumber: "RC-123" } as any,
+                ),
+            ).rejects.toThrow("CAC image is required");
+        });
+
+        it("submitBusinessDocumentsFromUrls persists structured docs and dispatches review flow", async () => {
+            const runDojahSpy = jest
+                .spyOn(service as any, "runDojahBusinessVerificationFromStoredDocument")
+                .mockResolvedValue(undefined);
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    businessDocument: { upsert: jest.fn().mockResolvedValue({ id: 321 }) },
+                    businessDirector: {
+                        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+                    },
+                    businessShareholder: {
+                        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+                    },
+                    user: { update: jest.fn().mockResolvedValue({ id: 2 }) },
+                }),
+            );
+
+            const result = await service.submitBusinessDocumentsFromUrls(
+                {
+                    id: 2,
+                    businessDocumentsUploaded: false,
+                    businessDocumentVerificationStatus: null,
+                } as any,
+                {
+                    cacDocumentNumber: "RC-999",
+                    directors: [
+                        {
+                            fullName: "Director One",
+                            nationality: "NG",
+                            dateOfBirth: "1990-02-02",
+                            residentialAddress: "Lagos",
+                            businessAddress: "Abuja",
+                            nin: "12345678901",
+                        },
+                    ],
+                    shareholders: [
+                        {
+                            fullName: "Shareholder One",
+                            nationality: "NG",
+                            dateOfBirth: "1991-03-03",
+                            residentialAddress: "Lagos",
+                            businessAddress: "Abuja",
+                            nin: "10987654321",
+                            ownershipPercentage: 45,
+                        },
+                    ],
+                    uploadedFiles: {
+                        cacImage: { url: "https://img/cac.png", fileId: "cac-1", originalName: "cac.png" },
+                        "directors[0].idDocument": {
+                            url: "https://img/director-id.png",
+                            fileId: "dir-id-1",
+                            originalName: "director-id.png",
+                        },
+                        "directors[0].proofOfAddress": {
+                            url: "https://img/director-poa.png",
+                            fileId: "dir-poa-1",
+                            originalName: "director-poa.png",
+                        },
+                        "shareholders[0].idDocument": {
+                            url: "https://img/shareholder-id.png",
+                            fileId: "shr-id-1",
+                            originalName: "shareholder-id.png",
+                        },
+                        "shareholders[0].proofOfAddress": {
+                            url: "https://img/shareholder-poa.png",
+                            fileId: "shr-poa-1",
+                            originalName: "shareholder-poa.png",
+                        },
+                    },
+                } as any,
+            );
+
+            expect(result.message).toBe("Document Verification successfully");
+            expect((service as any).redisCacheService.del).toHaveBeenCalled();
+            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 2,
+                    title: "Business Documents Submitted",
+                }),
+            );
+            expect(runDojahSpy).toHaveBeenCalledWith(2, "RC-999");
+            runDojahSpy.mockRestore();
         });
     });
 
