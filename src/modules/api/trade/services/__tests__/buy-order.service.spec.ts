@@ -26,6 +26,7 @@ import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { IncompleteAccountSetupException } from "../../errors";
+import { OrderStatus, TransactionStatus } from "@prisma/client";
 
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
@@ -84,11 +85,26 @@ describe("BuyOrderService", () => {
             },
             order: {
                 create: jest.fn(),
+                findUnique: jest.fn(),
+                findMany: jest.fn(),
+                update: jest.fn(),
             },
             payment: {
                 findUnique: jest.fn(),
+                findFirst: jest.fn(),
+                findMany: jest.fn(),
                 create: jest.fn(),
+                update: jest.fn(),
+                updateMany: jest.fn(),
             },
+            $transaction: jest.fn().mockImplementation(async (cb: any) => cb({
+                payment: {
+                    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                },
+                order: {
+                    update: jest.fn().mockResolvedValue(undefined),
+                },
+            })),
         };
 
         const mockWalletAddressService = {
@@ -193,6 +209,233 @@ describe("BuyOrderService", () => {
             await expect(
                 service.buyCryptoOrder(userWithoutAccount, orderDto)
             ).rejects.toThrow();
+        });
+    });
+
+    describe("helper branches", () => {
+        it("getFee handles flat, percentage, range, and fallback fee definitions", async () => {
+            await expect((service as any).getFee(10, { type: "flat", fee: 2 })).resolves.toEqual({
+                fee: 2,
+                type: "flat",
+            });
+            await expect((service as any).getFee(200, { type: "percentage", fee: 1.5 })).resolves.toEqual({
+                fee: 3,
+                type: "percentage",
+            });
+            await expect(
+                (service as any).getFee(200, {
+                    type: "range",
+                    fee: [
+                        { min: 0, max: 100, type: "flat", value: 3 },
+                        { min: 100, max: 300, type: "percentage", value: 2 },
+                    ],
+                }),
+            ).resolves.toEqual({ fee: 4, type: "percentage" });
+            await expect((service as any).getFee(10, { fee: 7 })).resolves.toEqual({
+                fee: 7,
+                type: "fixed",
+            });
+        });
+
+        it("getFee throws for unknown fee definitions and out-of-range values", async () => {
+            await expect(
+                (service as any).getFee(1000, {
+                    type: "range",
+                    fee: [{ min: 0, max: 50, type: "flat", value: 1 }],
+                }),
+            ).rejects.toThrow("Amount is out of range.");
+
+            await expect((service as any).getFee(100, { type: "mystery" })).rejects.toThrow(
+                "Unknown fee structure",
+            );
+        });
+
+        it("getAmountInNaira returns converted amount and null on rate fetch failure", async () => {
+            const rateService = (service as any).rateService;
+            rateService.getAssetRate.mockResolvedValueOnce({ sellRate: 70000000 });
+
+            await expect((service as any).getAmountInNaira("btc", 0.5)).resolves.toEqual({
+                amount: 35000000,
+                rate: 70000000,
+            });
+
+            rateService.getAssetRate.mockRejectedValueOnce(new Error("provider down"));
+            await expect((service as any).getAmountInNaira("btc", 0.5)).resolves.toBeNull();
+        });
+
+        it("enforces idempotent request matching against existing order payload", () => {
+            const dto = { asset: "btc", amount: 0.1 } as any;
+
+            expect(() =>
+                (service as any).ensureIdempotentRequestMatchesExistingOrder(dto, { order: null }),
+            ).toThrow("Idempotency key is linked to an invalid order state");
+
+            expect(() =>
+                (service as any).ensureIdempotentRequestMatchesExistingOrder(dto, {
+                    order: { currency: "ETH", amount: 0.1 },
+                }),
+            ).toThrow("Idempotency key already used for a different asset");
+
+            expect(() =>
+                (service as any).ensureIdempotentRequestMatchesExistingOrder(dto, {
+                    order: { currency: "BTC", amount: 0.2 },
+                }),
+            ).toThrow("Idempotency key already used with a different amount");
+
+            expect(() =>
+                (service as any).ensureIdempotentRequestMatchesExistingOrder(dto, {
+                    order: { currency: "BTC", amount: 0.10000000001 },
+                }),
+            ).not.toThrow();
+        });
+
+        it("buildExistingOrderResponse returns reusable VA details and rejects near-expiry", () => {
+            const existingPayment = {
+                createdAt: new Date(Date.now() - 10 * 60 * 1000),
+                reference: "ref-1",
+                destinationBankAccountNumber: "0123456789",
+                destinationBankAccountName: "Test User",
+                destinationBankName: "Bank",
+                totalAmount: "10000",
+                order: { id: 1 },
+            };
+
+            const response = (service as any).buildExistingOrderResponse(existingPayment);
+            expect(response.data.paymentInfo.reference).toBe("ref-1");
+            expect(response.data.paymentInfo.accountNumber).toBe("0123456789");
+
+            const almostExpired = {
+                ...existingPayment,
+                createdAt: new Date(Date.now() - 34 * 60 * 1000),
+            };
+            expect(() => (service as any).buildExistingOrderResponse(almostExpired)).toThrow(
+                "Your previous order has nearly expired. Please wait a moment and try again.",
+            );
+        });
+    });
+
+    describe("status + cancellation flows", () => {
+        it("getBuyOrderStatus handles missing payment and status mapping", async () => {
+            prismaService.payment.findFirst.mockResolvedValueOnce(null);
+            await expect(service.getBuyOrderStatus("ref-1", 1)).resolves.toMatchObject({
+                data: { status: "not_found" },
+            });
+
+            prismaService.payment.findFirst
+                .mockResolvedValueOnce({ status: TransactionStatus.SUCCESS, order: { id: 1, status: OrderStatus.completed, transactionId: "tx-1" } })
+                .mockResolvedValueOnce({ status: TransactionStatus.FAILED, order: { id: 2, status: OrderStatus.failed, transactionId: "tx-2" } })
+                .mockResolvedValueOnce({ status: TransactionStatus.APPROVED, order: { id: 3, status: OrderStatus.processing, transactionId: "tx-3" } })
+                .mockResolvedValueOnce({ status: TransactionStatus.PENDING, order: { id: 4, status: OrderStatus.pending, transactionId: "tx-4" } });
+
+            await expect(service.getBuyOrderStatus("ref-1", 1)).resolves.toMatchObject({ data: { status: "completed" } });
+            await expect(service.getBuyOrderStatus("ref-2", 1)).resolves.toMatchObject({ data: { status: "failed" } });
+            await expect(service.getBuyOrderStatus("ref-3", 1)).resolves.toMatchObject({ data: { status: "processing" } });
+            await expect(service.getBuyOrderStatus("ref-4", 1)).resolves.toMatchObject({ data: { status: "pending" } });
+        });
+
+        it("cancelBuyOrder returns false when no pending payment exists", async () => {
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            await expect(service.cancelBuyOrder("ref-1", 1)).resolves.toMatchObject({
+                data: { cancelled: false },
+            });
+        });
+
+        it("cancelBuyOrder aborts when atomic update finds payment already claimed", async () => {
+            prismaService.payment.findFirst.mockResolvedValue({
+                id: 10,
+                orderId: 99,
+                order: { id: 99, amount: 0.1, currency: "BTC", transactionId: "tx-99" },
+                status: TransactionStatus.PENDING,
+            });
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    payment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+                    order: { update: jest.fn() },
+                }),
+            );
+
+            await expect(service.cancelBuyOrder("ref-1", 1)).resolves.toMatchObject({
+                data: { cancelled: false },
+            });
+        });
+
+        it("cancelBuyOrder cancels and notifies when payment is still pending", async () => {
+            const notify = (service as any).notificationDispatcher.notify as jest.Mock;
+            const ws = (service as any).wsGateway;
+
+            prismaService.payment.findFirst.mockResolvedValue({
+                id: 11,
+                orderId: 101,
+                order: { id: 101, amount: 0.2, currency: "BTC", transactionId: "tx-101" },
+                status: TransactionStatus.PENDING,
+            });
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    payment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+                    order: { update: jest.fn().mockResolvedValue(undefined) },
+                }),
+            );
+            prismaService.order.findUnique.mockResolvedValue({
+                id: 101,
+                status: OrderStatus.cancelled,
+                streamlinedStatus: "cancelled",
+                orderCategory: "BUY",
+                amount: 0.2,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                transactionId: "tx-101",
+            });
+
+            const response = await service.cancelBuyOrder("ref-1", 1);
+            expect(response.data.cancelled).toBe(true);
+            expect(ws.notifyWalletUpdate).toHaveBeenCalledWith(1);
+            expect(notify).toHaveBeenCalled();
+        });
+    });
+
+    describe("payment reminder + confirmation", () => {
+        it("notifyPendingBuyOrder returns no-op when pending payment is missing", async () => {
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            await expect(service.notifyPendingBuyOrder("ref-1", 1)).resolves.toMatchObject({
+                message: "No pending payment found",
+            });
+        });
+
+        it("notifyPendingBuyOrder dispatches reminder when pending order exists", async () => {
+            const notify = (service as any).notificationDispatcher.notify as jest.Mock;
+            prismaService.payment.findFirst.mockResolvedValue({
+                order: { amount: 0.4, currency: "BTC", transactionId: "tx-4" },
+            });
+
+            await expect(service.notifyPendingBuyOrder("ref-1", 1)).resolves.toMatchObject({
+                message: "Pending reminder sent",
+            });
+            expect(notify).toHaveBeenCalled();
+        });
+
+        it("confirmPaymentSent handles missing payment, first confirmation, and repeat clicks", async () => {
+            prismaService.payment.findFirst.mockResolvedValueOnce(null);
+            await expect(service.confirmPaymentSent("ref-1", 1)).resolves.toMatchObject({
+                data: { confirmed: false },
+            });
+
+            prismaService.payment.findFirst
+                .mockResolvedValueOnce({ id: 5, orderId: 10, paymentConfirmedByUser: null, status: TransactionStatus.PENDING, order: { id: 10 } })
+                .mockResolvedValueOnce({ id: 6, orderId: 11, paymentConfirmedByUser: new Date(), status: TransactionStatus.APPROVED, order: { id: 11 } });
+
+            await expect(service.confirmPaymentSent("ref-2", 1)).resolves.toMatchObject({
+                data: { confirmed: true },
+            });
+            expect(prismaService.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { id: 5 } }),
+            );
+
+            await expect(service.confirmPaymentSent("ref-3", 1)).resolves.toMatchObject({
+                data: { confirmed: true },
+            });
+            expect(prismaService.payment.update).toHaveBeenCalledTimes(1);
         });
     });
 });

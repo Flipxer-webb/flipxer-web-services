@@ -66,6 +66,8 @@ function makeDeps() {
     });
 
     const quidaxService = {
+        getPaymentMethods: jest.fn(),
+        getPurchaseLimitForBuy: jest.fn(),
         getSingleMarketTicker: jest.fn(),
         getWithdrawerDetail: jest.fn(),
         cancelWithdrawerRequest: jest.fn(),
@@ -342,6 +344,157 @@ describe("TradingService (index)", () => {
 
             expect(res.data.quoted_price).toBe(12.5);
             expect(res.data.id).toBe("q1");
+        });
+
+        it("delegates lightweight wrapper methods to provider/services", async () => {
+            const {
+                service,
+                quidaxService,
+                walletAddressService,
+                buyOrderService,
+                sellOrderService,
+                swapService,
+                sendService,
+            } = makeDeps();
+
+            quidaxService.getPaymentMethods.mockResolvedValue({ data: ["bank_transfer"] });
+            quidaxService.getPurchaseLimitForBuy.mockResolvedValue({ data: { min: 10, max: 1000 } });
+            walletAddressService.ensureWalletPaymentAddresses.mockResolvedValue([{ id: "addr-1" }]);
+            walletAddressService.getWalletAddress.mockResolvedValue({ id: "w-1" });
+            walletAddressService.getWalletAddresses.mockResolvedValue([{ id: "w-1" }, { id: "w-2" }]);
+            walletAddressService.verifyWalletAddress.mockResolvedValue({ data: { valid: true } });
+            walletAddressService.initiateWalletAddressCreation.mockResolvedValue({ message: "queued" });
+
+            buyOrderService.buyCryptoQuoteRequest.mockResolvedValue({ data: { quote: true } });
+            sellOrderService.sellCryptoQuoteRequest.mockResolvedValue({ data: { quote: true } });
+            buyOrderService.confirmPaymentSent.mockResolvedValue({ data: { confirmed: true } });
+            buyOrderService.getBuyOrderStatus.mockResolvedValue({ data: { status: "pending" } });
+            buyOrderService.cancelBuyOrder.mockResolvedValue({ data: { cancelled: true } });
+            buyOrderService.notifyPendingBuyOrder.mockResolvedValue({ data: {} });
+            sellOrderService.sellCryptoOrder.mockResolvedValue({ data: { orderId: 2 } });
+            buyOrderService.calculateBuyQuote.mockResolvedValue({ buyRate: 100 });
+            sellOrderService.calculateSellQuote.mockResolvedValue({ sellRate: 90 });
+
+            swapService.createInstantSwap.mockResolvedValue({ data: { id: "swap-1" } });
+            swapService.refreshInstantSwap.mockResolvedValue({ data: { id: "swap-1", refreshed: true } });
+            swapService.confirmInstantSwapQuote.mockResolvedValue({ data: { confirmed: true } });
+
+            sendService.withdrawerRequest.mockResolvedValue({ data: { queued: false } });
+            sendService.cancelWithdrawerRequest.mockResolvedValue({ data: { cancelled: true } });
+            sendService.getCryptoWithdrawerFee.mockResolvedValue({ data: { totalFee: 0.1 } });
+
+            await expect(service.getSupportedPaymentMethod({} as any)).resolves.toMatchObject({
+                data: ["bank_transfer"],
+            });
+            await expect(service.getPurchaseLimitForBuy({} as any)).resolves.toMatchObject({
+                data: { min: 10, max: 1000 },
+            });
+
+            await expect(
+                service.ensureWalletPaymentAddresses({
+                    userId: 10,
+                    cryptoSubAccountId: "sub-1",
+                    assetSymbol: "BTC",
+                }),
+            ).resolves.toEqual([{ id: "addr-1" }]);
+            await expect(service.getWalletAddress(10, {} as any)).resolves.toEqual({ id: "w-1" });
+            await expect(service.getWalletAddresses(10, {} as any)).resolves.toEqual([
+                { id: "w-1" },
+                { id: "w-2" },
+            ]);
+            await expect(service.verifyWalletAddress({} as any)).resolves.toEqual({ data: { valid: true } });
+            await expect(service.initiateWalletAddressCreation(10, {} as any)).resolves.toEqual({ message: "queued" });
+
+            await expect(service.buyCryptoQuoteRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { quote: true },
+            });
+            await expect(service.sellCryptoQuoteRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { quote: true },
+            });
+            await expect(service.confirmPaymentSent("ref-1", 10)).resolves.toEqual({
+                data: { confirmed: true },
+            });
+            await expect(service.getBuyOrderStatus("ref-1", 10)).resolves.toEqual({
+                data: { status: "pending" },
+            });
+            await expect(service.cancelBuyOrder("ref-1", 10)).resolves.toEqual({
+                data: { cancelled: true },
+            });
+            await expect(service.notifyPendingBuyOrder("ref-1", 10)).resolves.toEqual({
+                data: {},
+            });
+            await expect(service.sellCryptoOrder({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { orderId: 2 },
+            });
+            await expect(service.calculateBuyQuote({ id: 10 } as any, {} as any)).resolves.toEqual({
+                buyRate: 100,
+            });
+            await expect(service.calculateSellQuote({ id: 10 } as any, {} as any)).resolves.toEqual({
+                sellRate: 90,
+            });
+
+            await expect(service.createInstantSwap({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { id: "swap-1" },
+            });
+            await expect(service.refreshInstantSwap({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { id: "swap-1", refreshed: true },
+            });
+            await expect(service.confirmInstantSwapQuote({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { confirmed: true },
+            });
+
+            await expect(service.withdrawerRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { queued: false },
+            });
+            await expect(service.cancelWithdrawerRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+                data: { cancelled: true },
+            });
+            await expect(service.getCryptoWithdrawerFee({} as any)).resolves.toEqual({
+                data: { totalFee: 0.1 },
+            });
+
+            expect(quidaxService.getPaymentMethods).toHaveBeenCalled();
+            expect(quidaxService.getPurchaseLimitForBuy).toHaveBeenCalled();
+            expect(walletAddressService.ensureWalletPaymentAddresses).toHaveBeenCalled();
+            expect(swapService.confirmInstantSwapQuote).toHaveBeenCalled();
+            expect(sendService.getCryptoWithdrawerFee).toHaveBeenCalled();
+        });
+
+        it("delegates provider-facing helper methods", async () => {
+            const { service, quidaxService, prisma } = makeDeps();
+
+            quidaxService.getSwapTransaction.mockResolvedValue({ data: { id: "swap-ref" } });
+            quidaxService.getWithdrawerByReference.mockResolvedValue({ data: { id: "wd-ref" } });
+            quidaxService.createOrFindSubAccount.mockResolvedValue({ status: "success", data: { id: "sub-1" } });
+
+            prisma.assetWallet.findMany.mockResolvedValue([
+                { assetCurrency: "BTC", addressSynced: true },
+                { assetCurrency: "ETH", addressSynced: true },
+                { assetCurrency: "USDT", addressSynced: true },
+                { assetCurrency: "USDC", addressSynced: true },
+                { assetCurrency: "BNB", addressSynced: true },
+                { assetCurrency: "SOL", addressSynced: true },
+                { assetCurrency: "XRP", addressSynced: true },
+                { assetCurrency: "ADA", addressSynced: true },
+                { assetCurrency: "DOGE", addressSynced: true },
+                { assetCurrency: "LTC", addressSynced: true },
+                { assetCurrency: "TRX", addressSynced: true },
+                { assetCurrency: "SHIB", addressSynced: true },
+            ]);
+
+            await expect(service.verifySwapQuoteTransaction("swap-ref", "user-sub-1")).resolves.toEqual({
+                data: { id: "swap-ref" },
+            });
+            await expect(
+                service.getWithdrawerTransactionByReference("wd-ref", "user-sub-1"),
+            ).resolves.toEqual({
+                data: { id: "wd-ref" },
+            });
+            await expect(
+                service.triggerQuidaxAccountCreation({ id: 10, email: "user@example.com" } as any),
+            ).resolves.toMatchObject({
+                message: expect.stringContaining("account already fully set up"),
+            });
         });
     });
 
