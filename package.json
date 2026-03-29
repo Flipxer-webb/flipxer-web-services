@@ -217,7 +217,6 @@
             "!**/mocks/**",
             "!**/test/**",
             "!main.ts",
-            "!config/**",
             "!prisma/**"
         ],
         "coverageDirectory": "../coverage",
