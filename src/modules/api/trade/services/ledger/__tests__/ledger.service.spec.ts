@@ -45,6 +45,8 @@ function makePrisma() {
         },
         ledgerAuditLog: {
             create: jest.fn().mockResolvedValue({ id: "audit-1" }),
+            findMany: jest.fn(),
+            count: jest.fn(),
         },
         _tx: tx, // exposed for assertions
     };
@@ -1037,6 +1039,148 @@ describe("LedgerService", () => {
             expect(result.success).toBe(false);
             expect(result.error).toContain("must be positive");
             expect(lockService.withLock).not.toHaveBeenCalled();
+        });
+    });
+
+    // ── audit methods ───────────────────────────────────────
+
+    describe("audit methods", () => {
+        it("logAudit writes audit entries via prisma when no tx is provided", async () => {
+            await service.logAudit(
+                "entry-1",
+                AuditAction.CREATED,
+                "system",
+                "created in test",
+                { source: "unit" },
+            );
+
+            expect(prisma.ledgerAuditLog.create).toHaveBeenCalledWith({
+                data: {
+                    ledgerEntryId: "entry-1",
+                    action: AuditAction.CREATED,
+                    actor: "system",
+                    reason: "created in test",
+                    metadata: { source: "unit" },
+                },
+            });
+        });
+
+        it("logAudit swallows errors and does not throw", async () => {
+            prisma.ledgerAuditLog.create.mockRejectedValueOnce(new Error("audit-db-down"));
+
+            await expect(
+                service.logAudit("entry-2", AuditAction.CREATED, "system"),
+            ).resolves.toBeUndefined();
+        });
+
+        it("getAuditTrail queries logs in ascending order", async () => {
+            prisma.ledgerAuditLog.findMany.mockResolvedValueOnce([{ id: "a1" }, { id: "a2" }]);
+
+            const logs = await service.getAuditTrail("entry-3");
+
+            expect(prisma.ledgerAuditLog.findMany).toHaveBeenCalledWith({
+                where: { ledgerEntryId: "entry-3" },
+                orderBy: { createdAt: "asc" },
+            });
+            expect(logs).toHaveLength(2);
+        });
+
+        it("getRecentAuditLogs returns paginated logs and total", async () => {
+            const mockedLogs = [{ id: "log-1" }];
+            const mockedTotal = 42;
+
+            prisma.$transaction.mockResolvedValueOnce([mockedLogs, mockedTotal]);
+
+            const result = await service.getRecentAuditLogs(
+                2,
+                25,
+                AuditAction.CREATED,
+                "system",
+                "2026-01-01T00:00:00.000Z",
+                "2026-12-31T23:59:59.999Z",
+            );
+
+            expect(prisma.$transaction).toHaveBeenCalled();
+            expect(result).toEqual({ logs: mockedLogs, total: mockedTotal });
+        });
+
+        it("backfillAuditLogs returns 0 when no entries require backfill", async () => {
+            prisma.ledgerEntry.findMany.mockResolvedValueOnce([]);
+
+            await expect(service.backfillAuditLogs(100)).resolves.toBe(0);
+        });
+
+        it("backfillAuditLogs maps statuses to actions and continues on single-entry failures", async () => {
+            const entriesNeedingBackfill = [
+                {
+                    id: "hold-1",
+                    status: EntryStatus.HOLD,
+                    createdAt: new Date("2026-02-01T00:00:00.000Z"),
+                },
+                {
+                    id: "cancel-1",
+                    status: EntryStatus.CANCELLED,
+                    createdAt: new Date("2026-02-01T00:00:00.000Z"),
+                },
+                {
+                    id: "failed-1",
+                    status: EntryStatus.FAILED,
+                    createdAt: new Date("2026-02-01T00:00:00.000Z"),
+                },
+                {
+                    id: "settled-1",
+                    status: EntryStatus.SETTLED,
+                    createdAt: new Date("2026-02-01T00:00:00.000Z"),
+                },
+            ];
+
+            prisma.ledgerEntry.findMany.mockResolvedValueOnce(entriesNeedingBackfill as any);
+            prisma.ledgerAuditLog.create
+                .mockResolvedValueOnce({ id: "a-hold" })
+                .mockRejectedValueOnce(new Error("write failed"))
+                .mockResolvedValueOnce({ id: "a-failed" })
+                .mockResolvedValueOnce({ id: "a-settled" });
+
+            const count = await service.backfillAuditLogs(1000);
+
+            expect(count).toBe(3);
+            expect(prisma.ledgerAuditLog.create).toHaveBeenCalledTimes(4);
+            expect(prisma.ledgerAuditLog.create).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        ledgerEntryId: "hold-1",
+                        action: AuditAction.HOLD_PLACED,
+                    }),
+                }),
+            );
+            expect(prisma.ledgerAuditLog.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        ledgerEntryId: "cancel-1",
+                        action: AuditAction.CANCELLED,
+                    }),
+                }),
+            );
+            expect(prisma.ledgerAuditLog.create).toHaveBeenNthCalledWith(
+                3,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        ledgerEntryId: "failed-1",
+                        action: AuditAction.FAILED,
+                    }),
+                }),
+            );
+            expect(prisma.ledgerAuditLog.create).toHaveBeenNthCalledWith(
+                4,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        ledgerEntryId: "settled-1",
+                        action: AuditAction.CREATED,
+                    }),
+                }),
+            );
         });
     });
 

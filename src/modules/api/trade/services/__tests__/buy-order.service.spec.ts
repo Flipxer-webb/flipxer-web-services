@@ -129,7 +129,7 @@ describe("BuyOrderService", () => {
                 { provide: WsGateway, useValue: mockWsGateway },
                 { provide: TradeHelpersService, useValue: { calculateFee: jest.fn() } },
                 { provide: SlackWebhookService, useValue: { sendWebhookFailureAlert: jest.fn() } },
-                { provide: LedgerService, useValue: {} },
+                { provide: LedgerService, useValue: { pairedCredit: jest.fn() } },
                 { provide: RateService, useValue: mockRateService },
                 { provide: NotificationDispatcher, useValue: { notify: jest.fn() } },
                 { provide: DistributedLockService, useValue: { withLock: jest.fn((key, fn) => fn()) } },
@@ -436,6 +436,204 @@ describe("BuyOrderService", () => {
                 data: { confirmed: true },
             });
             expect(prismaService.payment.update).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe("stuck/expiry/underpayment and internal buy flows", () => {
+        it("detectStuckConfirmedOrders returns 0 when no stale confirmations exist", async () => {
+            prismaService.payment.findMany.mockResolvedValue([]);
+
+            await expect(service.detectStuckConfirmedOrders()).resolves.toBe(0);
+            expect((service as any).slackWebhookService.sendWebhookFailureAlert).not.toHaveBeenCalled();
+        });
+
+        it("detectStuckConfirmedOrders alerts and marks payments as alerted", async () => {
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 501,
+                    reference: "pay-501",
+                    orderId: 701,
+                    userId: 44,
+                    paymentConfirmedByUser: new Date(Date.now() - 10 * 60 * 1000),
+                    createdAt: new Date(Date.now() - 20 * 60 * 1000),
+                    order: { transactionId: "tx-701", amount: 0.5, currency: "BTC" },
+                    user: {
+                        id: 44,
+                        email: "user@flipxer.com",
+                        firstName: "Jane",
+                        lastName: "Doe",
+                    },
+                },
+            ]);
+
+            const slack = (service as any).slackWebhookService.sendWebhookFailureAlert as jest.Mock;
+
+            await expect(service.detectStuckConfirmedOrders()).resolves.toBe(1);
+            expect(slack).toHaveBeenCalledWith(
+                "nomba",
+                "pay-501",
+                expect.stringContaining("webhook never arrived"),
+                expect.objectContaining({ orderId: 701, userId: 44 }),
+            );
+            expect(prismaService.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { id: 501 } }),
+            );
+        });
+
+        it("detectStuckConfirmedOrders swallows per-item Slack failures", async () => {
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 502,
+                    reference: "pay-502",
+                    orderId: 702,
+                    userId: 55,
+                    paymentConfirmedByUser: new Date(Date.now() - 10 * 60 * 1000),
+                    createdAt: new Date(Date.now() - 20 * 60 * 1000),
+                    order: { transactionId: "tx-702", amount: 0.7, currency: "ETH" },
+                    user: { id: 55, email: "x@flipxer.com", firstName: "X", lastName: "Y" },
+                },
+            ]);
+
+            const slack = (service as any).slackWebhookService.sendWebhookFailureAlert as jest.Mock;
+            slack.mockRejectedValue(new Error("slack down"));
+
+            await expect(service.detectStuckConfirmedOrders()).resolves.toBe(1);
+            expect(prismaService.payment.update).not.toHaveBeenCalled();
+        });
+
+        it("cancelExpiredBuyOrders atomically cancels and notifies", async () => {
+            const notify = (service as any).notificationDispatcher.notify as jest.Mock;
+            const ws = (service as any).wsGateway;
+
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 601,
+                    reference: "pay-601",
+                    orderId: 801,
+                    userId: 77,
+                    status: TransactionStatus.PENDING,
+                    createdAt: new Date(Date.now() - 40 * 60 * 1000),
+                    totalAmount: "100000",
+                    receivedAmount: null,
+                    order: {
+                        id: 801,
+                        amount: 0.3,
+                        currency: "BTC",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-801",
+                    },
+                    user: { id: 77, email: "u77@flipxer.com" },
+                },
+            ]);
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    payment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+                    order: { update: jest.fn().mockResolvedValue(undefined) },
+                }),
+            );
+
+            await expect(service.cancelExpiredBuyOrders()).resolves.toBe(1);
+            expect(ws.notifyWalletUpdate).toHaveBeenCalledWith(77);
+            expect(notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 77,
+                    title: "Buy order expired",
+                }),
+            );
+        });
+
+        it("cancelUnderpaidBuyOrders cancels underpaid orders and sends ops alert", async () => {
+            const notify = (service as any).notificationDispatcher.notify as jest.Mock;
+            const slack = (service as any).slackWebhookService.sendWebhookFailureAlert as jest.Mock;
+
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 701,
+                    reference: "pay-701",
+                    orderId: 901,
+                    userId: 88,
+                    status: TransactionStatus.PENDING,
+                    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+                    totalAmount: "100000",
+                    receivedAmount: "50000",
+                    senderAccountNumber: "1234567890",
+                    senderAccountName: "Sender One",
+                    senderBankName: "Bank A",
+                    order: {
+                        id: 901,
+                        amount: 0.6,
+                        currency: "BTC",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-901",
+                    },
+                    user: { id: 88, email: "u88@flipxer.com" },
+                },
+                {
+                    id: 702,
+                    reference: "pay-702",
+                    orderId: 902,
+                    userId: 89,
+                    status: TransactionStatus.PENDING,
+                    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+                    totalAmount: "100000",
+                    receivedAmount: "100000",
+                    order: {
+                        id: 902,
+                        amount: 0.7,
+                        currency: "ETH",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-902",
+                    },
+                    user: { id: 89, email: "u89@flipxer.com" },
+                },
+            ]);
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    payment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+                    order: { update: jest.fn().mockResolvedValue(undefined) },
+                }),
+            );
+
+            await expect(service.cancelUnderpaidBuyOrders()).resolves.toBe(1);
+            expect(notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 88,
+                    title: "Buy order cancelled - underpayment",
+                }),
+            );
+            expect(slack).toHaveBeenCalledWith(
+                "nomba",
+                "pay-701",
+                expect.stringContaining("Underpaid buy order auto-cancelled"),
+                expect.objectContaining({
+                    orderId: 901,
+                    userId: 88,
+                }),
+            );
+        });
+
+        it("executeInternalBuy returns success payload and throws on ledger credit failure", async () => {
+            const pairedCredit = (service as any).ledgerService.pairedCredit as jest.Mock;
+
+            pairedCredit.mockResolvedValueOnce({
+                success: true,
+                userEntry: { id: "entry-1" },
+            });
+
+            await expect(
+                service.executeInternalBuy(mockUser as any, 0.25, "btc", "swap-1"),
+            ).resolves.toMatchObject({
+                status: "success",
+                data: { id: "entry-1", amount: 0.25, currency: "BTC" },
+            });
+
+            pairedCredit.mockResolvedValueOnce({ success: false, error: "ledger unavailable" });
+
+            await expect(
+                service.executeInternalBuy(mockUser as any, 0.1, "eth", "swap-2"),
+            ).rejects.toThrow("Ledger credit failed: ledger unavailable");
         });
     });
 });
