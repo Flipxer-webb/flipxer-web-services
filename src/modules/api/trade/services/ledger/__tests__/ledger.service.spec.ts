@@ -825,6 +825,18 @@ describe("LedgerService", () => {
             expect(result.error).toContain("Cannot use pairedDebit for platform user");
             expect(lockService.withLock).not.toHaveBeenCalled();
         });
+
+        it("should return error when multi-lock acquisition fails", async () => {
+            jest
+                .spyOn(service as any, "withLocks")
+                .mockRejectedValueOnce(new Error("paired-debit-lock-failed"));
+
+            const result = await service.pairedDebit(opts);
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("paired-debit-lock-failed");
+            expect(tx.ledgerEntry.create).not.toHaveBeenCalled();
+        });
     });
 
     // ── releaseHoldWithPlatformEntry ───────────────────────
@@ -918,6 +930,21 @@ describe("LedgerService", () => {
 
             expect(result.success).toBe(false);
             expect(result.error).toContain("already released");
+        });
+
+        it("should return error when release-hold lock flow fails", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue(holdEntry);
+            jest
+                .spyOn(service as any, "withLocks")
+                .mockRejectedValueOnce(new Error("release-hold-lock-failed"));
+
+            const result = await service.releaseHoldWithPlatformEntry({
+                holdReference: holdEntry.reference,
+                settle: true,
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain("release-hold-lock-failed");
         });
     });
 
