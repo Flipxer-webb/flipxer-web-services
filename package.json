@@ -210,7 +210,15 @@
             "^.+\\.(t|j)s$": "ts-jest"
         },
         "collectCoverageFrom": [
-            "**/*.(t|j)s"
+            "**/*.(t|j)s",
+            "!**/__tests__/**",
+            "!**/*.spec.ts",
+            "!**/*.mock.ts",
+            "!**/mocks/**",
+            "!**/test/**",
+            "!main.ts",
+            "!config/**",
+            "!prisma/**"
         ],
         "coverageDirectory": "../coverage",
         "testEnvironment": "node",
