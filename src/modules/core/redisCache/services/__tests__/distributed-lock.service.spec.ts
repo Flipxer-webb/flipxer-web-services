@@ -10,6 +10,7 @@ jest.mock("ioredis", () => {
         del: jest.fn(),
         eval: jest.fn(),
         exists: jest.fn(),
+        pttl: jest.fn(),
         quit: jest.fn(),
     };
     return jest.fn(() => mockRedis);
@@ -72,6 +73,25 @@ describe("DistributedLockService", () => {
             expect(setCall).toContain("PX");
             expect(setCall).toContain(60000);
         });
+
+        it("should throw in strict mode when lock service is unavailable", async () => {
+            const closeHandler = mockRedis.on.mock.calls.find(
+                (call: any[]) => call[0] === "close"
+            );
+            closeHandler?.[1]();
+
+            await expect(
+                service.acquireLock("strict-key", { strict: true, maxWaitMs: 0 })
+            ).rejects.toThrow("Redis lock service unavailable");
+        });
+
+        it("should throw strict lock error when redis set fails while connected", async () => {
+            mockRedis.set.mockRejectedValue(new Error("redis set down"));
+
+            await expect(
+                service.acquireLock("strict-error", { strict: true, maxWaitMs: 0 })
+            ).rejects.toThrow("Redis lock error for strict-error: redis set down");
+        });
     });
 
     describe("releaseLock", () => {
@@ -91,6 +111,22 @@ describe("DistributedLockService", () => {
             const result = await service.releaseLock("test-key", "wrong-token");
             
             expect(result).toBe(false);
+        });
+
+        it("should return true when redis is disconnected during release", async () => {
+            const closeHandler = mockRedis.on.mock.calls.find(
+                (call: any[]) => call[0] === "close"
+            );
+            closeHandler?.[1]();
+
+            await expect(service.releaseLock("test-key", "token")).resolves.toBe(true);
+            expect(mockRedis.eval).not.toHaveBeenCalled();
+        });
+
+        it("should return false when release throws", async () => {
+            mockRedis.eval.mockRejectedValue(new Error("eval failed"));
+
+            await expect(service.releaseLock("test-key", "token")).resolves.toBe(false);
         });
     });
 
@@ -149,6 +185,75 @@ describe("DistributedLockService", () => {
             const result = await service.isLocked("test-key");
             
             expect(result).toBe(false);
+        });
+
+        it("should return false when disconnected", async () => {
+            const closeHandler = mockRedis.on.mock.calls.find(
+                (call: any[]) => call[0] === "close"
+            );
+            closeHandler?.[1]();
+
+            await expect(service.isLocked("test-key")).resolves.toBe(false);
+            expect(mockRedis.exists).not.toHaveBeenCalled();
+        });
+
+        it("should return false when redis exists throws", async () => {
+            mockRedis.exists.mockRejectedValue(new Error("exists failed"));
+
+            await expect(service.isLocked("test-key")).resolves.toBe(false);
+        });
+    });
+
+    describe("getLockTTL", () => {
+        it("should return pttl value when connected", async () => {
+            mockRedis.pttl.mockResolvedValue(1234);
+
+            await expect(service.getLockTTL("ttl-key")).resolves.toBe(1234);
+            expect(mockRedis.pttl).toHaveBeenCalledWith("lock:ttl-key");
+        });
+
+        it("should return -1 when disconnected", async () => {
+            const closeHandler = mockRedis.on.mock.calls.find(
+                (call: any[]) => call[0] === "close"
+            );
+            closeHandler?.[1]();
+
+            await expect(service.getLockTTL("ttl-key")).resolves.toBe(-1);
+        });
+
+        it("should return -1 when redis pttl throws", async () => {
+            mockRedis.pttl.mockRejectedValue(new Error("pttl failed"));
+
+            await expect(service.getLockTTL("ttl-key")).resolves.toBe(-1);
+        });
+    });
+
+    describe("redis initialization handlers", () => {
+        it("should expose retry strategy behavior from constructor options", () => {
+            const Redis = require("ioredis");
+            const options = Redis.mock.calls[0][0];
+
+            expect(options.retryStrategy(2)).toBe(400);
+            expect(options.retryStrategy(6)).toBeNull();
+        });
+
+        it("should handle error and close listeners", () => {
+            const errorHandler = mockRedis.on.mock.calls.find(
+                (call: any[]) => call[0] === "error"
+            );
+            const closeHandler = mockRedis.on.mock.calls.find(
+                (call: any[]) => call[0] === "close"
+            );
+
+            errorHandler?.[1](new Error("boom"));
+            closeHandler?.[1]();
+
+            expect(service).toBeDefined();
+        });
+
+        it("should quit redis client on module destroy", async () => {
+            await service.onModuleDestroy();
+            expect(mockRedis.quit).toHaveBeenCalled();
         });
     });
 });

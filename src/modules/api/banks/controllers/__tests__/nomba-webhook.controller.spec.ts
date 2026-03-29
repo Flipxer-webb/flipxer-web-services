@@ -41,6 +41,10 @@ function mockPrisma() {
             update: jest.fn(),
             updateMany: jest.fn(),
         },
+        order: {
+            findUnique: jest.fn(),
+            update: jest.fn(),
+        },
         webhookLog: {
             upsert: jest.fn(),
         },
@@ -176,6 +180,13 @@ describe('NombaWebhookController', () => {
         jest.spyOn(controller as any, 'verifySignature').mockReturnValue(true);
     });
 
+    it('should return active status from verify endpoint', () => {
+        expect(controller.verifyWebhookUrl()).toEqual({
+            status: 'ok',
+            message: 'Nomba webhook endpoint active',
+        });
+    });
+
     // ── Normalization / Reference Extraction ─────────────────
 
     describe('normalizePayload — reference extraction', () => {
@@ -302,6 +313,95 @@ describe('NombaWebhookController', () => {
             await controller.handleWebhook(body, sigHeaders);
 
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
+        });
+    });
+
+    describe('verifySignature', () => {
+        it('should return false when webhook secret is not configured', () => {
+            const configModule = require('@/config');
+            const oldOptions = configModule.nombaOptions;
+            configModule.nombaOptions = { ...oldOptions, webhookSecret: undefined };
+
+            const verifySignature = (NombaWebhookController as any).prototype.verifySignature;
+            const result = verifySignature.call(controller, { event_type: 'payment_success', data: {} }, 'sig', '123');
+
+            expect(result).toBe(false);
+            configModule.nombaOptions = oldOptions;
+        });
+
+        it('should return false on signature length mismatch', () => {
+            const configModule = require('@/config');
+            const oldOptions = configModule.nombaOptions;
+            configModule.nombaOptions = { ...oldOptions, webhookSecret: 'secret' };
+
+            const hmacSpy = jest.spyOn(require('node:crypto'), 'createHmac').mockReturnValue({
+                update: jest.fn().mockReturnThis(),
+                digest: jest.fn().mockReturnValue('expected-signature-base64'),
+            } as any);
+
+            const verifySignature = (NombaWebhookController as any).prototype.verifySignature;
+            const result = verifySignature.call(
+                controller,
+                {
+                    event_type: 'payment_success',
+                    requestId: 'r1',
+                    data: {
+                        merchant: { userId: 'u1', walletId: 'w1' },
+                        transaction: {
+                            transactionId: 't1',
+                            type: 'vact_transfer',
+                            time: 'now',
+                            responseCode: 'null',
+                        },
+                    },
+                },
+                'short',
+                'ts1'
+            );
+
+            expect(result).toBe(false);
+            hmacSpy.mockRestore();
+            configModule.nombaOptions = oldOptions;
+        });
+
+        it('should return true when timing-safe check passes', () => {
+            const configModule = require('@/config');
+            const oldOptions = configModule.nombaOptions;
+            configModule.nombaOptions = { ...oldOptions, webhookSecret: 'secret' };
+
+            const expectedSig = '1234567890123456';
+            const hmacSpy = jest.spyOn(require('node:crypto'), 'createHmac').mockReturnValue({
+                update: jest.fn().mockReturnThis(),
+                digest: jest.fn().mockReturnValue(expectedSig),
+            } as any);
+            const timingSpy = jest.spyOn(require('node:crypto'), 'timingSafeEqual').mockReturnValue(true);
+
+            const verifySignature = (NombaWebhookController as any).prototype.verifySignature;
+            const result = verifySignature.call(
+                controller,
+                {
+                    event_type: 'payment_success',
+                    requestId: 'rid',
+                    data: {
+                        merchant: { userId: 'u1', walletId: 'w1' },
+                        transaction: {
+                            transactionId: 't1',
+                            type: 'vact_transfer',
+                            time: '2026-03-29T00:00:00Z',
+                            responseCode: '',
+                        },
+                    },
+                },
+                expectedSig,
+                '12345'
+            );
+
+            expect(result).toBe(true);
+            expect(timingSpy).toHaveBeenCalled();
+
+            hmacSpy.mockRestore();
+            timingSpy.mockRestore();
+            configModule.nombaOptions = oldOptions;
         });
     });
 
@@ -478,6 +578,75 @@ describe('NombaWebhookController', () => {
             await controller.handleWebhook(body, sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
+        });
+
+        it('should reject when signature header is missing', async () => {
+            await expect(
+                controller.handleWebhook({ event_type: 'payment_success', data: { reference: 'r1' } }, {})
+            ).rejects.toThrow('Missing webhook signature');
+        });
+
+        it('should reject when signature verification fails', async () => {
+            (controller as any).verifySignature.mockReturnValueOnce(false);
+
+            await expect(
+                controller.handleWebhook(
+                    { event_type: 'payment_success', data: { reference: 'r1' } },
+                    { 'nomba-signature': 'bad', 'nomba-timestamp': '1' }
+                )
+            ).rejects.toThrow('Invalid webhook signature');
+        });
+    });
+
+    describe('transfer handlers', () => {
+        it('should no-op transfer success when reference is missing', async () => {
+            const result = await controller.handleWebhook(
+                { event_type: 'transfer.successful', data: { transaction: { transactionId: 't1' } } },
+                sigHeaders
+            );
+
+            expect(result).toEqual({ success: true, message: 'Webhook processed' });
+            expect(prisma.payment.findFirst).not.toHaveBeenCalledWith({ where: { reference: undefined } });
+        });
+
+        it('should no-op transfer failed when reference is missing', async () => {
+            const result = await controller.handleWebhook(
+                { event_type: 'transfer.failed', data: { transaction: { transactionId: 't2' } } },
+                sigHeaders
+            );
+
+            expect(result).toEqual({ success: true, message: 'Webhook processed' });
+            expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+        });
+
+        it('should propagate failed SELL payout to order payment status and slack', async () => {
+            const ref = 'sell-failed-ref';
+            prisma.payment.findMany.mockResolvedValue([{ id: 71, orderId: 9001, userId: 16, totalAmount: 22000 }]);
+            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+            prisma.order.findUnique.mockResolvedValue({
+                id: 9001,
+                orderCategory: 'SELL',
+                status: 'done',
+                transactionId: 'TXN-9001',
+                totalToReceiveInFiat: 22000,
+                destinationBankName: 'Bank A',
+                destinationBankAccountNumber: '1234567890',
+                user: { id: 16, email: 'user@example.com' },
+            });
+            prisma.order.update.mockResolvedValue({ id: 9001 });
+
+            await controller.handleWebhook(transferFailed(ref), sigHeaders);
+
+            expect(prisma.order.update).toHaveBeenCalledWith({
+                where: { id: 9001 },
+                data: { paymentStatus: TransactionStatus.FAILED },
+            });
+            expect(slackService.sendWebhookFailureAlert).toHaveBeenCalledWith(
+                'nomba',
+                ref,
+                expect.stringContaining('payout FAILED'),
+                expect.objectContaining({ orderId: 9001, userId: 16, amount: 22000 }),
+            );
         });
     });
 });
