@@ -530,6 +530,28 @@ describe('NombaWebhookController', () => {
             );
         });
 
+        it('should persist sender details from data.customer on underpayment', async () => {
+            const ref = 'underpay-customer-ref';
+            const payment = { id: 40, orderId: 400, totalAmount: 5000, reference: ref, userId: 8 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+
+            // payload with data.customer (real Nomba shape)
+            await controller.handleWebhook(vaPaymentSuccess(ref, 2000), sigHeaders);
+
+            expect(buyOrderService.fulfillBuyOrder).not.toHaveBeenCalled();
+            expect(prisma.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 40 },
+                    data: expect.objectContaining({
+                        receivedAmount: 2000,
+                        senderAccountNumber: '81689XXX',
+                        senderAccountName: 'JOHN GRASS',
+                        senderBankName: 'Paycom (Opay)',
+                    }),
+                }),
+            );
+        });
+
         it('should fulfill when amount is within 1% tolerance of expected', async () => {
             const ref = 'almost-ref';
             const payment = { id: 33, orderId: 303, totalAmount: 1000, reference: ref, userId: 7 };
