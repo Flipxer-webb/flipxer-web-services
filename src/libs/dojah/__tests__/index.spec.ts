@@ -16,7 +16,12 @@ import { DojahLib } from "../index";
 import {
     DojahAuthorizationError,
     DojahGenericError,
+    DojahLowBalanceError,
+    DojahMethodNotFoundError,
     DojahNetworkError,
+    DojahNotFoundError,
+    DojahRequestTimeoutError,
+    DojahThirdPartyServiceFailureError,
     DojahTooManyRequestError,
     DojahValidationError,
 } from "../errors";
@@ -86,6 +91,46 @@ describe("DojahLib", () => {
         });
     });
 
+    it("verifyNin sends request and returns normalized response", async () => {
+        axiosCallMock.mockResolvedValueOnce({
+            status: 200,
+            data: {
+                entity: {
+                    nin: "12345678901",
+                    first_name: "Ada",
+                },
+            },
+        });
+
+        const lib = new DojahLib(options);
+        const result = await lib.verifyNin({
+            nin: "12345678901",
+            first_name: "Ada",
+            last_name: "Lovelace",
+        });
+
+        expect(axiosCallMock).toHaveBeenCalledWith({
+            url: "/api/v1/kyc/nin",
+            method: "GET",
+            params: {
+                nin: "12345678901",
+                first_name: "Ada",
+                last_name: "Lovelace",
+                dob: undefined,
+            },
+        });
+        expect(result).toEqual({
+            status: true,
+            responseCode: 200,
+            data: {
+                entity: {
+                    nin: "12345678901",
+                    first_name: "Ada",
+                },
+            },
+        });
+    });
+
     it("analyzeDocument uses default base64 input and optional back side", async () => {
         axiosCallMock.mockResolvedValueOnce({
             status: 200,
@@ -107,6 +152,61 @@ describe("DojahLib", () => {
                 imagebackside: "back-base64",
             },
         });
+    });
+
+    it("analyzeDocument supports explicit input type without back side", async () => {
+        axiosCallMock.mockResolvedValueOnce({
+            status: 200,
+            data: { entity: { status: { overall_status: 1 } } },
+        });
+
+        const lib = new DojahLib(options);
+        await lib.analyzeDocument({
+            inputType: "url",
+            imageFrontSide: "https://cdn.example/front.png",
+        });
+
+        expect(axiosCallMock).toHaveBeenCalledWith({
+            url: "/api/v1/document/analysis",
+            method: "POST",
+            data: {
+                input_type: "url",
+                imagefrontside: "https://cdn.example/front.png",
+            },
+        });
+    });
+
+    it("lookupCAC and verifyTIN return normalized responses", async () => {
+        axiosCallMock
+            .mockResolvedValueOnce({
+                status: 200,
+                data: { entity: { rc_number: "RC-123" } },
+            })
+            .mockResolvedValueOnce({
+                status: 200,
+                data: { entity: { tin: "TIN-123" } },
+            });
+
+        const lib = new DojahLib(options);
+        const cac = await lib.lookupCAC({ rcNumber: "RC-123" });
+        const tin = await lib.verifyTIN({ tin: "TIN-123" });
+
+        expect(cac.responseCode).toBe(200);
+        expect(cac.data).toEqual({ entity: { rc_number: "RC-123" } });
+        expect(tin.responseCode).toBe(200);
+        expect(tin.data).toEqual({ entity: { tin: "TIN-123" } });
+    });
+
+    it("getVerificationResult returns null when api responds without payload", async () => {
+        axiosCallMock.mockResolvedValueOnce({
+            status: 200,
+            data: null,
+        });
+
+        const lib = new DojahLib(options);
+        const result = await lib.getVerificationResult("ref-empty");
+
+        expect(result).toBeNull();
     });
 
     it("getVerificationResult returns null for 404", async () => {
@@ -241,6 +341,55 @@ describe("DojahLib", () => {
         ).toThrow(DojahTooManyRequestError);
     });
 
+    it("maps additional status codes to specific Dojah errors", () => {
+        const lib = new DojahLib(options) as any;
+
+        expect(() =>
+            lib.handleDojahError({
+                response: {
+                    status: 402,
+                    data: { error: "low balance" },
+                },
+            })
+        ).toThrow(DojahLowBalanceError);
+
+        expect(() =>
+            lib.handleDojahError({
+                response: {
+                    status: 404,
+                    data: { error: "not found" },
+                },
+            })
+        ).toThrow(DojahNotFoundError);
+
+        expect(() =>
+            lib.handleDojahError({
+                response: {
+                    status: 405,
+                    data: { error: "method" },
+                },
+            })
+        ).toThrow(DojahMethodNotFoundError);
+
+        expect(() =>
+            lib.handleDojahError({
+                response: {
+                    status: 408,
+                    data: { error: "timeout" },
+                },
+            })
+        ).toThrow(DojahRequestTimeoutError);
+
+        expect(() =>
+            lib.handleDojahError({
+                response: {
+                    status: 424,
+                    data: { error: "third-party failed" },
+                },
+            })
+        ).toThrow(DojahThirdPartyServiceFailureError);
+    });
+
     it("maps network timeout to DojahNetworkError", () => {
         const lib = new DojahLib(options) as any;
 
@@ -252,6 +401,20 @@ describe("DojahLib", () => {
         } catch (error) {
             expect(error).toBeInstanceOf(DojahNetworkError);
             expect((error as Error).message).toContain("timeout");
+        }
+    });
+
+    it("maps unresolved host network failure to DojahNetworkError", () => {
+        const lib = new DojahLib(options) as any;
+
+        try {
+            lib.handleDojahError({
+                code: "ENOTFOUND",
+                message: "host not found",
+            });
+        } catch (error) {
+            expect(error).toBeInstanceOf(DojahNetworkError);
+            expect((error as Error).message).toContain("Could not reach Dojah API");
         }
     });
 
