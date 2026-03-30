@@ -384,6 +384,7 @@ describe("WithdrawalWebhookHandler", () => {
         expect(notificationMessage.buyTransactionFailed).toHaveBeenCalled();
         expect(notificationDispatcher.notify).toHaveBeenCalled();
         expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalled();
+        expect(wsGateway.notifyWalletUpdate).toHaveBeenCalledWith(buyOrder.user.id);
     });
 
     it("initiates payout through Nomba", async () => {

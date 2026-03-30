@@ -96,6 +96,7 @@ export class WithdrawalWebhookHandler {
                 },
             });
             this.emitTransactionUpdate(transaction.user.id, completedOrder);
+            this.wsGateway.notifyWalletUpdate(transaction.user.id);
             this.logger.log(`Retry payout SUCCESS for order ${transaction.id}`);
             return { success: true };
 
@@ -299,6 +300,7 @@ export class WithdrawalWebhookHandler {
             });
 
             this.emitTransactionUpdate(transaction.user.id, completedOrder);
+            this.wsGateway.notifyWalletUpdate(transaction.user.id);
 
             const sellMessage = this.notificationMessage.sellTransactionSuccess({
                 amount: transaction.amount,
@@ -436,6 +438,7 @@ export class WithdrawalWebhookHandler {
                 updatedAt: new Date(),
             },
         });
+        this.wsGateway.notifyWalletUpdate(buyOrder.user.id);
 
         // NOW send the BUY completion notification to user
         const message = this.notificationMessage.buyTransactionSuccess({
