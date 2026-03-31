@@ -63,6 +63,15 @@ export class GetUserTransactionListDto extends PaginationQueryDto {
     @IsOptional()
     @IsString()
     searchText?: string;
+
+    @ApiProperty({
+        description: "filter swap source (admin|user) - optional",
+        example: "admin",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    source?: "admin" | "user";
 }
 
 export class GeneralReportDownloadDto {

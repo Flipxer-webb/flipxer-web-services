@@ -120,15 +120,23 @@ export class AdminTransactionService {
 
     // ==================== TRANSACTION STATS ====================
 
-    async getTransactionStats(period: string = "month", status?: string, type?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
+    async getTransactionStats(
+        period: string = "month",
+        status?: string,
+        type?: string,
+        startDateStr?: string,
+        endDateStr?: string,
+        source?: string,
+    ): Promise<ApiResponse> {
         const { startDate, endDate } = startDateStr && endDateStr
             ? { startDate: new Date(startDateStr), endDate: endOfDay(new Date(endDateStr)) }
             : this.getDateRange(period);
 
         // Base date+type filter — no streamlinedStatus here to avoid field conflicts
-        const baseWhere = {
+        const baseWhere: Prisma.OrderWhereInput = {
             createdAt: { gte: startDate, lte: endDate },
             ...(type && { orderCategory: type as any }),
+            AND: this.buildSwapSourceFilters(source),
         };
 
         // Filter that includes the optional status
@@ -140,50 +148,18 @@ export class AdminTransactionService {
         // Total is always against the fully filtered WHERE
         const totalCount = await this.prisma.order.count({ where: filteredWhere });
 
-        // Per-status breakdown: when status filter is set, derive trivially to avoid field conflicts
-        let completedCount: number;
-        let pendingCount: number;
-        let failedCount: number;
+        const { completedCount, pendingCount, failedCount } = await this.resolveStatusCounts(
+            baseWhere,
+            status,
+            totalCount,
+        );
 
-        if (status) {
-            completedCount = status === OrderStreamlinedStatus.completed ? totalCount : 0;
-            pendingCount   = status === OrderStreamlinedStatus.pending   ? totalCount : 0;
-            failedCount    = status === OrderStreamlinedStatus.failed    ? totalCount : 0;
-        } else {
-            [completedCount, pendingCount, failedCount] = await Promise.all([
-                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.completed } }),
-                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.pending } }),
-                this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.failed } }),
-            ]);
-        }
-
-        // Volume & fees only apply when we might have completed orders
-        const showVolume = !status || status === OrderStreamlinedStatus.completed;
         const completedBaseWhere = { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.completed };
-
-        let totalVolume: { _sum: { amountInFiat: number | null } };
-        let completedOrdersForFees: { fee: any; rateAtConversion: any }[];
-        let volumeByCategory: any[];
-
-        if (showVolume) {
-            [totalVolume, completedOrdersForFees, volumeByCategory] = await Promise.all([
-                this.prisma.order.aggregate({ _sum: { amountInFiat: true }, where: completedBaseWhere }),
-                this.prisma.order.findMany({
-                    where: { ...completedBaseWhere, fee: { not: null } },
-                    select: { fee: true, rateAtConversion: true },
-                }),
-                this.prisma.order.groupBy({
-                    by: ["orderCategory"],
-                    where: completedBaseWhere,
-                    _sum: { amountInFiat: true },
-                    _count: true,
-                }),
-            ]);
-        } else {
-            totalVolume = { _sum: { amountInFiat: null } };
-            completedOrdersForFees = [];
-            volumeByCategory = [];
-        }
+        const {
+            totalVolume,
+            completedOrdersForFees,
+            volumeByCategory,
+        } = await this.resolveCompletedVolumeData(completedBaseWhere, status);
 
         // Calculate total fees in fiat (fee * rateAtConversion for each order)
         const totalFeesInFiat = completedOrdersForFees.reduce((sum, order) => {
@@ -217,6 +193,82 @@ export class AdminTransactionService {
                 period: { start: startDate, end: endDate },
             },
         });
+    }
+
+    private buildSwapSourceFilters(source?: string): Prisma.OrderWhereInput[] {
+        const normalizedSource = (source ?? "").toLowerCase();
+        const adminSwapMatcher: Prisma.OrderWhereInput = {
+            OR: [
+                { orderReference: { startsWith: "admin-swap-", mode: "insensitive" } },
+                { transactionId: { startsWith: "admin-swap-", mode: "insensitive" } },
+            ],
+        };
+
+        if (normalizedSource === "admin") {
+            return [{ orderCategory: OrderCategory.SWAP }, adminSwapMatcher];
+        }
+
+        if (normalizedSource === "user") {
+            return [{ NOT: adminSwapMatcher }];
+        }
+
+        return [];
+    }
+
+    private async resolveStatusCounts(
+        baseWhere: Prisma.OrderWhereInput,
+        status: string | undefined,
+        totalCount: number,
+    ): Promise<{ completedCount: number; pendingCount: number; failedCount: number }> {
+        if (status) {
+            return {
+                completedCount: status === OrderStreamlinedStatus.completed ? totalCount : 0,
+                pendingCount: status === OrderStreamlinedStatus.pending ? totalCount : 0,
+                failedCount: status === OrderStreamlinedStatus.failed ? totalCount : 0,
+            };
+        }
+
+        const [completedCount, pendingCount, failedCount] = await Promise.all([
+            this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.completed } }),
+            this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.pending } }),
+            this.prisma.order.count({ where: { ...baseWhere, streamlinedStatus: OrderStreamlinedStatus.failed } }),
+        ]);
+
+        return { completedCount, pendingCount, failedCount };
+    }
+
+    private async resolveCompletedVolumeData(
+        completedBaseWhere: Prisma.OrderWhereInput,
+        status?: string,
+    ): Promise<{
+        totalVolume: { _sum: { amountInFiat: number | null } };
+        completedOrdersForFees: { fee: any; rateAtConversion: any }[];
+        volumeByCategory: any[];
+    }> {
+        const showVolume = !status || status === OrderStreamlinedStatus.completed;
+        if (!showVolume) {
+            return {
+                totalVolume: { _sum: { amountInFiat: null } },
+                completedOrdersForFees: [],
+                volumeByCategory: [],
+            };
+        }
+
+        const [totalVolume, completedOrdersForFees, volumeByCategory] = await Promise.all([
+            this.prisma.order.aggregate({ _sum: { amountInFiat: true }, where: completedBaseWhere }),
+            this.prisma.order.findMany({
+                where: { ...completedBaseWhere, fee: { not: null } },
+                select: { fee: true, rateAtConversion: true },
+            }),
+            this.prisma.order.groupBy({
+                by: ["orderCategory"],
+                where: completedBaseWhere,
+                _sum: { amountInFiat: true },
+                _count: true,
+            }),
+        ]);
+
+        return { totalVolume, completedOrdersForFees, volumeByCategory };
     }
 
     // ==================== TRANSACTION STATUS UPDATES ====================

@@ -232,17 +232,26 @@ export class AdminAccountingController {
     @ApiQuery({ name: "pageSize", required: false, description: "Page size (default: 20)" })
     @ApiQuery({ name: "status", required: false, description: "Filter by status" })
     @ApiQuery({ name: "currency", required: false, description: "Filter by from/to currency" })
+    @ApiQuery({ name: "source", required: false, description: "Filter by swap source (admin | user | all)" })
     @Get("swap-log")
     async getSwapLog(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
         @Query("pageSize", new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
         @Query("status") status?: string,
         @Query("currency") currency?: string,
+        @Query("source") source?: string,
     ) {
         this.logger.log(`Admin fetching swap log (page ${pageNumber})`);
 
         const where: any = {
             orderCategory: OrderCategory.SWAP,
+        };
+
+        const adminSwapMatcher = {
+            OR: [
+                { orderReference: { startsWith: "admin-swap-", mode: "insensitive" } },
+                { transactionId: { startsWith: "admin-swap-", mode: "insensitive" } },
+            ],
         };
 
         if (status) {
@@ -255,6 +264,13 @@ export class AdminAccountingController {
                 { fromCurrency: upperCurrency },
                 { toCurrency: upperCurrency },
             ];
+        }
+
+        const normalizedSource = (source ?? "").toLowerCase();
+        if (normalizedSource === "admin") {
+            where.AND = [adminSwapMatcher];
+        } else if (normalizedSource === "user") {
+            where.AND = [{ NOT: adminSwapMatcher }];
         }
 
         // Get distinct users with matching swap orders (paginate by user, not by entry)
@@ -293,12 +309,17 @@ export class AdminAccountingController {
         // Group orders by user
         const userMap = new Map<number, { userName: string; entries: any[] }>();
         for (const order of orders) {
+            const isAdminSwap =
+                (typeof order.orderReference === "string" && order.orderReference.toLowerCase().startsWith("admin-swap-")) ||
+                (typeof order.transactionId === "string" && order.transactionId.toLowerCase().startsWith("admin-swap-"));
+
             const entry = {
                 id: order.id,
                 userId: order.userId,
                 userName: order.user
                     ? `${order.user.firstName ?? ""} ${order.user.lastName ?? ""}`.trim()
                     : "Unknown",
+                source: isAdminSwap ? "ADMIN_SWAP" : "USER_SWAP",
                 fromCurrency: order.fromCurrency,
                 toCurrency: order.toCurrency,
                 fromAmount: order.fromAmount,
