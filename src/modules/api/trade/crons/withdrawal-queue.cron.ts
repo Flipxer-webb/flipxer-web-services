@@ -9,7 +9,8 @@ import { SlackWebhookService } from "@/modules/api/operations/services/slack-web
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { WsGateway } from "../gateway/v1";
 import { Decimal } from "@prisma/client/runtime/library";
-import { OrderCategory } from "@prisma/client";
+import { OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
+import { getStreamlinedStatus } from "../interfaces/trade";
 
 /**
  * WithdrawalQueueCron
@@ -214,6 +215,7 @@ export class WithdrawalQueueCron {
 
         // Backward compatibility for legacy queue entries created before
         // hold metadata persisted destination/network values.
+        let linkedOrderReference: string | null = null;
         if (!destinationAddress) {
             const linkedOrder = await this.prisma.order.findFirst({
                 where: {
@@ -223,6 +225,7 @@ export class WithdrawalQueueCron {
                 select: {
                     recipient: true,
                     destinationTag: true,
+                    orderReference: true,
                 },
                 orderBy: { createdAt: "desc" },
             });
@@ -230,6 +233,7 @@ export class WithdrawalQueueCron {
             if (linkedOrder?.recipient) {
                 destinationAddress = linkedOrder.recipient;
                 metadata.destinationTag = metadata.destinationTag ?? linkedOrder.destinationTag;
+                linkedOrderReference = linkedOrder.orderReference ?? null;
             }
         }
 
@@ -253,6 +257,32 @@ export class WithdrawalQueueCron {
             return false;
         }
 
+        // Derive the original order reference from the hold reference so that
+        // the Quidax on-chain webhook can match back to our Order record.
+        // Hold reference format: "withdrawal:{orderReference}"
+        // Without this, the webhook fires with reference="queue:N" which
+        // doesn't match any Order.orderReference → Order stuck as pending forever.
+        const orderReferenceFromHold = holdEntry.reference?.startsWith('withdrawal:')
+            ? holdEntry.reference.slice('withdrawal:'.length)
+            : (linkedOrderReference ?? null);
+
+        // Fallback: query the linked order if still not found
+        let resolvedOrderReference = orderReferenceFromHold;
+        if (!resolvedOrderReference) {
+            const fallbackOrder = await this.prisma.order.findFirst({
+                where: { ledgerEntryId: holdEntry.id, orderCategory: OrderCategory.SEND },
+                select: { orderReference: true },
+                orderBy: { createdAt: 'desc' },
+            });
+            resolvedOrderReference = fallbackOrder?.orderReference ?? null;
+        }
+
+        if (!resolvedOrderReference) {
+            this.logger.error(
+                `Cannot resolve order reference for queue entry ${queueEntry.id} — webhook will not be able to complete the order`
+            );
+        }
+
         try {
             // Execute withdrawal from main wallet
             // Note: For external withdrawals, we need to use fund_uid for the destination address
@@ -264,12 +294,30 @@ export class WithdrawalQueueCron {
                 fund_uid2: metadata.destinationTag,
                 narration: `Queued withdrawal processed: ${queueEntry.id}`,
                 transaction_note: `Queue ID: ${queueEntry.id}`,
-                reference: `queue:${queueEntry.id}`,
+                // Use the original order reference so Quidax's on-chain webhook
+                // can match back to the Order record in WithdrawalWebhookHandler.
+                // Previously used 'queue:${queueEntry.id}' which caused
+                // TransactionNotFoundException on every webhook → Order stuck as pending.
+                reference: resolvedOrderReference ?? `queue:${queueEntry.id}`,
                 network: network,
             });
 
             if (withdrawalRes.status !== "success") {
                 throw new Error(`Quidax withdrawal failed: ${withdrawalRes.message}`);
+            }
+
+            // Update Order to submitted so user can see progress immediately.
+            // The webhook handler will advance it to done/failed when on-chain confirmation arrives.
+            if (resolvedOrderReference) {
+                await this.prisma.order.update({
+                    where: { orderReference: resolvedOrderReference },
+                    data: {
+                        status: OrderStatus.submitted,
+                        streamlinedStatus: getStreamlinedStatus(OrderStatus.submitted),
+                    },
+                }).catch((err) =>
+                    this.logger.error(`Failed to update order status to submitted for ${resolvedOrderReference}: ${err.message}`)
+                );
             }
 
             // Settle the hold (convert to confirmed debit)
