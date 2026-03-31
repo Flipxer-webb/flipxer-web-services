@@ -189,6 +189,65 @@ describe("IdentityResolutionService", () => {
         });
     });
 
+    it("retries once on Prisma P2034 serialization conflict and then succeeds", async () => {
+        const p2034 = Object.create(
+            Prisma.PrismaClientKnownRequestError.prototype,
+        ) as Prisma.PrismaClientKnownRequestError;
+        (p2034 as any).code = "P2034";
+        (p2034 as any).message = "Serialization conflict";
+
+        tx.identityIdentifier.findUnique.mockResolvedValue({
+            subject: { id: 15, user: { id: 1 } },
+        });
+
+        prisma.$transaction
+            .mockRejectedValueOnce(p2034)
+            .mockImplementationOnce(async (callback: (txMock: TxMock) => unknown) => callback(tx));
+
+        await expect(
+            service.resolveOrCreate(IdentityIdType.BVN, "22345678901", 1),
+        ).resolves.toEqual({ subjectId: 15, isNew: false });
+
+        expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws last P2034 error after retry exhaustion", async () => {
+        const p2034 = Object.create(
+            Prisma.PrismaClientKnownRequestError.prototype,
+        ) as Prisma.PrismaClientKnownRequestError;
+        (p2034 as any).code = "P2034";
+        (p2034 as any).message = "Serialization conflict";
+
+        prisma.$transaction.mockRejectedValue(p2034);
+
+        await expect(
+            service.resolveOrCreate(IdentityIdType.NIN, "12345678901", 9),
+        ).rejects.toBe(p2034);
+
+        expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    });
+
+    it("rethrows unknown non-Error transaction failures", async () => {
+        const circular: Record<string, unknown> = {};
+        circular.self = circular;
+
+        prisma.$transaction.mockRejectedValueOnce(circular as unknown);
+
+        await expect(
+            service.resolveOrCreate(IdentityIdType.BVN, "22345678901", 2),
+        ).rejects.toBe(circular);
+    });
+
+    it("rethrows JSON-stringifiable non-Error transaction failures", async () => {
+        const plainPayload = { reason: "provider-timeout", retryable: false };
+
+        prisma.$transaction.mockRejectedValueOnce(plainPayload as unknown);
+
+        await expect(
+            service.resolveOrCreate(IdentityIdType.NIN, "12345678901", 3),
+        ).rejects.toBe(plainPayload);
+    });
+
     it("getSubjectForUser returns null when user has no subject", async () => {
         prisma.user.findUnique.mockResolvedValue({ identitySubject: null });
 
