@@ -548,6 +548,13 @@ export class SendService {
             ...(dto.network && { network: dto.network }),
         });
 
+        if (!providerFeeInfo?.data) {
+            throw new IncompleteAccountSetupException(
+                "Fee information is not available for the selected currency and network combination",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         // Calculate provider fee
         const providerFee = await this.getFee(dto.amount, providerFeeInfo.data);
 
