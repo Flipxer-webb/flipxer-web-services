@@ -53,6 +53,7 @@ import {
 } from "../errors";
 import {
     DocumentVerificationStatus,
+    IdentityIdType,
     Prisma,
     Status,
     User,
@@ -106,6 +107,7 @@ import { TwoFactorRateLimitService } from "./two-factor-rate-limit.service";
 import { SettingService } from "../../settings/services";
 import { TierService } from "./tier.service";
 import { KycStateMachineService } from "./kyc-state-machine.service";
+import { IdentityResolutionService } from "./identity-resolution.service";
 import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -393,6 +395,7 @@ export class AuthService {
         private readonly kycStateMachine: KycStateMachineService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly wsGateway: WsGateway,
+        private readonly identityResolution: IdentityResolutionService,
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -1096,6 +1099,110 @@ export class AuthService {
         });
     }
 
+    private ensureIdentityProfilePresent(user: User, identityType: "BVN" | "NIN"): void {
+        if (!user.firstName || !user.lastName || !user.dateOfBirth) {
+            throw new VerificationGenericException(
+                `Please complete your profile (name and date of birth) before verifying ${identityType}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    private async updateIdentityWithConflictGuard(
+        userId: number,
+        identityType: "BVN" | "NIN",
+        data: Prisma.UserUpdateInput,
+    ): Promise<void> {
+        try {
+            await this.prisma.user.update({
+                where: { id: userId },
+                data,
+            });
+        } catch (err) {
+            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+                throw new VerificationGenericException(
+                    `This ${identityType} is already linked to another account. If this is yours, please contact support.`,
+                    HttpStatus.CONFLICT,
+                );
+            }
+            throw err;
+        }
+    }
+
+    private async rejectOnIdentityMismatch(
+        user: User,
+        result: any,
+        identityType: "BVN" | "NIN",
+    ): Promise<void> {
+        const nameResult = matchNames(
+            user.firstName,
+            user.lastName,
+            result?.data?.entity?.first_name || "",
+            result?.data?.entity?.last_name || "",
+        );
+        const dobMatches = matchDateOfBirth(
+            user.dateOfBirth.toISOString().split("T")[0],
+            result?.data?.entity?.date_of_birth || "",
+        );
+
+        if (!nameResult.matches || !dobMatches) {
+            this.logger.warn(`[KYC][${identityType}] User data mismatch for user ${user.id} after Dojah response`);
+            await this.kycStateMachine.transition(user.id, identityType, "REJECTED", {
+                providerRef: result?.data?.entity?.reference_id,
+                providerRawResponse: result?.data,
+                reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
+            });
+            throw new VerificationGenericException(
+                "Incorrect first name, last name or date of birth",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    private async processDevIdentityBypass(
+        userId: number,
+        identityType: "BVN" | "NIN",
+    ): Promise<void> {
+        const generatedValue = generateId({ type: "numeric" });
+
+        if (identityType === "BVN") {
+            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, generatedValue, userId);
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
+                    isBvnVerified: true,
+                    bvn: generatedValue,
+                },
+            });
+        } else {
+            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, generatedValue, userId);
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
+                    isNinVerified: true,
+                    nin: generatedValue,
+                },
+            });
+        }
+
+        await this.kycStateMachine.transition(userId, identityType, "APPROVED", {
+            providerRef: "DEV_BYPASS",
+            providerRawResponse: { bypass: true },
+        });
+    }
+
+    private async finalizeIdentityVerification(userId: number, identityType: "BVN" | "NIN"): Promise<void> {
+        await this.tierService.syncTierAndCache(userId);
+        this.logger.log(`[KYC][${identityType}] Tier/profile cache refreshed for user ${userId}`);
+
+        try {
+            await this.cryptoAccountQueueProducer.enqueue(userId);
+            this.logger.log(`[KYC][${identityType}] Crypto account enqueue successful for user ${userId}`);
+        } catch (error) {
+            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     async bvnVerification(user: User, dto: BvnVerificationDto) {
         const maskedBvn = this.maskSensitiveId(dto.bvn);
         this.logger.log(`[KYC][BVN] Verification initiated for user ${user.id} (bvn=${maskedBvn})`);
@@ -1120,13 +1227,7 @@ export class AuthService {
             );
         }
 
-        // Guard: ensure onboarding name and DOB exist before verification
-        if (!user.firstName || !user.lastName || !user.dateOfBirth) {
-            throw new VerificationGenericException(
-                "Please complete your profile (name and date of birth) before verifying BVN",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        this.ensureIdentityProfilePresent(user, "BVN");
 
         this.logger.debug(`[KYC][BVN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyBvn({
@@ -1145,52 +1246,14 @@ export class AuthService {
             }
             // Development only - log the bypass usage
             this.logger.warn(`[SECURITY][DEV-ONLY] Test BVN bypass used for user ${user.id}`);
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    isBvnVerified: true,
-                    isNinVerified: false,
-                    bvn: generateId({ type: "numeric" }),
-                },
-            });
-            // Audit trail for dev bypass
-            await this.kycStateMachine.transition(user.id, "BVN", "APPROVED", {
-                providerRef: "DEV_BYPASS",
-                providerRawResponse: { bypass: true },
-            });
+            await this.processDevIdentityBypass(user.id, "BVN");
         } else {
-            const nameResult = matchNames(
-                user.firstName,
-                user.lastName,
-                result?.data?.entity?.first_name || "",
-                result?.data?.entity?.last_name || "",
-            );
-            const dobMatches = matchDateOfBirth(
-                user.dateOfBirth.toISOString().split("T")[0],
-                result?.data?.entity?.date_of_birth || "",
-            );
-
-            if (!nameResult.matches || !dobMatches) {
-                this.logger.warn(`[KYC][BVN] User data mismatch for user ${user.id} after Dojah response`);
-                // Record the failed attempt before throwing
-                await this.kycStateMachine.transition(user.id, "BVN", "REJECTED", {
-                    providerRef: result?.data?.entity?.reference_id,
-                    providerRawResponse: result?.data,
-                    reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
-                });
-                throw new VerificationGenericException(
-                    "Incorrect first name, last name or date of birth",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    isBvnVerified: true,
-                    isNinVerified: false,
-                    bvn: dto.bvn,
-                    bvnRegisteredPhone: result.data.entity.phone_number1,
-                },
+            await this.rejectOnIdentityMismatch(user, result, "BVN");
+            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, dto.bvn, user.id);
+            await this.updateIdentityWithConflictGuard(user.id, "BVN", {
+                isBvnVerified: true,
+                bvn: dto.bvn,
+                bvnRegisteredPhone: result.data.entity.phone_number1,
             });
             // Audit trail for successful BVN verification
             await this.kycStateMachine.transition(user.id, "BVN", "APPROVED", {
@@ -1200,15 +1263,7 @@ export class AuthService {
         }
         this.logger.log(`[KYC][BVN] Verification persisted for user ${user.id}`);
 
-        await this.tierService.syncTierAndCache(user.id);
-        this.logger.log(`[KYC][BVN] Tier/profile cache refreshed for user ${user.id}`);
-
-        try {
-            await this.cryptoAccountQueueProducer.enqueue(user.id);
-            this.logger.log(`[KYC][BVN] Crypto account enqueue successful for user ${user.id}`);
-        } catch (error) {
-            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        await this.finalizeIdentityVerification(user.id, "BVN");
 
         return buildResponse({
             message: "Bvn Verification successfully",
@@ -1239,13 +1294,7 @@ export class AuthService {
             );
         }
 
-        // Guard: ensure onboarding name and DOB exist before verification
-        if (!user.firstName || !user.lastName || !user.dateOfBirth) {
-            throw new VerificationGenericException(
-                "Please complete your profile (name and date of birth) before verifying NIN",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        this.ensureIdentityProfilePresent(user, "NIN");
 
         this.logger.debug(`[KYC][NIN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyNin({
@@ -1264,52 +1313,14 @@ export class AuthService {
             }
             // Development only - log the bypass usage
             this.logger.warn(`[SECURITY][DEV-ONLY] Test NIN bypass used for user ${user.id}`);
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    isNinVerified: true,
-                    isBvnVerified: false,
-                    nin: generateId({ type: "numeric" }),
-                },
-            });
-            // Audit trail for dev bypass
-            await this.kycStateMachine.transition(user.id, "NIN", "APPROVED", {
-                providerRef: "DEV_BYPASS",
-                providerRawResponse: { bypass: true },
-            });
+            await this.processDevIdentityBypass(user.id, "NIN");
         } else {
-            const nameResult = matchNames(
-                user.firstName,
-                user.lastName,
-                result?.data?.entity?.first_name || "",
-                result?.data?.entity?.last_name || "",
-            );
-            const dobMatches = matchDateOfBirth(
-                user.dateOfBirth.toISOString().split("T")[0],
-                result?.data?.entity?.date_of_birth || "",
-            );
-
-            if (!nameResult.matches || !dobMatches) {
-                this.logger.warn(`[KYC][NIN] User data mismatch for user ${user.id} after Dojah response`);
-                // Record the failed attempt before throwing
-                await this.kycStateMachine.transition(user.id, "NIN", "REJECTED", {
-                    providerRef: result?.data?.entity?.reference_id,
-                    providerRawResponse: result?.data,
-                    reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
-                });
-                throw new VerificationGenericException(
-                    "Incorrect first name, last name or date of birth",
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    isNinVerified: true,
-                    isBvnVerified: false,
-                    nin: dto.nin,
-                    ninRegisteredPhone: result.data.entity.phone_number,
-                },
+            await this.rejectOnIdentityMismatch(user, result, "NIN");
+            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, dto.nin, user.id);
+            await this.updateIdentityWithConflictGuard(user.id, "NIN", {
+                isNinVerified: true,
+                nin: dto.nin,
+                ninRegisteredPhone: result.data.entity.phone_number,
             });
             // Audit trail for successful NIN verification
             await this.kycStateMachine.transition(user.id, "NIN", "APPROVED", {
@@ -1319,15 +1330,7 @@ export class AuthService {
         }
         this.logger.log(`[KYC][NIN] Verification persisted for user ${user.id}`);
 
-        await this.tierService.syncTierAndCache(user.id);
-        this.logger.log(`[KYC][NIN] Tier/profile cache refreshed for user ${user.id}`);
-
-        try {
-            await this.cryptoAccountQueueProducer.enqueue(user.id);
-            this.logger.log(`[KYC][NIN] Crypto account enqueue successful for user ${user.id}`);
-        } catch (error) {
-            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        await this.finalizeIdentityVerification(user.id, "NIN");
 
         return buildResponse({
             message: "NIN Verification successfully",

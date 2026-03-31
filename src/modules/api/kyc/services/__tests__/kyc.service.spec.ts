@@ -22,6 +22,7 @@ import { NotificationDispatcher } from "@/modules/api/notification/services/noti
 import { EmailService } from "@/modules/core/email/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
+import { IdentityResolutionService } from "@/modules/api/auth/services/identity-resolution.service";
 import { UserType } from "@prisma/client";
 
 describe("KycService", () => {
@@ -72,6 +73,11 @@ describe("KycService", () => {
         notifyProfileUpdate: jest.fn(),
     };
 
+    const mockIdentityResolutionService = {
+        resolveOrCreate: jest.fn(),
+        getSubjectForUser: jest.fn(),
+    };
+
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -83,6 +89,7 @@ describe("KycService", () => {
                 { provide: EmailService, useValue: mockEmailService },
                 { provide: RedisCacheService, useValue: mockRedisCacheService },
                 { provide: WsGateway, useValue: mockWsGateway },
+                { provide: IdentityResolutionService, useValue: mockIdentityResolutionService },
             ],
         }).compile();
 
@@ -367,6 +374,8 @@ describe("KycService", () => {
         it("updates verification flags, audits changes, and syncs tier", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue({
                 id: 4,
+                bvn: "12345678901",
+                nin: "10987654321",
                 isBvnVerified: false,
                 isNinVerified: false,
                 isDocumentVerified: false,
@@ -401,6 +410,40 @@ describe("KycService", () => {
                 }),
             );
             expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(4);
+        });
+
+        it("throws when attempting to verify NIN for users without NIN", async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                id: 10,
+                bvn: "12345678901",
+                nin: null,
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+            });
+
+            await expect(
+                service.updateUserVerification(10, { isNinVerified: true, reason: "reviewed" } as any, 99),
+            ).rejects.toThrow("Cannot set NIN verified");
+        });
+
+        it("throws when attempting to verify BVN for users without BVN", async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                id: 11,
+                bvn: null,
+                nin: "10987654321",
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+            });
+
+            await expect(
+                service.updateUserVerification(11, { isBvnVerified: true, reason: "reviewed" } as any, 99),
+            ).rejects.toThrow("Cannot set BVN verified");
         });
     });
 

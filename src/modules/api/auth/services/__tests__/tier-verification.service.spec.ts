@@ -16,7 +16,10 @@ jest.mock("@/modules/api/trade/gateway/v1", () => ({
 }));
 
 jest.mock("@/config", () => ({
-    storageDirConfig: { documentDir: "/tmp/docs" },
+    storageDirConfig: {
+        document: "/var/lib/flipxer/test-docs",
+        documentDir: "/var/lib/flipxer/test-docs",
+    },
     emailTemplateConfig: {},
     COMPANY_NAME: "Flipxer",
     mailConfig: { senderMail: "noreply@test.com" },
@@ -44,7 +47,6 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { EmailService } from "@/modules/core/email/services";
 import { TierService } from "../tier.service";
-import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { validateDocumentFile } from "@/core/validators/file-validator";
@@ -52,18 +54,24 @@ import { validateAddressDocument, validateIncomeDocument } from "@/libs/ocr";
 
 function makePrisma() {
     return {
-        user: { findUnique: jest.fn(), update: jest.fn() },
+        user: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
         kycVerification: { create: jest.fn() },
     };
+}
+
+let testSecretCounter = 0;
+function createTestSecret(): string {
+    testSecretCounter += 1;
+    return `test-secret-${testSecretCounter}`;
 }
 
 describe("TierVerificationService", () => {
     let service: TierVerificationService;
     let prisma: ReturnType<typeof makePrisma>;
     let mockTierService: any;
-    let mockDojahService: any;
     let mockNotificationDispatcher: any;
     let mockUploadService: any;
+    let mockWsGateway: any;
 
     const mockFile = {
         buffer: Buffer.from("test"),
@@ -86,8 +94,9 @@ describe("TierVerificationService", () => {
     beforeEach(async () => {
         prisma = makePrisma();
         mockTierService = { syncTierAndCache: jest.fn() };
-        mockDojahService = { getVerificationResult: jest.fn() };
         mockNotificationDispatcher = { notify: jest.fn() };
+        mockWsGateway = { server: { to: jest.fn() }, notifyProfileUpdate: jest.fn() };
+        prisma.user.findFirst.mockResolvedValue(null);
         mockUploadService = {
             upload: jest.fn().mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
             uploadCompressedImage: jest.fn().mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
@@ -103,10 +112,9 @@ describe("TierVerificationService", () => {
                 { provide: PrismaService, useValue: prisma },
                 { provide: UploadFactory, useValue: mockUploadFactory },
                 { provide: TierService, useValue: mockTierService },
-                { provide: EmailService, useValue: { sendEmail: jest.fn() } },
-                { provide: IdentityComplianceInjectionToken.DOJAH, useValue: mockDojahService },
+                { provide: EmailService, useValue: { sendEmail: jest.fn(), sendMailWithTemplate: jest.fn() } },
                 { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
-                { provide: WsGateway, useValue: { server: { to: jest.fn() } } },
+                { provide: WsGateway, useValue: mockWsGateway },
             ],
         }).compile();
 
@@ -215,163 +223,100 @@ describe("TierVerificationService", () => {
         });
     });
 
-    // ==================== Dojah Address Verification ====================
-
-    describe("verifyAddressWithDojah", () => {
-        it("should return early if already verified", async () => {
-            const verifiedUser = { ...mockUser, isAddressVerified: true };
-            const result = await service.verifyAddressWithDojah(verifiedUser, {
-                verificationId: "v1",
-            } as any);
-            expect(result.message).toBe("Address is already verified");
-        });
-
-        it("should throw if Dojah verification fails", async () => {
-            mockDojahService.getVerificationResult.mockResolvedValue({
-                verified: false,
-                status: "FAILED",
-            });
-
-            await expect(
-                service.verifyAddressWithDojah(mockUser, { verificationId: "v1" } as any)
-            ).rejects.toThrow(ForbiddenException);
-        });
-
-        it("should verify address with Dojah and sync tier", async () => {
-            mockDojahService.getVerificationResult.mockResolvedValue({
-                verified: true,
-                status: "VERIFIED",
-            });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
-
-            const result = await service.verifyAddressWithDojah(mockUser, {
-                verificationId: "v1",
-                address: {
-                    street: "123 Main St",
-                    city: "Lagos",
-                    lga: "Ikeja",
-                    state: "Lagos",
-                    country: "Nigeria",
-                    postalCode: "100001",
-                },
-            } as any);
-
-            expect(result.message).toBe("Address verified successfully");
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(1);
-        });
-    });
-
-    // ==================== Dojah Income Verification ====================
-
-    describe("verifyIncomeWithDojah", () => {
-        it("should return early if already verified", async () => {
-            const verifiedUser = { ...mockUser, isIncomeVerified: true };
-            const result = await service.verifyIncomeWithDojah(verifiedUser, {
-                verificationId: "v1",
-            } as any);
-            expect(result.message).toBe("Income is already verified");
-        });
-
-        it("should throw if Dojah verification fails", async () => {
-            mockDojahService.getVerificationResult.mockResolvedValue({
-                verified: false,
-                status: "FAILED",
-            });
-
-            await expect(
-                service.verifyIncomeWithDojah(mockUser, { verificationId: "v1" } as any)
-            ).rejects.toThrow(ForbiddenException);
-        });
-
-        it("should verify income with Dojah and sync tier", async () => {
-            mockDojahService.getVerificationResult.mockResolvedValue({
-                verified: true,
-                status: "VERIFIED",
-            });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
-
-            const result = await service.verifyIncomeWithDojah(mockUser, {
-                verificationId: "v1",
-                document: { documentUrl: "https://cdn.test.com/income.pdf" },
-            } as any);
-
-            expect(result.message).toBe("Income verified successfully");
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(1);
-        });
-    });
-
-    // ==================== Dojah Government ID Verification ====================
-
-    describe("verifyGovernmentIdWithDojah", () => {
-        it("should return early if BVN already verified", async () => {
-            const verifiedUser = { ...mockUser, isBvnVerified: true };
-            const result = await service.verifyGovernmentIdWithDojah(verifiedUser, {
-                verificationId: "v1",
-                government: { idType: "bvn", idNumber: "12345678901", firstName: "John", lastName: "Doe" },
-            } as any);
-            expect(result.message).toBe("BVN is already verified");
-        });
-
-        it("should return early if NIN already verified", async () => {
-            const verifiedUser = { ...mockUser, isNinVerified: true };
-            const result = await service.verifyGovernmentIdWithDojah(verifiedUser, {
-                verificationId: "v1",
-                government: { idType: "nin", idNumber: "12345678901", firstName: "John", lastName: "Doe" },
-            } as any);
-            expect(result.message).toBe("NIN is already verified");
-        });
-
-        it("should throw if Dojah government verification fails", async () => {
-            mockDojahService.getVerificationResult.mockResolvedValue({
-                verified: false,
-                status: "FAILED",
-            });
-
-            await expect(
-                service.verifyGovernmentIdWithDojah(mockUser, {
-                    verificationId: "v1",
-                    government: { idType: "bvn", idNumber: "123", firstName: "J", lastName: "D" },
-                } as any)
-            ).rejects.toThrow(ForbiddenException);
-        });
-
-        it("should verify BVN with Dojah", async () => {
-            mockDojahService.getVerificationResult.mockResolvedValue({ verified: true });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
-
-            const result = await service.verifyGovernmentIdWithDojah(mockUser, {
-                verificationId: "v1",
-                government: {
-                    idType: "bvn",
-                    idNumber: "12345678901",
-                    firstName: "John",
-                    lastName: "Doe",
-                    dateOfBirth: "1990-01-01",
-                },
-            } as any);
-
-            expect(result.message).toContain("verified successfully");
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(1);
-        });
-    });
-
     // ==================== Trading Password ====================
 
     describe("createTradingPassword", () => {
-        it("should throw if account password is wrong", async () => {
-            const bcrypt = require("bcryptjs");
-            bcrypt.compare.mockResolvedValue(false);
-            prisma.user.findUnique.mockResolvedValue({ password: "hashed" });
+        it("should throw when trading password confirmation does not match", async () => {
+            const tradingPassword = createTestSecret();
+            const confirmTradingPassword = createTestSecret();
+            const accountPassword = createTestSecret();
 
             await expect(
                 service.createTradingPassword(mockUser, {
-                    tradingPassword: "tp123",
-                    accountPassword: "wrong",
+                    tradingPassword,
+                    confirmTradingPassword,
+                    accountPassword,
+                } as any)
+            ).rejects.toThrow("Passwords do not match");
+        });
+
+        it("should throw if account password is wrong", async () => {
+            const bcrypt = require("bcryptjs");
+            bcrypt.compare.mockResolvedValue(false);
+            prisma.user.findUnique.mockResolvedValue({ password: createTestSecret() });
+            const tradingPassword = createTestSecret();
+            const accountPassword = createTestSecret();
+
+            await expect(
+                service.createTradingPassword(mockUser, {
+                    tradingPassword,
+                    accountPassword,
                 } as any)
             ).rejects.toThrow();
+        });
+    });
+
+    describe("status and notification helpers", () => {
+        it("hasTradingPassword returns false when password is missing", async () => {
+            prisma.user.findUnique.mockResolvedValue({ tradingPassword: null });
+
+            const result = await service.hasTradingPassword(mockUser);
+            expect(result.data.hasTradingPassword).toBe(false);
+        });
+
+        it("hasTradingPassword returns true when password exists", async () => {
+            prisma.user.findUnique.mockResolvedValue({ tradingPassword: createTestSecret() });
+
+            const result = await service.hasTradingPassword(mockUser);
+            expect(result.data.hasTradingPassword).toBe(true);
+        });
+
+        it("getVerificationStatus throws when user is not found", async () => {
+            prisma.user.findUnique.mockResolvedValue(null);
+
+            await expect(service.getVerificationStatus(mockUser)).rejects.toThrow("User not found");
+        });
+
+        it("sendReviewNotification returns early when user has no email", async () => {
+            prisma.user.findUnique.mockResolvedValue({ email: null, firstName: "NoMail" });
+
+            await expect(service.sendReviewNotification(1, "address", true)).resolves.toBeUndefined();
+        });
+
+        it("approveDocument handles business documents flow", async () => {
+            prisma.user.update.mockResolvedValue({});
+
+            const result = await service.approveDocument(1, "business");
+
+            expect(result.message).toContain("approved successfully");
+            expect(prisma.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        businessDocumentVerificationStatus: expect.any(String),
+                        isDocumentVerified: true,
+                    }),
+                })
+            );
+            expect(mockNotificationDispatcher.notify).toHaveBeenCalled();
+            expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(1);
+        });
+
+        it("rejectDocument handles business documents flow", async () => {
+            prisma.user.update.mockResolvedValue({});
+
+            const result = await service.rejectDocument(1, "business", "invalid docs");
+
+            expect(result.message).toContain("rejected");
+            expect(prisma.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        businessDocumentVerificationStatus: expect.any(String),
+                        businessDocumentsUploaded: false,
+                    }),
+                })
+            );
+            expect(mockNotificationDispatcher.notify).toHaveBeenCalled();
+            expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(1);
         });
     });
 });
