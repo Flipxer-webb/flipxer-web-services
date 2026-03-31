@@ -620,12 +620,7 @@ export class KycService {
         });
 
         // Identity graph: link BVN/NIN to identity subject when admin marks verified
-        if (dto.isBvnVerified === true && user.bvn) {
-            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, user.bvn, userId);
-        }
-        if (dto.isNinVerified === true && user.nin) {
-            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, user.nin, userId);
-        }
+        await this.resolveIdentityForAdmin(dto, user, userId);
 
         // Audit log
         await this.prisma.auditLog.create({
@@ -648,6 +643,25 @@ export class KycService {
             message: "User verification status updated successfully",
             data: updatedUser,
         });
+    }
+
+    // ==================== IDENTITY GRAPH HELPERS ====================
+
+    private async resolveIdentityForAdmin(
+        dto: UpdateUserVerificationDto,
+        user: { firstName: string | null; lastName: string | null; dateOfBirth: Date | null; bvn: string | null; nin: string | null },
+        userId: number,
+    ): Promise<void> {
+        const biographic = user.firstName && user.lastName && user.dateOfBirth
+            ? { firstName: user.firstName, lastName: user.lastName, dateOfBirth: user.dateOfBirth.toISOString().split("T")[0] }
+            : undefined;
+
+        if (dto.isBvnVerified === true && user.bvn) {
+            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, user.bvn, userId, biographic);
+        }
+        if (dto.isNinVerified === true && user.nin) {
+            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, user.nin, userId, biographic);
+        }
     }
 
     // ==================== KYC STATISTICS ====================

@@ -1249,7 +1249,11 @@ export class AuthService {
             await this.processDevIdentityBypass(user.id, "BVN");
         } else {
             await this.rejectOnIdentityMismatch(user, result, "BVN");
-            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, dto.bvn, user.id);
+            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, dto.bvn, user.id, {
+                firstName: result.data.entity.first_name,
+                lastName: result.data.entity.last_name,
+                dateOfBirth: result.data.entity.date_of_birth,
+            });
             await this.updateIdentityWithConflictGuard(user.id, "BVN", {
                 isBvnVerified: true,
                 bvn: dto.bvn,
@@ -1316,7 +1320,11 @@ export class AuthService {
             await this.processDevIdentityBypass(user.id, "NIN");
         } else {
             await this.rejectOnIdentityMismatch(user, result, "NIN");
-            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, dto.nin, user.id);
+            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, dto.nin, user.id, {
+                firstName: result.data.entity.first_name,
+                lastName: result.data.entity.last_name,
+                dateOfBirth: result.data.entity.date_of_birth,
+            });
             await this.updateIdentityWithConflictGuard(user.id, "NIN", {
                 isNinVerified: true,
                 nin: dto.nin,

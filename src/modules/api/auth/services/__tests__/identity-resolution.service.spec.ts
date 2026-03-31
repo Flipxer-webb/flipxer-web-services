@@ -267,4 +267,118 @@ describe("IdentityResolutionService", () => {
             identifiers: [{ type: IdentityIdType.BVN, maskedValue: "22*******01" }],
         });
     });
+
+    // --- NAME_DOB biographic cross-check tests ---
+
+    it("hashBiographic normalizes and sorts names", () => {
+        const hashA = service.hashBiographic({
+            firstName: "  John  ",
+            lastName: "  Doe  ",
+            dateOfBirth: "1990-01-15",
+        });
+        const hashB = service.hashBiographic({
+            firstName: "DOE",
+            lastName: "JOHN",
+            dateOfBirth: "1990-01-15",
+        });
+        expect(hashA).toBe(hashB);
+        expect(hashA).toHaveLength(64);
+    });
+
+    it("hashBiographic handles different DOB formats consistently", () => {
+        const base = { firstName: "Jane", lastName: "Smith" };
+
+        const isoHash = service.hashBiographic({ ...base, dateOfBirth: "1990-01-15" });
+        const dmyHash = service.hashBiographic({ ...base, dateOfBirth: "15-01-1990" });
+        const slashHash = service.hashBiographic({ ...base, dateOfBirth: "1990/01/15" });
+
+        expect(isoHash).toBe(dmyHash);
+        expect(isoHash).toBe(slashHash);
+    });
+
+    it("creates NAME_DOB identifier when biographic data is provided", async () => {
+        tx.identityIdentifier.findUnique.mockResolvedValue(null);
+        tx.user.findUniqueOrThrow.mockResolvedValue({ identitySubjectId: null });
+        tx.identitySubject.create.mockResolvedValue({ id: 50 });
+        tx.user.update.mockResolvedValue({});
+        tx.identityIdentifier.create.mockResolvedValue({});
+        tx.user.findFirst.mockResolvedValue(null);
+
+        await service.resolveOrCreate(IdentityIdType.BVN, "22345678901", 1, {
+            firstName: "John",
+            lastName: "Doe",
+            dateOfBirth: "1990-05-20",
+        });
+
+        // Should create BVN identifier + NAME_DOB identifier = 2 create calls
+        expect(tx.identityIdentifier.create).toHaveBeenCalledTimes(2);
+        const calls = tx.identityIdentifier.create.mock.calls;
+        expect(calls[0][0].data.type).toBe(IdentityIdType.BVN);
+        expect(calls[1][0].data.type).toBe(IdentityIdType.NAME_DOB);
+        expect(calls[1][0].data.subjectId).toBe(50);
+    });
+
+    it("blocks when NAME_DOB hash already exists on a different user", async () => {
+        // First call: BVN identifier not found
+        // Second call (NAME_DOB lookup): found on different subject/user
+        tx.identityIdentifier.findUnique
+            .mockResolvedValueOnce(null)                           // BVN lookup
+            .mockResolvedValueOnce({                               // NAME_DOB lookup
+                subjectId: 99,
+                subject: { id: 99, user: { id: 77 } },
+            });
+        tx.user.findUniqueOrThrow.mockResolvedValue({ identitySubjectId: null });
+        tx.identitySubject.create.mockResolvedValue({ id: 50 });
+        tx.user.update.mockResolvedValue({});
+        tx.identityIdentifier.create.mockResolvedValue({});
+        tx.user.findFirst.mockResolvedValue(null);
+
+        await expect(
+            service.resolveOrCreate(IdentityIdType.NIN, "12345678901", 1, {
+                firstName: "John",
+                lastName: "Doe",
+                dateOfBirth: "1990-05-20",
+            }),
+        ).rejects.toMatchObject({
+            status: HttpStatus.CONFLICT,
+        });
+    });
+
+    it("skips NAME_DOB creation when same subject already has it", async () => {
+        // BVN identifier not found, but NAME_DOB already exists on same subject
+        tx.identityIdentifier.findUnique
+            .mockResolvedValueOnce(null)                           // BVN lookup
+            .mockResolvedValueOnce({                               // NAME_DOB lookup
+                subjectId: 21,
+                subject: { id: 21, user: { id: 2 } },
+            });
+        tx.user.findUniqueOrThrow.mockResolvedValue({ identitySubjectId: 21 });
+        tx.identityIdentifier.create.mockResolvedValue({});
+        tx.user.findFirst.mockResolvedValue(null);
+
+        await service.resolveOrCreate(IdentityIdType.NIN, "12345678901", 2, {
+            firstName: "Jane",
+            lastName: "Smith",
+            dateOfBirth: "1995-03-10",
+        });
+
+        // Only 1 create call (NIN identifier), NAME_DOB skipped (idempotent)
+        expect(tx.identityIdentifier.create).toHaveBeenCalledTimes(1);
+        expect(tx.identityIdentifier.create.mock.calls[0][0].data.type).toBe(IdentityIdType.NIN);
+    });
+
+    it("does not create NAME_DOB when biographic data is not provided", async () => {
+        tx.identityIdentifier.findUnique.mockResolvedValue(null);
+        tx.user.findUniqueOrThrow.mockResolvedValue({ identitySubjectId: null });
+        tx.identitySubject.create.mockResolvedValue({ id: 60 });
+        tx.user.update.mockResolvedValue({});
+        tx.identityIdentifier.create.mockResolvedValue({});
+        tx.user.findFirst.mockResolvedValue(null);
+
+        await service.resolveOrCreate(IdentityIdType.BVN, "22345678901", 3);
+
+        // Only 1 create call (BVN identifier), no NAME_DOB
+        expect(tx.identityIdentifier.create).toHaveBeenCalledTimes(1);
+        expect(tx.identityIdentifier.create.mock.calls[0][0].data.type).toBe(IdentityIdType.BVN);
+    });
 });

@@ -10,6 +10,12 @@ export interface IdentityResolutionResult {
     isNew: boolean;
 }
 
+export interface BiographicData {
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string; // raw DOB string from provider (any format)
+}
+
 @Injectable()
 export class IdentityResolutionService {
     private readonly logger = new Logger(IdentityResolutionService.name);
@@ -35,6 +41,50 @@ export class IdentityResolutionService {
         const last2 = rawValue.slice(-2);
         const masked = "*".repeat(rawValue.length - 4);
         return `${first2}${masked}${last2}`;
+    }
+
+    /**
+     * Normalize and hash biographic data (first name + last name + DOB) for
+     * cross-ID-type duplicate detection.
+     *
+     * Normalization rules:
+     * - Trim and uppercase names
+     * - Sort [firstName, lastName] alphabetically to handle swapped order
+     * - Parse DOB to YYYY-MM-DD regardless of input format
+     * - Final string: "SORTEDNAME1|SORTEDNAME2|YYYY-MM-DD"
+     */
+    hashBiographic(data: BiographicData): string {
+        const normFirst = data.firstName.trim().toUpperCase();
+        const normLast = data.lastName.trim().toUpperCase();
+        const sortedNames = [normFirst, normLast].sort((a, b) => a.localeCompare(b));
+        const normDob = this.normalizeDateOfBirth(data.dateOfBirth);
+        const composite = `${sortedNames[0]}|${sortedNames[1]}|${normDob}`;
+        return crypto.createHash("sha256").update(composite).digest("hex");
+    }
+
+    /**
+     * Normalize various DOB formats to YYYY-MM-DD.
+     * Handles: "1990-01-15", "15-01-1990", "01/15/1990", "15/01/1990", "1990/01/15"
+     */
+    private normalizeDateOfBirth(raw: string): string {
+        const cleaned = raw.trim();
+
+        // Try ISO format first (YYYY-MM-DD or YYYY/MM/DD)
+        const isoRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/;
+        const isoMatch = isoRegex.exec(cleaned);
+        if (isoMatch) {
+            return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
+        }
+
+        // DD-MM-YYYY or DD/MM/YYYY (common Nigerian format)
+        const dmyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/;
+        const dmyMatch = dmyRegex.exec(cleaned);
+        if (dmyMatch) {
+            return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, "0")}-${dmyMatch[1].padStart(2, "0")}`;
+        }
+
+        // Fallback: use as-is (will still work for comparison if both providers return same format)
+        return cleaned;
     }
 
     private static readonly MAX_RETRIES = 3;
@@ -63,6 +113,7 @@ export class IdentityResolutionService {
         type: IdentityIdType,
         rawValue: string,
         userId: number,
+        biographic?: BiographicData,
     ): Promise<IdentityResolutionResult> {
         const valueHash = this.hashIdentifier(rawValue);
         const maskedValue = this.maskIdentifier(rawValue);
@@ -80,7 +131,7 @@ export class IdentityResolutionService {
         let lastError: unknown;
         for (let attempt = 1; attempt <= IdentityResolutionService.MAX_RETRIES; attempt++) {
             try {
-                return await this.executeResolutionTransaction(tx => this.resolveOrCreateInner(tx, type, valueHash, maskedValue, userId));
+                return await this.executeResolutionTransaction(tx => this.resolveOrCreateInner(tx, type, valueHash, maskedValue, userId, biographic));
             } catch (error) {
                 const shouldRetry = this.handleResolutionError(type, userId, attempt, error);
                 if (shouldRetry) {
@@ -153,6 +204,7 @@ export class IdentityResolutionService {
         valueHash: string,
         maskedValue: string,
         userId: number,
+        biographic?: BiographicData,
     ): Promise<IdentityResolutionResult> {
         // Step 1: Look for existing identifier
         const existingIdentifier = await tx.identityIdentifier.findUnique({
@@ -240,6 +292,11 @@ export class IdentityResolutionService {
             },
         });
 
+        // Step 3b: Cross-ID-type check via NAME_DOB biographic hash
+        if (biographic) {
+            await this.resolveNameDobIdentifier(tx, subjectId, userId, biographic);
+        }
+
         // Step 4: Cross-check — ensure no other user holds a different
         // identifier that maps to the same subject
         await this.crossCheckWithinTransaction(tx, userId, subjectId);
@@ -248,6 +305,69 @@ export class IdentityResolutionService {
             `[IDENTITY] ${type} resolved → subject ${subjectId} (new=${isNew}) for user ${userId}`,
         );
         return { subjectId, isNew };
+    }
+
+    /**
+     * Resolve a NAME_DOB identifier within the same transaction.
+     * If the same name+DOB hash already exists on a DIFFERENT subject
+     * (linked to a different user), this means the same person used two
+     * different accounts with different ID types → block.
+     */
+    private async resolveNameDobIdentifier(
+        tx: Prisma.TransactionClient,
+        subjectId: number,
+        userId: number,
+        biographic: BiographicData,
+    ): Promise<void> {
+        const nameDobHash = this.hashBiographic(biographic);
+        const maskedName = `${biographic.firstName.charAt(0)}***${biographic.lastName.charAt(0)}***`;
+
+        const existing = await tx.identityIdentifier.findUnique({
+            where: {
+                type_valueHash: { type: IdentityIdType.NAME_DOB, valueHash: nameDobHash },
+            },
+            include: {
+                subject: { include: { user: true } },
+            },
+        });
+
+        if (existing) {
+            const ownerSubject = existing.subject;
+
+            // Same subject (same user adding another ID type) → idempotent
+            if (ownerSubject.id === subjectId) {
+                return;
+            }
+
+            // Different subject linked to a different user → DUPLICATE
+            if (ownerSubject.user && ownerSubject.user.id !== userId) {
+                this.logger.warn(
+                    `[IDENTITY][NAME_DOB_BLOCKED] Biographic match: subject ${ownerSubject.id} (user ${ownerSubject.user.id}) vs subject ${subjectId} (user ${userId})`,
+                );
+                throw new VerificationGenericException(
+                    "An account with the same identity already exists. If this is yours, please contact support.",
+                    HttpStatus.CONFLICT,
+                );
+            }
+
+            // Orphan subject → skip (shouldn't normally happen)
+            return;
+        }
+
+        // No existing NAME_DOB → create one on this subject
+        await tx.identityIdentifier.create({
+            data: {
+                subjectId,
+                type: IdentityIdType.NAME_DOB,
+                valueHash: nameDobHash,
+                maskedValue: maskedName,
+                verifiedAt: new Date(),
+            },
+        });
+
+        this.logger.log(
+            `[IDENTITY] NAME_DOB identifier created for subject ${subjectId}, user ${userId}`,
+        );
     }
 
     /**

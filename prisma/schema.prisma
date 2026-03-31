@@ -1588,6 +1588,7 @@ model SolvencyLog {
 enum IdentityIdType {
   BVN
   NIN
+  NAME_DOB
 }
 
 /// Represents a single real-world person. Multiple Users CANNOT share a subject.
