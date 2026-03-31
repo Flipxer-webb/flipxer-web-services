@@ -1,7 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
-import { quidaxConfig } from "@/config";
 import { buildResponse } from "@/utils/api-response-util";
 import { AdminSwapQuoteDto, AdminSwapConfirmDto } from "../dtos";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -21,26 +20,13 @@ export class AdminSwapService {
         private readonly slackWebhookService: SlackWebhookService,
     ) {}
 
-    private getMainAccountId(): string {
-        const mainAccountId = quidaxConfig.mainAccountId;
-        if (!mainAccountId) {
-            throw new GeneralTransactionException(
-                "Platform main account not configured",
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
-        return mainAccountId;
-    }
-
     async getSwapQuote(dto: AdminSwapQuoteDto) {
-        const mainAccountId = this.getMainAccountId();
-
         this.logger.log(
             `Admin swap quote: ${dto.from_amount} ${dto.from_currency} -> ${dto.to_currency}`,
         );
 
         const result = await this.quidaxService.createInstantSwapRequest(
-            mainAccountId,
+            "me",
             {
                 from_currency: dto.from_currency.toLowerCase(),
                 to_currency: dto.to_currency.toLowerCase(),
@@ -63,8 +49,6 @@ export class AdminSwapService {
     }
 
     async confirmSwap(dto: AdminSwapConfirmDto, adminUserId: number) {
-        const mainAccountId = this.getMainAccountId();
-
         this.logger.log(
             `Admin confirming swap quote ${dto.quotation_id} (admin: ${adminUserId})`,
         );
@@ -81,7 +65,7 @@ export class AdminSwapService {
         }
 
         const result = await this.quidaxService.confirmInstantSwap({
-            user_id: mainAccountId,
+            user_id: "me",
             quotation_id: dto.quotation_id,
         });
 
