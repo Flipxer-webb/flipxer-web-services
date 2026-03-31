@@ -63,6 +63,16 @@ export class SendService {
         NetworkTypes.base,
         NetworkTypes.celo,
     ]);
+    private readonly memoTagRequiredNetworks = new Set<NetworkTypes>([
+        NetworkTypes.ripple,
+        NetworkTypes.stellar,
+    ]);
+    private readonly memoTagRequiredCurrencies = new Set<string>([
+        "XRP",
+        "XLM",
+        "EOS",
+        "HBAR",
+    ]);
 
     constructor(
         private readonly prisma: PrismaService,
@@ -468,6 +478,51 @@ export class SendService {
         }
     }
 
+    private requiresDestinationTag(currency: string, network?: NetworkTypes): boolean {
+        if (network && this.memoTagRequiredNetworks.has(network)) {
+            return true;
+        }
+        return this.memoTagRequiredCurrencies.has(currency.toUpperCase());
+    }
+
+    private validateDestinationTagRequirements(
+        currency: string,
+        network: NetworkTypes | undefined,
+        destinationTag: string | undefined,
+        destinationTagNotRequiredConfirmed: boolean | undefined,
+    ): void {
+        const requiresTag = this.requiresDestinationTag(currency, network);
+        if (!requiresTag) {
+            return;
+        }
+
+        const trimmedTag = destinationTag?.trim();
+
+        // XRP/Ripple tags are numeric in the downstream exchange flows we support.
+        const requiresNumericTag = currency.toUpperCase() === "XRP" || network === NetworkTypes.ripple;
+
+        if (trimmedTag) {
+            if (requiresNumericTag && !/^\d{1,20}$/.test(trimmedTag)) {
+                throw new IncompleteAccountSetupException(
+                    "Destination tag must be numeric for XRP withdrawals",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return;
+        }
+
+        if (!destinationTagNotRequiredConfirmed) {
+            throw new IncompleteAccountSetupException(
+                "Destination tag/memo is required for this wallet type, or confirm recipient wallet does not require one",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        this.logger.warn(
+            `Destination tag omitted with explicit user confirmation | currency: ${currency} | network: ${network}`
+        );
+    }
+
     private inferAddressFamily(address: string):
         | "evm"
         | "trc20"
@@ -629,6 +684,13 @@ export class SendService {
             );
         }
 
+        this.validateDestinationTagRequirements(
+            currency,
+            resolvedNetwork,
+            dto.destinationTag,
+            dto.destinationTagNotRequiredConfirmed,
+        );
+
         // Verify address with provider, falling back to local regex validation.
         await this.validateWalletAddress(user.id, recipientWalletAddress, currency, resolvedNetwork);
 
@@ -710,6 +772,7 @@ export class SendService {
             metadata: {
                 destinationAddress: dto.recipientWalletAddress,
                 destinationTag: dto.destinationTag,
+                destinationTagNotRequiredConfirmed: !!dto.destinationTagNotRequiredConfirmed,
                 network: resolvedNetwork,
                 narration: dto.narration,
                 transaction_note: dto.transaction_note,
@@ -755,6 +818,9 @@ export class SendService {
                 amount: dto.amount, // The amount receiving
                 fee: networkFee.toNumber(), // The fee paid
                 total: totalAmount.toNumber(), // The total deducted
+                reason: !dto.destinationTag && this.requiresDestinationTag(currency, resolvedNetwork)
+                    ? "NO_DESTINATION_TAG_CONFIRMED_BY_USER"
+                    : undefined,
                 amountInFiat: amtFiat?.amount,
                 rateAtConversion: amtFiat?.rate,
                 sender: user.email,

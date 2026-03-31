@@ -422,6 +422,14 @@ export class WithdrawerRequestDto {
     @IsString()
     destinationTag?: string; //destination tag
 
+    @ApiProperty({
+        description: "Confirm recipient wallet does not require destination tag/memo",
+        required: false,
+    })
+    @IsOptional()
+    @IsBoolean()
+    destinationTagNotRequiredConfirmed?: boolean;
+
     @ApiProperty({ description: "2FA verification code", required: false })
     @IsOptional()
     @IsString()
