@@ -507,3 +507,33 @@ export class GetBatchSparklinesDto {
     @IsString()
     assets: string;
 }
+
+// ==================== ADMIN SWAP DTOs ====================
+
+export class AdminSwapQuoteDto {
+    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap from" })
+    @Transform(({ value }) => value?.toLowerCase())
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    from_currency: SupportedAssets;
+
+    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap to" })
+    @Transform(({ value }) => value?.toLowerCase())
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    to_currency: SupportedAssets;
+
+    @ApiProperty({ example: 100, description: "Amount to swap from" })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    from_amount: number;
+}
+
+export class AdminSwapConfirmDto {
+    @ApiProperty({ description: "Quotation ID from the quote step" })
+    @IsNotEmpty()
+    @IsString()
+    quotation_id: string;
+}

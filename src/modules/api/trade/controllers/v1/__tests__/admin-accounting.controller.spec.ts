@@ -74,10 +74,16 @@ describe("AdminAccountingController", () => {
             getAssetUsdtPrice: jest.fn(),
         };
 
+        const adminSwapService = {
+            getSwapQuote: jest.fn(),
+            confirmSwap: jest.fn(),
+        };
+
         controller = new AdminAccountingController(
             prisma as any,
             solvencyService as any,
             rateService as any,
+            adminSwapService as any,
         );
 
         jest.spyOn((controller as any).logger, "log").mockImplementation(() => undefined);

@@ -1,6 +1,8 @@
 import {
     Controller,
     Get,
+    Post,
+    Body,
     Query,
     UseGuards,
     Logger,
@@ -13,12 +15,15 @@ import {
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
+import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { SolvencyService } from "../../services/ledger/solvency.service";
 import { RateService } from "../../services/rate.service";
+import { AdminSwapService } from "../../services/admin-swap.service";
+import { AdminSwapQuoteDto, AdminSwapConfirmDto } from "../../dtos";
+import { User } from "@/modules/api/user/decorators";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
 
@@ -36,6 +41,7 @@ export class AdminAccountingController {
         private readonly prisma: PrismaService,
         private readonly solvencyService: SolvencyService,
         private readonly rateService: RateService,
+        private readonly adminSwapService: AdminSwapService,
     ) {}
 
     // =========================================================================
@@ -506,5 +512,24 @@ export class AdminAccountingController {
                 timestamp: report.timestamp,
             },
         });
+    }
+
+    // =========================================================================
+    // ADMIN SWAP ENDPOINTS (Main Wallet Rebalancing via Quidax)
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get a swap quote for the platform main wallet via Quidax" })
+    @Post("swap-quote")
+    async getSwapQuote(@Body() dto: AdminSwapQuoteDto) {
+        return this.adminSwapService.getSwapQuote(dto);
+    }
+
+    @ApiOperation({ summary: "Confirm and execute a swap on the platform main wallet via Quidax" })
+    @Post("swap-confirm")
+    async confirmSwap(
+        @Body() dto: AdminSwapConfirmDto,
+        @User() admin: UserEntity,
+    ) {
+        return this.adminSwapService.confirmSwap(dto, admin.id);
     }
 }
