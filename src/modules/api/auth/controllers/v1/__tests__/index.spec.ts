@@ -85,9 +85,6 @@ describe("AuthController", () => {
         tierVerificationService = {
             verifyAddress: jest.fn(),
             verifyIncome: jest.fn(),
-            verifyAddressWithDojah: jest.fn(),
-            verifyIncomeWithDojah: jest.fn(),
-            verifyGovernmentIdWithDojah: jest.fn(),
             createTradingPassword: jest.fn(),
             hasTradingPassword: jest.fn(),
             getVerificationStatus: jest.fn(),
@@ -233,9 +230,6 @@ describe("AuthController", () => {
 
         tierVerificationService.verifyAddress.mockResolvedValue({ ok: "address" });
         tierVerificationService.verifyIncome.mockResolvedValue({ ok: "income" });
-        tierVerificationService.verifyAddressWithDojah.mockResolvedValue({ ok: "address-dojah" });
-        tierVerificationService.verifyIncomeWithDojah.mockResolvedValue({ ok: "income-dojah" });
-        tierVerificationService.verifyGovernmentIdWithDojah.mockResolvedValue({ ok: "gov" });
         tierVerificationService.createTradingPassword.mockResolvedValue({ ok: "trading" });
         tierVerificationService.hasTradingPassword.mockResolvedValue({ hasPassword: true });
         tierVerificationService.getVerificationStatus.mockResolvedValue({ tier: 2 });
@@ -249,14 +243,6 @@ describe("AuthController", () => {
 
         await expect(controller.verifyAddress(user, { originalname: "address.pdf" } as never)).resolves.toEqual({ ok: "address" });
         await expect(controller.verifyIncome(user, { originalname: "income.pdf" } as never)).resolves.toEqual({ ok: "income" });
-        await expect(controller.verifyAddressWithDojah(user, { verificationId: "v1" } as never)).resolves.toEqual({ ok: "address-dojah" });
-        await expect(controller.verifyIncomeWithDojah(user, { verificationId: "v2" } as never)).resolves.toEqual({ ok: "income-dojah" });
-        await expect(
-            controller.verifyGovernmentIdWithDojah(user, { verificationId: "v3", verificationType: "nin", government: "NGA" } as never),
-        ).resolves.toEqual({ ok: "gov" });
-        await expect(
-            controller.verifyGovernmentIdWithDojah(user, { verificationId: "v4", government: "NGA" } as never),
-        ).resolves.toEqual({ ok: "gov" });
         await expect(controller.createTradingPassword(user, { password: "abc" } as never)).resolves.toEqual({ ok: "trading" });
         await expect(controller.hasTradingPassword(user)).resolves.toEqual({ hasPassword: true });
         await expect(controller.getVerificationStatus(user)).resolves.toEqual({ tier: 2 });

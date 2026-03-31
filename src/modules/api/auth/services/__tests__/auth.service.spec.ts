@@ -61,9 +61,10 @@ import { TierService } from "../tier.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { KycStateMachineService } from "../kyc-state-machine.service";
+import { IdentityResolutionService } from "../identity-resolution.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
-import { DocumentType, Status, UserType } from "@prisma/client";
+import { DocumentType, Prisma, Status, UserType } from "@prisma/client";
 import { authenticator } from "otplib";
 import * as bcrypt from "bcryptjs";
 import axios from "axios";
@@ -72,6 +73,7 @@ function makePrisma() {
     return {
         user: {
             findUnique: jest.fn(),
+            findFirst: jest.fn(),
             create: jest.fn(),
             update: jest.fn(),
             delete: jest.fn(),
@@ -101,7 +103,7 @@ function makePrisma() {
             upsert: jest.fn(),
         },
         role: { findUnique: jest.fn() },
-        accountVerificationRequest: { upsert: jest.fn(), findUnique: jest.fn() },
+        accountVerificationRequest: { upsert: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
         passwordResetRequest: { create: jest.fn(), delete: jest.fn(), deleteMany: jest.fn() },
         $transaction: jest.fn(),
     };
@@ -113,7 +115,12 @@ describe("AuthService", () => {
     let jwtService: { signAsync: jest.Mock; verify: jest.Mock; verifyAsync: jest.Mock };
     let emailService: { sendMailWithTemplate: jest.Mock };
     let redisCacheService: { set: jest.Mock; get: jest.Mock; del: jest.Mock };
-    let dojahService: { verifyDocumentWithNameMatch: jest.Mock };
+    let dojahService: {
+        verifyDocumentWithNameMatch: jest.Mock;
+        verifyBusinessDocuments: jest.Mock;
+        verifyBvn: jest.Mock;
+        verifyNin: jest.Mock;
+    };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -127,6 +134,8 @@ describe("AuthService", () => {
         const mockDojah = {
             verifyDocumentWithNameMatch: jest.fn(),
             verifyBusinessDocuments: jest.fn(),
+            verifyBvn: jest.fn(),
+            verifyNin: jest.fn(),
         };
         const mockCryptoQueue = {
             addJob: jest.fn(),
@@ -165,6 +174,7 @@ describe("AuthService", () => {
         const mockKyc = { transition: jest.fn().mockResolvedValue(undefined) };
         const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
         const mockWsGateway = { sendToUser: jest.fn() };
+        const mockIdentityResolution = { resolveOrCreate: jest.fn().mockResolvedValue({ subjectId: 1, isNew: true }) };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -185,6 +195,7 @@ describe("AuthService", () => {
                 { provide: KycStateMachineService, useValue: mockKyc },
                 { provide: NotificationDispatcher, useValue: mockNotification },
                 { provide: WsGateway, useValue: mockWsGateway },
+                { provide: IdentityResolutionService, useValue: mockIdentityResolution },
             ],
         }).compile();
 
@@ -307,6 +318,20 @@ describe("AuthService", () => {
 
             await expect(service.signUp(signUpDto as any, "127.0.0.1")).rejects.toThrow();
         });
+
+        it("should block re-registration for flagged deleted users", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 1,
+                email: "test@example.com",
+                isDeleted: true,
+                status: Status.ACTIVE,
+                flaggedRecord: { flagged: true, reason: "Fraud review" },
+            });
+
+            await expect(service.signUp(signUpDto as any, "127.0.0.1")).rejects.toThrow(
+                "This account has been flagged",
+            );
+        });
     });
 
     // ── requestPasswordReset ─────────────────────────────────
@@ -336,6 +361,22 @@ describe("AuthService", () => {
             await expect(
                 service.requestPasswordReset({ email: "nonexistent@example.com" } as any),
             ).rejects.toThrow();
+        });
+
+        it("should throw when reset email delivery fails", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 1,
+                email: "test@example.com",
+                firstName: "John",
+                lastName: "Doe",
+            });
+            prisma.passwordResetRequest.deleteMany.mockResolvedValue({});
+            prisma.passwordResetRequest.create.mockResolvedValue({});
+            emailService.sendMailWithTemplate.mockRejectedValue(new Error("smtp unavailable"));
+
+            await expect(
+                service.requestPasswordReset({ email: "test@example.com" } as any),
+            ).rejects.toThrow("Failed to send password reset email");
         });
     });
 
@@ -388,6 +429,588 @@ describe("AuthService", () => {
                     [CREDENTIAL_FIELD]: "AnotherSecure123!",
                 } as any),
             ).rejects.toThrow();
+        });
+
+        it("should throw for invalid reset code", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 1,
+                email: "test@example.com",
+                [CREDENTIAL_FIELD]: "legacy_hash",
+                passwordResetRequest: {
+                    code: "AAAA1111",
+                    createdAt: new Date(),
+                },
+            });
+
+            await expect(
+                service.resetPassword({
+                    email: "test@example.com",
+                    resetCode: "BBBB2222",
+                    [CREDENTIAL_FIELD]: "AnotherSecure123!",
+                } as any),
+            ).rejects.toThrow("Invalid reset code");
+        });
+
+        it("should throw when new password matches current password", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 1,
+                email: "test@example.com",
+                [CREDENTIAL_FIELD]: "legacy_hash",
+                passwordResetRequest: {
+                    code: "ABCD1234",
+                    createdAt: new Date(),
+                },
+            });
+            (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+            await expect(
+                service.resetPassword({
+                    email: "test@example.com",
+                    resetCode: "ABCD1234",
+                    [CREDENTIAL_FIELD]: "legacy_hash",
+                } as any),
+            ).rejects.toThrow("must be different from your current password");
+        });
+    });
+
+    describe("email verification lifecycle", () => {
+        it("should send account verification email for pending signup", async () => {
+            prisma.user.findUnique.mockResolvedValue(null);
+            redisCacheService.get.mockResolvedValue({ firstName: "Jane" });
+            prisma.accountVerificationRequest.upsert.mockResolvedValue({});
+
+            const result = await service.sendAccountVerificationEmail({
+                email: "newuser@example.com",
+            } as any);
+
+            expect(result.message).toContain("An email verification code has been sent");
+            expect(prisma.accountVerificationRequest.upsert).toHaveBeenCalled();
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    merge_info: expect.objectContaining({ name: "Jane" }),
+                }),
+            );
+        });
+
+        it("should fail verification email when signup cache is missing", async () => {
+            prisma.user.findUnique.mockResolvedValue(null);
+            redisCacheService.get.mockResolvedValue(null);
+
+            await expect(
+                service.sendAccountVerificationEmail({ email: "missing@example.com" } as any),
+            ).rejects.toThrow("Kindly register first");
+        });
+
+        it("should fail verification email for already-verified users", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 5,
+                isEmailVerified: true,
+                firstName: "Sam",
+            });
+
+            await expect(
+                service.sendAccountVerificationEmail({ email: "verified@example.com" } as any),
+            ).rejects.toThrow("Account already verified");
+        });
+
+        it("should throw when account verification email delivery fails", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 5,
+                isEmailVerified: false,
+                firstName: "Sam",
+            });
+            prisma.accountVerificationRequest.upsert.mockResolvedValue({});
+            emailService.sendMailWithTemplate.mockRejectedValue(new Error("mail gateway down"));
+
+            await expect(
+                service.sendAccountVerificationEmail({ email: "sam@example.com" } as any),
+            ).rejects.toThrow("Failed to send account verification email");
+        });
+
+        it("should reject invalid email OTP", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 12,
+                email: "user@example.com",
+                isEmailVerified: false,
+            });
+            prisma.accountVerificationRequest.findUnique.mockResolvedValue(null);
+
+            await expect(
+                service.verifyEmailOtp({ email: "user@example.com", otp: "123456" } as any),
+            ).rejects.toThrow("Invalid verification code");
+        });
+
+        it("should reject expired email OTP and clean up request", async () => {
+            const oldDate = new Date(Date.now() - 11 * 60 * 1000);
+            prisma.user.findUnique.mockResolvedValue({
+                id: 12,
+                email: "user@example.com",
+                isEmailVerified: false,
+            });
+            prisma.accountVerificationRequest.findUnique.mockResolvedValue({ updatedAt: oldDate });
+            prisma.accountVerificationRequest.delete.mockResolvedValue({});
+
+            await expect(
+                service.verifyEmailOtp({ email: "user@example.com", otp: "123456" } as any),
+            ).rejects.toThrow("verification code has expired");
+            expect(prisma.accountVerificationRequest.delete).toHaveBeenCalledWith({
+                where: { email: "user@example.com" },
+            });
+        });
+
+        it("should create new user from pending signup on valid email OTP", async () => {
+            const pendingSignup = {
+                email: "newuser@example.com",
+                accountType: UserType.INDIVIDUAL,
+                roleId: 2,
+                ipAddress: "127.0.0.1",
+                firstName: "New",
+                lastName: "User",
+                businessName: "",
+                dateOfBirth: "1990-01-01",
+            };
+            prisma.user.findUnique.mockResolvedValue(null);
+            redisCacheService.get.mockResolvedValue(pendingSignup);
+            prisma.accountVerificationRequest.findUnique.mockResolvedValue({ updatedAt: new Date() });
+            prisma.user.create.mockResolvedValue({ id: 77 });
+            prisma.accountVerificationRequest.delete.mockResolvedValue({});
+
+            const saveRefreshTokenSpy = jest
+                .spyOn(service, "saveRefreshToken")
+                .mockResolvedValue(undefined as any);
+
+            const result = await service.verifyEmailOtp({
+                email: "newuser@example.com",
+                otp: "222333",
+            } as any);
+
+            expect(result.message).toBe("Email verification completed");
+            expect(prisma.user.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        email: "newuser@example.com",
+                        isEmailVerified: true,
+                    }),
+                }),
+            );
+            expect(redisCacheService.del).toHaveBeenCalledWith("pending_signup:newuser@example.com");
+            expect((service as any).tierService.syncTierAndCache).toHaveBeenCalledWith(77);
+            expect(saveRefreshTokenSpy).toHaveBeenCalled();
+
+            saveRefreshTokenSpy.mockRestore();
+        });
+    });
+
+    describe("bvn/nin verification changed-line coverage", () => {
+        it("executes BVN dev bypass identity linking", async () => {
+            const user = {
+                id: 41,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Jane",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number1: "08000000000",
+                        reference_id: "bvn-ref-dev",
+                    },
+                },
+            });
+            prisma.user.update.mockResolvedValue({});
+            (service as any).identityResolution.resolveOrCreate.mockResolvedValue({
+                subjectId: 7,
+                isNew: true,
+            });
+
+            const result = await service.bvnVerification(user, { bvn: "22222222222" } as any);
+
+            expect(result.message).toBe("Bvn Verification successfully");
+            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
+                "BVN",
+                expect.any(String),
+                41,
+            );
+        });
+
+        it("executes BVN successful-path identity linking", async () => {
+            const user = {
+                id: 42,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Jane",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number1: "08011111111",
+                        reference_id: "bvn-ref-1",
+                    },
+                },
+            });
+            prisma.user.update.mockResolvedValue({});
+
+            await service.bvnVerification(user, { bvn: "12345678901" } as any);
+
+            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
+                "BVN",
+                "12345678901",
+                42,
+            );
+        });
+
+        it("executes NIN dev bypass identity linking", async () => {
+            const user = {
+                id: 51,
+                isNinVerified: false,
+                firstName: "John",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyNin.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "John",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number: "08022222222",
+                        reference_id: "nin-ref-dev",
+                    },
+                },
+            });
+            prisma.user.update.mockResolvedValue({});
+
+            const result = await service.ninVerification(user, { nin: "00000000001" } as any);
+
+            expect(result.message).toBe("NIN Verification successfully");
+            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
+                "NIN",
+                expect.any(String),
+                51,
+            );
+        });
+
+        it("executes NIN successful-path identity linking", async () => {
+            const user = {
+                id: 52,
+                isNinVerified: false,
+                firstName: "John",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyNin.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "John",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number: "08033333333",
+                        reference_id: "nin-ref-1",
+                    },
+                },
+            });
+            prisma.user.update.mockResolvedValue({});
+
+            await service.ninVerification(user, { nin: "98765432100" } as any);
+
+            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
+                "NIN",
+                "98765432100",
+                52,
+            );
+        });
+
+        it("maps BVN unique constraint errors to conflict response", async () => {
+            const user = {
+                id: 61,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Jane",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number1: "08044444444",
+                        reference_id: "bvn-ref-p2002",
+                    },
+                },
+            });
+            const p2002 = new (Prisma as any).PrismaClientKnownRequestError(
+                "Unique constraint failed",
+                { code: "P2002", clientVersion: "test" },
+            );
+            prisma.user.update.mockRejectedValue(p2002);
+
+            await expect(
+                service.bvnVerification(user, { bvn: "11111111111" } as any),
+            ).rejects.toThrow("already linked to another account");
+        });
+
+        it("rethrows unexpected BVN persistence errors", async () => {
+            const user = {
+                id: 62,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Jane",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number1: "08055555555",
+                        reference_id: "bvn-ref-generic",
+                    },
+                },
+            });
+            prisma.user.update.mockRejectedValue(new Error("db write failed"));
+
+            await expect(
+                service.bvnVerification(user, { bvn: "11111111112" } as any),
+            ).rejects.toThrow("db write failed");
+        });
+
+        it("maps NIN unique constraint errors to conflict response", async () => {
+            const user = {
+                id: 63,
+                isNinVerified: false,
+                firstName: "John",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyNin.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "John",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number: "08066666666",
+                        reference_id: "nin-ref-p2002",
+                    },
+                },
+            });
+            const p2002 = new (Prisma as any).PrismaClientKnownRequestError(
+                "Unique constraint failed",
+                { code: "P2002", clientVersion: "test" },
+            );
+            prisma.user.update.mockRejectedValue(p2002);
+
+            await expect(
+                service.ninVerification(user, { nin: "22222222222" } as any),
+            ).rejects.toThrow("already linked to another account");
+        });
+
+        it("rethrows unexpected NIN persistence errors", async () => {
+            const user = {
+                id: 64,
+                isNinVerified: false,
+                firstName: "John",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyNin.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "John",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number: "08077777777",
+                        reference_id: "nin-ref-generic",
+                    },
+                },
+            });
+            prisma.user.update.mockRejectedValue(new Error("db write failed"));
+
+            await expect(
+                service.ninVerification(user, { nin: "22222222223" } as any),
+            ).rejects.toThrow("db write failed");
+        });
+
+        it("blocks BVN verification when profile is incomplete", async () => {
+            const user = {
+                id: 65,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: null,
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+
+            await expect(
+                service.bvnVerification(user, { bvn: "12345678901" } as any),
+            ).rejects.toThrow("complete your profile");
+        });
+
+        it("rejects BVN verification on name or DOB mismatch and records review", async () => {
+            const user = {
+                id: 66,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Alex",
+                        last_name: "Smith",
+                        date_of_birth: "1980-12-31",
+                        reference_id: "bvn-ref-mismatch",
+                    },
+                },
+            });
+
+            await expect(
+                service.bvnVerification(user, { bvn: "33333333333" } as any),
+            ).rejects.toThrow("Incorrect first name, last name or date of birth");
+
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                66,
+                "BVN",
+                "REJECTED",
+                expect.objectContaining({ providerRef: "bvn-ref-mismatch" }),
+            );
+        });
+
+        it("rejects BVN verification when provider response omits identity fields", async () => {
+            const user = {
+                id: 68,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        reference_id: "bvn-ref-missing-fields",
+                    },
+                },
+            });
+
+            await expect(
+                service.bvnVerification(user, { bvn: "33333333334" } as any),
+            ).rejects.toThrow("Incorrect first name, last name or date of birth");
+
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                68,
+                "BVN",
+                "REJECTED",
+                expect.objectContaining({ providerRef: "bvn-ref-missing-fields" }),
+            );
+        });
+
+        it("continues NIN verification when enqueue fails after persistence", async () => {
+            const user = {
+                id: 67,
+                isNinVerified: false,
+                firstName: "John",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyNin.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "John",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number: "08088888888",
+                        reference_id: "nin-ref-enqueue-fail",
+                    },
+                },
+            });
+            prisma.user.update.mockResolvedValue({});
+            (service as any).identityResolution.resolveOrCreate.mockResolvedValue({
+                subjectId: 11,
+                isNew: false,
+            });
+            (service as any).cryptoAccountQueueProducer.enqueue.mockRejectedValue("enqueue failed");
+
+            const result = await service.ninVerification(user, { nin: "44444444444" } as any);
+
+            expect(result.message).toBe("NIN Verification successfully");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                67,
+                "NIN",
+                "APPROVED",
+                expect.objectContaining({ providerRef: "nin-ref-enqueue-fail" }),
+            );
+        });
+
+        it("continues NIN verification when enqueue throws an Error instance", async () => {
+            const user = {
+                id: 69,
+                isNinVerified: false,
+                firstName: "John",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyNin.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "John",
+                        last_name: "Doe",
+                        date_of_birth: "1990-01-01",
+                        phone_number: "08099999999",
+                        reference_id: "nin-ref-enqueue-error-instance",
+                    },
+                },
+            });
+            prisma.user.update.mockResolvedValue({});
+            (service as any).identityResolution.resolveOrCreate.mockResolvedValue({
+                subjectId: 12,
+                isNew: false,
+            });
+            (service as any).cryptoAccountQueueProducer.enqueue.mockRejectedValue(new Error("queue offline"));
+
+            const result = await service.ninVerification(user, { nin: "44444444445" } as any);
+
+            expect(result.message).toBe("NIN Verification successfully");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                69,
+                "NIN",
+                "APPROVED",
+                expect.objectContaining({ providerRef: "nin-ref-enqueue-error-instance" }),
+            );
         });
     });
 
