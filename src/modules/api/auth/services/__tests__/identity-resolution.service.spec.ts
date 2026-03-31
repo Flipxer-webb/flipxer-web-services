@@ -367,6 +367,31 @@ describe("IdentityResolutionService", () => {
         expect(tx.identityIdentifier.create.mock.calls[0][0].data.type).toBe(IdentityIdType.NIN);
     });
 
+    it("allows resolution when NAME_DOB exists on an orphan subject", async () => {
+        // BVN identifier not found, NAME_DOB exists but is not linked to any user.
+        tx.identityIdentifier.findUnique
+            .mockResolvedValueOnce(null)                           // BVN lookup
+            .mockResolvedValueOnce({                               // NAME_DOB lookup
+                subjectId: 21,
+                subject: { id: 21, user: null },
+            });
+        tx.user.findUniqueOrThrow.mockResolvedValue({ identitySubjectId: 21 });
+        tx.identityIdentifier.create.mockResolvedValue({});
+        tx.user.findFirst.mockResolvedValue(null);
+
+        await expect(
+            service.resolveOrCreate(IdentityIdType.BVN, "22345678901", 2, {
+                firstName: "Jane",
+                lastName: "Smith",
+                dateOfBirth: "1995-03-10",
+            }),
+        ).resolves.toEqual({ subjectId: 21, isNew: false });
+
+        // Only BVN identifier is created; NAME_DOB is reused/skipped.
+        expect(tx.identityIdentifier.create).toHaveBeenCalledTimes(1);
+        expect(tx.identityIdentifier.create.mock.calls[0][0].data.type).toBe(IdentityIdType.BVN);
+    });
+
     it("does not create NAME_DOB when biographic data is not provided", async () => {
         tx.identityIdentifier.findUnique.mockResolvedValue(null);
         tx.user.findUniqueOrThrow.mockResolvedValue({ identitySubjectId: null });
