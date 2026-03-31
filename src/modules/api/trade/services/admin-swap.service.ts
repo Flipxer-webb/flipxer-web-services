@@ -13,6 +13,28 @@ import { getStreamlinedStatus } from "../interfaces/trade";
 export class AdminSwapService {
     private readonly logger = new Logger(AdminSwapService.name);
 
+    private mapSwapStatusToOrderStatus(status?: string): OrderStatus {
+        const normalized = status?.toLowerCase();
+
+        if (["completed", "done", "successful", "success", "accepted"].includes(normalized || "")) {
+            return OrderStatus.completed;
+        }
+
+        if (["failed", "rejected"].includes(normalized || "")) {
+            return OrderStatus.failed;
+        }
+
+        if (["reversed"].includes(normalized || "")) {
+            return OrderStatus.reversed;
+        }
+
+        if (["cancelled", "canceled"].includes(normalized || "")) {
+            return OrderStatus.cancelled;
+        }
+
+        return OrderStatus.processing;
+    }
+
     constructor(
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
@@ -70,24 +92,30 @@ export class AdminSwapService {
         });
 
         const swap = result.data;
+        const orderStatus = this.mapSwapStatusToOrderStatus(swap.status);
+        const executionPrice = Number.parseFloat(
+            swap.execution_price ?? swap.swap_quotation?.quoted_price ?? "0",
+        );
 
         // Log the admin swap in the database for audit
         await this.prisma.order.create({
             data: {
                 orderCategory: OrderCategory.SWAP,
-                status: swap.status === "completed" ? OrderStatus.completed : OrderStatus.processing,
-                streamlinedStatus: getStreamlinedStatus(swap.status === "completed" ? "completed" : "processing"),
+                status: orderStatus,
+                streamlinedStatus: getStreamlinedStatus(orderStatus),
                 orderReference: `admin-swap-${dto.quotation_id}`,
                 transactionId: `admin-swap-${swap.id}`,
+                providerOrderId: swap.id,
                 userId: adminUserId,
                 fromCurrency: swap.from_currency.toUpperCase(),
                 toCurrency: swap.to_currency.toUpperCase(),
                 fromAmount: Number.parseFloat(swap.from_amount),
                 toAmount: Number.parseFloat(swap.received_amount),
-                quoted_price: Number.parseFloat(swap.execution_price),
+                quoted_price: executionPrice,
+                executionPrice: executionPrice,
                 currency: swap.from_currency.toUpperCase(),
                 amount: Number.parseFloat(swap.from_amount),
-                rateAtConversion: Number.parseFloat(swap.execution_price),
+                rateAtConversion: executionPrice,
                 total: Number.parseFloat(swap.from_amount),
                 recipient: "Platform Main Wallet",
                 narration: `Admin Swap by #${adminUserId}: ${swap.from_currency.toUpperCase()} -> ${swap.to_currency.toUpperCase()}`,

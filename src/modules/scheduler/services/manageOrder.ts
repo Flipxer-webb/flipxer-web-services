@@ -33,12 +33,21 @@ export class ManageOrdersSchedulerService {
             const pendingSwapTransactions = await this.prisma.order.findMany({
                 where: {
                     orderCategory: OrderCategory.SWAP,
-                    status: OrderStatus.initiated,
+                    status: {
+                        in: [
+                            OrderStatus.initiated,
+                            OrderStatus.pending,
+                            OrderStatus.processing,
+                            OrderStatus.submitted,
+                        ],
+                    },
+                    providerOrderId: { not: null },
                     createdAt: { gte: cutoffTime },
                 },
                 select: {
                     id: true,
                     providerOrderId: true,
+                    orderReference: true,
                     user: { select: { cryptoSubAccountId: true } },
                 },
             });
@@ -55,41 +64,51 @@ export class ManageOrdersSchedulerService {
             // Process transactions in parallel
             const results = await Promise.allSettled(
                 pendingSwapTransactions.map(
-                    async ({ id, providerOrderId, user }) => {
+                    async ({ id, providerOrderId, orderReference, user }) => {
                         try {
-                            if (user.cryptoSubAccountId) {
-                                const response =
-                                    await this.tradingService.verifySwapQuoteTransaction(
-                                        providerOrderId,
-                                        user.cryptoSubAccountId
-                                    );
+                            const isAdminSwap = orderReference?.startsWith("admin-swap-");
+                            const quidaxUserId = user.cryptoSubAccountId || (isAdminSwap ? "me" : null);
 
-                                switch (response.data.status) {
-                                    case OrderStatus.completed:
-                                        await this.tradingService.swapTransactionHandler(
-                                            {
-                                                orderId: providerOrderId,
-                                                status: OrderStatus.completed,
-                                            }
-                                        );
-                                        break;
-                                    case OrderStatus.failed:
-                                        await this.tradingService.swapTransactionHandler(
-                                            {
-                                                orderId: providerOrderId,
-                                                status: OrderStatus.failed,
-                                            }
-                                        );
-                                        break;
-                                    case OrderStatus.reversed:
-                                        await this.tradingService.swapTransactionHandler(
-                                            {
-                                                orderId: providerOrderId,
-                                                status: OrderStatus.reversed,
-                                            }
-                                        );
-                                        break;
-                                }
+                            if (!quidaxUserId || !providerOrderId) {
+                                return;
+                            }
+
+                            const response =
+                                await this.tradingService.verifySwapQuoteTransaction(
+                                    providerOrderId,
+                                    quidaxUserId
+                                );
+
+                            const normalizedStatus = response.data.status?.toLowerCase();
+
+                            if (["completed", "done", "successful", "success", "accepted"].includes(normalizedStatus)) {
+                                await this.tradingService.swapTransactionHandler(
+                                    {
+                                        orderId: providerOrderId,
+                                        status: OrderStatus.completed,
+                                    }
+                                );
+                                return;
+                            }
+
+                            if (["failed", "rejected"].includes(normalizedStatus)) {
+                                await this.tradingService.swapTransactionHandler(
+                                    {
+                                        orderId: providerOrderId,
+                                        status: OrderStatus.failed,
+                                    }
+                                );
+                                return;
+                            }
+
+                            if (["reversed"].includes(normalizedStatus)) {
+                                await this.tradingService.swapTransactionHandler(
+                                    {
+                                        orderId: providerOrderId,
+                                        status: OrderStatus.reversed,
+                                    }
+                                );
+                                return;
                             }
                         } catch (error) {
                             this.logger.error(

@@ -10,6 +10,7 @@ import {
     SwapTransactionHandlerOptions,
 } from "../../interfaces/trade";
 import {
+    OrderCategory,
     OrderStatus,
 } from "@prisma/client";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
@@ -71,10 +72,22 @@ export class SwapWebhookHandler {
      * Internal method to process swap transaction - called within a distributed lock
      */
     private async processSwapTransaction(options: SwapTransactionHandlerOptions) {
-        const transaction = await this.prisma.order.findUnique({
+        let transaction = await this.prisma.order.findUnique({
             where: { providerOrderId: options.orderId },
             include: { user: { select: { id: true, email: true } } },
         });
+
+        // Backward compatibility for legacy admin swap rows created before
+        // providerOrderId was persisted.
+        if (!transaction) {
+            transaction = await this.prisma.order.findFirst({
+                where: {
+                    orderCategory: OrderCategory.SWAP,
+                    transactionId: `admin-swap-${options.orderId}`,
+                },
+                include: { user: { select: { id: true, email: true } } },
+            });
+        }
 
         if (!transaction) {
             throw new TransactionNotFoundException(
