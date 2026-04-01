@@ -255,7 +255,6 @@ model LimitOverride {
   id                 Int       @id @default(autoincrement())
   userId             Int       @unique
   dailyLimitUSD      Float?    // null = use tier default, value = override in USD
-  monthlyLimitUSD    Float?    // null = use tier default, value = override in USD
   reason             String    // Why the override was granted
   grantedBy          Int       // Admin user ID who set the override
   expiresAt          DateTime? // null = permanent until removed

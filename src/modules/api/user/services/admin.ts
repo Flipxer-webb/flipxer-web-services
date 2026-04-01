@@ -628,14 +628,12 @@ export class AdminUserService {
             create: {
                 userId: dto.userId,
                 dailyLimitUSD: dto.dailyLimitUSD ?? null,
-                monthlyLimitUSD: dto.monthlyLimitUSD ?? null,
                 reason: dto.reason,
                 grantedBy: adminUserId,
                 expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
             },
             update: {
                 dailyLimitUSD: dto.dailyLimitUSD ?? null,
-                monthlyLimitUSD: dto.monthlyLimitUSD ?? null,
                 reason: dto.reason,
                 grantedBy: adminUserId,
                 expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
@@ -648,7 +646,6 @@ export class AdminUserService {
             data: {
                 userId: override.userId,
                 dailyLimitUSD: override.dailyLimitUSD,
-                monthlyLimitUSD: override.monthlyLimitUSD,
                 reason: override.reason,
                 expiresAt: override.expiresAt,
             },

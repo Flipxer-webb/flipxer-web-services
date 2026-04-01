@@ -229,11 +229,6 @@ export class SetLimitOverrideDto {
     @IsNumber({}, { message: "Daily limit must be a number" })
     dailyLimitUSD?: number;
 
-    @ApiProperty({ description: "Monthly limit override in USD (null to use tier default)", required: false })
-    @IsOptional()
-    @IsNumber({}, { message: "Monthly limit must be a number" })
-    monthlyLimitUSD?: number;
-
     @ApiProperty({ description: "Reason for the override" })
     @IsNotEmpty()
     @IsString()

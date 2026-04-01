@@ -1,71 +1,90 @@
 import {
+    TIER_DAILY_LIMITS,
+    BUSINESS_DAILY_LIMITS,
     TIER_WITHDRAWAL_LIMITS,
-    TIER_MONTHLY_LIMITS,
     BUSINESS_WITHDRAWAL_LIMITS,
-    BUSINESS_MONTHLY_LIMITS,
     TierLevel,
+    getOperationKey,
 } from "../tier-limits";
 
-describe("TIER_WITHDRAWAL_LIMITS", () => {
-    it("tier 0 has zero daily limit", () => {
-        expect(TIER_WITHDRAWAL_LIMITS[0]).toBe(0);
+describe("TIER_DAILY_LIMITS", () => {
+    it("tier 0 has zero limits for all operations", () => {
+        expect(TIER_DAILY_LIMITS[0].buy).toBe(0);
+        expect(TIER_DAILY_LIMITS[0].sell).toBe(0);
+        expect(TIER_DAILY_LIMITS[0].swap).toBe(0);
+        expect(TIER_DAILY_LIMITS[0].send).toBe(0);
     });
 
-    it("has increasing daily limits for tiers 1-3", () => {
-        const tier1 = TIER_WITHDRAWAL_LIMITS[1] as number;
-        const tier2 = TIER_WITHDRAWAL_LIMITS[2] as number;
-        const tier3 = TIER_WITHDRAWAL_LIMITS[3] as number;
-
-        expect(tier1).toBeLessThan(tier2);
-        expect(tier2).toBeLessThan(tier3);
+    it("tier 1 has $50 daily limit for all operations", () => {
+        expect(TIER_DAILY_LIMITS[1].buy).toBe(50);
+        expect(TIER_DAILY_LIMITS[1].sell).toBe(50);
+        expect(TIER_DAILY_LIMITS[1].swap).toBe(50);
+        expect(TIER_DAILY_LIMITS[1].send).toBe(50);
     });
 
-    it("tier 4 has unlimited daily withdrawals", () => {
-        expect(TIER_WITHDRAWAL_LIMITS[4]).toBe("unlimited");
+    it("tier 2 has correct per-operation limits", () => {
+        expect(TIER_DAILY_LIMITS[2].buy).toBe(500);
+        expect(TIER_DAILY_LIMITS[2].sell).toBe(1_500);
+        expect(TIER_DAILY_LIMITS[2].swap).toBe(1_500);
+        expect(TIER_DAILY_LIMITS[2].send).toBe(1_500);
+    });
+
+    it("buy limits increase monotonically across tiers 1-4", () => {
+        const tiers: TierLevel[] = [1, 2, 3, 4];
+        for (let i = 0; i < tiers.length - 1; i++) {
+            const curr = TIER_DAILY_LIMITS[tiers[i]].buy as number;
+            const next = TIER_DAILY_LIMITS[tiers[i + 1]].buy as number;
+            expect(next).toBeGreaterThan(curr);
+        }
     });
 
     it("covers all 5 tier levels", () => {
         const levels: TierLevel[] = [0, 1, 2, 3, 4];
         for (const level of levels) {
-            expect(TIER_WITHDRAWAL_LIMITS[level]).toBeDefined();
+            expect(TIER_DAILY_LIMITS[level]).toBeDefined();
+            expect(TIER_DAILY_LIMITS[level].buy).toBeDefined();
+            expect(TIER_DAILY_LIMITS[level].sell).toBeDefined();
+            expect(TIER_DAILY_LIMITS[level].swap).toBeDefined();
+            expect(TIER_DAILY_LIMITS[level].send).toBeDefined();
         }
     });
 });
 
-describe("TIER_MONTHLY_LIMITS", () => {
-    it("tier 0 has zero monthly limit", () => {
-        expect(TIER_MONTHLY_LIMITS[0]).toBe(0);
+describe("BUSINESS_DAILY_LIMITS", () => {
+    it("tier 0 has zero limits for all operations", () => {
+        expect(BUSINESS_DAILY_LIMITS[0].buy).toBe(0);
+        expect(BUSINESS_DAILY_LIMITS[0].sell).toBe(0);
+        expect(BUSINESS_DAILY_LIMITS[0].swap).toBe(0);
+        expect(BUSINESS_DAILY_LIMITS[0].send).toBe(0);
     });
 
-    it("monthly limits are higher than daily for tiers 1-3", () => {
-        for (const tier of [1, 2, 3] as TierLevel[]) {
-            const daily = TIER_WITHDRAWAL_LIMITS[tier] as number;
-            const monthly = TIER_MONTHLY_LIMITS[tier] as number;
-            expect(monthly).toBeGreaterThan(daily);
-        }
-    });
-
-    it("tier 4 has unlimited monthly withdrawals", () => {
-        expect(TIER_MONTHLY_LIMITS[4]).toBe("unlimited");
+    it("tier 1 is unlimited for all operations", () => {
+        expect(BUSINESS_DAILY_LIMITS[1].buy).toBe("unlimited");
+        expect(BUSINESS_DAILY_LIMITS[1].sell).toBe("unlimited");
+        expect(BUSINESS_DAILY_LIMITS[1].swap).toBe("unlimited");
+        expect(BUSINESS_DAILY_LIMITS[1].send).toBe("unlimited");
     });
 });
 
-describe("BUSINESS_WITHDRAWAL_LIMITS", () => {
-    it("tier 0 has zero daily limit", () => {
+describe("getOperationKey", () => {
+    it("maps BUY to buy", () => expect(getOperationKey("BUY")).toBe("buy"));
+    it("maps SELL to sell", () => expect(getOperationKey("SELL")).toBe("sell"));
+    it("maps SWAP to swap", () => expect(getOperationKey("SWAP")).toBe("swap"));
+    it("maps SEND to send", () => expect(getOperationKey("SEND")).toBe("send"));
+    it("defaults unknown categories to buy", () => expect(getOperationKey("RECEIVE")).toBe("buy"));
+});
+
+describe("Legacy re-exports", () => {
+    it("TIER_WITHDRAWAL_LIMITS maps to send limits", () => {
+        expect(TIER_WITHDRAWAL_LIMITS[0]).toBe(0);
+        expect(TIER_WITHDRAWAL_LIMITS[1]).toBe(50);
+        expect(TIER_WITHDRAWAL_LIMITS[2]).toBe(1_500);
+        expect(TIER_WITHDRAWAL_LIMITS[3]).toBe(10_000);
+        expect(TIER_WITHDRAWAL_LIMITS[4]).toBe(50_000);
+    });
+
+    it("BUSINESS_WITHDRAWAL_LIMITS maps to business send limits", () => {
         expect(BUSINESS_WITHDRAWAL_LIMITS[0]).toBe(0);
-    });
-
-    it("tier 1 has unlimited daily withdrawals", () => {
         expect(BUSINESS_WITHDRAWAL_LIMITS[1]).toBe("unlimited");
-    });
-});
-
-describe("BUSINESS_MONTHLY_LIMITS", () => {
-    it("tier 0 has zero monthly limit", () => {
-        expect(BUSINESS_MONTHLY_LIMITS[0]).toBe(0);
-    });
-
-    it("tier 1 has unlimited monthly limit", () => {
-        expect(BUSINESS_MONTHLY_LIMITS[1]).toBe("unlimited");
     });
 });

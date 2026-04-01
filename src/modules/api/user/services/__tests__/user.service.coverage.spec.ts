@@ -88,6 +88,7 @@ describe("UserService coverage wave", () => {
 
     const tierService = {
         getWithdrawalLimit: jest.fn().mockReturnValue(100),
+        getDailyLimits: jest.fn().mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 }),
     };
 
     const liveCoinWatchService = {
@@ -143,27 +144,29 @@ describe("UserService coverage wave", () => {
 
     it("computes withdrawal usage with USD conversion", async () => {
         prisma.order.findMany.mockResolvedValue([
-            { amount: 2, currency: "BTC", rateAtConversion: 0 },
-            { amount: 3, currency: "ETH", rateAtConversion: 0 },
+            { amount: 2, currency: "BTC", orderCategory: "BUY" },
+            { amount: 3, currency: "ETH", orderCategory: "SELL" },
         ]);
         liveCoinWatchService.getPriceInUSD
             .mockResolvedValueOnce(10)
             .mockResolvedValueOnce(5);
-        tierService.getWithdrawalLimit.mockReturnValue(100);
+        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
 
         const result = await service.getWithdrawalUsage(user);
 
-        expect(result.data.usedToday).toBe(35);
-        expect(result.data.remainingToday).toBe(65);
-        expect(result.data.percentUsed).toBe(35);
+        expect(result.data.buy.usedToday).toBe(20);
+        expect(result.data.sell.usedToday).toBe(15);
+        expect(result.data.buy.remainingToday).toBe(80);
+        expect(result.data.sell.remainingToday).toBe(85);
     });
 
     it("handles rate fetch failures in withdrawal usage", async () => {
-        prisma.order.findMany.mockResolvedValue([{ amount: 2, currency: "BTC" }]);
+        prisma.order.findMany.mockResolvedValue([{ amount: 2, currency: "BTC", orderCategory: "BUY" }]);
         liveCoinWatchService.getPriceInUSD.mockRejectedValue(new Error("rate-api-failed"));
+        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
 
         const result = await service.getWithdrawalUsage(user);
-        expect(result.data.usedToday).toBe(0);
+        expect(result.data.buy.usedToday).toBe(0);
     });
 
     it("returns paginated user list", async () => {
