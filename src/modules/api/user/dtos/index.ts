@@ -217,3 +217,37 @@ export class FlagUserDto {
     @IsString()
     reason: string;
 }
+
+export class SetLimitOverrideDto {
+    @ApiProperty({ description: "The ID of the user to override limits for" })
+    @IsNotEmpty()
+    @IsNumber({}, { message: "User ID must be a number" })
+    userId: number;
+
+    @ApiProperty({ description: "Daily limit override in USD (null to use tier default)", required: false })
+    @IsOptional()
+    @IsNumber({}, { message: "Daily limit must be a number" })
+    dailyLimitUSD?: number;
+
+    @ApiProperty({ description: "Monthly limit override in USD (null to use tier default)", required: false })
+    @IsOptional()
+    @IsNumber({}, { message: "Monthly limit must be a number" })
+    monthlyLimitUSD?: number;
+
+    @ApiProperty({ description: "Reason for the override" })
+    @IsNotEmpty()
+    @IsString()
+    reason: string;
+
+    @ApiProperty({ description: "Override expiration date (ISO 8601). Omit for permanent.", required: false })
+    @IsOptional()
+    @IsDateString()
+    expiresAt?: string;
+}
+
+export class RemoveLimitOverrideDto {
+    @ApiProperty({ description: "The ID of the user to remove the override for" })
+    @IsNotEmpty()
+    @IsNumber({}, { message: "User ID must be a number" })
+    userId: number;
+}

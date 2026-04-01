@@ -16,6 +16,12 @@ import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { TierService, TierInfo } from "./tier.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
+import {
+    TIER_MONTHLY_LIMITS,
+    BUSINESS_WITHDRAWAL_LIMITS,
+    BUSINESS_MONTHLY_LIMITS,
+    TierLevel,
+} from "@/modules/shared/tier-limits";
 
 interface RedisLimitCheckOptions {
     user: User;
@@ -123,9 +129,10 @@ export class TransactionService {
 
         // Use DB-stored tier as single source of truth
         const userTier = (user as any).tier ?? 0;
+        const isBusiness = user.userType === "BUSINESS";
         const tierInfo: TierInfo = {
             tier: userTier,
-            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier),
+            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier as TierLevel, user.userType),
             canTransact: userTier > 0,
         };
 
@@ -141,9 +148,29 @@ export class TransactionService {
         }
 
         // Get tier-based daily limit (unlimited = -1 or "unlimited")
-        const tierWithdrawalLimit = tierInfo.withdrawalLimit;
-        const hasUnlimitedWithdrawal = tierWithdrawalLimit === "unlimited";
-        const monthlyLimit = user.userType === "INDIVIDUAL" ? 100000 : 500000;
+        let tierWithdrawalLimit = tierInfo.withdrawalLimit;
+        let hasUnlimitedWithdrawal = tierWithdrawalLimit === "unlimited";
+
+        // Get tier-based monthly limit from constants
+        let monthlyLimitRaw: number | "unlimited" = isBusiness
+            ? BUSINESS_MONTHLY_LIMITS[(userTier > 1 ? 1 : userTier) as 0 | 1]
+            : TIER_MONTHLY_LIMITS[userTier as TierLevel];
+        let hasUnlimitedMonthly = monthlyLimitRaw === "unlimited";
+        let monthlyLimit = hasUnlimitedMonthly ? 0 : monthlyLimitRaw as number;
+
+        // ==================== ADMIN LIMIT OVERRIDE ====================
+        const override = await this.getActiveLimitOverride(user.id);
+        if (override) {
+            this.logger.log(`Active limit override for user ${user.id}: daily=${override.dailyLimitUSD}, monthly=${override.monthlyLimitUSD}`);
+            if (override.dailyLimitUSD !== null) {
+                tierWithdrawalLimit = override.dailyLimitUSD;
+                hasUnlimitedWithdrawal = false;
+            }
+            if (override.monthlyLimitUSD !== null) {
+                monthlyLimit = override.monthlyLimitUSD;
+                hasUnlimitedMonthly = false;
+            }
+        }
 
         // ==================== ATOMIC REDIS LIMIT CHECK ====================
         // Use Redis for atomic rate limiting to prevent race conditions
@@ -158,22 +185,24 @@ export class TransactionService {
 
         // Try atomic Redis increment for daily limit
         if (!hasUnlimitedWithdrawal) {
-            const dailyLimit = tierWithdrawalLimit;
+            const dailyLimit = tierWithdrawalLimit as number;
             const consumed = await this.checkRedisDailyLimit({ user, amount, currency, amountUSD, key: dailyKey, limit: dailyLimit, tierInfo, path });
             if (consumed) usedRedis = true;
         }
 
         // Try atomic Redis increment for monthly limit
-        const monthlyConsumed = await this.checkRedisMonthlyLimit({
-            user, amount, currency, amountUSD, key: monthlyKey, limit: monthlyLimit,
-            tierInfo, dailyKey: hasUnlimitedWithdrawal ? null : dailyKey, path,
-        });
-        if (monthlyConsumed) usedRedis = true;
+        if (!hasUnlimitedMonthly) {
+            const monthlyConsumed = await this.checkRedisMonthlyLimit({
+                user, amount, currency, amountUSD, key: monthlyKey, limit: monthlyLimit,
+                tierInfo, dailyKey: hasUnlimitedWithdrawal ? null : dailyKey, path,
+            });
+            if (monthlyConsumed) usedRedis = true;
+        }
 
         // ==================== DB FALLBACK (if Redis unavailable) ====================
         if (!usedRedis) {
             this.logger.warn(`Redis unavailable for user ${user.id} - using DB fallback for limit check`);
-            await this.validateLimitsWithDbFallback({ user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, monthlyLimit, path });
+            await this.validateLimitsWithDbFallback({ user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, hasUnlimitedMonthly, monthlyLimit, path });
         }
     }
 
@@ -236,23 +265,26 @@ export class TransactionService {
         amountUSD: number;
         tierInfo: TierInfo;
         hasUnlimitedWithdrawal: boolean;
+        hasUnlimitedMonthly: boolean;
         monthlyLimit: number;
         path: string;
     }): Promise<void> {
-        const { user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, monthlyLimit, path } = opts;
+        const { user, amount, currency, amountUSD, tierInfo, hasUnlimitedWithdrawal, hasUnlimitedMonthly, monthlyLimit, path } = opts;
         await this.prisma.$transaction(async (tx) => {
             // Acquire row-level lock on user to serialize concurrent limit checks
             await tx.$queryRaw`SELECT id FROM "Users" WHERE id = ${user.id} FOR UPDATE`;
 
             const now = new Date();
-            const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            // Use calendar-day boundary (midnight UTC) to match Redis key behavior
+            const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            // Use calendar-month boundary to match Redis monthly key (YYYY-MM)
+            const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
             // Fetch all relevant orders
             const orders = await tx.order.findMany({
                 where: {
                     userId: user.id,
-                    createdAt: { gte: thirtyDaysAgo },
+                    createdAt: { gte: startOfMonth },
                     status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
                 },
                 select: { amount: true, currency: true, createdAt: true },
@@ -263,7 +295,7 @@ export class TransactionService {
             // Check daily limit
             if (!hasUnlimitedWithdrawal) {
                 const dailyLimit = tierInfo.withdrawalLimit as number;
-                const newDailyTotal = this.sumOrdersInUsd(orders, oneDayAgo, rateCache) + amountUSD;
+                const newDailyTotal = this.sumOrdersInUsd(orders, startOfToday, rateCache) + amountUSD;
                 if (newDailyTotal > dailyLimit) {
                     const transactionId = uuidv4();
                     const reason = `Daily withdrawal limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)}`;
@@ -277,17 +309,19 @@ export class TransactionService {
             }
 
             // Check monthly limit
-            const newMonthlyTotal = this.sumOrdersInUsd(orders, null, rateCache) + amountUSD;
-            if (newMonthlyTotal > monthlyLimit) {
-                const transactionId = uuidv4();
-                const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal.toFixed(2)}`;
-                await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-                await this.flagUserForLimitViolation(user, reason);
-                await this.sendFlaggedEmail(user, reason, transactionId);
-                throw new GeneralTransactionException(
+            if (!hasUnlimitedMonthly) {
+                const newMonthlyTotal = this.sumOrdersInUsd(orders, null, rateCache) + amountUSD;
+                if (newMonthlyTotal > monthlyLimit) {
+                    const transactionId = uuidv4();
+                    const reason = `Monthly transaction limit exceeded for ${user.userType}. Limit: $${monthlyLimit}, Attempted: $${newMonthlyTotal.toFixed(2)}`;
+                    await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+                    await this.flagUserForLimitViolation(user, reason);
+                    await this.sendFlaggedEmail(user, reason, transactionId);
+                    throw new GeneralTransactionException(
                     `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
                     HttpStatus.FORBIDDEN
                 );
+                }
             }
         }, { timeout: 10000 });
     }
@@ -340,6 +374,23 @@ export class TransactionService {
             where: { id: user.id },
             data: { flaggedId: flaggedRecord.id },
         });
+    }
+
+    /**
+     * Get active (non-expired) limit override for a user.
+     * Returns null if no override exists or it has expired.
+     */
+    private async getActiveLimitOverride(userId: number) {
+        const override = await this.prisma.limitOverride.findUnique({
+            where: { userId },
+        });
+        if (!override) return null;
+        // Check expiration
+        if (override.expiresAt && override.expiresAt < new Date()) {
+            this.logger.debug(`Limit override for user ${userId} has expired (${override.expiresAt.toISOString()})`);
+            return null;
+        }
+        return override;
     }
 
     private async getAmountInUSD(asset: string, amount: number): Promise<{ amount?: number; rate?: number } | null> {

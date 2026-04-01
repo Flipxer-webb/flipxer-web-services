@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { User, UserType } from "@prisma/client";
-import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
+import { TIER_WITHDRAWAL_LIMITS, BUSINESS_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
 
 export { TierLevel } from "@/modules/shared/tier-limits";
 
@@ -121,9 +121,14 @@ export class TierService {
     /**
      * Get withdrawal limit for a specific tier
      * @param tier - The tier level
+     * @param userType - Optional user type for business-specific limits
      * @returns The withdrawal limit in USD or "unlimited"
      */
-    getWithdrawalLimit(tier: TierLevel): number | "unlimited" {
+    getWithdrawalLimit(tier: TierLevel, userType?: string): number | "unlimited" {
+        if (userType === UserType.BUSINESS) {
+            const businessTier = (tier > 1 ? 1 : tier) as 0 | 1;
+            return BUSINESS_WITHDRAWAL_LIMITS[businessTier];
+        }
         return WITHDRAWAL_LIMITS[tier];
     }
 
@@ -140,7 +145,7 @@ export class TierService {
      */
     async getTierInfo(user: Partial<UserWithTier>): Promise<TierInfo> {
         const tier = this.calculateTier(user);
-        const withdrawalLimit: number | "unlimited" = WITHDRAWAL_LIMITS[tier];
+        const withdrawalLimit: number | "unlimited" = this.getWithdrawalLimit(tier, user.userType);
 
         return {
             tier,

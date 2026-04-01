@@ -29,6 +29,15 @@ export const TIER_WITHDRAWAL_LIMITS: Record<TierLevel, number | "unlimited"> = {
 };
 
 /**
+ * Business-specific daily withdrawal limits in USD.
+ * Business tier 0 = unverified, tier 1 = verified (unlimited).
+ */
+export const BUSINESS_WITHDRAWAL_LIMITS: Record<0 | 1, number | "unlimited"> = {
+    0: 0,
+    1: "unlimited",
+};
+
+/**
  * Monthly withdrawal limits in USD per tier.
  * Approximately 30× daily for tiers 1-3.
  */
@@ -38,4 +47,12 @@ export const TIER_MONTHLY_LIMITS: Record<TierLevel, number | "unlimited"> = {
     2: 1_500_000,
     3: 3_000_000,
     4: "unlimited",
+};
+
+/**
+ * Business-specific monthly limits in USD.
+ */
+export const BUSINESS_MONTHLY_LIMITS: Record<0 | 1, number | "unlimited"> = {
+    0: 0,
+    1: "unlimited",
 };

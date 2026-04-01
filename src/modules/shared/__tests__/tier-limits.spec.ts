@@ -1,6 +1,8 @@
 import {
     TIER_WITHDRAWAL_LIMITS,
     TIER_MONTHLY_LIMITS,
+    BUSINESS_WITHDRAWAL_LIMITS,
+    BUSINESS_MONTHLY_LIMITS,
     TierLevel,
 } from "../tier-limits";
 
@@ -45,5 +47,25 @@ describe("TIER_MONTHLY_LIMITS", () => {
 
     it("tier 4 has unlimited monthly withdrawals", () => {
         expect(TIER_MONTHLY_LIMITS[4]).toBe("unlimited");
+    });
+});
+
+describe("BUSINESS_WITHDRAWAL_LIMITS", () => {
+    it("tier 0 has zero daily limit", () => {
+        expect(BUSINESS_WITHDRAWAL_LIMITS[0]).toBe(0);
+    });
+
+    it("tier 1 has unlimited daily withdrawals", () => {
+        expect(BUSINESS_WITHDRAWAL_LIMITS[1]).toBe("unlimited");
+    });
+});
+
+describe("BUSINESS_MONTHLY_LIMITS", () => {
+    it("tier 0 has zero monthly limit", () => {
+        expect(BUSINESS_MONTHLY_LIMITS[0]).toBe(0);
+    });
+
+    it("tier 1 has unlimited monthly limit", () => {
+        expect(BUSINESS_MONTHLY_LIMITS[1]).toBe("unlimited");
     });
 });

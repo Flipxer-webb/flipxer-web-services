@@ -256,18 +256,19 @@ export class UserService {
         const userTier = (user as any).tier ?? 0;
         const tierInfo = {
             tier: userTier,
-            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier),
+            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier, user.userType),
             canTransact: userTier > 0,
         };
 
-        // Calculate daily total from the last 24 hours
+        // Calculate daily total from start of today (calendar-day, UTC)
+        // Aligned with Redis daily key behavior (YYYY-MM-DD)
         const now = new Date();
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
         const orders = await this.prisma.order.findMany({
             where: {
                 userId: user.id,
-                createdAt: { gte: oneDayAgo },
+                createdAt: { gte: startOfToday },
                 status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
             },
             select: { amount: true, currency: true, rateAtConversion: true },

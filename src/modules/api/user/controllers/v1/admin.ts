@@ -18,8 +18,10 @@ import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
-import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../../dtos"; // Added FlagUserDto
+import { GetUserListDto, UnflagUserDto, FlagUserDto, SetLimitOverrideDto, RemoveLimitOverrideDto } from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
+import { User } from "../../decorators";
+import { User as UserModel } from "@prisma/client";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
 @UserTypes(ADMIN_USER_TYPES)
@@ -86,5 +88,28 @@ export class AdminUserController {
     @Post("flag")
     async flagUser(@Body() dto: FlagUserDto) {
         return await this.adminService.flagUser(dto);
+    }
+
+    @ApiOperation({ summary: "Admin sets a limit override for a user" })
+    @ApiBearerAuth("access-token")
+    @UserTypes([UserType.SUPER_ADMIN])
+    @Post("limit-override")
+    async setLimitOverride(@Body() dto: SetLimitOverrideDto, @User() admin: UserModel) {
+        return await this.adminService.setLimitOverride(dto, admin.id);
+    }
+
+    @ApiOperation({ summary: "Admin removes a limit override for a user" })
+    @ApiBearerAuth("access-token")
+    @UserTypes([UserType.SUPER_ADMIN])
+    @Post("limit-override/remove")
+    async removeLimitOverride(@Body() dto: RemoveLimitOverrideDto) {
+        return await this.adminService.removeLimitOverride(dto);
+    }
+
+    @ApiOperation({ summary: "Admin gets a user's limit override" })
+    @ApiBearerAuth("access-token")
+    @Get("limit-override/:userId")
+    async getLimitOverride(@Param("userId", ParseIntPipe) userId: number) {
+        return await this.adminService.getLimitOverride(userId);
     }
 }
