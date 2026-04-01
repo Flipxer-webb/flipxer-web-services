@@ -297,7 +297,7 @@ export class UserService {
             const limit = dailyLimits[op];
             const used = usageByOp[op];
             const isUnlimited = limit === "unlimited";
-            const numericLimit = isUnlimited ? -1 : (limit as number);
+            const numericLimit = isUnlimited ? -1 : limit;
             const remaining = isUnlimited ? -1 : Math.max(0, numericLimit - used);
             const percentUsed = isUnlimited ? 0 : Math.min(100, (used / numericLimit) * 100);
             return {

@@ -124,7 +124,7 @@ export class TierService {
      */
     getDailyLimits(tier: TierLevel, userType?: string): OperationLimits {
         if (userType === UserType.BUSINESS) {
-            const businessTier = (tier > 1 ? 1 : tier) as 0 | 1;
+            const businessTier = Math.min(tier, 1) as 0 | 1;
             return BUSINESS_DAILY_LIMITS[businessTier];
         }
         return TIER_DAILY_LIMITS[tier];
@@ -138,7 +138,7 @@ export class TierService {
      */
     getWithdrawalLimit(tier: TierLevel, userType?: string): number | "unlimited" {
         if (userType === UserType.BUSINESS) {
-            const businessTier = (tier > 1 ? 1 : tier) as 0 | 1;
+            const businessTier = Math.min(tier, 1) as 0 | 1;
             return BUSINESS_WITHDRAWAL_LIMITS[businessTier];
         }
         return WITHDRAWAL_LIMITS[tier];

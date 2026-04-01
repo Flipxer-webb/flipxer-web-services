@@ -135,8 +135,9 @@ export class TransactionService {
         // Resolve per-operation limit
         const opKey = getOperationKey(orderCategory);
         const operationLabel = opKey.charAt(0).toUpperCase() + opKey.slice(1); // "Buy", "Sell", etc.
+        const businessTier = Math.min(userTier, 1) as 0 | 1;
         const tierLimits: OperationLimits = isBusiness
-            ? BUSINESS_DAILY_LIMITS[(userTier > 1 ? 1 : userTier) as 0 | 1]
+            ? BUSINESS_DAILY_LIMITS[businessTier]
             : TIER_DAILY_LIMITS[userTier as TierLevel];
         const operationLimit = tierLimits[opKey];
 

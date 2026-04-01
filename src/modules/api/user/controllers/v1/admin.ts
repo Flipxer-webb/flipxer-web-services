@@ -15,13 +15,12 @@ import {
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { UserType } from "@prisma/client";
+import { UserType, User as UserModel } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
 import { GetUserListDto, UnflagUserDto, FlagUserDto, SetLimitOverrideDto, RemoveLimitOverrideDto } from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 import { User } from "../../decorators";
-import { User as UserModel } from "@prisma/client";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
 @UserTypes(ADMIN_USER_TYPES)
