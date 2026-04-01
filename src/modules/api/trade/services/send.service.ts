@@ -897,7 +897,7 @@ export class SendService {
             // Send queued notification (in-app + push)
             await this.notificationDispatcher.notify({
                 userId: user.id,
-                title: "Send transaction queued",
+                title: "Send transaction processing",
                 body: `\u23F3 Your send of ${dto.amount} ${currency.toUpperCase()} is being processed. This may take a few minutes. Transaction ID: ${transactionId}.`,
                 category: "transaction",
                 currency: currency,
