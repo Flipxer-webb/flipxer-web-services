@@ -714,16 +714,7 @@ export class SendService {
 
         // Check for pending sweeps - user can't withdraw until deposits are confirmed
         // NOTE: In omnibus mode (no sub-account), this auto-resolves and returns false.
-        const hasPendingSweeps = await this.sweepService.hasPendingSweeps(user.id, currency);
-        if (hasPendingSweeps) {
-            this.logger.warn(
-                `Withdrawal blocked by pending sweep | userId: ${user.id}, currency: ${currency}`
-            );
-            throw new IncompleteAccountSetupException(
-                "Please wait for your recent deposit to be confirmed before withdrawing. This usually takes a few minutes.",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        await this.assertNoPendingSweeps(user.id, currency);
 
         // Get user's available balance from ledger
         // We don't check totalAmount here because we do strict check inside the lock below.
@@ -858,6 +849,22 @@ export class SendService {
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
+    }
+
+    /**
+     * Blocks withdrawal if the user has pending deposit sweeps.
+     */
+    private async assertNoPendingSweeps(userId: number, currency: string): Promise<void> {
+        const hasPendingSweeps = await this.sweepService.hasPendingSweeps(userId, currency);
+        if (hasPendingSweeps) {
+            this.logger.warn(
+                `Withdrawal blocked by pending sweep | userId: ${userId}, currency: ${currency}`
+            );
+            throw new IncompleteAccountSetupException(
+                "Please wait for your recent deposit to be confirmed before withdrawing. This usually takes a few minutes.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
     }
 
     /**

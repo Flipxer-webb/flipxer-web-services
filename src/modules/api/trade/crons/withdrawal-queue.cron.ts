@@ -9,7 +9,7 @@ import { SlackWebhookService } from "@/modules/api/operations/services/slack-web
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { WsGateway } from "../gateway/v1";
 import { Decimal } from "@prisma/client/runtime/library";
-import { OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
+import { OrderCategory, OrderStatus } from "@prisma/client";
 import { getStreamlinedStatus } from "../interfaces/trade";
 
 /**
