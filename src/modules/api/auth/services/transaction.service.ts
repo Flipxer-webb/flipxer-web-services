@@ -163,15 +163,16 @@ export class TransactionService {
         let hasUnlimited = dailyLimit === "unlimited";
 
         // ==================== ADMIN LIMIT OVERRIDE ====================
+        // Admin override replaces the per-operation limit for each op type.
         const override = await this.getActiveLimitOverride(user.id);
         if (override && override.dailyLimitUSD !== null) {
-            this.logger.log(`Active limit override for user ${user.id}: daily=${override.dailyLimitUSD}`);
+            this.logger.log(`Active limit override for user ${user.id}: daily=${override.dailyLimitUSD} per operation`);
             dailyLimit = override.dailyLimitUSD;
             hasUnlimited = false;
         }
 
         // ==================== ATOMIC REDIS LIMIT CHECK ====================
-        // Uses per-operation Redis keys to enforce separate limits for buy/sell/swap/send
+        // Per-operation Redis keys enforce separate limits for buy/sell/swap/send
         const now = new Date();
         const dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
         const dailyKey = `limits:user:${user.id}:daily:${opKey}:${dateStr}`;
