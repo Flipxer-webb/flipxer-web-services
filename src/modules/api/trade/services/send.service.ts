@@ -849,92 +849,109 @@ export class SendService {
         if (hasLiquidity) {
             // Execute withdrawal from main wallet immediately
             return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId, resolvedNetwork);
-        } else {
-            // Add to queue - withdrawal will be processed when liquidity is available
-            const queueResult = await this.withdrawalQueueService.addToQueue({
-                holdEntryId: holdResult.entryId,
-                userId: user.id,
-                currency: currency,
-                amount: totalAmount,
-                reason: QueueReason.LOW_LIQUIDITY,
-            });
-
-            if (!queueResult.success) {
-                // Release hold if queueing fails
-                await this.ledgerService.releaseHold(
-                    `withdrawal:${reference}`,
-                    false,
-                    "Failed to queue withdrawal"
-                );
-                throw new IncompleteAccountSetupException(
-                    "Failed to process withdrawal. Please try again.",
-                    HttpStatus.INTERNAL_SERVER_ERROR
-                );
-            }
-
-            // Notify admin about liquidity issue
-            await this.slackWebhookService.sendAlert(
-                "LOW_LIQUIDITY_QUEUE",
-                {
-                    text: `⚠️ Withdrawal queued due to low liquidity\n` +
-                        `User: ${user.id} (${user.email})\n` +
-                        `Amount: ${totalAmount} ${currency}\n` +
-                        `Queue Position: ${queueResult.queueEntry?.position}\n` +
-                        `Main Wallet Balance: ${mainWalletBalance.toString()} ${currency}`,
-                },
-                { alertKey: `queue:${reference}` }
-            );
-
-            // WebSocket: Notify user their withdrawal is queued
-            this.wsGateway.notifyWithdrawalQueued(user.id, {
-                queueId: queueResult.queueEntry?.id,
-                currency,
-                amount: totalAmount.toString(),
-                position: queueResult.queueEntry?.position,
-                reason: "LOW_LIQUIDITY",
-            });
-
-            // Send queued notification (in-app + push)
-            await this.notificationDispatcher.notify({
-                userId: user.id,
-                title: "Send transaction processing",
-                body: `\u23F3 Your send of ${dto.amount} ${currency.toUpperCase()} is being processed. This may take a few minutes. Transaction ID: ${transactionId}.`,
-                category: "transaction",
-                currency: currency,
-                transactionType: OrderCategory.SEND,
-                enablePush: true,
-            });
-
-            // Emit wallet update
-            this.wsGateway.notifyWalletUpdate(user.id);
-
-            return buildResponse({
-                message: "Withdrawal request received and is being processed",
-                data: {
-                    transactionId: createdOrder.transactionId,
-                    status: "queued",
-                    statusHint: "Your withdrawal is being processed. This may take a few minutes.",
-                    queuePosition: queueResult.queueEntry?.position,
-                    // Include order details for frontend rendering
-                    amount: String(createdOrder.amount),
-                    currency: createdOrder.currency,
-                    fee: String(createdOrder.fee),
-                    total: String(createdOrder.total),
-                    recipient: {
-                        details: {
-                            address: createdOrder.recipient || dto.recipientWalletAddress || "",
-                            destination_tag: dto.destinationTag || "",
-                            name: null,
-                        },
-                        type: "coin_address",
-                    },
-                    created_at: createdOrder.createdAt?.toISOString() || new Date().toISOString(),
-                },
-            });
         }
+
+        // Add to queue - withdrawal will be processed when liquidity is available
+        return await this.queueWithdrawalForLiquidity({
+            user, createdOrder, dto, holdEntryId: holdResult.entryId, reference, currency, totalAmount, mainWalletBalance,
+        });
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
+    }
+
+    /**
+     * Queues a withdrawal when the main wallet has insufficient liquidity.
+     */
+    private async queueWithdrawalForLiquidity(opts: {
+        user: User;
+        createdOrder: any;
+        dto: WithdrawerRequestDto;
+        holdEntryId: string;
+        reference: string;
+        currency: string;
+        totalAmount: Decimal;
+        mainWalletBalance: Decimal;
+    }) {
+        const { user, createdOrder, dto, holdEntryId, reference, currency, totalAmount, mainWalletBalance } = opts;
+        const queueResult = await this.withdrawalQueueService.addToQueue({
+            holdEntryId,
+            userId: user.id,
+            currency: currency,
+            amount: totalAmount,
+            reason: QueueReason.LOW_LIQUIDITY,
+        });
+
+        if (!queueResult.success) {
+            await this.ledgerService.releaseHold(
+                `withdrawal:${reference}`,
+                false,
+                "Failed to queue withdrawal"
+            );
+            throw new IncompleteAccountSetupException(
+                "Failed to process withdrawal. Please try again.",
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        }
+
+        await this.slackWebhookService.sendAlert(
+            "LOW_LIQUIDITY_QUEUE",
+            {
+                text: `⚠️ Withdrawal queued due to low liquidity\n` +
+                    `User: ${user.id} (${user.email})\n` +
+                    `Amount: ${totalAmount} ${currency}\n` +
+                    `Queue Position: ${queueResult.queueEntry?.position}\n` +
+                    `Main Wallet Balance: ${mainWalletBalance.toString()} ${currency}`,
+            },
+            { alertKey: `queue:${reference}` }
+        );
+
+        this.wsGateway.notifyWithdrawalQueued(user.id, {
+            queueId: queueResult.queueEntry?.id,
+            currency,
+            amount: totalAmount.toString(),
+            position: queueResult.queueEntry?.position,
+            reason: "LOW_LIQUIDITY",
+        });
+
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Send transaction processing",
+            body: `⏳ Your send of ${dto.amount} ${currency.toUpperCase()} is being processed. This may take a few minutes. Transaction ID: ${createdOrder.transactionId}.`,
+            category: "transaction",
+            currency: currency,
+            transactionType: OrderCategory.SEND,
+            enablePush: true,
+        });
+
+        this.wsGateway.notifyWalletUpdate(user.id);
+
+        return buildResponse({
+            message: "Withdrawal request received and is being processed",
+            data: {
+                transactionId: createdOrder.transactionId,
+                status: "queued",
+                statusHint: "Your withdrawal is being processed. This may take a few minutes.",
+                queuePosition: queueResult.queueEntry?.position,
+                amount: String(createdOrder.amount),
+                currency: createdOrder.currency,
+                fee: String(createdOrder.fee),
+                total: String(createdOrder.total),
+                recipient: {
+                    details: {
+                        address: createdOrder.recipient || dto.recipientWalletAddress || "",
+                        destination_tag: dto.destinationTag || "",
+                        name: null,
+                    },
+                    type: "coin_address",
+                },
+                created_at: createdOrder.createdAt?.toISOString() || new Date().toISOString(),
+            },
+        });
+    }
+
+    /**
+     * Gets main wallet balance for a currency
     }
 
     /**
