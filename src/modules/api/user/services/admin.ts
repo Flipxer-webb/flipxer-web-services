@@ -16,7 +16,7 @@ import {
     startOfYear,
     endOfYear,
 } from "date-fns";
-import { GetUserListDto, UnflagUserDto, FlagUserDto } from "../dtos"; // Added FlagUserDto
+import { GetUserListDto, UnflagUserDto, FlagUserDto, SetLimitOverrideDto, RemoveLimitOverrideDto } from "../dtos";
 import { Prisma, User, UserType, EntryStatus } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
 import {
@@ -614,6 +614,63 @@ export class AdminUserService {
         return buildResponse({
             message: "Account flagged successfully.",
             data: { flaggedRecord: { flagged: true, reason: dto.reason } },
+        });
+    }
+
+    async setLimitOverride(dto: SetLimitOverrideDto, adminUserId: number): Promise<ApiResponse> {
+        const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+        if (!user) {
+            throw new UserNotFoundException("Account with ID not found.", HttpStatus.BAD_REQUEST);
+        }
+
+        const override = await this.prisma.limitOverride.upsert({
+            where: { userId: dto.userId },
+            create: {
+                userId: dto.userId,
+                dailyLimitUSD: dto.dailyLimitUSD ?? null,
+                reason: dto.reason,
+                grantedBy: adminUserId,
+                expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+            },
+            update: {
+                dailyLimitUSD: dto.dailyLimitUSD ?? null,
+                reason: dto.reason,
+                grantedBy: adminUserId,
+                expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+                updatedAt: new Date(),
+            },
+        });
+
+        return buildResponse({
+            message: "Limit override set successfully.",
+            data: {
+                userId: override.userId,
+                dailyLimitUSD: override.dailyLimitUSD,
+                reason: override.reason,
+                expiresAt: override.expiresAt,
+            },
+        });
+    }
+
+    async removeLimitOverride(dto: RemoveLimitOverrideDto): Promise<ApiResponse> {
+        const override = await this.prisma.limitOverride.findUnique({ where: { userId: dto.userId } });
+        if (!override) {
+            return buildResponse({ message: "No limit override found for this user.", data: null });
+        }
+
+        await this.prisma.limitOverride.delete({ where: { userId: dto.userId } });
+
+        return buildResponse({
+            message: "Limit override removed successfully.",
+            data: { userId: dto.userId },
+        });
+    }
+
+    async getLimitOverride(userId: number): Promise<ApiResponse> {
+        const override = await this.prisma.limitOverride.findUnique({ where: { userId } });
+        return buildResponse({
+            message: override ? "Limit override found." : "No limit override for this user.",
+            data: override ?? null,
         });
     }
 

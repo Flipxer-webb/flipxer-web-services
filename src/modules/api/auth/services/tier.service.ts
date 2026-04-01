@@ -2,13 +2,14 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { User, UserType } from "@prisma/client";
-import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
+import { TIER_WITHDRAWAL_LIMITS, BUSINESS_WITHDRAWAL_LIMITS, TIER_DAILY_LIMITS, BUSINESS_DAILY_LIMITS, TierLevel, OperationLimits } from "@/modules/shared/tier-limits";
 
 export { TierLevel } from "@/modules/shared/tier-limits";
 
 export interface TierInfo {
     tier: TierLevel;
     withdrawalLimit: number | "unlimited";
+    dailyLimits: OperationLimits;
     canTransact: boolean;
 }
 
@@ -119,11 +120,27 @@ export class TierService {
     }
 
     /**
-     * Get withdrawal limit for a specific tier
+     * Get per-operation daily limits for a specific tier and user type.
+     */
+    getDailyLimits(tier: TierLevel, userType?: string): OperationLimits {
+        if (userType === UserType.BUSINESS) {
+            const businessTier = Math.min(tier, 1) as 0 | 1;
+            return BUSINESS_DAILY_LIMITS[businessTier];
+        }
+        return TIER_DAILY_LIMITS[tier];
+    }
+
+    /**
+     * Get withdrawal limit for a specific tier (legacy — returns "send" limit)
      * @param tier - The tier level
+     * @param userType - Optional user type for business-specific limits
      * @returns The withdrawal limit in USD or "unlimited"
      */
-    getWithdrawalLimit(tier: TierLevel): number | "unlimited" {
+    getWithdrawalLimit(tier: TierLevel, userType?: string): number | "unlimited" {
+        if (userType === UserType.BUSINESS) {
+            const businessTier = Math.min(tier, 1) as 0 | 1;
+            return BUSINESS_WITHDRAWAL_LIMITS[businessTier];
+        }
         return WITHDRAWAL_LIMITS[tier];
     }
 
@@ -140,11 +157,13 @@ export class TierService {
      */
     async getTierInfo(user: Partial<UserWithTier>): Promise<TierInfo> {
         const tier = this.calculateTier(user);
-        const withdrawalLimit: number | "unlimited" = WITHDRAWAL_LIMITS[tier];
+        const withdrawalLimit: number | "unlimited" = this.getWithdrawalLimit(tier, user.userType);
+        const dailyLimits = this.getDailyLimits(tier, user.userType);
 
         return {
             tier,
             withdrawalLimit,
+            dailyLimits,
             canTransact: tier > 0,
         };
     }

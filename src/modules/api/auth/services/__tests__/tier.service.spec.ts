@@ -45,6 +45,7 @@ describe("TierService", () => {
         ).resolves.toEqual({
             tier: 1,
             withdrawalLimit: expect.any(Number),
+            dailyLimits: { buy: 50, sell: 50, swap: 50, send: 50 },
             canTransact: true,
         });
     });
@@ -121,6 +122,9 @@ describe("TierService", () => {
 
         await expect(
             service.validateWithdrawal({ isEmailVerified: true, isBvnVerified: true }, 100, 0),
-        ).resolves.toEqual({ canWithdraw: true });
+        ).resolves.toEqual({
+            canWithdraw: false,
+            reason: expect.stringContaining("Daily withdrawal limit"),
+        });
     });
 });

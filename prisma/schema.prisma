@@ -87,6 +87,7 @@ model User {
   cryptoWalletAddressList            CryptoWalletAddress[]
   dailyTransactions                  DailyTransaction[]                @relation("UserToDailyTransaction")
   flaggedRecord                      Flagged?                          @relation("UserToFlagged")
+  limitOverride                      LimitOverride?                    @relation("UserToLimitOverride")
   monthlyTransactions                MonthlyTransaction[]              @relation("UserToMonthlyTransaction")
   sentNotifications                  Notification[]                    @relation("senderNotification")
   receiverNotifications              Notification[]                    @relation("receiverNotification")
@@ -248,6 +249,20 @@ model Flagged {
   user      User     @relation("UserToFlagged", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("Flagged")
+}
+
+model LimitOverride {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @unique
+  dailyLimitUSD      Float?    // null = use tier default, value = override in USD
+  reason             String    // Why the override was granted
+  grantedBy          Int       // Admin user ID who set the override
+  expiresAt          DateTime? // null = permanent until removed
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation("UserToLimitOverride", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("LimitOverrides")
 }
 
 model DailyTransaction {
