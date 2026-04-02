@@ -192,5 +192,12 @@ export class UserController {
     async lookupUser(@Query("email") email: string) {
         return await this.userService.getUserByEmail(email);
     }
+
+    @ApiOperation({ summary: "Get Intercom identity verification hash" })
+    @ApiBearerAuth("access-token")
+    @Get("intercom-hash")
+    async getIntercomHash(@User() user: UserModel) {
+        return await this.userService.getIntercomHash(user);
+    }
 }
 

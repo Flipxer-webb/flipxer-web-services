@@ -1,4 +1,5 @@
 import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
+import { createHmac } from "node:crypto";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
@@ -6,6 +7,7 @@ import {
     defaultPagination,
     generateRandomNum,
 } from "@/utils";
+import { buildResponse } from "@/utils/api-response-util";
 import {
     Injectable,
     forwardRef,
@@ -932,5 +934,25 @@ export class UserService {
             message: "User found",
             data: user,
         };
+    }
+
+    async getIntercomHash(user: User) {
+        const secretKey = process.env.INTERCOM_SECRET_KEY;
+        if (!secretKey) {
+            this.logger.error("SECURITY: INTERCOM_SECRET_KEY not configured");
+            return buildResponse({
+                success: false,
+                message: "Intercom identity verification is not configured",
+            });
+        }
+
+        const userHash = createHmac("sha256", secretKey)
+            .update(String(user.id))
+            .digest("hex");
+
+        return buildResponse({
+            message: "Intercom hash generated",
+            data: { userHash },
+        });
     }
 }
