@@ -564,4 +564,163 @@ describe("SendService", () => {
             ).rejects.toThrow("Recipient email is required");
         });
     });
+
+    // ── resolveNetwork (private) ────────────────────────────
+
+    describe("resolveNetwork", () => {
+        it("returns explicit network when provided", () => {
+            const result = (service as any).resolveNetwork(1, "erc20", "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16");
+            expect(result).toBe("erc20");
+        });
+
+        it("auto-detects erc20 from EVM address", () => {
+            const result = (service as any).resolveNetwork(1, undefined, "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16");
+            expect(result).toBe("erc20");
+        });
+
+        it("auto-detects trc20 from TRC20 address", () => {
+            const result = (service as any).resolveNetwork(1, undefined, "TYaLG5i4fhGAZDr7EsJFZEsxTCvNbfqLNi");
+            expect(result).toBe("trc20");
+        });
+
+        it("auto-detects btc from Bitcoin address", () => {
+            const result = (service as any).resolveNetwork(1, undefined, "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+            expect(result).toBe("btc");
+        });
+
+        it("returns undefined for unrecognizable addresses", () => {
+            const result = (service as any).resolveNetwork(1, undefined, "unknown-addr-format");
+            expect(result).toBeUndefined();
+        });
+    });
+
+    // ── validateDestinationTagRequirements (private) ─────────
+
+    describe("validateDestinationTagRequirements", () => {
+        it("passes when currency does not require tag", () => {
+            expect(() =>
+                (service as any).validateDestinationTagRequirements("ETH", undefined, undefined, undefined),
+            ).not.toThrow();
+        });
+
+        it("passes when valid numeric tag provided for XRP", () => {
+            expect(() =>
+                (service as any).validateDestinationTagRequirements("XRP", "ripple", "12345", undefined),
+            ).not.toThrow();
+        });
+
+        it("throws when non-numeric tag provided for XRP", () => {
+            expect(() =>
+                (service as any).validateDestinationTagRequirements("XRP", "ripple", "abc", undefined),
+            ).toThrow("Destination tag must be numeric");
+        });
+
+        it("throws when tag is missing and not confirmed", () => {
+            expect(() =>
+                (service as any).validateDestinationTagRequirements("XRP", "ripple", undefined, false),
+            ).toThrow("Destination tag/memo is required");
+        });
+
+        it("allows tag omission when explicitly confirmed", () => {
+            expect(() =>
+                (service as any).validateDestinationTagRequirements("XRP", "ripple", undefined, true),
+            ).not.toThrow();
+        });
+
+        it("allows tag omission when confirmed with empty string", () => {
+            expect(() =>
+                (service as any).validateDestinationTagRequirements("XRP", "ripple", "  ", true),
+            ).not.toThrow();
+        });
+
+        it("uses network-based check for stellar", () => {
+            expect(() =>
+                (service as any).validateDestinationTagRequirements("USDC", "stellar", undefined, false),
+            ).toThrow("Destination tag/memo is required");
+        });
+    });
+
+    // ── withdrawerRequest — execution failure → queue ────────
+
+    describe("withdrawerRequest — execution failure fallback", () => {
+        const user = { id: 42, email: "user@example.com" } as any;
+        const dto = {
+            currency: "eth",
+            amount: 1,
+            recipientWalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16",
+            network: "erc20",
+            narration: "test",
+            transaction_note: "note",
+        } as any;
+
+        beforeEach(() => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
+            prisma.assetWallet.findFirst.mockResolvedValue(null);
+            prisma.order.findFirst.mockResolvedValue(null);
+            quidaxService.getWithdrawerFees.mockResolvedValue({ data: { type: "flat", fee: 0.001 } });
+            ledgerService.getBalance.mockResolvedValue(availableBalance(10));
+            ledgerService.hold.mockResolvedValue({ success: true, entryId: "hold-1" });
+            sweepService.hasPendingSweeps.mockResolvedValue(false);
+            prisma.order.create.mockResolvedValue({
+                id: 100, transactionId: "txn-100", status: "processing",
+                streamlinedStatus: "pending", orderCategory: "SEND",
+                amount: 1, currency: "ETH", fee: 0.001, total: 1.001,
+                recipient: dto.recipientWalletAddress,
+                createdAt: new Date(), updatedAt: new Date(),
+                orderReference: "ref-100", narration: "test", transaction_note: "note",
+            });
+            // Liquidity available but execution fails
+            quidaxService.getUserWalletList.mockResolvedValue({
+                data: [{ currency: "eth", balance: "100" }],
+            });
+        });
+
+        it("queues withdrawal when provider execution throws", async () => {
+            quidaxService.createWithdrawerRequest.mockRejectedValue(new Error("Provider timeout"));
+            withdrawalQueueService.addToQueue.mockResolvedValue({
+                success: true,
+                queueEntry: { id: "q-exec-fail", position: 1 },
+            });
+
+            const result = await service.withdrawerRequest(user, dto);
+
+            expect(result.data.status).toBe("queued");
+            expect(withdrawalQueueService.addToQueue).toHaveBeenCalled();
+            expect(prisma.order.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ status: "pending" }),
+                }),
+            );
+        });
+    });
+
+    // ── checkWithdrawalRateLimits — hold release edge cases ──
+
+    describe("checkWithdrawalRateLimits — hold release edge cases", () => {
+        it("allows new request when release for stuck order has no hold entry", async () => {
+            rateLimiter.checkLimit.mockResolvedValue({ allowed: true });
+            prisma.order.findFirst.mockResolvedValue({
+                id: 2, orderReference: "ref-2", amount: 0.5, status: "pending",
+                createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+            });
+            prisma.order.update.mockResolvedValue({ id: 2 });
+            ledgerService.releaseHold.mockResolvedValue({ success: false, error: "No hold entry found" });
+
+            const result = await (service as any).checkWithdrawalRateLimits(1, "BTC");
+            expect(result.allowed).toBe(true);
+        });
+
+        it("allows new request when releaseHold throws", async () => {
+            rateLimiter.checkLimit.mockResolvedValue({ allowed: true });
+            prisma.order.findFirst.mockResolvedValue({
+                id: 3, orderReference: "ref-3", amount: 0.5, status: "pending",
+                createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+            });
+            prisma.order.update.mockResolvedValue({ id: 3 });
+            ledgerService.releaseHold.mockRejectedValue(new Error("Redis down"));
+
+            const result = await (service as any).checkWithdrawalRateLimits(1, "BTC");
+            expect(result.allowed).toBe(true);
+        });
+    });
 });
