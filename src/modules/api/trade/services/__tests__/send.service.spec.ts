@@ -204,6 +204,10 @@ describe("SendService", () => {
             expect((service as any).inferAddressFamily("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")).toBe("btc");
         });
 
+        it("should detect DOGE addresses", () => {
+            expect((service as any).inferAddressFamily("DRapidDiBYggT1zdrELnVhNDqyAHn89cRi")).toBe("doge");
+        });
+
         it("should return unknown for unrecognized addresses", () => {
             expect((service as any).inferAddressFamily("invalid-address")).toBe("unknown");
         });

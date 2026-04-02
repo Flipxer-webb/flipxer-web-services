@@ -543,7 +543,7 @@ export class SendService {
         if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "trc20";
         if (/^(bc1|[13])[A-HJ-NP-Z0-9]{25,62}$/i.test(trimmed)) return "btc";
         if (/^L[1-9A-HJ-NP-Za-km-z]{26,33}$/.test(trimmed)) return "ltc";
-        if (/^D[5-9A-HJ-NP-Ua-km-z]{32}$/.test(trimmed)) return "doge";
+        if (/^D[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "doge";
         if (/^X[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "dash";
         if (/^(bitcoincash:)?[qp][a-z0-9]{41}$/i.test(trimmed)) return "bch";
         if (/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(trimmed)) return "ripple";
