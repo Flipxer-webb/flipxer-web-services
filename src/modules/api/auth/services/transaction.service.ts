@@ -305,19 +305,25 @@ export class TransactionService {
 
     /**
      * Get active (non-expired) limit override for a user.
-     * Returns null if no override exists or it has expired.
+     * Returns null if no override exists, it has expired, or the table is unavailable.
      */
     private async getActiveLimitOverride(userId: number) {
-        const override = await this.prisma.limitOverride.findUnique({
-            where: { userId },
-        });
-        if (!override) return null;
-        // Check expiration
-        if (override.expiresAt && override.expiresAt < new Date()) {
-            this.logger.debug(`Limit override for user ${userId} has expired (${override.expiresAt.toISOString()})`);
+        try {
+            const override = await this.prisma.limitOverride.findUnique({
+                where: { userId },
+            });
+            if (!override) return null;
+            // Check expiration
+            if (override.expiresAt && override.expiresAt < new Date()) {
+                this.logger.debug(`Limit override for user ${userId} has expired (${override.expiresAt.toISOString()})`);
+                return null;
+            }
+            return override;
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : JSON.stringify(error);
+            this.logger.warn(`Failed to fetch limit override for user ${userId}, proceeding with tier defaults: ${msg}`);
             return null;
         }
-        return override;
     }
 
     private async getAmountInUSD(asset: string, amount: number): Promise<{ amount?: number; rate?: number } | null> {
