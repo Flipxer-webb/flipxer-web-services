@@ -605,6 +605,9 @@ export class KycService {
             changes.income = { from: user.isIncomeVerified, to: dto.isIncomeVerified };
         }
 
+        // Identity graph: link BVN/NIN to identity subject when admin marks verified
+        await this.resolveIdentityForAdmin(dto, user, userId);
+
         const updatedUser = await this.prisma.user.update({
             where: { id: userId },
             data: updateData,
@@ -618,9 +621,6 @@ export class KycService {
                 isIncomeVerified: true,
             },
         });
-
-        // Identity graph: link BVN/NIN to identity subject when admin marks verified
-        await this.resolveIdentityForAdmin(dto, user, userId);
 
         // Audit log
         await this.prisma.auditLog.create({

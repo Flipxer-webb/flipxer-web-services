@@ -445,6 +445,31 @@ describe("KycService", () => {
                 service.updateUserVerification(11, { isBvnVerified: true, reason: "reviewed" } as any, 99),
             ).rejects.toThrow("Cannot set BVN verified");
         });
+
+        it("does not persist verification when identity resolution fails", async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                id: 12,
+                bvn: "12345678901",
+                nin: null,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+            });
+            mockIdentityResolutionService.resolveOrCreate.mockRejectedValue(new Error("duplicate identity"));
+
+            await expect(
+                service.updateUserVerification(12, { isBvnVerified: true, reason: "reviewed" } as any, 99),
+            ).rejects.toThrow("duplicate identity");
+
+            expect(mockPrismaService.user.update).not.toHaveBeenCalled();
+            expect(mockPrismaService.auditLog.create).not.toHaveBeenCalled();
+            expect(mockTierService.syncTierAndCache).not.toHaveBeenCalled();
+        });
     });
 
     describe("document decision wrappers", () => {
