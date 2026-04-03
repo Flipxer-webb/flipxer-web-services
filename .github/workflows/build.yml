@@ -3,7 +3,11 @@ on:
   push:
     branches:
       - develop
+      - production
   pull_request:
+    branches:
+      - develop
+      - production
     types: [opened, synchronize, reopened]
 
 env:
