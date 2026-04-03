@@ -240,11 +240,168 @@ describe("SweepService", () => {
                 "le-1", SweepStatus.FAILED,
             );
         });
+
+        it("should throw when failSweep transition is invalid", async () => {
+            prisma.ledgerEntry.findUnique.mockResolvedValue({
+                id: "le-1", sweepStatus: SweepStatus.COMPLETED, type: LedgerType.DEPOSIT,
+            });
+
+            await expect(service.failSweep("le-1", "late fail")).rejects.toThrow(
+                "Invalid sweep transition",
+            );
+        });
+    });
+
+    // ── handleSweepConfirmation ─────────────────────────────
+
+    describe("handleSweepConfirmation", () => {
+        it("should ignore unknown sweep transaction IDs", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue(null);
+
+            await expect(
+                service.handleSweepConfirmation("unknown-tx", "completed"),
+            ).resolves.toBeUndefined();
+
+            expect(ledgerService.updateSweepStatus).not.toHaveBeenCalled();
+        });
+
+        it("should skip terminal sweep entries", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue({
+                id: "le-1",
+                sweepStatus: SweepStatus.COMPLETED,
+                userId: 1,
+                currency: "BTC",
+            });
+
+            await expect(
+                service.handleSweepConfirmation("quidax-tx-1", "failed", "late webhook"),
+            ).resolves.toBeUndefined();
+
+            expect(ledgerService.updateSweepStatus).not.toHaveBeenCalled();
+        });
+
+        it("should mark IN_PROGRESS sweep as COMPLETED", async () => {
+            prisma.ledgerEntry.findFirst.mockResolvedValue({
+                id: "le-1",
+                sweepStatus: SweepStatus.IN_PROGRESS,
+                userId: 1,
+                currency: "BTC",
+            });
+            prisma.ledgerEntry.findUnique.mockResolvedValue({
+                sweepStatus: SweepStatus.IN_PROGRESS,
+                type: LedgerType.DEPOSIT,
+            });
+            ledgerService.updateSweepStatus.mockResolvedValue(undefined);
+
+            await service.handleSweepConfirmation("quidax-tx-1", "completed");
+
+            expect(ledgerService.updateSweepStatus).toHaveBeenCalledWith(
+                "le-1",
+                SweepStatus.COMPLETED,
+            );
+        });
+    });
+
+    // ── processPendingSweeps ────────────────────────────────
+
+    describe("processPendingSweeps", () => {
+        it("should return 0 when another pod holds the job lock", async () => {
+            lockService.withLock.mockRejectedValueOnce(new Error("Failed to acquire lock"));
+
+            const result = await service.processPendingSweeps();
+
+            expect(result).toBe(0);
+        });
+
+        it("should process pending sweeps and count successful initiations", async () => {
+            jest.spyOn(service, "getPendingSweeps").mockResolvedValue([
+                { ledgerEntryId: "le-1" } as any,
+                { ledgerEntryId: "le-2" } as any,
+            ]);
+            jest.spyOn(service, "initiateSweep")
+                .mockResolvedValueOnce({ success: true, ledgerEntryId: "le-1" })
+                .mockResolvedValueOnce({ success: false, ledgerEntryId: "le-2", error: "boom" });
+
+            const result = await service.processPendingSweeps();
+
+            expect(result).toBe(1);
+            expect(service.initiateSweep).toHaveBeenCalledTimes(2);
+        });
+    });
+
+    // ── retryFailedSweeps ───────────────────────────────────
+
+    describe("retryFailedSweeps", () => {
+        it("should return 0 when retry job lock is already held", async () => {
+            lockService.withLock.mockRejectedValueOnce(new Error("Failed to acquire lock"));
+
+            const result = await service.retryFailedSweeps();
+
+            expect(result).toBe(0);
+        });
+
+        it("should delegate to inner retry implementation under lock", async () => {
+            jest
+                .spyOn(service as any, "_retryFailedSweepsInner")
+                .mockResolvedValueOnce(2);
+
+            const result = await service.retryFailedSweeps(5);
+
+            expect(result).toBe(2);
+            expect(lockService.withLock).toHaveBeenCalledWith(
+                "job:sweep:retry_failed",
+                expect.any(Function),
+                expect.objectContaining({ ttlMs: 120000, maxWaitMs: 0, strict: false }),
+            );
+        });
+    });
+
+    // ── executeSweep edge cases ─────────────────────────────
+
+    describe("executeSweep edge cases", () => {
+        const baseEntry = {
+            id: "le-unknown",
+            userId: 1,
+            currency: "XYZ",
+            credit: new Decimal("1"),
+            sweepStatus: SweepStatus.PENDING,
+            user: { id: 1, cryptoSubAccountId: "sub-1" },
+        };
+
+        it("should throw when unknown currency hits invalid transition path", async () => {
+            prisma.ledgerEntry.findUnique
+                .mockResolvedValueOnce(baseEntry)
+                .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT });
+            prisma.ledgerEntry.update.mockResolvedValue(baseEntry);
+            ledgerService.updateSweepStatus.mockResolvedValue(undefined);
+
+            await expect(service.initiateSweep("le-unknown")).rejects.toThrow(
+                "Invalid sweep transition",
+            );
+            expect(quidaxService.createWithdrawerRequest).not.toHaveBeenCalled();
+        });
     });
 
     // ── canWithdraw ──────────────────────────────────────────
 
     describe("canWithdraw", () => {
+        it("should return true when entry is missing", async () => {
+            prisma.ledgerEntry.findUnique.mockResolvedValue(null);
+
+            const result = await service.canWithdraw("le-missing");
+            expect(result).toBe(true);
+        });
+
+        it("should return true when entry is not a deposit", async () => {
+            prisma.ledgerEntry.findUnique.mockResolvedValue({
+                sweepStatus: SweepStatus.PENDING,
+                type: LedgerType.WITHDRAWAL,
+            });
+
+            const result = await service.canWithdraw("le-1");
+            expect(result).toBe(true);
+        });
+
         it("should return true when sweep is COMPLETED", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
                 sweepStatus: SweepStatus.COMPLETED, type: LedgerType.DEPOSIT,

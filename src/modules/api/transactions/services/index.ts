@@ -107,6 +107,14 @@ export class TransactionService {
     }
 
     private buildTransactionWhereClause(query: GetUserTransactionListDto, user?: User): Prisma.OrderWhereInput {
+        const normalizedSource = (query.source ?? "").toLowerCase();
+        const adminSwapMatcher: Prisma.OrderWhereInput = {
+            OR: [
+                { orderReference: { startsWith: "admin-swap-", mode: "insensitive" } },
+                { transactionId: { startsWith: "admin-swap-", mode: "insensitive" } },
+            ],
+        };
+
         return {
             ...(user && { userId: user.id }),
             ...(query.type && { orderCategory: query.type }),
@@ -142,6 +150,12 @@ export class TransactionService {
                             { user: { email: { contains: query.searchText, mode: "insensitive" as const } } },
                         ],
                     }]
+                    : []),
+                ...(normalizedSource === "admin"
+                    ? [{ orderCategory: OrderCategory.SWAP }, adminSwapMatcher]
+                    : []),
+                ...(normalizedSource === "user"
+                    ? [{ NOT: adminSwapMatcher }]
                     : []),
             ],
         };

@@ -132,6 +132,11 @@ export class BuyCryptoOrderDto {
     @IsNumber()
     totalAmountToPayInFiat: number;
 
+    @ApiProperty({ description: "Security verification token", required: false })
+    @IsOptional()
+    @IsString()
+    verificationToken?: string;
+
     @ApiProperty({ description: "Unique key to prevent duplicate buy orders", required: true })
     @IsNotEmpty()
     @IsString()
@@ -417,6 +422,14 @@ export class WithdrawerRequestDto {
     @IsString()
     destinationTag?: string; //destination tag
 
+    @ApiProperty({
+        description: "Confirm recipient wallet does not require destination tag/memo",
+        required: false,
+    })
+    @IsOptional()
+    @IsBoolean()
+    destinationTagNotRequiredConfirmed?: boolean;
+
     @ApiProperty({ description: "2FA verification code", required: false })
     @IsOptional()
     @IsString()
@@ -501,4 +514,34 @@ export class GetBatchSparklinesDto {
     @IsNotEmpty()
     @IsString()
     assets: string;
+}
+
+// ==================== ADMIN SWAP DTOs ====================
+
+export class AdminSwapQuoteDto {
+    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap from" })
+    @Transform(({ value }) => value?.toLowerCase())
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    from_currency: SupportedAssets;
+
+    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap to" })
+    @Transform(({ value }) => value?.toLowerCase())
+    @IsNotEmpty()
+    @IsEnum(SupportedAssets)
+    to_currency: SupportedAssets;
+
+    @ApiProperty({ example: 100, description: "Amount to swap from" })
+    @Transform(({ value }) => +value)
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    from_amount: number;
+}
+
+export class AdminSwapConfirmDto {
+    @ApiProperty({ description: "Quotation ID from the quote step" })
+    @IsNotEmpty()
+    @IsString()
+    quotation_id: string;
 }

@@ -29,7 +29,7 @@ function getTimestamp() {
     return now.toISOString().replaceAll(/[:.]/g, '-').slice(0, 19);
 }
 
-async function createBackup() {
+function createBackup() {
     console.log('🔄 Starting database backup...\n');
 
     if (!DATABASE_URL) {

@@ -1,8 +1,20 @@
 import {
     checkNameInText,
+    extractTextFromDocument,
     extractDocumentDate,
     isDocumentRecent,
+    validateAddressDocument,
+    validateIncomeDocument,
 } from "../index";
+
+const mockRecognize = jest.fn();
+
+jest.mock("tesseract.js", () => ({
+    __esModule: true,
+    default: {
+        recognize: (...args: unknown[]) => mockRecognize(...args),
+    },
+}));
 
 describe("OCR Name Matching (checkNameInText)", () => {
     describe("exact matches", () => {
@@ -171,5 +183,149 @@ describe("Document Recency (isDocumentRecent)", () => {
 
     it("should return true for today", () => {
         expect(isDocumentRecent(new Date())).toBe(true);
+    });
+});
+
+describe("OCR Extraction (extractTextFromDocument)", () => {
+    beforeEach(() => {
+        mockRecognize.mockReset();
+    });
+
+    it("should return extracted text and confidence on success", async () => {
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: "Sample OCR text",
+                confidence: 88,
+            },
+        });
+
+        const result = await extractTextFromDocument(Buffer.from("image"));
+
+        expect(result).toEqual({
+            text: "Sample OCR text",
+            confidence: 88,
+        });
+    });
+
+    it("should return safe fallback when OCR fails", async () => {
+        mockRecognize.mockRejectedValue(new Error("ocr failed"));
+
+        const result = await extractTextFromDocument(Buffer.from("image"));
+
+        expect(result).toEqual({ text: "", confidence: 0 });
+    });
+});
+
+describe("Document Validators", () => {
+    beforeEach(() => {
+        mockRecognize.mockReset();
+    });
+
+    it("should auto-approve a strong address document", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe 10 Main Street Lagos Nigeria Bill Date ${todayIso}`,
+                confidence: 95,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe"
+        );
+
+        expect(result.isValid).toBe(true);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.matchedName).toBe(true);
+        expect(result.matchedAddress).toBe(true);
+        expect(result.isRecent).toBe(true);
+    });
+
+    it("should flag address document when extraction is too weak", async () => {
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: "",
+                confidence: 8,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe"
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.reason).toContain("Could not extract text from document");
+    });
+
+    it("should include detailed reasons for manual address review", async () => {
+        const oldDate = new Date();
+        oldDate.setMonth(oldDate.getMonth() - 6);
+        const oldDateIso = oldDate.toISOString().slice(0, 10);
+
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `Payment receipt ${oldDateIso} for Alice Johnson`,
+                confidence: 40,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe"
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.reason).toContain("Low document quality");
+        expect(result.reason).toContain("Name not clearly visible");
+        expect(result.reason).toContain("Address not clearly visible");
+        expect(result.reason).toContain("older than 3 months");
+    });
+
+    it("should auto-approve a strong income document", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe salary payment bank statement amount NGN Date ${todayIso}`,
+                confidence: 92,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe"
+        );
+
+        expect(result.isValid).toBe(true);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.matchedName).toBe(true);
+        expect(result.isRecent).toBe(true);
+    });
+
+    it("should flag income document with missing income indicators", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe utility document Date ${todayIso}`,
+                confidence: 85,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe"
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.reason).toContain("Income information not clearly visible");
     });
 });

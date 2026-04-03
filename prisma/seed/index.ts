@@ -643,14 +643,16 @@ async function main() {
     logger.info("Database seeding completed");
 }
 
-main()
-    .then(() => {
+async function bootstrap() {
+    try {
+        await main();
         logger.info("Database seeding successful");
-    })
-    .catch((err) => {
+    } catch (err) {
         logger.error(`Database seeding failed: ${err}`);
         process.exit(1);
-    })
-    .finally(async () => {
+    } finally {
         await prisma.$disconnect();
-    });
+    }
+}
+
+void bootstrap();

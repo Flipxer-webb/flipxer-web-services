@@ -182,4 +182,49 @@ describe('UserService', () => {
             expect(result.data.verificationRequirements.nextStep).toBe('GOVERNMENT_ID');
         });
     });
+
+    describe('getIntercomHash', () => {
+        const mockUser = { id: 42, email: 'test@example.com' } as any;
+
+        afterEach(() => {
+            delete process.env.INTERCOM_SECRET_KEY;
+        });
+
+        it('should return error response when INTERCOM_SECRET_KEY is not configured', async () => {
+            delete process.env.INTERCOM_SECRET_KEY;
+
+            const result = await service.getIntercomHash(mockUser);
+
+            expect(result.success).toBe(false);
+            expect(result.message).toContain('not configured');
+        });
+
+        it('should return a valid HMAC-SHA256 hash when secret is configured', async () => {
+            process.env.INTERCOM_SECRET_KEY = 'test-secret-key';
+
+            const result = await service.getIntercomHash(mockUser);
+
+            expect(result.success).toBe(true);
+            expect(result.data.userHash).toBeDefined();
+            expect(result.data.userHash).toHaveLength(64); // SHA-256 hex = 64 chars
+        });
+
+        it('should produce deterministic hash for same user and secret', async () => {
+            process.env.INTERCOM_SECRET_KEY = 'test-secret-key';
+
+            const result1 = await service.getIntercomHash(mockUser);
+            const result2 = await service.getIntercomHash(mockUser);
+
+            expect(result1.data.userHash).toBe(result2.data.userHash);
+        });
+
+        it('should produce different hashes for different users', async () => {
+            process.env.INTERCOM_SECRET_KEY = 'test-secret-key';
+
+            const result1 = await service.getIntercomHash(mockUser);
+            const result2 = await service.getIntercomHash({ id: 99 } as any);
+
+            expect(result1.data.userHash).not.toBe(result2.data.userHash);
+        });
+    });
 });

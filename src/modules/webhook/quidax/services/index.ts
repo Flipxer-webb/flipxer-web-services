@@ -333,29 +333,35 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     }
 
     async swapTransactionHandlerHandler(eventData: SwapTransactionEventData) {
-        switch (true) {
-            case eventData.status === OrderStatus.completed:
-                await this.tradingService.swapTransactionHandler({
-                    orderId: eventData.id,
-                    status: OrderStatus.completed,
-                });
-                break;
-            case eventData.status === OrderStatus.failed:
-                await this.tradingService.swapTransactionHandler({
-                    orderId: eventData.id,
-                    status: OrderStatus.failed,
-                });
-                break;
-            case eventData.status === OrderStatus.reversed:
-                await this.tradingService.swapTransactionHandler({
-                    orderId: eventData.id,
-                    status: OrderStatus.reversed,
-                });
-                break;
-            default: {
-                break;
-            }
+        const normalizedStatus = eventData.status?.toLowerCase();
+
+        if (["completed", "done", "successful", "success", "accepted"].includes(normalizedStatus)) {
+            await this.tradingService.swapTransactionHandler({
+                orderId: eventData.id,
+                status: OrderStatus.completed,
+            });
+            return;
         }
+
+        if (["failed", "rejected"].includes(normalizedStatus)) {
+            await this.tradingService.swapTransactionHandler({
+                orderId: eventData.id,
+                status: OrderStatus.failed,
+            });
+            return;
+        }
+
+        if (["reversed"].includes(normalizedStatus)) {
+            await this.tradingService.swapTransactionHandler({
+                orderId: eventData.id,
+                status: OrderStatus.reversed,
+            });
+            return;
+        }
+
+        this.logger.warn(
+            `[SWAP] Unhandled swap status: ${eventData.status} for swap transaction ${eventData.id}`
+        );
     }
 
     async withdrawerTransactionHandler(eventData: WithdrawerEventData) {

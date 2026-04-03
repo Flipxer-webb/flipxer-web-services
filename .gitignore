@@ -61,6 +61,7 @@ bun.lock
 
 # Security scan results (may contain secrets)
 snyk_code_results.json
+/.scannerwork
 package-lock.json
 pnpm-lock.yaml
 

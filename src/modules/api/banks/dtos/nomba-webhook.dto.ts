@@ -40,18 +40,6 @@ export class NombaWebhookTransactionData {
 
     @IsOptional()
     @IsString()
-    senderAccountNumber?: string;
-
-    @IsOptional()
-    @IsString()
-    senderAccountName?: string;
-
-    @IsOptional()
-    @IsString()
-    senderBankName?: string;
-
-    @IsOptional()
-    @IsString()
     narration?: string;
 
     @IsOptional()

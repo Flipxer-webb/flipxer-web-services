@@ -183,6 +183,19 @@ describe("BankService", () => {
         });
     });
 
+    describe("verifyNombaCheckout", () => {
+        it("returns mapped checkout status", async () => {
+            nomba.verifyTransaction.mockResolvedValue({
+                data: { status: "success", orderReference: "ORD-1" },
+            });
+
+            const result = await service.verifyNombaCheckout("ORD-1");
+
+            expect(nomba.verifyTransaction).toHaveBeenCalledWith("ORD-1");
+            expect(result.data).toEqual({ status: "success", orderReference: "ORD-1" });
+        });
+    });
+
     // ============ verifyBankAccount ============
 
     describe("verifyBankAccount", () => {
@@ -348,6 +361,20 @@ describe("BankService", () => {
             const result = await service.validateTransactionRef("REF-A");
 
             expect(result).toEqual(payment);
+        });
+    });
+
+    describe("verifyFincraTransactionHandler", () => {
+        it("returns fincra verification response directly", async () => {
+            fincra.verifyTransaction.mockResolvedValue({
+                status: true,
+                data: { reference: "REF-200" },
+            });
+
+            const result = await service.verifyFincraTransactionHandler("REF-200");
+
+            expect(fincra.verifyTransaction).toHaveBeenCalledWith("REF-200");
+            expect(result).toEqual({ status: true, data: { reference: "REF-200" } });
         });
     });
 

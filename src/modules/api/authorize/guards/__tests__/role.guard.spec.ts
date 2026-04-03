@@ -54,6 +54,13 @@ describe("SocketRoleGuard", () => {
         reflector = { getAllAndOverride: jest.fn() };
     });
 
+    it("should allow websocket access when no roles are decorated", () => {
+        reflector.getAllAndOverride.mockReturnValue(undefined);
+        const guard = new SocketRoleGuard(reflector as unknown as Reflector);
+
+        expect(guard.canActivate(makeWsContext({ userType: "ADMIN" }))).toBe(true);
+    });
+
     it("should allow websocket access for matching role", () => {
         reflector.getAllAndOverride.mockReturnValue(["ADMIN"]);
         const guard = new SocketRoleGuard(reflector as unknown as Reflector);

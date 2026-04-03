@@ -63,6 +63,16 @@ export class SendService {
         NetworkTypes.base,
         NetworkTypes.celo,
     ]);
+    private readonly memoTagRequiredNetworks = new Set<NetworkTypes>([
+        NetworkTypes.ripple,
+        NetworkTypes.stellar,
+    ]);
+    private readonly memoTagRequiredCurrencies = new Set<string>([
+        "XRP",
+        "XLM",
+        "EOS",
+        "HBAR",
+    ]);
 
     constructor(
         private readonly prisma: PrismaService,
@@ -468,6 +478,51 @@ export class SendService {
         }
     }
 
+    private requiresDestinationTag(currency: string, network?: NetworkTypes): boolean {
+        if (network && this.memoTagRequiredNetworks.has(network)) {
+            return true;
+        }
+        return this.memoTagRequiredCurrencies.has(currency.toUpperCase());
+    }
+
+    private validateDestinationTagRequirements(
+        currency: string,
+        network: NetworkTypes | undefined,
+        destinationTag: string | undefined,
+        destinationTagNotRequiredConfirmed: boolean | undefined,
+    ): void {
+        const requiresTag = this.requiresDestinationTag(currency, network);
+        if (!requiresTag) {
+            return;
+        }
+
+        const trimmedTag = destinationTag?.trim();
+
+        // XRP/Ripple tags are numeric in the downstream exchange flows we support.
+        const requiresNumericTag = currency.toUpperCase() === "XRP" || network === NetworkTypes.ripple;
+
+        if (trimmedTag) {
+            if (requiresNumericTag && !/^\d{1,20}$/.test(trimmedTag)) {
+                throw new IncompleteAccountSetupException(
+                    "Destination tag must be numeric for XRP withdrawals",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return;
+        }
+
+        if (!destinationTagNotRequiredConfirmed) {
+            throw new IncompleteAccountSetupException(
+                "Destination tag/memo is required for this wallet type, or confirm recipient wallet does not require one",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        this.logger.warn(
+            `Destination tag omitted with explicit user confirmation | currency: ${currency} | network: ${network}`
+        );
+    }
+
     private inferAddressFamily(address: string):
         | "evm"
         | "trc20"
@@ -488,7 +543,7 @@ export class SendService {
         if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "trc20";
         if (/^(bc1|[13])[A-HJ-NP-Z0-9]{25,62}$/i.test(trimmed)) return "btc";
         if (/^L[1-9A-HJ-NP-Za-km-z]{26,33}$/.test(trimmed)) return "ltc";
-        if (/^D[5-9A-HJ-NP-Ua-km-z]{32}$/.test(trimmed)) return "doge";
+        if (/^D[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "doge";
         if (/^X[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) return "dash";
         if (/^(bitcoincash:)?[qp][a-z0-9]{41}$/i.test(trimmed)) return "bch";
         if (/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(trimmed)) return "ripple";
@@ -547,6 +602,13 @@ export class SendService {
             currency: dto.currency.toLowerCase(),
             ...(dto.network && { network: dto.network }),
         });
+
+        if (!providerFeeInfo?.data) {
+            throw new IncompleteAccountSetupException(
+                "Fee information is not available for the selected currency and network combination",
+                HttpStatus.BAD_REQUEST
+            );
+        }
 
         // Calculate provider fee
         const providerFee = await this.getFee(dto.amount, providerFeeInfo.data);
@@ -622,6 +684,13 @@ export class SendService {
             );
         }
 
+        this.validateDestinationTagRequirements(
+            currency,
+            resolvedNetwork,
+            dto.destinationTag,
+            dto.destinationTagNotRequiredConfirmed,
+        );
+
         // Verify address with provider, falling back to local regex validation.
         await this.validateWalletAddress(user.id, recipientWalletAddress, currency, resolvedNetwork);
 
@@ -645,16 +714,7 @@ export class SendService {
 
         // Check for pending sweeps - user can't withdraw until deposits are confirmed
         // NOTE: In omnibus mode (no sub-account), this auto-resolves and returns false.
-        const hasPendingSweeps = await this.sweepService.hasPendingSweeps(user.id, currency);
-        if (hasPendingSweeps) {
-            this.logger.warn(
-                `Withdrawal blocked by pending sweep | userId: ${user.id}, currency: ${currency}`
-            );
-            throw new IncompleteAccountSetupException(
-                "Please wait for your recent deposit to be confirmed before withdrawing. This usually takes a few minutes.",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+        await this.assertNoPendingSweeps(user.id, currency);
 
         // Get user's available balance from ledger
         // We don't check totalAmount here because we do strict check inside the lock below.
@@ -703,6 +763,7 @@ export class SendService {
             metadata: {
                 destinationAddress: dto.recipientWalletAddress,
                 destinationTag: dto.destinationTag,
+                destinationTagNotRequiredConfirmed: !!dto.destinationTagNotRequiredConfirmed,
                 network: resolvedNetwork,
                 narration: dto.narration,
                 transaction_note: dto.transaction_note,
@@ -748,6 +809,9 @@ export class SendService {
                 amount: dto.amount, // The amount receiving
                 fee: networkFee.toNumber(), // The fee paid
                 total: totalAmount.toNumber(), // The total deducted
+                reason: !dto.destinationTag && this.requiresDestinationTag(currency, resolvedNetwork)
+                    ? "NO_DESTINATION_TAG_CONFIRMED_BY_USER"
+                    : undefined,
                 amountInFiat: amtFiat?.amount,
                 rateAtConversion: amtFiat?.rate,
                 sender: user.email,
@@ -776,92 +840,125 @@ export class SendService {
         if (hasLiquidity) {
             // Execute withdrawal from main wallet immediately
             return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId, resolvedNetwork);
-        } else {
-            // Add to queue - withdrawal will be processed when liquidity is available
-            const queueResult = await this.withdrawalQueueService.addToQueue({
-                holdEntryId: holdResult.entryId,
-                userId: user.id,
-                currency: currency,
-                amount: totalAmount,
-                reason: QueueReason.LOW_LIQUIDITY,
-            });
-
-            if (!queueResult.success) {
-                // Release hold if queueing fails
-                await this.ledgerService.releaseHold(
-                    `withdrawal:${reference}`,
-                    false,
-                    "Failed to queue withdrawal"
-                );
-                throw new IncompleteAccountSetupException(
-                    "Failed to process withdrawal. Please try again.",
-                    HttpStatus.INTERNAL_SERVER_ERROR
-                );
-            }
-
-            // Notify admin about liquidity issue
-            await this.slackWebhookService.sendAlert(
-                "LOW_LIQUIDITY_QUEUE",
-                {
-                    text: `⚠️ Withdrawal queued due to low liquidity\n` +
-                        `User: ${user.id} (${user.email})\n` +
-                        `Amount: ${totalAmount} ${currency}\n` +
-                        `Queue Position: ${queueResult.queueEntry?.position}\n` +
-                        `Main Wallet Balance: ${mainWalletBalance.toString()} ${currency}`,
-                },
-                { alertKey: `queue:${reference}` }
-            );
-
-            // WebSocket: Notify user their withdrawal is queued
-            this.wsGateway.notifyWithdrawalQueued(user.id, {
-                queueId: queueResult.queueEntry?.id,
-                currency,
-                amount: totalAmount.toString(),
-                position: queueResult.queueEntry?.position,
-                reason: "LOW_LIQUIDITY",
-            });
-
-            // Send queued notification (in-app + push)
-            await this.notificationDispatcher.notify({
-                userId: user.id,
-                title: "Send transaction queued",
-                body: `\u23F3 Your send of ${dto.amount} ${currency.toUpperCase()} is being processed. This may take a few minutes. Transaction ID: ${transactionId}.`,
-                category: "transaction",
-                currency: currency,
-                transactionType: OrderCategory.SEND,
-                enablePush: true,
-            });
-
-            // Emit wallet update
-            this.wsGateway.notifyWalletUpdate(user.id);
-
-            return buildResponse({
-                message: "Withdrawal request received and is being processed",
-                data: {
-                    transactionId: createdOrder.transactionId,
-                    status: "queued",
-                    statusHint: "Your withdrawal is being processed. This may take a few minutes.",
-                    queuePosition: queueResult.queueEntry?.position,
-                    // Include order details for frontend rendering
-                    amount: String(createdOrder.amount),
-                    currency: createdOrder.currency,
-                    fee: String(createdOrder.fee),
-                    total: String(createdOrder.total),
-                    recipient: {
-                        details: {
-                            address: createdOrder.recipient || dto.recipientWalletAddress || "",
-                            destination_tag: dto.destinationTag || "",
-                            name: null,
-                        },
-                        type: "coin_address",
-                    },
-                    created_at: createdOrder.createdAt?.toISOString() || new Date().toISOString(),
-                },
-            });
         }
+
+        // Add to queue - withdrawal will be processed when liquidity is available
+        return await this.queueWithdrawalForLiquidity({
+            user, createdOrder, dto, holdEntryId: holdResult.entryId, reference, currency, totalAmount, mainWalletBalance,
+        });
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
+    }
+
+    /**
+     * Blocks withdrawal if the user has pending deposit sweeps.
+     */
+    private async assertNoPendingSweeps(userId: number, currency: string): Promise<void> {
+        const hasPendingSweeps = await this.sweepService.hasPendingSweeps(userId, currency);
+        if (hasPendingSweeps) {
+            this.logger.warn(
+                `Withdrawal blocked by pending sweep | userId: ${userId}, currency: ${currency}`
+            );
+            throw new IncompleteAccountSetupException(
+                "Please wait for your recent deposit to be confirmed before withdrawing. This usually takes a few minutes.",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    /**
+     * Queues a withdrawal when the main wallet has insufficient liquidity.
+     */
+    private async queueWithdrawalForLiquidity(opts: {
+        user: User;
+        createdOrder: any;
+        dto: WithdrawerRequestDto;
+        holdEntryId: string;
+        reference: string;
+        currency: string;
+        totalAmount: Decimal;
+        mainWalletBalance: Decimal;
+    }) {
+        const { user, createdOrder, dto, holdEntryId, reference, currency, totalAmount, mainWalletBalance } = opts;
+        const queueResult = await this.withdrawalQueueService.addToQueue({
+            holdEntryId,
+            userId: user.id,
+            currency: currency,
+            amount: totalAmount,
+            reason: QueueReason.LOW_LIQUIDITY,
+        });
+
+        if (!queueResult.success) {
+            await this.ledgerService.releaseHold(
+                `withdrawal:${reference}`,
+                false,
+                "Failed to queue withdrawal"
+            );
+            throw new IncompleteAccountSetupException(
+                "Failed to process withdrawal. Please try again.",
+                HttpStatus.INTERNAL_SERVER_ERROR
+            );
+        }
+
+        await this.slackWebhookService.sendAlert(
+            "LOW_LIQUIDITY_QUEUE",
+            {
+                text: `⚠️ Withdrawal queued due to low liquidity\n` +
+                    `User: ${user.id} (${user.email})\n` +
+                    `Amount: ${totalAmount} ${currency}\n` +
+                    `Queue Position: ${queueResult.queueEntry?.position}\n` +
+                    `Main Wallet Balance: ${mainWalletBalance.toString()} ${currency}`,
+            },
+            { alertKey: `queue:${reference}` }
+        );
+
+        this.wsGateway.notifyWithdrawalQueued(user.id, {
+            queueId: queueResult.queueEntry?.id,
+            currency,
+            amount: totalAmount.toString(),
+            position: queueResult.queueEntry?.position,
+            reason: "LOW_LIQUIDITY",
+        });
+
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Send transaction processing",
+            body: `⏳ Your send of ${dto.amount} ${currency.toUpperCase()} is being processed. This may take a few minutes. Transaction ID: ${createdOrder.transactionId}.`,
+            category: "transaction",
+            currency: currency,
+            transactionType: OrderCategory.SEND,
+            enablePush: true,
+        });
+
+        this.wsGateway.notifyWalletUpdate(user.id);
+
+        return buildResponse({
+            message: "Withdrawal request received and is being processed",
+            data: {
+                transactionId: createdOrder.transactionId,
+                status: "queued",
+                statusHint: "Your withdrawal is being processed. This may take a few minutes.",
+                queuePosition: queueResult.queueEntry?.position,
+                amount: String(createdOrder.amount),
+                currency: createdOrder.currency,
+                fee: String(createdOrder.fee),
+                total: String(createdOrder.total),
+                recipient: {
+                    details: {
+                        address: createdOrder.recipient || dto.recipientWalletAddress || "",
+                        destination_tag: dto.destinationTag || "",
+                        name: null,
+                    },
+                    type: "coin_address",
+                },
+                created_at: createdOrder.createdAt?.toISOString() || new Date().toISOString(),
+            },
+        });
+    }
+
+    /**
+     * Gets main wallet balance for a currency
     }
 
     /**
@@ -1088,7 +1185,15 @@ export class SendService {
             reference = `INT-${dto.idempotencyKey}`;
             const existingOrder = await this.prisma.order.findFirst({
                 where: { orderReference: reference },
-                select: { transactionId: true, recipient: true },
+                select: {
+                    transactionId: true,
+                    recipient: true,
+                    amount: true,
+                    currency: true,
+                    fee: true,
+                    total: true,
+                    createdAt: true,
+                },
             });
 
             if (existingOrder) {
@@ -1097,7 +1202,21 @@ export class SendService {
                     data: {
                         transactionId: existingOrder.transactionId,
                         status: "completed",
-                        recipient: existingOrder.recipient,
+                        amount: String(existingOrder.amount ?? totalAmount),
+                        currency: existingOrder.currency ?? currency,
+                        fee: String(existingOrder.fee ?? 0),
+                        total: String(existingOrder.total ?? existingOrder.amount ?? totalAmount),
+                        recipient: {
+                            details: {
+                                address: existingOrder.recipient || recipient.email,
+                                destination_tag: "",
+                                name: null,
+                            },
+                            type: "internal",
+                        },
+                        created_at:
+                            existingOrder.createdAt?.toISOString() ||
+                            new Date().toISOString(),
                     },
                 });
             }

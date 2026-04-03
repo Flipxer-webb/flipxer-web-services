@@ -89,6 +89,7 @@ export class NombaWebhookController {
         // Handle nested structures strictly here
         const transaction = data.transaction || {};
         const order = data.order || {};
+        const customer = data.customer || {};
 
         // Extract Standard Fields
         // 1. Reference: Must match what we stored in Payment.reference
@@ -138,9 +139,9 @@ export class NombaWebhookController {
             providerReference: transaction.transactionId || data.id,
             amount,
             currency: 'NGN', // Nomba is NGN only for now
-            senderAccountNumber: data.senderAccountNumber || transaction.senderAccountNumber,
-            senderAccountName: data.senderAccountName || transaction.senderAccountName,
-            senderBankName: data.senderBankName || transaction.senderBankName,
+            senderAccountNumber: customer.accountNumber,
+            senderAccountName: customer.senderName,
+            senderBankName: customer.bankName,
             raw: body, // Keep raw for debugging
             metadata: {
                 accountRef: data.accountRef || transaction.accountRef || transaction.aliasAccountReference || order.accountId,

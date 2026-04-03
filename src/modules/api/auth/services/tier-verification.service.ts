@@ -3,7 +3,7 @@
  * Handles Tier 2/3 verification flows: address and income verification
  */
 
-import { HttpException, HttpStatus, Injectable, Logger, Inject, ForbiddenException, BadRequestException } from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { DocumentVerificationStatus, User } from "@prisma/client";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
@@ -22,14 +22,9 @@ import {
 } from "@/libs/ocr";
 import {
     CreateTradingPasswordDto,
-    DojahVerifyAddressDto,
-    DojahVerifyIncomeDto,
-    DojahVerifyGovernmentIdDto,
 } from "../dtos";
 import { TierService } from "./tier.service";
 import * as bcrypt from "bcryptjs";
-import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
-import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
@@ -46,8 +41,6 @@ export class TierVerificationService {
         private readonly uploadFactory: UploadFactory,
         private readonly tierService: TierService,
         private readonly emailService: EmailService,
-        @Inject(IdentityComplianceInjectionToken.DOJAH)
-        private readonly dojahService: DojahService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly wsGateway: WsGateway,
     ) {
@@ -286,270 +279,6 @@ export class TierVerificationService {
         });
     }
 
-    // ==================== Dojah Widget Verification Methods ====================
-
-    /**
-     * Verify address using Dojah widget verification data
-     * This is an alternative to file upload, using Dojah's address verification widget
-     */
-    async verifyAddressWithDojah(
-        user: User,
-        dto: DojahVerifyAddressDto
-    ): Promise<ApiResponse> {
-        // Check if already verified
-        if (user.isAddressVerified) {
-            return buildResponse({
-                message: "Address is already verified",
-            });
-        }
-
-        this.logger.log(
-            `Processing Dojah address verification for user ${user.id}, verificationId: ${dto.verificationId}`
-        );
-
-        // Server-side validation: Verify the verificationId with Dojah API
-        const validationResult = await this.dojahService.getVerificationResult(dto.verificationId);
-        if (!validationResult.verified) {
-            this.logger.warn(
-                `SECURITY: Dojah address verification failed for user ${user.id}, verificationId: ${dto.verificationId}, status: ${validationResult.status}`
-            );
-            throw new ForbiddenException({
-                message: "Address verification could not be confirmed with identity provider",
-                code: "DOJAH_VERIFICATION_FAILED",
-            });
-        }
-
-        // Store verification data and mark as verified
-        const addressString = dto.address
-            ? [
-                dto.address.street,
-                dto.address.city,
-                dto.address.lga,
-                dto.address.state,
-                dto.address.country,
-                dto.address.postalCode,
-            ]
-                .filter(Boolean)
-                .join(", ") || dto.address.fullAddress
-            : null;
-
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                // Store address string in addressDocumentUrl as a reference
-                addressDocumentUrl: addressString || user.addressDocumentUrl,
-                addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
-                isAddressVerified: true,
-            },
-        });
-
-        // Create audit record for Dojah widget verification
-        await this.prisma.kycVerification.create({
-            data: {
-                userId: user.id,
-                verificationType: "ADDRESS",
-                status: "APPROVED",
-                reviewNote: `Auto-approved via Dojah widget (verificationId: ${dto.verificationId})`,
-                reviewedAt: new Date(),
-            },
-        });
-
-        // Sync tier & flush cache
-        await this.tierService.syncTierAndCache(user.id);
-
-        this.logger.log(
-            `Address verified via Dojah widget for user ${user.id}`
-        );
-
-        return buildResponse({
-            message: "Address verified successfully",
-            data: {
-                status: "VERIFIED",
-                isAddressVerified: true,
-            },
-        });
-    }
-
-    /**
-     * Verify income/source of funds using Dojah widget verification data
-     * This is an alternative to file upload, using Dojah's document upload widget
-     */
-    async verifyIncomeWithDojah(
-        user: User,
-        dto: DojahVerifyIncomeDto
-    ): Promise<ApiResponse> {
-        // Check if already verified
-        if (user.isIncomeVerified) {
-            return buildResponse({
-                message: "Income is already verified",
-            });
-        }
-
-        this.logger.log(
-            `Processing Dojah income verification for user ${user.id}, verificationId: ${dto.verificationId}`
-        );
-
-        // Server-side validation: Verify the verificationId with Dojah API
-        const validationResult = await this.dojahService.getVerificationResult(dto.verificationId);
-        if (!validationResult.verified) {
-            this.logger.warn(
-                `SECURITY: Dojah income verification failed for user ${user.id}, verificationId: ${dto.verificationId}, status: ${validationResult.status}`
-            );
-            throw new ForbiddenException({
-                message: "Income verification could not be confirmed with identity provider",
-                code: "DOJAH_VERIFICATION_FAILED",
-            });
-        }
-
-        // Store verification data
-        const documentUrl = dto.document?.documentUrl || null;
-
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                incomeDocumentUrl: documentUrl,
-                incomeVerificationStatus: DocumentVerificationStatus.VERIFIED,
-                isIncomeVerified: true,
-            },
-        });
-
-        // Create audit record for Dojah widget verification
-        await this.prisma.kycVerification.create({
-            data: {
-                userId: user.id,
-                verificationType: "INCOME",
-                status: "APPROVED",
-                reviewNote: `Auto-approved via Dojah widget (verificationId: ${dto.verificationId})`,
-                reviewedAt: new Date(),
-            },
-        });
-
-        // Sync tier & flush cache
-        await this.tierService.syncTierAndCache(user.id);
-
-        this.logger.log(
-            `Income verified via Dojah widget for user ${user.id}`
-        );
-
-        return buildResponse({
-            message: "Income verified successfully",
-            data: {
-                status: "VERIFIED",
-                isIncomeVerified: true,
-            },
-        });
-    }
-
-    /**
-     * Verify government ID (BVN/NIN) using Dojah widget verification data
-     * This is an alternative to manual BVN/NIN entry, using Dojah's government data widget
-     */
-    async verifyGovernmentIdWithDojah(
-        user: User,
-        dto: DojahVerifyGovernmentIdDto
-    ): Promise<ApiResponse> {
-        const govData = dto.government;
-        const idType = govData?.idType?.toLowerCase() || "unknown";
-        const hasGovPayload = !!govData;
-        const hasDob = !!govData?.dateOfBirth;
-        const hasFirstName = !!govData?.firstName;
-        const hasLastName = !!govData?.lastName;
-        const hasIdNumber = !!govData?.idNumber;
-
-        this.logger.log(
-            `Processing Dojah government ID verification for user ${user.id}, type: ${idType}, verificationId: ${dto.verificationId}`
-        );
-        this.logger.log(
-            `[DojahGovWidget] Payload presence for user ${user.id}`,
-            {
-                hasGovPayload,
-                hasDob,
-                hasFirstName,
-                hasLastName,
-                hasIdNumber,
-                hasVerificationId: !!dto.verificationId,
-                idType,
-            }
-        );
-
-        // Check if already verified based on ID type
-        if (idType === "bvn" && user.isBvnVerified) {
-            return buildResponse({
-                message: "BVN is already verified",
-            });
-        }
-
-        if (idType === "nin" && user.isNinVerified) {
-            return buildResponse({
-                message: "NIN is already verified",
-            });
-        }
-
-        // Server-side validation: Verify the verificationId with Dojah API
-        const validationResult = await this.dojahService.getVerificationResult(dto.verificationId);
-        this.logger.log(
-            `[DojahGovWidget] Provider verification result for user ${user.id}`,
-            {
-                verified: validationResult.verified,
-                status: validationResult.status,
-                idType,
-            }
-        );
-        if (!validationResult.verified) {
-            this.logger.warn(
-                `SECURITY: Dojah government ID verification failed for user ${user.id}, type: ${idType}, verificationId: ${dto.verificationId}, status: ${validationResult.status}`
-            );
-            throw new ForbiddenException({
-                message: "Government ID verification could not be confirmed with identity provider",
-                code: "DOJAH_VERIFICATION_FAILED",
-            });
-        }
-
-        // Prepare user data update based on government data
-        const updateData = this.buildGovIdUpdateData(govData, idType);
-
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: updateData,
-        });
-
-        // Create audit record for Dojah widget verification
-        let verificationType: string;
-        if (idType === "bvn") {
-            verificationType = "BVN";
-        } else if (idType === "nin") {
-            verificationType = "NIN";
-        } else {
-            verificationType = "DOCUMENT";
-        }
-        await this.prisma.kycVerification.create({
-            data: {
-                userId: user.id,
-                verificationType: verificationType as any,
-                status: "APPROVED",
-                reviewNote: `Auto-approved via Dojah widget (verificationId: ${dto.verificationId}, idType: ${idType})`,
-                reviewedAt: new Date(),
-            },
-        });
-
-        // Sync tier & flush cache
-        await this.tierService.syncTierAndCache(user.id);
-
-        this.logger.log(
-            `Government ID (${idType}) verified via Dojah widget for user ${user.id}`
-        );
-
-        return buildResponse({
-            message: `${idType.toUpperCase()} verified successfully`,
-            data: {
-                status: "VERIFIED",
-                idType,
-                isBvnVerified: idType === "bvn",
-                isNinVerified: idType === "nin",
-            },
-        });
-    }
-
     /**
      * Create or update trading password
      */
@@ -581,39 +310,6 @@ export class TierVerificationService {
         return buildResponse({
             message: "Trading password created successfully",
         });
-    }
-
-    private buildGovIdUpdateData(
-        govData: any,
-        idType: string,
-    ): Record<string, unknown> {
-        const updateData: Record<string, unknown> = {};
-
-        if (govData?.firstName) updateData.firstName = govData.firstName;
-        if (govData?.lastName)  updateData.lastName  = govData.lastName;
-        if (govData?.dateOfBirth) updateData.dateOfBirth = new Date(govData.dateOfBirth);
-
-        if (idType === "bvn") {
-            if (!govData?.idNumber) {
-                throw new BadRequestException("Verified BVN payload is missing ID number");
-            }
-            updateData.isBvnVerified = true;
-            updateData.isNinVerified = false;
-            updateData.bvn = govData.idNumber;
-            if (govData?.phoneNumber) updateData.bvnRegisteredPhone = govData.phoneNumber;
-        } else if (idType === "nin") {
-            if (!govData?.idNumber) {
-                throw new BadRequestException("Verified NIN payload is missing ID number");
-            }
-            updateData.isNinVerified = true;
-            updateData.isBvnVerified = false;
-            updateData.nin = govData.idNumber;
-            if (govData?.phoneNumber) updateData.ninRegisteredPhone = govData.phoneNumber;
-        } else {
-            updateData.isDocumentVerified = true;
-        }
-
-        return updateData;
     }
 
     /**

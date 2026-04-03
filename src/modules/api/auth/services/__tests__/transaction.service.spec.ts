@@ -32,6 +32,7 @@ function makePrisma() {
         cryptoRate: { findUnique: jest.fn() },
         order: { create: jest.fn(), findMany: jest.fn() },
         user: { update: jest.fn() },
+        limitOverride: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn(),
         $queryRaw: jest.fn(),
     };
@@ -138,6 +139,14 @@ describe("TransactionService", () => {
             ).rejects.toThrow(GeneralTransactionException);
         });
 
+        it("should throw for non-string currency", async () => {
+            prisma.order.create.mockResolvedValue({});
+
+            await expect(
+                service.validateTransactionLimits(mockUser, 100, 123 as any, "BUY" as any, "/api/v1/buy/order")
+            ).rejects.toThrow(GeneralTransactionException);
+        });
+
         it("should throw when USD conversion fails", async () => {
             // All rate look-ups fail
             prisma.cryptoRate.findUnique.mockResolvedValue(null);
@@ -171,53 +180,81 @@ describe("TransactionService", () => {
                 .mockResolvedValueOnce({ currency: "BTC", sellRate: 50000000 })
                 .mockResolvedValueOnce({ currency: "USDT", sellRate: 1500 });
 
-            mockTierService.getWithdrawalLimit.mockReturnValue(5000);
-
-            // Redis atomic increment exceeds daily limit
-            mockRedisCache.incrbyfloat.mockResolvedValue(6000);
+            // Redis atomic increment exceeds per-operation daily limit (Tier 1 BUY = $50)
+            mockRedisCache.incrbyfloat.mockResolvedValue(60);
             mockRedisCache.decrbyfloat.mockResolvedValue(null);
             prisma.order.create.mockResolvedValue({});
 
             await expect(
                 service.validateTransactionLimits(mockUser, 1, "BTC", "BUY" as any, "/api/v1/buy/order")
-            ).rejects.toThrow("Daily withdrawal limit");
+            ).rejects.toThrow("Daily buy limit");
         });
 
-        it("should check Redis-based monthly limit and throw on excess", async () => {
+        it("should enforce admin override per-operation via Redis", async () => {
             prisma.cryptoRate.findUnique
                 .mockResolvedValueOnce({ currency: "BTC", sellRate: 50000000 })
                 .mockResolvedValueOnce({ currency: "USDT", sellRate: 1500 });
 
-            mockTierService.getWithdrawalLimit.mockReturnValue(5000);
+            // Admin set a $200 per-operation daily override
+            prisma.limitOverride.findUnique.mockResolvedValue({
+                userId: 1, dailyLimitUSD: 200, expiresAt: null, reason: "VIP", grantedBy: 99,
+            });
 
-            // Daily passes
-            mockRedisCache.incrbyfloat
-                .mockResolvedValueOnce(100)   // daily passes
-                .mockResolvedValueOnce(200000); // monthly exceeds
-
+            // Redis returns per-op total exceeding override
+            mockRedisCache.incrbyfloat.mockResolvedValue(250);
             mockRedisCache.decrbyfloat.mockResolvedValue(null);
             prisma.order.create.mockResolvedValue({});
-            prisma.flagged.upsert.mockResolvedValue({ id: 1 });
-            prisma.user.update.mockResolvedValue({});
 
             await expect(
                 service.validateTransactionLimits(mockUser, 1, "BTC", "BUY" as any, "/api/v1/buy/order")
-            ).rejects.toThrow("pending");
+            ).rejects.toThrow("Daily buy limit");
+
+            // Verify it used the per-operation key
+            const redisKey = mockRedisCache.incrbyfloat.mock.calls[0][0] as string;
+            expect(redisKey).toContain(":daily:buy:");
         });
 
-        it("should pass when within all limits via Redis", async () => {
+        it("should pass within admin override per-operation limit via Redis", async () => {
             prisma.cryptoRate.findUnique
                 .mockResolvedValueOnce({ currency: "BTC", sellRate: 50000000 })
                 .mockResolvedValueOnce({ currency: "USDT", sellRate: 1500 });
 
-            mockTierService.getWithdrawalLimit.mockReturnValue(5000);
+            // Admin set a $500 per-operation daily override
+            prisma.limitOverride.findUnique.mockResolvedValue({
+                userId: 1, dailyLimitUSD: 500, expiresAt: null, reason: "VIP", grantedBy: 99,
+            });
 
-            mockRedisCache.incrbyfloat
-                .mockResolvedValueOnce(100)  // daily passes
-                .mockResolvedValueOnce(200); // monthly passes
+            // Redis returns per-op total within limit
+            mockRedisCache.incrbyfloat.mockResolvedValue(100);
 
             await expect(
                 service.validateTransactionLimits(mockUser, 0.001, "BTC", "BUY" as any, "/api/v1/buy/order")
+            ).resolves.toBeUndefined();
+        });
+
+        it("should pass when within per-operation daily limit via Redis", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "BTC", sellRate: 50000000 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1500 });
+
+            // Tier 1 BUY limit is $50; Redis returns total within limit
+            mockRedisCache.incrbyfloat.mockResolvedValueOnce(30);
+
+            await expect(
+                service.validateTransactionLimits(mockUser, 0.001, "BTC", "BUY" as any, "/api/v1/buy/order")
+            ).resolves.toBeUndefined();
+        });
+
+        it("should accept lowercase valid currency", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "BTC", sellRate: 50000000 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1500 });
+
+            // Tier 1 BUY limit is $50; Redis returns total within limit
+            mockRedisCache.incrbyfloat.mockResolvedValueOnce(30);
+
+            await expect(
+                service.validateTransactionLimits(mockUser, 0.001, "btc", "BUY" as any, "/api/v1/buy/order")
             ).resolves.toBeUndefined();
         });
     });

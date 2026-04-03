@@ -177,11 +177,6 @@ export const DEFAULT_TRANSACTION_MAX_WAIT_MS = 5000;
  */
 export { TIER_WITHDRAWAL_LIMITS as TIER_DAILY_LIMITS } from "@/modules/shared/tier-limits";
 
-/**
- * @deprecated Use TIER_MONTHLY_LIMITS from @/modules/shared/tier-limits directly
- */
-export { TIER_MONTHLY_LIMITS } from "@/modules/shared/tier-limits";
-
 // ==================== BATCH SIZES ====================
 
 /**

@@ -1,0 +1,813 @@
+﻿{
+    "projectKey":  "Flipxer-web_resolve-web-services",
+    "generatedAtUtc":  "2026-03-29T09:02:21.5906362Z",
+    "strategy":  "greedy-min-load by uncoveredLines",
+    "totalUncoveredLines":  7760,
+    "agentCount":  6,
+    "agents":  [
+                   {
+                       "agentId":  "sonar-agent-1",
+                       "uncoveredLines":  1294,
+                       "directories":  [
+                                           {
+                                               "path":  "src/modules/api/auth/services",
+                                               "uncoveredLines":  1214,
+                                               "files":  7,
+                                               "zeroCoverageFiles":  7
+                                           },
+                                           {
+                                               "path":  "src/modules/api/rbac/controllers",
+                                               "uncoveredLines":  16,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/core/rate-limit/interceptors",
+                                               "uncoveredLines":  12,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/banks/services",
+                                               "uncoveredLines":  10,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/core",
+                                               "uncoveredLines":  9,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/system-config/middleware",
+                                               "uncoveredLines":  7,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/authorize",
+                                               "uncoveredLines":  6,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/core/geoip",
+                                               "uncoveredLines":  5,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/webExtension",
+                                               "uncoveredLines":  4,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/core/email/errors",
+                                               "uncoveredLines":  4,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/rbac/enums",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/libs/termii",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/user/errors",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/banks/errors",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           }
+                                       ]
+                   },
+                   {
+                       "agentId":  "sonar-agent-2",
+                       "uncoveredLines":  1294,
+                       "directories":  [
+                                           {
+                                               "path":  "src/modules/api/trade/services",
+                                               "uncoveredLines":  1008,
+                                               "files":  12,
+                                               "zeroCoverageFiles":  4
+                                           },
+                                           {
+                                               "path":  "src/modules/api/session/services",
+                                               "uncoveredLines":  79,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/banks/controllers",
+                                               "uncoveredLines":  46,
+                                               "files":  4,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/analytics/controllers",
+                                               "uncoveredLines":  27,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/auth/utils",
+                                               "uncoveredLines":  25,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/api/auth/errors",
+                                               "uncoveredLines":  21,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/core/redisCache/services",
+                                               "uncoveredLines":  17,
+                                               "files":  3,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/libs/fincra",
+                                               "uncoveredLines":  14,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/core/pipe",
+                                               "uncoveredLines":  11,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/settings/services",
+                                               "uncoveredLines":  9,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/webhook/fincra/controllers",
+                                               "uncoveredLines":  8,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/authorize/services",
+                                               "uncoveredLines":  7,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/events",
+                                               "uncoveredLines":  5,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/reports",
+                                               "uncoveredLines":  5,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/libs/termii/errors",
+                                               "uncoveredLines":  4,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/utils/decorators",
+                                               "uncoveredLines":  3,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/settings/errors",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/core/logger",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/core/redisCache",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/system-config",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           }
+                                       ]
+                   },
+                   {
+                       "agentId":  "sonar-agent-3",
+                       "uncoveredLines":  1293,
+                       "directories":  [
+                                           {
+                                               "path":  "src/modules/api/trade/services/ledger",
+                                               "uncoveredLines":  441,
+                                               "files":  10,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/operations/services",
+                                               "uncoveredLines":  219,
+                                               "files":  3,
+                                               "zeroCoverageFiles":  3
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/crons",
+                                               "uncoveredLines":  147,
+                                               "files":  4,
+                                               "zeroCoverageFiles":  4
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/providers/quidax/services",
+                                               "uncoveredLines":  124,
+                                               "files":  9,
+                                               "zeroCoverageFiles":  9
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/providers/binance/services",
+                                               "uncoveredLines":  93,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/auth/controllers/v1",
+                                               "uncoveredLines":  56,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/api/user/services",
+                                               "uncoveredLines":  49,
+                                               "files":  3,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/operations/controllers/v1/admin",
+                                               "uncoveredLines":  35,
+                                               "files":  3,
+                                               "zeroCoverageFiles":  3
+                                           },
+                                           {
+                                               "path":  "src/modules/api/user/controllers/v1",
+                                               "uncoveredLines":  21,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api",
+                                               "uncoveredLines":  19,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/gateway/v1",
+                                               "uncoveredLines":  18,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/utils",
+                                               "uncoveredLines":  15,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/core/email/services",
+                                               "uncoveredLines":  11,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/guards",
+                                               "uncoveredLines":  9,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/notification/events",
+                                               "uncoveredLines":  8,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/authorize/controllers/v1",
+                                               "uncoveredLines":  7,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/identityCompliance/factory",
+                                               "uncoveredLines":  5,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/authorize/dto",
+                                               "uncoveredLines":  5,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/session/errors",
+                                               "uncoveredLines":  4,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/analytics",
+                                               "uncoveredLines":  3,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/core/email",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/authorize/guards",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/reports/controllers/v1/admin",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           }
+                                       ]
+                   },
+                   {
+                       "agentId":  "sonar-agent-4",
+                       "uncoveredLines":  1293,
+                       "directories":  [
+                                           {
+                                               "path":  "src/libs/quidax",
+                                               "uncoveredLines":  411,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/scheduler/services",
+                                               "uncoveredLines":  227,
+                                               "files":  5,
+                                               "zeroCoverageFiles":  5
+                                           },
+                                           {
+                                               "path":  "src/modules/api/kyc/services",
+                                               "uncoveredLines":  157,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/libs/nomba",
+                                               "uncoveredLines":  131,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/identityCompliance/providers/dojah/services",
+                                               "uncoveredLines":  95,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/core/logger/services",
+                                               "uncoveredLines":  68,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/queues/processors",
+                                               "uncoveredLines":  42,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/core/upload/services",
+                                               "uncoveredLines":  31,
+                                               "files":  3,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules",
+                                               "uncoveredLines":  23,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/core/exception/ws",
+                                               "uncoveredLines":  19,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/factory",
+                                               "uncoveredLines":  18,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/banks",
+                                               "uncoveredLines":  15,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/transactions",
+                                               "uncoveredLines":  10,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/reports/services",
+                                               "uncoveredLines":  10,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/webhook/quidax",
+                                               "uncoveredLines":  8,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/bank/factory",
+                                               "uncoveredLines":  6,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/webhook/fincra",
+                                               "uncoveredLines":  6,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/health",
+                                               "uncoveredLines":  5,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/queues/producers",
+                                               "uncoveredLines":  4,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/core/prisma/services",
+                                               "uncoveredLines":  3,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/libs/quidax/errors",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/reports/controllers",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/utils/errors",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           }
+                                       ]
+                   },
+                   {
+                       "agentId":  "sonar-agent-5",
+                       "uncoveredLines":  1293,
+                       "directories":  [
+                                           {
+                                               "path":  "src/modules/api/auth/guard",
+                                               "uncoveredLines":  325,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/providers/livecoinwatch/services",
+                                               "uncoveredLines":  234,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/bank/providers",
+                                               "uncoveredLines":  174,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/api/system-config/services",
+                                               "uncoveredLines":  135,
+                                               "files":  3,
+                                               "zeroCoverageFiles":  3
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/providers/coincap/services",
+                                               "uncoveredLines":  96,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/www",
+                                               "uncoveredLines":  81,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/system-config/controllers/v1/admin",
+                                               "uncoveredLines":  51,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/core/logger/middleware",
+                                               "uncoveredLines":  36,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/session/utils",
+                                               "uncoveredLines":  30,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/webhook/quidax/controllers",
+                                               "uncoveredLines":  22,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/transactions/services",
+                                               "uncoveredLines":  21,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/webhook/quidax/events",
+                                               "uncoveredLines":  18,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/core/rate-limit/services",
+                                               "uncoveredLines":  12,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/notification/controllers/v1",
+                                               "uncoveredLines":  12,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/core/middleware",
+                                               "uncoveredLines":  10,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/rbac/errors",
+                                               "uncoveredLines":  8,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading",
+                                               "uncoveredLines":  6,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/webExtension/controllers",
+                                               "uncoveredLines":  6,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/bank/errors",
+                                               "uncoveredLines":  5,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/analytics/services",
+                                               "uncoveredLines":  4,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/webExtension/services",
+                                               "uncoveredLines":  3,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/user",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/reports/controllers/v1",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           }
+                                       ]
+                   },
+                   {
+                       "agentId":  "sonar-agent-6",
+                       "uncoveredLines":  1293,
+                       "directories":  [
+                                           {
+                                               "path":  "src/modules/api/trade/services/webhook-handlers",
+                                               "uncoveredLines":  277,
+                                               "files":  3,
+                                               "zeroCoverageFiles":  3
+                                           },
+                                           {
+                                               "path":  "src/modules/api/notification/services",
+                                               "uncoveredLines":  252,
+                                               "files":  4,
+                                               "zeroCoverageFiles":  4
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/providers/coingecko/services",
+                                               "uncoveredLines":  179,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/rbac/services",
+                                               "uncoveredLines":  136,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/providers/quidax",
+                                               "uncoveredLines":  98,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/libs/dojah",
+                                               "uncoveredLines":  82,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/config",
+                                               "uncoveredLines":  56,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  2
+                                           },
+                                           {
+                                               "path":  "src/modules/api/settings/controllers/v1",
+                                               "uncoveredLines":  47,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/controllers/v1",
+                                               "uncoveredLines":  36,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/libs/sendchamp",
+                                               "uncoveredLines":  22,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/libs/sendchamp/errors",
+                                               "uncoveredLines":  18,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/kyc/controllers",
+                                               "uncoveredLines":  18,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/transactions/controllers/v1",
+                                               "uncoveredLines":  15,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/session/controllers/v1",
+                                               "uncoveredLines":  11,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/core/exception/ws/pipe",
+                                               "uncoveredLines":  10,
+                                               "files":  2,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/libs/ocr",
+                                               "uncoveredLines":  7,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/trade/errors",
+                                               "uncoveredLines":  7,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/api/user/decorators",
+                                               "uncoveredLines":  6,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/webhook",
+                                               "uncoveredLines":  5,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/webhook/quidax/services",
+                                               "uncoveredLines":  4,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/identityCompliance",
+                                               "uncoveredLines":  3,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/factory/trading/providers/quidax/errors",
+                                               "uncoveredLines":  2,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/core/validators",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  1
+                                           },
+                                           {
+                                               "path":  "src/modules/api/settings",
+                                               "uncoveredLines":  1,
+                                               "files":  1,
+                                               "zeroCoverageFiles":  0
+                                           }
+                                       ]
+                   }
+               ]
+}

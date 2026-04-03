@@ -1,6 +1,8 @@
 import {
     Controller,
     Get,
+    Post,
+    Body,
     Query,
     UseGuards,
     Logger,
@@ -13,12 +15,15 @@ import {
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
+import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { SolvencyService } from "../../services/ledger/solvency.service";
 import { RateService } from "../../services/rate.service";
+import { AdminSwapService } from "../../services/admin-swap.service";
+import { AdminSwapQuoteDto, AdminSwapConfirmDto } from "../../dtos";
+import { User } from "@/modules/api/user/decorators";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
 
@@ -36,6 +41,7 @@ export class AdminAccountingController {
         private readonly prisma: PrismaService,
         private readonly solvencyService: SolvencyService,
         private readonly rateService: RateService,
+        private readonly adminSwapService: AdminSwapService,
     ) {}
 
     // =========================================================================
@@ -226,17 +232,26 @@ export class AdminAccountingController {
     @ApiQuery({ name: "pageSize", required: false, description: "Page size (default: 20)" })
     @ApiQuery({ name: "status", required: false, description: "Filter by status" })
     @ApiQuery({ name: "currency", required: false, description: "Filter by from/to currency" })
+    @ApiQuery({ name: "source", required: false, description: "Filter by swap source (admin | user | all)" })
     @Get("swap-log")
     async getSwapLog(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
         @Query("pageSize", new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
         @Query("status") status?: string,
         @Query("currency") currency?: string,
+        @Query("source") source?: string,
     ) {
         this.logger.log(`Admin fetching swap log (page ${pageNumber})`);
 
         const where: any = {
             orderCategory: OrderCategory.SWAP,
+        };
+
+        const adminSwapMatcher = {
+            OR: [
+                { orderReference: { startsWith: "admin-swap-", mode: "insensitive" } },
+                { transactionId: { startsWith: "admin-swap-", mode: "insensitive" } },
+            ],
         };
 
         if (status) {
@@ -249,6 +264,13 @@ export class AdminAccountingController {
                 { fromCurrency: upperCurrency },
                 { toCurrency: upperCurrency },
             ];
+        }
+
+        const normalizedSource = (source ?? "").toLowerCase();
+        if (normalizedSource === "admin") {
+            where.AND = [adminSwapMatcher];
+        } else if (normalizedSource === "user") {
+            where.AND = [{ NOT: adminSwapMatcher }];
         }
 
         // Get distinct users with matching swap orders (paginate by user, not by entry)
@@ -287,12 +309,17 @@ export class AdminAccountingController {
         // Group orders by user
         const userMap = new Map<number, { userName: string; entries: any[] }>();
         for (const order of orders) {
+            const isAdminSwap =
+                (typeof order.orderReference === "string" && order.orderReference.toLowerCase().startsWith("admin-swap-")) ||
+                (typeof order.transactionId === "string" && order.transactionId.toLowerCase().startsWith("admin-swap-"));
+
             const entry = {
                 id: order.id,
                 userId: order.userId,
                 userName: order.user
                     ? `${order.user.firstName ?? ""} ${order.user.lastName ?? ""}`.trim()
                     : "Unknown",
+                source: isAdminSwap ? "ADMIN_SWAP" : "USER_SWAP",
                 fromCurrency: order.fromCurrency,
                 toCurrency: order.toCurrency,
                 fromAmount: order.fromAmount,
@@ -506,5 +533,24 @@ export class AdminAccountingController {
                 timestamp: report.timestamp,
             },
         });
+    }
+
+    // =========================================================================
+    // ADMIN SWAP ENDPOINTS (Main Wallet Rebalancing via Quidax)
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get a swap quote for the platform main wallet via Quidax" })
+    @Post("swap-quote")
+    async getSwapQuote(@Body() dto: AdminSwapQuoteDto) {
+        return this.adminSwapService.getSwapQuote(dto);
+    }
+
+    @ApiOperation({ summary: "Confirm and execute a swap on the platform main wallet via Quidax" })
+    @Post("swap-confirm")
+    async confirmSwap(
+        @Body() dto: AdminSwapConfirmDto,
+        @User() admin: UserEntity,
+    ) {
+        return this.adminSwapService.confirmSwap(dto, admin.id);
     }
 }

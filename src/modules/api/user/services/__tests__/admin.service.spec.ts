@@ -38,6 +38,11 @@ function makePrisma() {
         ledgerEntry: {
             findMany: jest.fn(),
         },
+        limitOverride: {
+            findUnique: jest.fn(),
+            upsert: jest.fn(),
+            delete: jest.fn(),
+        },
         $transaction: jest.fn().mockImplementation(async (arg: any) => {
             if (typeof arg === "function") {
                 return arg(tx);
@@ -232,6 +237,20 @@ describe("AdminUserService", () => {
         expect(result.message).toContain("unflagged successfully");
     });
 
+    it("should unflag user by creating flagged record when flaggedId is missing", async () => {
+        prisma.user.findUnique.mockResolvedValue({
+            id: 8,
+            flaggedId: null,
+            flaggedRecord: { flagged: true, reason: "risk" },
+        });
+
+        const result = await service.unflagUser({ id: 8 } as any);
+
+        expect(prisma.__tx.flagged.create).toHaveBeenCalled();
+        expect(prisma.__tx.user.update).toHaveBeenCalled();
+        expect(result.message).toContain("unflagged successfully");
+    });
+
     it("should return already flagged in flagUser", async () => {
         prisma.user.findUnique.mockResolvedValue({
             id: 5,
@@ -256,5 +275,158 @@ describe("AdminUserService", () => {
 
         expect(prisma.__tx.flagged.update).toHaveBeenCalled();
         expect(result.data.flaggedRecord).toEqual({ flagged: true, reason: "aml" });
+    });
+
+    it("should apply date range branch when analytics overview receives custom dates", async () => {
+        prisma.user.count.mockResolvedValueOnce(12).mockResolvedValueOnce(2);
+        prisma.order.aggregate
+            .mockResolvedValueOnce({ _sum: { amountInFiat: 20000 } })
+            .mockResolvedValueOnce({ _sum: { amountInFiat: 5000 } });
+
+        const result = await service.getAnalyticsOverview(
+            undefined,
+            "2026-01-01",
+            "2026-01-31",
+        );
+
+        expect(result.data.totalUsers).toBe(12);
+        expect(result.data.transactionsInPeriod).toBe(5000);
+        expect(prisma.user.count).toHaveBeenCalledTimes(2);
+    });
+
+    it("should build transaction filters for asset and search text", async () => {
+        prisma.order.findMany.mockResolvedValue([]);
+        prisma.order.count.mockResolvedValue(0);
+
+        await service.getUserTransactionList(
+            {
+                type: "BUY",
+                asset: "btc",
+                searchText: "101",
+                startDate: "2026-01-01",
+                endDate: "2026-01-31",
+                sortBy: "desc",
+                paginated: "true",
+                pageNumber: 1,
+                pageSize: 10,
+            } as any,
+            14,
+        );
+
+        expect(prisma.order.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    userId: 14,
+                    orderCategory: "BUY",
+                    id: 101,
+                    OR: expect.any(Array),
+                    createdAt: expect.objectContaining({
+                        gte: expect.any(Date),
+                        lte: expect.any(Date),
+                    }),
+                }),
+            }),
+        );
+    });
+
+    // ==================== Limit Override Tests ====================
+
+    describe("setLimitOverride", () => {
+        it("should set a limit override for an existing user", async () => {
+            prisma.user.findUnique.mockResolvedValue({ id: 1 });
+            prisma.limitOverride.upsert.mockResolvedValue({
+                userId: 1,
+                dailyLimitUSD: 5000,
+                reason: "VIP customer",
+                grantedBy: 99,
+                expiresAt: null,
+            });
+
+            const result = await service.setLimitOverride(
+                { userId: 1, dailyLimitUSD: 5000, reason: "VIP customer" },
+                99,
+            );
+
+            expect(result.data.userId).toBe(1);
+            expect(result.data.dailyLimitUSD).toBe(5000);
+            expect(prisma.limitOverride.upsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { userId: 1 },
+                    create: expect.objectContaining({ userId: 1, dailyLimitUSD: 5000 }),
+                }),
+            );
+        });
+
+        it("should throw if user does not exist", async () => {
+            prisma.user.findUnique.mockResolvedValue(null);
+
+            await expect(
+                service.setLimitOverride({ userId: 999, reason: "test" }, 99),
+            ).rejects.toThrow();
+        });
+
+        it("should set expiresAt when provided", async () => {
+            prisma.user.findUnique.mockResolvedValue({ id: 2 });
+            prisma.limitOverride.upsert.mockResolvedValue({
+                userId: 2,
+                dailyLimitUSD: 10000,
+                reason: "Temporary boost",
+                grantedBy: 99,
+                expiresAt: new Date("2026-12-31"),
+            });
+
+            const result = await service.setLimitOverride(
+                { userId: 2, dailyLimitUSD: 10000, reason: "Temporary boost", expiresAt: "2026-12-31T00:00:00Z" },
+                99,
+            );
+
+            expect(result.data.expiresAt).toBeTruthy();
+            expect(prisma.limitOverride.upsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    create: expect.objectContaining({ expiresAt: expect.any(Date) }),
+                }),
+            );
+        });
+    });
+
+    describe("removeLimitOverride", () => {
+        it("should remove an existing override", async () => {
+            prisma.limitOverride.findUnique.mockResolvedValue({ userId: 1, dailyLimitUSD: 5000 });
+            prisma.limitOverride.delete.mockResolvedValue({});
+
+            const result = await service.removeLimitOverride({ userId: 1 });
+
+            expect(result.message).toContain("removed");
+            expect(prisma.limitOverride.delete).toHaveBeenCalledWith({ where: { userId: 1 } });
+        });
+
+        it("should return message when no override exists", async () => {
+            prisma.limitOverride.findUnique.mockResolvedValue(null);
+
+            const result = await service.removeLimitOverride({ userId: 999 });
+
+            expect(result.message).toContain("No limit override");
+            expect(prisma.limitOverride.delete).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("getLimitOverride", () => {
+        it("should return override when it exists", async () => {
+            const override = { userId: 1, dailyLimitUSD: 5000, reason: "VIP" };
+            prisma.limitOverride.findUnique.mockResolvedValue(override);
+
+            const result = await service.getLimitOverride(1);
+
+            expect(result.data).toEqual(override);
+            expect(result.message).toContain("found");
+        });
+
+        it("should return null when no override exists", async () => {
+            prisma.limitOverride.findUnique.mockResolvedValue(null);
+
+            const result = await service.getLimitOverride(999);
+
+            expect(result.message).toContain("No limit override");
+        });
     });
 });

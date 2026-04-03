@@ -1,4 +1,5 @@
 import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
+import { createHmac } from "node:crypto";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
@@ -6,6 +7,7 @@ import {
     defaultPagination,
     generateRandomNum,
 } from "@/utils";
+import { buildResponse } from "@/utils/api-response-util";
 import {
     Injectable,
     forwardRef,
@@ -248,38 +250,31 @@ export class UserService {
     }
 
     /**
-     * Get the user's daily withdrawal usage for the frontend
-     * Returns the amount used today and the daily limit based on tier
+     * Get the user's daily usage per operation type for the frontend.
+     * Returns per-operation (buy/sell/swap/send) used today and daily limits.
      */
     async getWithdrawalUsage(user: User) {
         // Use DB-stored tier as single source of truth
         const userTier = (user as any).tier ?? 0;
-        const tierInfo = {
-            tier: userTier,
-            withdrawalLimit: this.tierService.getWithdrawalLimit(userTier),
-            canTransact: userTier > 0,
-        };
+        const dailyLimits = this.tierService.getDailyLimits(userTier, user.userType);
 
-        // Calculate daily total from the last 24 hours
+        // Calculate daily totals from start of today (calendar-day, UTC)
         const now = new Date();
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
         const orders = await this.prisma.order.findMany({
             where: {
                 userId: user.id,
-                createdAt: { gte: oneDayAgo },
+                createdAt: { gte: startOfToday },
                 status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
             },
-            select: { amount: true, currency: true, rateAtConversion: true },
+            select: { amount: true, currency: true, orderCategory: true },
         });
 
-        // Calculate totals in USD
-        // NOTE: rateAtConversion is stored in NGN (Naira), NOT USD!
-        // We must use the current USD rate instead
-        let usedToday = 0;
+        // Build per-operation USD totals
+        const usageByOp: Record<string, number> = { buy: 0, sell: 0, swap: 0, send: 0 };
         for (const order of orders) {
             if (order.amount && order.currency) {
-                // Always use current USD rate - rateAtConversion is in NGN!
                 let rate = 0;
                 try {
                     rate = await this.liveCoinWatchService.getPriceInUSD(
@@ -289,23 +284,41 @@ export class UserService {
                     this.logger.warn(`Failed to fetch USD rate for ${order.currency}: ${error.message}`);
                 }
                 const usdAmount = order.amount * (rate || 0);
-                usedToday += usdAmount;
+
+                const cat = order.orderCategory;
+                if (cat === "BUY") usageByOp.buy += usdAmount;
+                else if (cat === "SELL") usageByOp.sell += usdAmount;
+                else if (cat === "SWAP") usageByOp.swap += usdAmount;
+                else if (cat === "SEND") usageByOp.send += usdAmount;
             }
         }
 
-        const dailyLimit = tierInfo.withdrawalLimit === "unlimited" ? -1 : tierInfo.withdrawalLimit;
-        const remainingToday = dailyLimit === -1 ? -1 : Math.max(0, dailyLimit - usedToday);
-        const percentUsed = dailyLimit === -1 ? 0 : Math.min(100, (usedToday / dailyLimit) * 100);
+        const round = (v: number) => Math.round(v * 100) / 100;
+
+        const buildOpData = (op: "buy" | "sell" | "swap" | "send") => {
+            const limit = dailyLimits[op];
+            const used = usageByOp[op];
+            const isUnlimited = limit === "unlimited";
+            const numericLimit = isUnlimited ? -1 : limit;
+            const remaining = isUnlimited ? -1 : Math.max(0, numericLimit - used);
+            const percentUsed = isUnlimited ? 0 : Math.min(100, (used / numericLimit) * 100);
+            return {
+                usedToday: round(used),
+                dailyLimit: numericLimit,
+                remainingToday: remaining === -1 ? -1 : round(remaining),
+                percentUsed: round(percentUsed),
+            };
+        };
 
         return {
             message: "Withdrawal usage retrieved",
             data: {
-                usedToday: Math.round(usedToday * 100) / 100,
-                dailyLimit,
-                remainingToday: remainingToday === -1 ? -1 : Math.round(remainingToday * 100) / 100,
-                percentUsed: Math.round(percentUsed * 100) / 100,
-                tier: tierInfo.tier,
-                canTransact: tierInfo.canTransact,
+                buy: buildOpData("buy"),
+                sell: buildOpData("sell"),
+                swap: buildOpData("swap"),
+                send: buildOpData("send"),
+                tier: userTier,
+                canTransact: userTier > 0,
             },
         };
     }
@@ -921,5 +934,25 @@ export class UserService {
             message: "User found",
             data: user,
         };
+    }
+
+    async getIntercomHash(user: User) {
+        const secretKey = process.env.INTERCOM_SECRET_KEY;
+        if (!secretKey) {
+            this.logger.error("SECURITY: INTERCOM_SECRET_KEY not configured");
+            return buildResponse({
+                success: false,
+                message: "Intercom identity verification is not configured",
+            });
+        }
+
+        const userHash = createHmac("sha256", secretKey)
+            .update(String(user.id))
+            .digest("hex");
+
+        return buildResponse({
+            message: "Intercom hash generated",
+            data: { userHash },
+        });
     }
 }

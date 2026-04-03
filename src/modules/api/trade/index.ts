@@ -5,6 +5,7 @@ import { WalletAddressService } from "./services/wallet-address.service";
 import { BuyOrderService } from "./services/buy-order.service";
 import { SellOrderService } from "./services/sell-order.service";
 import { SwapService } from "./services/swap.service";
+import { AdminSwapService } from "./services/admin-swap.service";
 import { SendService } from "./services/send.service";
 import { RateService } from "./services/rate.service";
 import { FailedRollbackQueueService } from "./services/failed-rollback-queue.service";
@@ -86,6 +87,7 @@ export * from "./errors";
         BuyOrderService,
         SellOrderService,
         SwapService,
+        AdminSwapService,
         SendService,
         RateService,
         WebhookHandlerService,

@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
-import { Prisma, UserType } from "@prisma/client";
+import { IdentityIdType, Prisma, UserType } from "@prisma/client";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
 import {
     GetKycQueueDto,
@@ -19,6 +19,7 @@ import { NotificationDispatcher } from "@/modules/api/notification/services/noti
 import { EmailService } from "@/modules/core/email/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
+import { IdentityResolutionService } from "@/modules/api/auth/services/identity-resolution.service";
 import { emailTemplateConfig, mailConfig, COMPANY_NAME } from "@/config";
 
 @Injectable()
@@ -34,6 +35,7 @@ export class KycService {
         private readonly emailService: EmailService,
         private readonly redisCacheService: RedisCacheService,
         private readonly wsGateway: WsGateway,
+        private readonly identityResolution: IdentityResolutionService,
     ) { }
 
     // ==================== KYC QUEUE ====================
@@ -296,8 +298,8 @@ export class KycService {
 
         if (action === "APPROVE") {
             const verificationMap: Record<string, Prisma.UserUpdateInput> = {
-                BVN: { isBvnVerified: true, isNinVerified: false },
-                NIN: { isNinVerified: true, isBvnVerified: false },
+                BVN: { isBvnVerified: true },
+                NIN: { isNinVerified: true },
                 DOCUMENT: { isDocumentVerified: true, documentVerificationStatus: "VERIFIED" },
                 ADDRESS: { isAddressVerified: true, addressVerificationStatus: "VERIFIED" },
                 INCOME: { isIncomeVerified: true, incomeVerificationStatus: "VERIFIED" },
@@ -569,6 +571,19 @@ export class KycService {
         const updateData: Prisma.UserUpdateInput = {};
         const changes: Record<string, any> = {};
 
+        // Guard: cannot mark BVN verified if user has no BVN on file
+        if (dto.isBvnVerified === true && !user.bvn) {
+            throw new BadRequestException(
+                "Cannot set BVN verified — user has no BVN on file. The user must complete BVN verification first.",
+            );
+        }
+        // Guard: cannot mark NIN verified if user has no NIN on file
+        if (dto.isNinVerified === true && !user.nin) {
+            throw new BadRequestException(
+                "Cannot set NIN verified — user has no NIN on file. The user must complete NIN verification first.",
+            );
+        }
+
         if (dto.isBvnVerified !== undefined) {
             updateData.isBvnVerified = dto.isBvnVerified;
             changes.bvn = { from: user.isBvnVerified, to: dto.isBvnVerified };
@@ -604,6 +619,9 @@ export class KycService {
             },
         });
 
+        // Identity graph: link BVN/NIN to identity subject when admin marks verified
+        await this.resolveIdentityForAdmin(dto, user, userId);
+
         // Audit log
         await this.prisma.auditLog.create({
             data: {
@@ -625,6 +643,25 @@ export class KycService {
             message: "User verification status updated successfully",
             data: updatedUser,
         });
+    }
+
+    // ==================== IDENTITY GRAPH HELPERS ====================
+
+    private async resolveIdentityForAdmin(
+        dto: UpdateUserVerificationDto,
+        user: { firstName: string | null; lastName: string | null; dateOfBirth: Date | null; bvn: string | null; nin: string | null },
+        userId: number,
+    ): Promise<void> {
+        const biographic = user.firstName && user.lastName && user.dateOfBirth
+            ? { firstName: user.firstName, lastName: user.lastName, dateOfBirth: user.dateOfBirth.toISOString().split("T")[0] }
+            : undefined;
+
+        if (dto.isBvnVerified === true && user.bvn) {
+            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, user.bvn, userId, biographic);
+        }
+        if (dto.isNinVerified === true && user.nin) {
+            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, user.nin, userId, biographic);
+        }
     }
 
     // ==================== KYC STATISTICS ====================

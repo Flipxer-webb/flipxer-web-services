@@ -92,4 +92,143 @@ describe("RateLimiterService (in-memory fallback)", () => {
         const result = await service.checkLimit("user-6");
         expect(result.retryAfter).toBeGreaterThan(0);
     });
+
+    it("returns in-memory status", async () => {
+        await service.checkLimit("status-user");
+        const status = await service.getStatus("status-user");
+
+        expect(status).not.toBeNull();
+        expect(status?.remaining).toBe(4);
+        expect(status?.allowed).toBe(true);
+    });
+
+    it("returns null in-memory status when key is unknown", async () => {
+        await expect(service.getStatus("missing")).resolves.toBeNull();
+    });
+
+    it("fails closed by default when check path throws", async () => {
+        (service as any).checkInMemoryLimit = jest.fn(() => {
+            throw new Error("boom");
+        });
+
+        const result = await service.checkLimit("error-user");
+        expect(result.allowed).toBe(false);
+        expect(result.retryAfter).toBe(60);
+    });
+
+    it("fails open when configured to do so", async () => {
+        (service as any).checkInMemoryLimit = jest.fn(() => {
+            throw new Error("boom");
+        });
+
+        const result = await service.checkLimit("error-user-open", {
+            failOpen: true,
+            limit: 3,
+            windowSeconds: 10,
+        });
+
+        expect(result.allowed).toBe(true);
+        expect(result.remaining).toBe(3);
+    });
+});
+
+describe("RateLimiterService (redis mode)", () => {
+    let service: RateLimiterService;
+
+    beforeEach(() => {
+        service = new RateLimiterService({
+            limit: 3,
+            windowSeconds: 60,
+            useRedis: true,
+            keyPrefix: "redis:",
+        } as any);
+    });
+
+    it("uses redis multi pipeline for checks", async () => {
+        const execMock = jest.fn().mockResolvedValue([
+            [null, 1],
+            [null, 1],
+            [null, 2],
+            [null, 1],
+        ]);
+
+        const multiMock = {
+            zremrangebyscore: jest.fn().mockReturnThis(),
+            zadd: jest.fn().mockReturnThis(),
+            zcard: jest.fn().mockReturnThis(),
+            expire: jest.fn().mockReturnThis(),
+            exec: execMock,
+        };
+
+        const client = {
+            multi: jest.fn().mockReturnValue(multiMock),
+        };
+
+        (service as any).client = client;
+        (service as any).isRedisConnected = true;
+
+        const result = await service.checkLimit("k1");
+        expect(client.multi).toHaveBeenCalled();
+        expect(result.allowed).toBe(true);
+        expect(result.remaining).toBe(1);
+    });
+
+    it("throws when redis multi returns null", async () => {
+        const multiMock = {
+            zremrangebyscore: jest.fn().mockReturnThis(),
+            zadd: jest.fn().mockReturnThis(),
+            zcard: jest.fn().mockReturnThis(),
+            expire: jest.fn().mockReturnThis(),
+            exec: jest.fn().mockResolvedValue(null),
+        };
+
+        (service as any).client = {
+            multi: jest.fn().mockReturnValue(multiMock),
+        };
+        (service as any).isRedisConnected = true;
+
+        const result = await service.checkLimit("k2", { failOpen: false });
+        expect(result.allowed).toBe(false);
+    });
+
+    it("resets redis keys with DEL", async () => {
+        const delMock = jest.fn().mockResolvedValue(1);
+
+        (service as any).client = {
+            del: delMock,
+        };
+        (service as any).isRedisConnected = true;
+
+        await service.resetLimit("abc");
+        expect(delMock).toHaveBeenCalledWith("redis:abc");
+    });
+
+    it("returns redis status and null when no records", async () => {
+        const zcardMock = jest.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(2);
+        const ttlMock = jest.fn().mockResolvedValue(30);
+
+        (service as any).client = {
+            zcard: zcardMock,
+            ttl: ttlMock,
+        };
+        (service as any).isRedisConnected = true;
+
+        await expect(service.getStatus("none")).resolves.toBeNull();
+
+        const status = await service.getStatus("exists");
+        expect(status).toMatchObject({
+            allowed: true,
+            remaining: 1,
+        });
+    });
+
+    it("quits redis client on destroy", async () => {
+        const quitMock = jest.fn().mockResolvedValue("OK");
+        (service as any).client = {
+            quit: quitMock,
+        };
+
+        await service.onModuleDestroy();
+        expect(quitMock).toHaveBeenCalled();
+    });
 });

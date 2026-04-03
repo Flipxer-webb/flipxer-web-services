@@ -38,7 +38,7 @@ model User {
   loginCount                         Int                               @default(0)
   businessDocumentVerificationStatus DocumentVerificationStatus?
   businessRecordCompleted            Boolean                           @default(false)
-  bvn                                String?
+  bvn                                String?                           @unique
   bvnRegisteredPhone                 String?
   country                            Country                           @default(NIGERIA)
   isBvnVerified                      Boolean                           @default(false)
@@ -53,7 +53,7 @@ model User {
   recoveryEmail                      String?
   photoFileId                        String?
   flaggedId                          Int?                              @unique
-  nin                                String?
+  nin                                String?                           @unique
   ninRegisteredPhone                 String?
   isNinVerified                      Boolean                           @default(false)
   isAddressVerified                  Boolean                           @default(false)
@@ -87,6 +87,7 @@ model User {
   cryptoWalletAddressList            CryptoWalletAddress[]
   dailyTransactions                  DailyTransaction[]                @relation("UserToDailyTransaction")
   flaggedRecord                      Flagged?                          @relation("UserToFlagged")
+  limitOverride                      LimitOverride?                    @relation("UserToLimitOverride")
   monthlyTransactions                MonthlyTransaction[]              @relation("UserToMonthlyTransaction")
   sentNotifications                  Notification[]                    @relation("senderNotification")
   receiverNotifications              Notification[]                    @relation("receiverNotification")
@@ -110,8 +111,9 @@ model User {
   depositReviewsReviewed             DepositReviewQueue[]              @relation("DepositReviewer")
   kycVerifications                   KycVerification[]
   failedRollbacks                    FailedRollback[]
-  // Existing indexes
-  @@index([id, bvn])
+  // Identity deduplication
+  identitySubjectId                  Int?                              @unique
+  identitySubject                    IdentitySubject?                  @relation(fields: [identitySubjectId], references: [id], onDelete: SetNull)
   // Additional performance indexes
   @@index([email, isDeleted])
   @@index([phone, isDeleted])
@@ -247,6 +249,20 @@ model Flagged {
   user      User     @relation("UserToFlagged", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("Flagged")
+}
+
+model LimitOverride {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @unique
+  dailyLimitUSD      Float?    // null = use tier default, value = override in USD
+  reason             String    // Why the override was granted
+  grantedBy          Int       // Admin user ID who set the override
+  expiresAt          DateTime? // null = permanent until removed
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation("UserToLimitOverride", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("LimitOverrides")
 }
 
 model DailyTransaction {
@@ -1578,4 +1594,47 @@ model SolvencyLog {
   @@index([currency, createdAt])
   @@index([status])
   @@map("SolvencyLogs")
+}
+
+// =============================================================================
+// IDENTITY DEDUPLICATION (BVN/NIN Cross-Linking)
+// =============================================================================
+
+enum IdentityIdType {
+  BVN
+  NIN
+  NAME_DOB
+}
+
+/// Represents a single real-world person. Multiple Users CANNOT share a subject.
+model IdentitySubject {
+  id           Int                   @id @default(autoincrement())
+  mergedIntoId Int?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  mergedInto   IdentitySubject?      @relation("SubjectMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom   IdentitySubject[]     @relation("SubjectMerge")
+  identifiers  IdentityIdentifier[]
+  user         User?
+
+  @@index([mergedIntoId])
+  @@map("IdentitySubjects")
+}
+
+/// A single verified government identifier bound to exactly one IdentitySubject.
+model IdentityIdentifier {
+  id          Int              @id @default(autoincrement())
+  subjectId   Int
+  type        IdentityIdType
+  valueHash   String           // SHA-256 of normalised value
+  maskedValue String           // e.g. "22*****19" for admin display
+  verifiedAt  DateTime?
+  createdAt   DateTime         @default(now())
+
+  subject     IdentitySubject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([type, valueHash])
+  @@index([subjectId])
+  @@map("IdentityIdentifiers")
 }

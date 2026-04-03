@@ -3,7 +3,11 @@ on:
   push:
     branches:
       - develop
+      - production
   pull_request:
+    branches:
+      - develop
+      - production
     types: [opened, synchronize, reopened]
 
 env:
@@ -35,6 +39,10 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm exec prisma generate
+
+      - name: Validate Jest coverage scope
+        run: |
+          node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));const list=(pkg.jest&&pkg.jest.collectCoverageFrom)||[];const banned=['!modules/factory/**','!libs/quidax/**','!libs/nomba/**','!libs/dojah/**','!modules/scheduler/**','!modules/core/logger/**','!modules/api/auth/**','modules/api/auth/errors/**/*.ts','!modules/api/kyc/**','!modules/api/session/**','!modules/api/trade/services/webhook-handlers/**','!modules/api/trade/crons/**','!modules/api/trade/services/buy-order.service.ts','!modules/api/trade/services/websocket.service.ts','!modules/api/trade/queues/processors/**'];const found=banned.filter((item)=>list.includes(item));if(found.length){console.error('Disallowed Jest coverage exclusions detected:\n'+found.join('\n'));process.exit(1);}console.log('Jest coverage scope validation passed.');"
 
       - name: Generate coverage report
         timeout-minutes: 10

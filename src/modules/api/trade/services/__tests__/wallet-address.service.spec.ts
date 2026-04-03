@@ -173,6 +173,18 @@ describe("WalletAddressService", () => {
             // Should still register default network
             expect(result.has(NetworkTypes.btc)).toBe(true);
         });
+
+        it("should skip empty and unsupported network candidates", () => {
+            const wallet: any = {
+                currency: "usdt",
+                default_network: "   ",
+                networks: [{ id: "mystery-chain", deposits_enabled: true }],
+            };
+
+            const result = service.extractDepositEnabledNetworkMap(wallet);
+
+            expect(result.size).toBe(0);
+        });
     });
 
     // ── getWalletAddress ─────────────────────────────────────
@@ -290,6 +302,25 @@ describe("WalletAddressService", () => {
 
             expect(result.message).toContain("initiated");
         });
+
+        it("should return already_created when no new addresses are created", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 1,
+                cryptoSubAccountId: "qx-123",
+            });
+
+            const spy = jest
+                .spyOn(service, "ensureWalletPaymentAddresses")
+                .mockResolvedValueOnce([] as any);
+
+            const result = await service.initiateWalletAddressCreation(1, {
+                asset: "btc",
+            } as any);
+
+            expect(result.message).toBe("wallet address already exists");
+            expect(result.data.walletGenerationStatus).toBe("already_created");
+            spy.mockRestore();
+        });
     });
 
     // ── ensureWalletPaymentAddresses ─────────────────────────
@@ -337,6 +368,188 @@ describe("WalletAddressService", () => {
 
             expect(result).toHaveLength(1);
             expect(mockQuidax.createPaymentAddress).not.toHaveBeenCalled();
+        });
+
+        it("should return empty array when wallet has no deposit-enabled networks", async () => {
+            mockQuidax.getUserWallet.mockResolvedValue({
+                data: {
+                    currency: "usdt",
+                    default_network: "erc20",
+                    networks: [{ id: "erc20", deposits_enabled: false }],
+                },
+            });
+
+            const result = await service.ensureWalletPaymentAddresses({
+                userId: 1,
+                cryptoSubAccountId: "qx-123",
+                assetSymbol: "USDT",
+            });
+
+            expect(result).toEqual([]);
+            expect(mockQuidax.createPaymentAddress).not.toHaveBeenCalled();
+        });
+
+        it("should throw when requested network is unavailable", async () => {
+            mockQuidax.getUserWallet.mockResolvedValue({
+                data: {
+                    currency: "usdt",
+                    default_network: "erc20",
+                    networks: [{ id: "erc20", deposits_enabled: true }],
+                },
+            });
+
+            await expect(
+                service.ensureWalletPaymentAddresses({
+                    userId: 1,
+                    cryptoSubAccountId: "qx-123",
+                    assetSymbol: "USDT",
+                    requestedNetworks: ["trc20"],
+                }),
+            ).rejects.toThrow("Network trc20 is not available for USDT");
+        });
+
+        it("should backfill provider addresses and keep successful creations when one network fails", async () => {
+            mockQuidax.getUserWallet.mockResolvedValue({
+                data: {
+                    currency: "usdt",
+                    default_network: "erc20",
+                    networks: [
+                        { id: "erc20", deposits_enabled: true },
+                        { id: "trc20", deposits_enabled: true },
+                        { id: "btc", deposits_enabled: true },
+                    ],
+                },
+            });
+
+            mockQuidax.getPaymentAddressList.mockResolvedValue({
+                data: [
+                    {
+                        id: "provider-erc20",
+                        network: "erc20",
+                        address: "0xProvider",
+                        destination_tag: null,
+                    },
+                ],
+            });
+
+            prisma.cryptoWalletAddress.upsert.mockResolvedValue({
+                id: 99,
+                network: NetworkTypes.erc20,
+                address: "0xProvider",
+                status: CryptoWalletStatus.ACTIVE,
+            });
+
+            mockQuidax.createPaymentAddress.mockImplementation(({ network }: any) => {
+                if (network === "trc20") {
+                    return Promise.resolve({
+                        data: {
+                            id: "new-trc20",
+                            network: "trc20",
+                            address: "TRXADDR",
+                            destination_tag: null,
+                        },
+                    });
+                }
+
+                return Promise.reject(new Error("provider-failure"));
+            });
+
+            const result = await service.ensureWalletPaymentAddresses({
+                userId: 1,
+                cryptoSubAccountId: "qx-123",
+                assetSymbol: "USDT",
+            });
+
+            expect(prisma.cryptoWalletAddress.upsert).toHaveBeenCalled();
+            expect(result.length).toBeGreaterThan(0);
+        });
+
+        it("should throw when all address creations fail", async () => {
+            mockQuidax.getUserWallet.mockResolvedValue({
+                data: {
+                    currency: "btc",
+                    default_network: "btc",
+                    networks: [{ id: "btc", deposits_enabled: true }],
+                },
+            });
+
+            mockQuidax.getPaymentAddressList.mockResolvedValue({ data: [] });
+            mockQuidax.createPaymentAddress.mockResolvedValue({
+                data: {
+                    id: "bad-net",
+                    network: "unknown-net",
+                    address: "ADDR",
+                    destination_tag: null,
+                },
+            });
+
+            await expect(
+                service.ensureWalletPaymentAddresses({
+                    userId: 1,
+                    cryptoSubAccountId: "qx-123",
+                    assetSymbol: "BTC",
+                }),
+            ).rejects.toThrow("Failed to create wallet addresses");
+        });
+
+        it("should continue when provider address list fetch fails", async () => {
+            mockQuidax.getUserWallet.mockResolvedValue({
+                data: {
+                    currency: "btc",
+                    default_network: "btc",
+                    networks: [{ id: "btc", deposits_enabled: true }],
+                },
+            });
+
+            mockQuidax.getPaymentAddressList.mockRejectedValue(
+                new Error("provider-list-failed")
+            );
+
+            mockQuidax.createPaymentAddress.mockResolvedValue({
+                data: {
+                    id: "btc-created",
+                    network: "btc",
+                    address: "bc1xyz",
+                    destination_tag: null,
+                },
+            });
+
+            const result = await service.ensureWalletPaymentAddresses({
+                userId: 1,
+                cryptoSubAccountId: "qx-123",
+                assetSymbol: "BTC",
+            });
+
+            expect(result.length).toBeGreaterThan(0);
+        });
+
+        it("should rethrow when persistence transaction fails", async () => {
+            mockQuidax.getUserWallet.mockResolvedValue({
+                data: {
+                    currency: "btc",
+                    default_network: "btc",
+                    networks: [{ id: "btc", deposits_enabled: true }],
+                },
+            });
+            mockQuidax.getPaymentAddressList.mockResolvedValue({ data: [] });
+            mockQuidax.createPaymentAddress.mockResolvedValue({
+                data: {
+                    id: "btc-created",
+                    network: "btc",
+                    address: "bc1xyz",
+                    destination_tag: null,
+                },
+            });
+
+            prisma.$transaction.mockRejectedValueOnce(new Error("tx-failed"));
+
+            await expect(
+                service.ensureWalletPaymentAddresses({
+                    userId: 1,
+                    cryptoSubAccountId: "qx-123",
+                    assetSymbol: "BTC",
+                }),
+            ).rejects.toThrow("tx-failed");
         });
     });
 });

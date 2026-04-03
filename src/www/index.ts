@@ -14,6 +14,7 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Request, Response } from "express";
 import { waitForRedis } from "@/utils";
+import { RedisIoAdapter } from "@/adapters/redis-io.adapter";
 
 // Prevent "Do not know how to serialize a BigInt" crashes in JSON responses
 // (Prisma BigInt fields like LedgerEntry.sequenceNumber)
@@ -225,6 +226,14 @@ export default async function createServer(
     app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
 
     waitForRedis(redisConfig);
+
+    if (process.env.ENABLE_REDIS_SOCKET_ADAPTER === "true") {
+        const redisIoAdapter = new RedisIoAdapter(app);
+        await redisIoAdapter.connectToRedis();
+        app.useWebSocketAdapter(redisIoAdapter);
+        logger.log("Socket.IO Redis adapter enabled");
+    }
+
     app.listen(options.port);
 
     //handle prisma enableShutDownHook interference with nest app enableShutdownHooks
