@@ -129,7 +129,7 @@
         "imagekit": "^6.0.0",
         "ioredis": "^5.4.1",
         "ipaddr.js": "^2.2.0",
-        "lodash": "^4.17.23",
+        "lodash": "^4.18.1",
         "moment": "^2.30.1",
         "moment-logger": "1.0.5-12",
         "morgan": "^1.9.1",
