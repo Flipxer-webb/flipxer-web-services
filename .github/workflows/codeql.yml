@@ -2,9 +2,9 @@ name: CodeQL Taint Analysis
 
 on:
   push:
-    branches: ["develop"]
+    branches: ["develop", "production"]
   pull_request:
-    branches: ["develop"]
+    branches: ["develop", "production"]
   schedule:
     # Every Monday at 06:00 UTC — catches new CVEs in unchanged code
     - cron: "0 6 * * 1"
