@@ -26,7 +26,8 @@ export class EmailService {
             return result;
         } catch (error) {
             const message = error?.message ?? error?.error?.message ?? JSON.stringify(error);
-            this.logger.error(`Failed to send email: ${message}`, error?.stack);
+            const details = error?.error?.details ? ` details=${JSON.stringify(error.error.details)}` : "";
+            this.logger.error(`Failed to send email: ${message}${details}`, error?.stack);
             throw error;
         }
     }
