@@ -4,6 +4,7 @@ import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
 import { roles } from "./role"; // Assumed roles array file
 import { SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH } from "./constants";
+import { randomUUID } from "crypto";
 
 // Permission names matching the PermissionNames constant in the RBAC module
 const PermissionNames = {
@@ -614,7 +615,7 @@ async function main() {
                 status: "ACTIVE",
                 isEmailVerified: true,
                 isPhoneVerified: true,
-                password: process.env.SYSTEM_PLATFORM_PASSWORD || crypto.randomUUID(),
+                password: process.env.SYSTEM_PLATFORM_PASSWORD || randomUUID(),
             }
         });
         logger.info("Platform User (ID 0) ensured.");
@@ -635,7 +636,7 @@ async function main() {
                 status: "ACTIVE",
                 isEmailVerified: true,
                 isPhoneVerified: true,
-                password: process.env.SYSTEM_FEES_PASSWORD || crypto.randomUUID(),
+                password: process.env.SYSTEM_FEES_PASSWORD || randomUUID(),
             }
         });
         logger.info("Network Fee User (ID -1) ensured.");
