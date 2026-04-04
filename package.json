@@ -91,7 +91,7 @@
     },
     "packageManager": "pnpm@9.15.9",
     "prisma": {
-        "seed": "ts-node prisma/seed/index.ts"
+        "seed": "node -r ts-node/register prisma/seed/index.ts"
     },
     "scripts": {
         "postinstall": "npx prisma generate",
