@@ -40,8 +40,7 @@ COPY ./package.json ./pnpm-lock.yaml ./.npmrc ./.pnpmfile.cjs ./
 COPY ./tsconfig.json .
 COPY ./public ./public
 COPY ./prisma ./prisma
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts && \
-    pnpm add -D ts-node typescript @types/node --ignore-scripts && \
+RUN pnpm install --frozen-lockfile --ignore-scripts && \
     pnpm prisma generate
 COPY --from=build /usr/src/app/dist ./dist
 COPY docker-entrypoint.sh .
