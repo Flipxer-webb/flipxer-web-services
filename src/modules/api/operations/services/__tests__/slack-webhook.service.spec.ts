@@ -52,7 +52,7 @@ describe("SlackWebhookService", () => {
         await expect(
             service.createWebhook({
                 name: "ops",
-                webhookUrl: "https://hooks.slack.test/1",
+                webhookUrl: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXX",
                 channel: "ops",
                 alertTypes: ["LOW_BALANCE"],
                 isActive: true,
@@ -101,7 +101,7 @@ describe("SlackWebhookService", () => {
             {
                 id: 11,
                 name: "ops-main",
-                webhookUrl: "https://hooks.slack.test/main",
+                webhookUrl: "https://hooks.slack.com/services/T00000000/B00000000/MAINXXXX",
                 isActive: true,
                 alertTypes: ["LOW_BALANCE"],
             },
@@ -118,7 +118,7 @@ describe("SlackWebhookService", () => {
 
         expect(result).toEqual({ sent: 1, skipped: 0, errors: [] });
         expect(axiosPost).toHaveBeenCalledWith(
-            "https://hooks.slack.test/main",
+            "https://hooks.slack.com/services/T00000000/B00000000/MAINXXXX",
             { text: "low balance" },
             expect.objectContaining({ timeout: 10000 }),
         );
@@ -133,7 +133,7 @@ describe("SlackWebhookService", () => {
             {
                 id: 22,
                 name: "ops-fail",
-                webhookUrl: "https://hooks.slack.test/fail",
+                webhookUrl: "https://hooks.slack.com/services/T00000000/B00000000/FAILXXXX",
                 isActive: true,
                 alertTypes: ["LOW_BALANCE"],
             },
@@ -172,7 +172,7 @@ describe("SlackWebhookService", () => {
 
     it("sends webhook-failure alert when SLACK_WEBHOOK_URL is configured", async () => {
         const { service } = buildSlackWebhookService();
-        process.env.SLACK_WEBHOOK_URL = "https://hooks.slack.test/system";
+        process.env.SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T00000000/B00000000/SYSTEMXX";
         axiosPost.mockResolvedValue({ status: 200 });
 
         await expect(
@@ -194,12 +194,12 @@ describe("SlackWebhookService", () => {
 
     it("sends a test webhook and system alert payloads", async () => {
         const { service, prisma } = buildSlackWebhookService();
-        process.env.SLACK_WEBHOOK_URL = "https://hooks.slack.test/system";
+        process.env.SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T00000000/B00000000/SYSTEMXX";
 
         prisma.slackWebhook.findUnique.mockResolvedValue({
             id: 3,
             name: "ops-test",
-            webhookUrl: "https://hooks.slack.test/test",
+            webhookUrl: "https://hooks.slack.com/services/T00000000/B00000000/TESTXXXX",
         });
         axiosPost.mockResolvedValue({ status: 200 });
 
@@ -209,5 +209,17 @@ describe("SlackWebhookService", () => {
         ).resolves.toEqual({ sent: true });
 
         expect(axiosPost).toHaveBeenCalledTimes(2);
+    });
+
+    it("rejects non-Slack webhook URLs to prevent SSRF", async () => {
+        const { service } = buildSlackWebhookService();
+
+        await expect(
+            service.createWebhook({
+                name: "malicious",
+                webhookUrl: "https://169.254.169.254/latest/meta-data",
+                alertTypes: ["LOW_BALANCE"],
+            }),
+        ).rejects.toThrow("Only valid Slack incoming webhook URLs are allowed");
     });
 });
