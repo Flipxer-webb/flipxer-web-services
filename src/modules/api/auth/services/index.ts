@@ -614,7 +614,7 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = error?.message ?? error?.error?.message ?? JSON.stringify(error);
             this.logger.error(`Failed to send password reset email: ${errorMessage}`);
             throw new AuthGenericException(
                 "Failed to send password reset email",
@@ -832,7 +832,7 @@ export class AuthService {
                 },
             });
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = error?.message ?? error?.error?.message ?? JSON.stringify(error);
             this.logger.error(`Failed to send account verification email: ${errorMessage}`);
             throw new AuthGenericException(
                 "Failed to send account verification email",
@@ -1199,7 +1199,7 @@ export class AuthService {
             await this.cryptoAccountQueueProducer.enqueue(userId);
             this.logger.log(`[KYC][${identityType}] Crypto account enqueue successful for user ${userId}`);
         } catch (error) {
-            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(`Error in sub account setup: ${error?.message ?? error?.error?.message ?? JSON.stringify(error)}`);
         }
     }
 
@@ -1366,7 +1366,7 @@ export class AuthService {
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
         } catch (error) {
-            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(`Error in sub account setup: ${error?.message ?? error?.error?.message ?? JSON.stringify(error)}`);
         }
 
         return buildResponse({
