@@ -510,8 +510,10 @@ async function main() {
     logger.info("Seeding fully verified test user...");
     if (individualRole) {
         const testUserPassword = process.env.TEST_USER_PASSWORD;
-        if (!testUserPassword) { logger.error('TEST_USER_PASSWORD env var required for test user seed'); process.exit(1); }
-        const hashedTestPassword = await bcrypt.hash(testUserPassword, SALT_ROUNDS);
+        if (!testUserPassword) {
+            logger.warn('TEST_USER_PASSWORD env var not set — skipping test user seed');
+        } else {
+            const hashedTestPassword = await bcrypt.hash(testUserPassword, SALT_ROUNDS);
 
         const testUser = await prisma.user.upsert({
             where: { email: "testuser@flipxer.com" },
@@ -587,6 +589,7 @@ async function main() {
         });
 
         logger.info("Test user created - Email: testuser@flipxer.com, Password: TestUser@2024!");
+        } // end: TEST_USER_PASSWORD check
     }
 
 
