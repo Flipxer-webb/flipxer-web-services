@@ -48,7 +48,7 @@ OWNED BY "LedgerEntries"."sequenceNumber";
 DO $$ BEGIN
     ALTER TABLE "LedgerEntries"
     ADD CONSTRAINT "LedgerEntries_sequenceNumber_key" UNIQUE ("sequenceNumber");
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_table THEN NULL;
 END $$;
 
 CREATE INDEX IF NOT EXISTS "LedgerEntries_userId_currency_seq_idx"
@@ -63,7 +63,7 @@ ADD COLUMN IF NOT EXISTS "sweepTxId" TEXT;
 DO $$ BEGIN
     ALTER TABLE "LedgerEntries"
     ADD CONSTRAINT "LedgerEntries_sweepTxId_key" UNIQUE ("sweepTxId");
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_table THEN NULL;
 END $$;
 
 CREATE INDEX IF NOT EXISTS "LedgerEntries_sweepTxId_idx"
