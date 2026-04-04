@@ -1,0 +1,45 @@
+name: Dependency Regression Gates
+
+on:
+  pull_request:
+    branches: [develop, production]
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/dependency-regression-gates.yml
+
+jobs:
+  dependency-regression:
+    name: Dependency Build and Targeted Runtime Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 9.15.9
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
+
+      - name: Generate Prisma client
+        run: pnpm exec prisma generate
+
+      - name: Build gate
+        run: pnpm run build
+
+      - name: Targeted runtime gates (upload/http/socket/email)
+        run: |
+          pnpm exec jest --runInBand --forceExit --testPathPattern="imagekit.service.spec|upload.factory-cloudinary-base.spec|all-exceptions-filter.spec|websocket.service.spec|src/modules/core/email/services/__tests__/index.spec.ts"

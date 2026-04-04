@@ -1,0 +1,98 @@
+name: Dependabot High Critical Gate
+
+on:
+  pull_request:
+    branches: [develop, production]
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+jobs:
+  dependabot-high-critical-gate:
+    name: Fail on Open High or Critical Dependabot Alerts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: read
+
+    steps:
+      - name: Block if open high/critical advisories exist
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const severities = ['high', 'critical'];
+            const findings = [];
+
+            async function fetchDependabotAlerts(severity) {
+              const out = [];
+              let page = 1;
+              while (true) {
+                const res = await github.request('GET /repos/{owner}/{repo}/dependabot/alerts', {
+                  owner,
+                  repo,
+                  state: 'open',
+                  severity,
+                  per_page: 100,
+                  page,
+                });
+
+                const batch = res.data || [];
+                out.push(...batch);
+
+                if (batch.length < 100) {
+                  break;
+                }
+                page += 1;
+              }
+              return out;
+            }
+
+            try {
+              for (const severity of severities) {
+                const batch = await fetchDependabotAlerts(severity);
+                findings.push(...batch.map((x) => ({
+                  number: x.number,
+                  severity,
+                  pkg: x.dependency?.package?.name || 'unknown',
+                  advisory: x.security_advisory?.summary || x.security_advisory?.cve_id || 'N/A',
+                  url: x.html_url,
+                })));
+              }
+            } catch (error) {
+              if (error.status === 403) {
+                core.warning('Dependabot alerts API is not accessible with current token. Configure DEPENDABOT_ALERTS_TOKEN with vulnerability_alerts:read to enforce this gate.');
+                core.summary.addHeading('Dependabot High/Critical Gate');
+                core.summary.addRaw('Skipped enforcement due to missing token scope (vulnerability_alerts:read).').addEOL();
+                await core.summary.write();
+                return;
+              }
+              throw error;
+            }
+
+            const highCount = findings.filter((f) => f.severity === 'high').length;
+            const criticalCount = findings.filter((f) => f.severity === 'critical').length;
+
+            core.summary.addHeading('Dependabot High/Critical Gate');
+            core.summary.addRaw(`Open high alerts: ${highCount}`).addEOL();
+            core.summary.addRaw(`Open critical alerts: ${criticalCount}`).addEOL();
+
+            if (findings.length > 0) {
+              core.summary.addTable([
+                [{data: 'Alert', header: true}, {data: 'Severity', header: true}, {data: 'Package', header: true}, {data: 'Advisory', header: true}],
+                ...findings.slice(0, 20).map((f) => [
+                  `#${f.number}`,
+                  f.severity.toUpperCase(),
+                  f.pkg,
+                  f.advisory,
+                ]),
+              ]);
+            }
+
+            await core.summary.write();
+
+            if (findings.length > 0) {
+              core.setFailed(`Blocking merge: found ${findings.length} open high/critical Dependabot alert(s).`);
+            }

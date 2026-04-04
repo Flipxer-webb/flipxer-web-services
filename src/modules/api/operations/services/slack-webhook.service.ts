@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import Axios from "axios";
 import {
@@ -11,6 +11,10 @@ import {
 @Injectable()
 export class SlackWebhookService {
     private readonly logger = new Logger(SlackWebhookService.name);
+    private readonly allowedSlackWebhookHosts = new Set([
+        "hooks.slack.com",
+        "hooks.slack-gov.com",
+    ]);
 
     constructor(private readonly prisma: PrismaService) { }
 
@@ -18,10 +22,12 @@ export class SlackWebhookService {
      * Create a new Slack webhook configuration
      */
     async createWebhook(dto: CreateSlackWebhookDto) {
+        const webhookUrl = this.validateAndNormalizeWebhookUrl(dto.webhookUrl);
+
         return this.prisma.slackWebhook.create({
             data: {
                 name: dto.name,
-                webhookUrl: dto.webhookUrl,
+                webhookUrl,
                 channel: dto.channel,
                 alertTypes: dto.alertTypes,
                 isActive: dto.isActive ?? true,
@@ -33,9 +39,16 @@ export class SlackWebhookService {
      * Update an existing Slack webhook
      */
     async updateWebhook(id: number, dto: UpdateSlackWebhookDto) {
+        const data = {
+            ...dto,
+            ...(dto.webhookUrl
+                ? { webhookUrl: this.validateAndNormalizeWebhookUrl(dto.webhookUrl) }
+                : {}),
+        };
+
         return this.prisma.slackWebhook.update({
             where: { id },
-            data: dto,
+            data,
         });
     }
 
@@ -195,10 +208,39 @@ export class SlackWebhookService {
      * Send message to a specific Slack webhook URL
      */
     private async sendToWebhook(webhookUrl: string, message: SlackMessage): Promise<void> {
-        await Axios.post(webhookUrl, message, {
+        const normalizedWebhookUrl = this.validateAndNormalizeWebhookUrl(webhookUrl);
+
+        await Axios.post(normalizedWebhookUrl, message, {
             headers: { "Content-Type": "application/json" },
             timeout: 10000,
         });
+    }
+
+    private validateAndNormalizeWebhookUrl(rawUrl: string): string {
+        let parsedUrl: URL;
+
+        try {
+            parsedUrl = new URL(rawUrl.trim());
+        } catch {
+            throw new BadRequestException("Invalid Slack webhook URL format");
+        }
+
+        const hasUnsupportedParts =
+            Boolean(parsedUrl.username) ||
+            Boolean(parsedUrl.password) ||
+            Boolean(parsedUrl.search) ||
+            Boolean(parsedUrl.hash);
+
+        if (
+            parsedUrl.protocol !== "https:" ||
+            hasUnsupportedParts ||
+            !this.allowedSlackWebhookHosts.has(parsedUrl.hostname) ||
+            !parsedUrl.pathname.startsWith("/services/")
+        ) {
+            throw new BadRequestException("Only valid Slack incoming webhook URLs are allowed");
+        }
+
+        return parsedUrl.toString();
     }
 
     /**
