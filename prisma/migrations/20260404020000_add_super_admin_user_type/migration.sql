@@ -1,0 +1,2 @@
+-- Add SUPER_ADMIN value to UserType enum
+ALTER TYPE "UserType" ADD VALUE IF NOT EXISTS 'SUPER_ADMIN';
