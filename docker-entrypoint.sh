@@ -6,6 +6,7 @@ echo "=== Applying database migrations ==="
 npx prisma migrate resolve --rolled-back 20260305150000_backfill_sweep_columns_from_metadata 2>/dev/null || true
 npx prisma migrate resolve --rolled-back 20260330000000_identity_dedup 2>/dev/null || true
 npx prisma migrate resolve --rolled-back 20260404000000_add_payment_idempotency_key 2>/dev/null || true
+npx prisma migrate resolve --rolled-back 20260404010000_add_payment_stuck_order_fields 2>/dev/null || true
 npx prisma migrate deploy
 
 echo "=== Seeding database ==="
