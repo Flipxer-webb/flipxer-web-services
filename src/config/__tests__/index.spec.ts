@@ -47,6 +47,7 @@ describe("config module", () => {
             RECOVERY_PIN_TEMPLATE: "recovery-template",
             TRANSACTION_NOTIFICATION_TEMPLATE: "txn-template",
             FAILED_TRANSACTION_TEMPLATE: "failed-template",
+            ADMIN_INVITE_TEMPLATE: "admin-invite-template",
             FRONTEND_DEV_DOMAIN: "http://localhost:3000",
             PROFILE_DIR: "profiles",
             DOCUMENT_DIR: "documents",

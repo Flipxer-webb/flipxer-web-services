@@ -105,6 +105,7 @@ function makePrisma() {
         role: { findUnique: jest.fn() },
         accountVerificationRequest: { upsert: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
         passwordResetRequest: { create: jest.fn(), delete: jest.fn(), deleteMany: jest.fn() },
+        adminInvite: { findUnique: jest.fn(), update: jest.fn() },
         $transaction: jest.fn(),
     };
 }
@@ -470,6 +471,115 @@ describe("AuthService", () => {
                     [CREDENTIAL_FIELD]: "legacy_hash",
                 } as any),
             ).rejects.toThrow("must be different from your current password");
+        });
+    });
+
+    describe("admin invite lifecycle", () => {
+        it("validates a pending admin invite", async () => {
+            prisma.adminInvite.findUnique.mockResolvedValue({
+                id: 1,
+                email: "pending-admin@flipxer.com",
+                firstName: "Pending",
+                lastName: "Admin",
+                acceptedAt: null,
+                expiresAt: new Date(Date.now() + 60_000),
+                role: { id: 2, name: "Ops", slug: "ops-admin" },
+            });
+
+            const result = await service.validateAdminInvite({ token: "abc-token" } as any);
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain("valid");
+            expect(result.data.email).toBe("pending-admin@flipxer.com");
+        });
+
+        it("rejects used admin invite token during validation", async () => {
+            prisma.adminInvite.findUnique.mockResolvedValue({
+                id: 1,
+                acceptedAt: new Date(),
+                expiresAt: new Date(Date.now() + 60_000),
+            });
+
+            await expect(service.validateAdminInvite({ token: "used-token" } as any)).rejects.toThrow(
+                "Invalid admin invite",
+            );
+        });
+
+        it("rejects expired admin invite token during validation", async () => {
+            prisma.adminInvite.findUnique.mockResolvedValue({
+                id: 1,
+                acceptedAt: null,
+                expiresAt: new Date(Date.now() - 60_000),
+            });
+
+            await expect(service.validateAdminInvite({ token: "expired-token" } as any)).rejects.toThrow(
+                "Admin invite has expired",
+            );
+        });
+
+        it("accepts invite and creates admin account", async () => {
+            prisma.adminInvite.findUnique.mockResolvedValue({
+                id: 7,
+                roleId: 2,
+                email: "new-admin@flipxer.com",
+                firstName: "New",
+                lastName: "Admin",
+                acceptedAt: null,
+                expiresAt: new Date(Date.now() + 60_000),
+                role: { id: 2, name: "Ops", slug: "ops-admin", isAdmin: true },
+            });
+            prisma.user.findUnique
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce(null);
+            prisma.user.create.mockResolvedValue({
+                id: 10,
+                identifier: "ID-123",
+                firstName: "New",
+                lastName: "Admin",
+                email: "new-admin@flipxer.com",
+                role: { id: 2, name: "Ops", slug: "ops-admin" },
+                createdAt: new Date(),
+            });
+            prisma.adminInvite.update.mockResolvedValue({ id: 7, acceptedAt: new Date() });
+            prisma.$transaction.mockImplementation(async (ops: Promise<any>[]) => Promise.all(ops));
+
+            const result = await service.acceptAdminInvite({
+                token: "abc-token",
+                phone: "08012345678",
+                password: "StrongPassword123!",
+            } as any);
+
+            expect(result.success).toBe(true);
+            expect(result.data.email).toBe("new-admin@flipxer.com");
+            expect(prisma.adminInvite.update).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { id: 7 } }),
+            );
+        });
+
+        it("rejects used invite during acceptance", async () => {
+            prisma.adminInvite.findUnique.mockResolvedValue({
+                id: 8,
+                acceptedAt: new Date(),
+                expiresAt: new Date(Date.now() + 60_000),
+                role: { isAdmin: true },
+            });
+
+            await expect(
+                service.acceptAdminInvite({ token: "used", phone: "08011111111", password: "StrongPassword123!" } as any),
+            ).rejects.toThrow("Invalid admin invite");
+        });
+
+        it("rejects expired invite during acceptance", async () => {
+            prisma.adminInvite.findUnique.mockResolvedValue({
+                id: 9,
+                acceptedAt: null,
+                expiresAt: new Date(Date.now() - 60_000),
+                role: { isAdmin: true },
+            });
+
+            await expect(
+                service.acceptAdminInvite({ token: "expired", phone: "08011111111", password: "StrongPassword123!" } as any),
+            ).rejects.toThrow("Admin invite has expired");
         });
     });
 

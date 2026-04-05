@@ -202,6 +202,26 @@ export class InvalidResetRequestException extends HttpException {
     }
 }
 
+export class InvalidAdminInviteException extends HttpException {
+    name = "InvalidAdminInviteException";
+    constructor(
+        message = "Invalid admin invite",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
+}
+
+export class AdminInviteExpiredException extends HttpException {
+    name = "AdminInviteExpiredException";
+    constructor(
+        message = "Admin invite has expired",
+        status: HttpStatus = HttpStatus.BAD_REQUEST
+    ) {
+        super(message, status);
+    }
+}
+
 export class InvalidRefreshToken extends HttpException {
     name = "InvalidRefreshToken";
 }

@@ -63,6 +63,10 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
     {
+        name: "ADMIN_INVITE_TEMPLATE",
+        type: RequiredEnvironmentTypes.String,
+    },
+    {
         name: "JWT_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
@@ -204,6 +208,7 @@ export interface EMailTemplateConfig {
     transaction_failed: string;
     document_approved: string;
     document_rejected: string;
+    admin_invite: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
@@ -215,6 +220,7 @@ export const emailTemplateConfig: EMailTemplateConfig = {
     transaction_failed: process.env.FAILED_TRANSACTION_TEMPLATE,
     document_approved: process.env.DOCUMENT_APPROVED_TEMPLATE || "",
     document_rejected: process.env.DOCUMENT_REJECTED_TEMPLATE || "",
+    admin_invite: process.env.ADMIN_INVITE_TEMPLATE || "",
 };
 
 // Email config
