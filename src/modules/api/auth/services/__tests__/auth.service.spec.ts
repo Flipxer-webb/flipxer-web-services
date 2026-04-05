@@ -174,7 +174,7 @@ describe("AuthService", () => {
         };
         const mockKyc = { transition: jest.fn().mockResolvedValue(undefined) };
         const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
-        const mockWsGateway = { sendToUser: jest.fn() };
+        const mockWsGateway = { sendToUser: jest.fn(), notifyProfileUpdate: jest.fn() };
         const mockIdentityResolution = { resolveOrCreate: jest.fn().mockResolvedValue({ subjectId: 1, isNew: true }) };
 
         const module: TestingModule = await Test.createTestingModule({
@@ -778,6 +778,11 @@ describe("AuthService", () => {
                 "BVN",
                 "12345678901",
                 42,
+                expect.objectContaining({
+                    firstName: "Jane",
+                    lastName: "Doe",
+                    dateOfBirth: "1990-01-01",
+                }),
             );
         });
 
@@ -843,6 +848,11 @@ describe("AuthService", () => {
                 "NIN",
                 "98765432100",
                 52,
+                expect.objectContaining({
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: "1990-01-01",
+                }),
             );
         });
 
@@ -1043,6 +1053,118 @@ describe("AuthService", () => {
                 "REJECTED",
                 expect.objectContaining({ providerRef: "bvn-ref-missing-fields" }),
             );
+        });
+
+        it("routes BVN to manual review when DOB matches but names mismatch", async () => {
+            const user = {
+                id: 70,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Alex",
+                        last_name: "Smith",
+                        date_of_birth: "1990-01-01",
+                        reference_id: "bvn-ref-manual-review",
+                    },
+                },
+            });
+
+            const result = await service.bvnVerification(user, { bvn: "33333333335" } as any);
+
+            expect(result.message).toBe("BVN submitted for manual review. An admin will review your details shortly.");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                70,
+                "BVN",
+                "PENDING",
+                expect.objectContaining({ providerRef: "bvn-ref-manual-review" }),
+            );
+            expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
+            expect(prisma.user.update).not.toHaveBeenCalled();
+        });
+
+        it("reopens BVN review with RESUBMITTED when PENDING transition is illegal", async () => {
+            const user = {
+                id: 71,
+                isBvnVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyBvn.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Alex",
+                        last_name: "Smith",
+                        date_of_birth: "1990-01-01",
+                        reference_id: "bvn-ref-resubmitted",
+                    },
+                },
+            });
+
+            ((service as any).kycStateMachine.transition as jest.Mock)
+                .mockRejectedValueOnce(new Error("Illegal transition"))
+                .mockResolvedValueOnce(undefined);
+
+            const result = await service.bvnVerification(user, { bvn: "33333333336" } as any);
+
+            expect(result.message).toBe("BVN submitted for manual review. An admin will review your details shortly.");
+            expect((service as any).kycStateMachine.transition).toHaveBeenNthCalledWith(
+                1,
+                71,
+                "BVN",
+                "PENDING",
+                expect.objectContaining({ providerRef: "bvn-ref-resubmitted" }),
+            );
+            expect((service as any).kycStateMachine.transition).toHaveBeenNthCalledWith(
+                2,
+                71,
+                "BVN",
+                "RESUBMITTED",
+                expect.objectContaining({ providerRef: "bvn-ref-resubmitted" }),
+            );
+        });
+
+        it("routes NIN to manual review when DOB matches but names mismatch", async () => {
+            const user = {
+                id: 72,
+                isNinVerified: false,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            dojahService.verifyNin.mockResolvedValue({
+                data: {
+                    entity: {
+                        first_name: "Alex",
+                        last_name: "Smith",
+                        date_of_birth: "1990-01-01",
+                        reference_id: "nin-ref-manual-review",
+                    },
+                },
+            });
+
+            const result = await service.ninVerification(user, { nin: "44444444446" } as any);
+
+            expect(result.message).toBe("NIN submitted for manual review. An admin will review your details shortly.");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                72,
+                "NIN",
+                "PENDING",
+                expect.objectContaining({ providerRef: "nin-ref-manual-review" }),
+            );
+            expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
+            expect(prisma.user.update).not.toHaveBeenCalled();
         });
 
         it("continues NIN verification when enqueue fails after persistence", async () => {

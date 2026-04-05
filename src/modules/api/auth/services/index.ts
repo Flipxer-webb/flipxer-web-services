@@ -1312,7 +1312,7 @@ export class AuthService {
         user: User,
         result: any,
         identityType: "BVN" | "NIN",
-    ): Promise<void> {
+    ): Promise<"MATCHED" | "PENDING_REVIEW"> {
         const nameResult = matchNames(
             user.firstName,
             user.lastName,
@@ -1324,7 +1324,7 @@ export class AuthService {
             result?.data?.entity?.date_of_birth || "",
         );
 
-        if (!nameResult.matches || !dobMatches) {
+        if (!dobMatches) {
             this.logger.warn(`[KYC][${identityType}] User data mismatch for user ${user.id} after Dojah response`);
             await this.kycStateMachine.transition(user.id, identityType, "REJECTED", {
                 providerRef: result?.data?.entity?.reference_id,
@@ -1336,6 +1336,26 @@ export class AuthService {
                 HttpStatus.BAD_REQUEST
             );
         }
+
+        if (!nameResult.matches) {
+            this.logger.warn(`[KYC][${identityType}] Name mismatch with DOB match for user ${user.id}; routing to manual review`);
+            const transitionMeta = {
+                providerRef: result?.data?.entity?.reference_id,
+                providerRawResponse: result?.data,
+                reviewNote: `DOB matched but names mismatched. ${nameResult.detail}`,
+            };
+
+            try {
+                await this.kycStateMachine.transition(user.id, identityType, "PENDING", transitionMeta);
+            } catch {
+                // If an active REJECTED record exists, reopen via RESUBMITTED -> PENDING.
+                await this.kycStateMachine.transition(user.id, identityType, "RESUBMITTED", transitionMeta);
+            }
+
+            return "PENDING_REVIEW";
+        }
+
+        return "MATCHED";
     }
 
     private async processDevIdentityBypass(
@@ -1468,7 +1488,12 @@ export class AuthService {
             this.logger.warn(`[SECURITY][DEV-ONLY] Test BVN bypass used for user ${user.id}`);
             await this.processDevIdentityBypass(user.id, "BVN");
         } else {
-            await this.rejectOnIdentityMismatch(user, result, "BVN");
+            const identityMatchOutcome = await this.rejectOnIdentityMismatch(user, result, "BVN");
+            if (identityMatchOutcome === "PENDING_REVIEW") {
+                return buildResponse({
+                    message: "BVN submitted for manual review. An admin will review your details shortly.",
+                });
+            }
             await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, dto.bvn, user.id, {
                 firstName: result.data.entity.first_name,
                 lastName: result.data.entity.last_name,
@@ -1539,7 +1564,12 @@ export class AuthService {
             this.logger.warn(`[SECURITY][DEV-ONLY] Test NIN bypass used for user ${user.id}`);
             await this.processDevIdentityBypass(user.id, "NIN");
         } else {
-            await this.rejectOnIdentityMismatch(user, result, "NIN");
+            const identityMatchOutcome = await this.rejectOnIdentityMismatch(user, result, "NIN");
+            if (identityMatchOutcome === "PENDING_REVIEW") {
+                return buildResponse({
+                    message: "NIN submitted for manual review. An admin will review your details shortly.",
+                });
+            }
             await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, dto.nin, user.id, {
                 firstName: result.data.entity.first_name,
                 lastName: result.data.entity.last_name,
