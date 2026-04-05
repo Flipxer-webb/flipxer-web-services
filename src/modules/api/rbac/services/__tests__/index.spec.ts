@@ -1,6 +1,8 @@
 import { RbacService } from "../index";
 import { UserType } from "@prisma/client";
 import {
+    AdminInviteAlreadyUsedException,
+    AdminInviteNotFoundException,
     AdminUserAlreadyExistsException,
     AdminUserNotFoundException,
     CannotDeleteDefaultRoleException,
@@ -10,6 +12,13 @@ import {
     RoleAlreadyExistsException,
     RoleNotFoundException,
 } from "../../errors";
+
+jest.mock("@/config", () => ({
+    COMPANY_NAME: "Flipxer",
+    frontendUrl: "https://resolve-web-app-cyan.vercel.app",
+    mailConfig: { senderMail: "hello@flipxer.com" },
+    emailTemplateConfig: { admin_invite: "tpl-admin-invite" },
+}));
 
 jest.mock("bcryptjs", () => ({
     hash: jest.fn().mockResolvedValue("hashed-password"),
@@ -56,6 +65,13 @@ function makePrisma() {
             findMany: jest.fn(),
             count: jest.fn(),
         },
+        adminInvite: {
+            deleteMany: jest.fn(),
+            create: jest.fn(),
+            delete: jest.fn(),
+            findUnique: jest.fn(),
+            update: jest.fn(),
+        },
         $transaction: jest.fn(),
     };
 }
@@ -63,11 +79,15 @@ function makePrisma() {
 describe("RbacService", () => {
     let prisma: ReturnType<typeof makePrisma>;
     let service: RbacService;
+    let emailService: { sendMailWithTemplate: jest.Mock };
     const generatedAdminPassword = `test-${Date.now()}`;
 
     beforeEach(() => {
         prisma = makePrisma();
-        service = new RbacService(prisma as any);
+        emailService = {
+            sendMailWithTemplate: jest.fn().mockResolvedValue({ request_id: "req-id" }),
+        };
+        service = new RbacService(prisma as any, emailService as any);
     });
 
     it("returns shaped roles from getAllRoles", async () => {
@@ -408,6 +428,101 @@ describe("RbacService", () => {
                 }),
             })
         );
+    });
+
+    it("sends admin invite email and stores pending invite", async () => {
+        prisma.user.findUnique
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ firstName: "Inviter", lastName: "Admin", email: "inviter@flipxer.com" });
+        prisma.role.findUnique.mockResolvedValue({ id: 12, isAdmin: true, slug: "ops-admin", name: "Ops" });
+        prisma.adminInvite.create.mockResolvedValue({
+            id: 900,
+            email: "new-admin@flipxer.com",
+            expiresAt: new Date("2026-04-07T00:00:00.000Z"),
+        });
+
+        const result = await service.inviteAdminUser(
+            {
+                firstName: "New",
+                lastName: "Admin",
+                email: "new-admin@flipxer.com",
+                roleId: 12,
+            } as any,
+            { adminId: 4, ipAddress: "127.0.0.1", userAgent: "jest" },
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.message).toContain("invite sent");
+        expect(prisma.adminInvite.deleteMany).toHaveBeenCalledWith({
+            where: { email: "new-admin@flipxer.com", acceptedAt: null },
+        });
+        expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+            expect.objectContaining({
+                template_key: "tpl-admin-invite",
+                to: [{ email_address: { address: "new-admin@flipxer.com" } }],
+            }),
+        );
+    });
+
+    it("resends admin invite with rotated token", async () => {
+        prisma.adminInvite.findUnique.mockResolvedValue({
+            id: 11,
+            token: "old-token",
+            email: "pending-admin@flipxer.com",
+            firstName: "Pending",
+            acceptedAt: null,
+            expiresAt: new Date("2026-04-06T00:00:00.000Z"),
+            role: { name: "Ops", slug: "ops-admin", isAdmin: true },
+        });
+        prisma.user.findUnique
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ firstName: "Inviter", lastName: "Admin", email: "inviter@flipxer.com" });
+        prisma.adminInvite.update.mockResolvedValue({
+            id: 11,
+            email: "pending-admin@flipxer.com",
+            expiresAt: new Date(),
+        });
+
+        const result = await service.resendAdminInvite(11, { adminId: 7 });
+
+        expect(result.success).toBe(true);
+        expect(result.message).toContain("resent");
+        expect(prisma.adminInvite.update).toHaveBeenCalled();
+        expect(emailService.sendMailWithTemplate).toHaveBeenCalled();
+    });
+
+    it("throws AdminInviteNotFoundException when resending unknown invite", async () => {
+        prisma.adminInvite.findUnique.mockResolvedValue(null);
+
+        await expect(service.resendAdminInvite(404, { adminId: 7 })).rejects.toBeInstanceOf(
+            AdminInviteNotFoundException,
+        );
+    });
+
+    it("throws AdminInviteAlreadyUsedException when resending used invite", async () => {
+        prisma.adminInvite.findUnique.mockResolvedValue({
+            id: 77,
+            acceptedAt: new Date(),
+            role: { name: "Ops", slug: "ops-admin", isAdmin: true },
+        });
+
+        await expect(service.resendAdminInvite(77, { adminId: 7 })).rejects.toBeInstanceOf(
+            AdminInviteAlreadyUsedException,
+        );
+    });
+
+    it("revokes pending admin invite", async () => {
+        prisma.adminInvite.findUnique.mockResolvedValue({
+            id: 32,
+            email: "revoke-admin@flipxer.com",
+            acceptedAt: null,
+            role: { name: "Ops" },
+        });
+
+        const result = await service.revokeAdminInvite(32, { adminId: 12 });
+
+        expect(result.success).toBe(true);
+        expect(prisma.adminInvite.delete).toHaveBeenCalledWith({ where: { id: 32 } });
     });
 
     it("returns admin with flattened permissions", async () => {

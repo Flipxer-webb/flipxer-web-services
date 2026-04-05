@@ -1,19 +1,28 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { EmailService } from "@/modules/core/email/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta, generateId } from "@/utils";
 import { Prisma, UserType } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
+import * as crypto from "node:crypto";
 import {
     CreateRoleDto,
     UpdateRoleDto,
     CreateAdminUserDto,
+    InviteAdminUserDto,
     UpdateAdminUserDto,
     GetAdminUsersDto,
     ChangeAdminPasswordDto,
     AssignPermissionsDto,
     GetAuditLogsDto,
 } from "../dtos";
+import {
+    COMPANY_NAME,
+    emailTemplateConfig,
+    frontendUrl,
+    mailConfig,
+} from "@/config";
 import {
     RoleAlreadyExistsException,
     RoleNotFoundException,
@@ -23,6 +32,8 @@ import {
     AdminUserNotFoundException,
     CannotModifySuperAdminException,
     PrivilegeEscalationException,
+    AdminInviteNotFoundException,
+    AdminInviteAlreadyUsedException,
 } from "../errors";
 import { PermissionNames } from "../enums";
 import { ADMIN_USER_TYPES } from "../../authorize/decorator";
@@ -31,7 +42,10 @@ import { ADMIN_USER_TYPES } from "../../authorize/decorator";
 export class RbacService {
     private readonly logger = new Logger(RbacService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly emailService: EmailService,
+    ) {}
 
     /**
      * Derive the correct UserType enum from a role's slug.
@@ -39,6 +53,76 @@ export class RbacService {
      */
     private deriveUserType(roleSlug: string): UserType {
         return roleSlug === "super-admin" ? UserType.SUPER_ADMIN : UserType.ADMIN;
+    }
+
+    private async assertSuperAdminInvitePolicy(roleSlug: string, adminId: number): Promise<void> {
+        if (roleSlug !== "super-admin") {
+            return;
+        }
+
+        const requestingUser = await this.prisma.user.findUnique({
+            where: { id: adminId },
+            select: { userType: true },
+        });
+
+        if (requestingUser?.userType !== UserType.SUPER_ADMIN) {
+            throw new PrivilegeEscalationException();
+        }
+    }
+
+    private buildInviteToken(): string {
+        return crypto.randomBytes(32).toString("hex");
+    }
+
+    private buildInviteExpiryDate(): Date {
+        return new Date(Date.now() + 48 * 60 * 60 * 1000);
+    }
+
+    private async sendAdminInviteEmail(options: {
+        email: string;
+        firstName: string;
+        roleName: string;
+        token: string;
+        invitedById: number;
+    }): Promise<void> {
+        if (!emailTemplateConfig.admin_invite) {
+            throw new HttpException(
+                {
+                    success: false,
+                    message: "Admin invite email template is not configured",
+                },
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        const invitingAdmin = await this.prisma.user.findUnique({
+            where: { id: options.invitedById },
+            select: { firstName: true, lastName: true, email: true },
+        });
+
+        const inviterName =
+            `${invitingAdmin?.firstName || ""} ${invitingAdmin?.lastName || ""}`.trim() ||
+            invitingAdmin?.email ||
+            "Admin";
+
+        const inviteBaseUrl = frontendUrl.endsWith("/")
+            ? frontendUrl.slice(0, -1)
+            : frontendUrl;
+        const inviteLink = `${inviteBaseUrl}/admin-invite?token=${options.token}`;
+
+        await this.emailService.sendMailWithTemplate({
+            from: { address: mailConfig.senderMail },
+            to: [{ email_address: { address: options.email } }],
+            template_key: emailTemplateConfig.admin_invite,
+            merge_info: {
+                first_name: options.firstName,
+                inviter_name: inviterName,
+                role_name: options.roleName,
+                invite_link: inviteLink,
+                expiry_hours: "48",
+                company_name: COMPANY_NAME,
+            },
+        });
     }
 
     // ==================== ROLES ====================
@@ -547,6 +631,264 @@ export class RbacService {
         return buildResponse({
             message: "Admin user created successfully",
             data: admin,
+        });
+    }
+
+    async inviteAdminUser(dto: InviteAdminUserDto, auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string }): Promise<ApiResponse> {
+        const invitedById = auditContext?.adminId;
+        if (!invitedById) {
+            throw new HttpException(
+                {
+                    success: false,
+                    message: "Unable to identify inviting admin",
+                },
+                HttpStatus.UNAUTHORIZED,
+            );
+        }
+
+        const email = dto.email.toLowerCase().trim();
+
+        const existingUser = await this.prisma.user.findUnique({
+            where: { email },
+        });
+
+        if (existingUser) {
+            throw new AdminUserAlreadyExistsException(email);
+        }
+
+        const role = await this.prisma.role.findUnique({
+            where: { id: dto.roleId },
+        });
+
+        if (!role?.isAdmin) {
+            throw new RoleNotFoundException("Admin role not found");
+        }
+
+        await this.assertSuperAdminInvitePolicy(role.slug, invitedById);
+
+        const inviteToken = this.buildInviteToken();
+        const expiresAt = this.buildInviteExpiryDate();
+
+        await this.prisma.adminInvite.deleteMany({
+            where: {
+                email,
+                acceptedAt: null,
+            },
+        });
+
+        const invite = await this.prisma.adminInvite.create({
+            data: {
+                token: inviteToken,
+                email,
+                firstName: dto.firstName,
+                lastName: dto.lastName,
+                roleId: dto.roleId,
+                invitedById,
+                expiresAt,
+            },
+        });
+
+        try {
+            await this.sendAdminInviteEmail({
+                email,
+                firstName: dto.firstName,
+                roleName: role.name,
+                token: inviteToken,
+                invitedById,
+            });
+        } catch (error) {
+            await this.prisma.adminInvite.delete({ where: { id: invite.id } });
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Failed to send admin invite email: ${message}`);
+            throw new HttpException(
+                {
+                    success: false,
+                    message: "Failed to send admin invite email",
+                },
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        await this.createAuditLog({
+            action: "INVITE_ADMIN_USER",
+            resource: "admin_invite",
+            resourceId: invite.id.toString(),
+            details: {
+                email,
+                role: role.name,
+            },
+            adminId: invitedById,
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
+        });
+
+        return buildResponse({
+            message: "Admin invite sent successfully",
+            data: {
+                id: invite.id,
+                email: invite.email,
+                role: role.name,
+                expiresAt: invite.expiresAt,
+            },
+        });
+    }
+
+    async resendAdminInvite(
+        inviteId: number,
+        auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string },
+    ): Promise<ApiResponse> {
+        const invitedById = auditContext?.adminId;
+        if (!invitedById) {
+            throw new HttpException(
+                {
+                    success: false,
+                    message: "Unable to identify requesting admin",
+                },
+                HttpStatus.UNAUTHORIZED,
+            );
+        }
+
+        const invite = await this.prisma.adminInvite.findUnique({
+            where: { id: inviteId },
+            include: {
+                role: {
+                    select: {
+                        name: true,
+                        slug: true,
+                        isAdmin: true,
+                    },
+                },
+            },
+        });
+
+        if (!invite) {
+            throw new AdminInviteNotFoundException();
+        }
+
+        if (invite.acceptedAt) {
+            throw new AdminInviteAlreadyUsedException();
+        }
+
+        const existingUser = await this.prisma.user.findUnique({
+            where: { email: invite.email },
+            select: { id: true },
+        });
+
+        if (existingUser) {
+            throw new AdminUserAlreadyExistsException(invite.email);
+        }
+
+        if (!invite.role.isAdmin) {
+            throw new RoleNotFoundException("Admin role not found");
+        }
+
+        await this.assertSuperAdminInvitePolicy(invite.role.slug, invitedById);
+
+        const previousToken = invite.token;
+        const previousExpiry = invite.expiresAt;
+        const newToken = this.buildInviteToken();
+        const newExpiry = this.buildInviteExpiryDate();
+
+        const updatedInvite = await this.prisma.adminInvite.update({
+            where: { id: invite.id },
+            data: {
+                token: newToken,
+                expiresAt: newExpiry,
+                invitedById,
+            },
+        });
+
+        try {
+            await this.sendAdminInviteEmail({
+                email: invite.email,
+                firstName: invite.firstName,
+                roleName: invite.role.name,
+                token: newToken,
+                invitedById,
+            });
+        } catch (error) {
+            await this.prisma.adminInvite.update({
+                where: { id: invite.id },
+                data: {
+                    token: previousToken,
+                    expiresAt: previousExpiry,
+                },
+            });
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Failed to resend admin invite email: ${message}`);
+            throw new HttpException(
+                {
+                    success: false,
+                    message: "Failed to send admin invite email",
+                },
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        await this.createAuditLog({
+            action: "RESEND_ADMIN_INVITE",
+            resource: "admin_invite",
+            resourceId: invite.id.toString(),
+            details: {
+                email: invite.email,
+                role: invite.role.name,
+            },
+            adminId: invitedById,
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
+        });
+
+        return buildResponse({
+            message: "Admin invite resent successfully",
+            data: {
+                id: updatedInvite.id,
+                email: updatedInvite.email,
+                expiresAt: updatedInvite.expiresAt,
+            },
+        });
+    }
+
+    async revokeAdminInvite(
+        inviteId: number,
+        auditContext?: { adminId?: number; ipAddress?: string; userAgent?: string },
+    ): Promise<ApiResponse> {
+        const invite = await this.prisma.adminInvite.findUnique({
+            where: { id: inviteId },
+            include: {
+                role: {
+                    select: { name: true },
+                },
+            },
+        });
+
+        if (!invite) {
+            throw new AdminInviteNotFoundException();
+        }
+
+        if (invite.acceptedAt) {
+            throw new AdminInviteAlreadyUsedException();
+        }
+
+        await this.prisma.adminInvite.delete({
+            where: { id: invite.id },
+        });
+
+        await this.createAuditLog({
+            action: "REVOKE_ADMIN_INVITE",
+            resource: "admin_invite",
+            resourceId: invite.id.toString(),
+            details: {
+                email: invite.email,
+                role: invite.role.name,
+            },
+            adminId: auditContext?.adminId,
+            ipAddress: auditContext?.ipAddress,
+            userAgent: auditContext?.userAgent,
+        });
+
+        return buildResponse({
+            message: "Admin invite revoked successfully",
+            data: null,
         });
     }
 

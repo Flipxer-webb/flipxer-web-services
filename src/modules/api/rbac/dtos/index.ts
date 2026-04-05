@@ -83,6 +83,27 @@ export class CreateAdminUserDto {
     roleId: number;
 }
 
+export class InviteAdminUserDto {
+    @ApiProperty({ description: "First name", example: "John" })
+    @IsString()
+    @IsNotEmpty()
+    firstName: string;
+
+    @ApiProperty({ description: "Last name", example: "Doe" })
+    @IsString()
+    @IsNotEmpty()
+    lastName: string;
+
+    @ApiProperty({ description: "Email address", example: "admin@flipxer.com" })
+    @IsEmail()
+    @IsNotEmpty()
+    email: string;
+
+    @ApiProperty({ description: "Role ID to assign", example: 1 })
+    @IsNumber()
+    roleId: number;
+}
+
 export class UpdateAdminUserDto {
     @ApiPropertyOptional({ description: "First name" })
     @IsString()

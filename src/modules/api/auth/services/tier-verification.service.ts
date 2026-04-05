@@ -156,6 +156,30 @@ export class TierVerificationService {
         // Sync tier & flush cache
         await this.tierService.syncTierAndCache(user.id);
 
+        // Email + in-app notification + WS push on auto-approval
+        if (emailTemplateConfig.document_approved) {
+            this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: user.email } }],
+                template_key: emailTemplateConfig.document_approved,
+                merge_info: {
+                    first_name: user.firstName || "User",
+                    document_type: "Address",
+                    company_name: COMPANY_NAME,
+                    rejection_reason: "",
+                    status: "Approved",
+                },
+            }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send approval email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+        }
+        this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Address Verified",
+            body: "Your address verification has been approved.",
+            category: "security",
+            enablePush: true,
+        }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+        this.wsGateway.notifyProfileUpdate(user.id);
+
         return buildResponse({
             message: "Address verified successfully",
             data: {
@@ -270,6 +294,30 @@ export class TierVerificationService {
 
         // Sync tier & flush cache
         await this.tierService.syncTierAndCache(user.id);
+
+        // Email + in-app notification + WS push on auto-approval
+        if (emailTemplateConfig.document_approved) {
+            this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: user.email } }],
+                template_key: emailTemplateConfig.document_approved,
+                merge_info: {
+                    first_name: user.firstName || "User",
+                    document_type: "Income",
+                    company_name: COMPANY_NAME,
+                    rejection_reason: "",
+                    status: "Approved",
+                },
+            }).catch((e) => this.logger.error(`[KYC][INCOME] Failed to send approval email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+        }
+        this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Income Verified",
+            body: "Your income verification has been approved.",
+            category: "security",
+            enablePush: true,
+        }).catch((e) => this.logger.error(`[KYC][INCOME] Failed to send notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+        this.wsGateway.notifyProfileUpdate(user.id);
 
         return buildResponse({
             message: "Income verified successfully",

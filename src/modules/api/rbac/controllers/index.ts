@@ -23,6 +23,7 @@ import {
     CreateRoleDto,
     UpdateRoleDto,
     CreateAdminUserDto,
+    InviteAdminUserDto,
     UpdateAdminUserDto,
     GetAdminUsersDto,
     ChangeAdminPasswordDto,
@@ -129,6 +130,30 @@ export class RbacController {
     @Post("admins")
     async createAdminUser(@Body() dto: CreateAdminUserDto, @Req() req: Request) {
         return await this.rbacService.createAdminUser(dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+    }
+
+    @ApiOperation({ summary: "Invite a new admin user" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.ROLES_CREATE])
+    @Post("admins/invite")
+    async inviteAdminUser(@Body() dto: InviteAdminUserDto, @Req() req: Request) {
+        return await this.rbacService.inviteAdminUser(dto, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+    }
+
+    @ApiOperation({ summary: "Resend an admin invite" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.ROLES_CREATE])
+    @Post("admins/invite/:inviteId/resend")
+    async resendAdminInvite(@Param("inviteId", ParseIntPipe) inviteId: number, @Req() req: Request) {
+        return await this.rbacService.resendAdminInvite(inviteId, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
+    }
+
+    @ApiOperation({ summary: "Revoke an admin invite" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.ROLES_DELETE])
+    @Delete("admins/invite/:inviteId")
+    async revokeAdminInvite(@Param("inviteId", ParseIntPipe) inviteId: number, @Req() req: Request) {
+        return await this.rbacService.revokeAdminInvite(inviteId, { adminId: (req as any).user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] });
     }
 
     @ApiOperation({ summary: "Update an admin user" })
