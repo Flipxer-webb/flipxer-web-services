@@ -23,7 +23,7 @@ describe("QuidaxTradingCryptoAccountInitQueueProcessor", () => {
     let prisma: {
         user: { findUnique: jest.Mock; update: jest.Mock };
     };
-    let quidaxService: { createSubAccount: jest.Mock };
+    let quidaxService: { createOrFindSubAccount: jest.Mock };
     let tradingService: { ensureWalletPaymentAddresses: jest.Mock };
 
     let processor: QuidaxTradingCryptoAccountInitQueueProcessor;
@@ -37,7 +37,7 @@ describe("QuidaxTradingCryptoAccountInitQueueProcessor", () => {
         };
 
         quidaxService = {
-            createSubAccount: jest.fn(),
+            createOrFindSubAccount: jest.fn(),
         };
 
         tradingService = {
@@ -73,13 +73,13 @@ describe("QuidaxTradingCryptoAccountInitQueueProcessor", () => {
 
     it("returns subaccount_failed when sub-account creation is unsuccessful", async () => {
         prisma.user.findUnique.mockResolvedValue({ id: 7, email: "u@x.com", firstName: "A", lastName: "B" });
-        quidaxService.createSubAccount.mockResolvedValue({ status: "failed", data: null });
+        quidaxService.createOrFindSubAccount.mockResolvedValue({ status: "failed", data: null });
 
         await expect(
             processor.processQuidaxAccountCreation({ data: { user_id: 7 } } as never),
         ).resolves.toBe("subaccount_failed");
 
-        expect(quidaxService.createSubAccount).toHaveBeenCalledWith({
+        expect(quidaxService.createOrFindSubAccount).toHaveBeenCalledWith({
             email: "u@x.com",
             first_name: "A",
             last_name: "B",
@@ -88,7 +88,7 @@ describe("QuidaxTradingCryptoAccountInitQueueProcessor", () => {
 
     it("returns no_wallets_created when all ensured address lists are empty", async () => {
         prisma.user.findUnique.mockResolvedValue({ id: 4, email: "u@x.com", firstName: "A", lastName: "B" });
-        quidaxService.createSubAccount.mockResolvedValue({ status: "success", data: { id: "sub-1" } });
+        quidaxService.createOrFindSubAccount.mockResolvedValue({ status: "success", data: { id: "sub-1" } });
         prisma.user.update.mockResolvedValue({ id: 4 });
         tradingService.ensureWalletPaymentAddresses.mockResolvedValue([]);
 
@@ -101,7 +101,7 @@ describe("QuidaxTradingCryptoAccountInitQueueProcessor", () => {
 
     it("returns true when at least one wallet address set is created", async () => {
         prisma.user.findUnique.mockResolvedValue({ id: 11, email: "u@x.com", firstName: "A", lastName: "B" });
-        quidaxService.createSubAccount.mockResolvedValue({ status: "success", data: { id: "sub-11" } });
+        quidaxService.createOrFindSubAccount.mockResolvedValue({ status: "success", data: { id: "sub-11" } });
         prisma.user.update.mockResolvedValue({ id: 11 });
 
         tradingService.ensureWalletPaymentAddresses.mockImplementation(async ({ assetSymbol }: { assetSymbol: string }) => {
