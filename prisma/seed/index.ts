@@ -4,7 +4,7 @@ import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
 import { roles } from "./role"; // Assumed roles array file
 import { SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH } from "./constants";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 
 // Permission names matching the PermissionNames constant in the RBAC module
 const PermissionNames = {
@@ -236,361 +236,94 @@ async function main() {
         logger.error("Super-admin role not found");
     }
 
-    // Seed INDIVIDUAL user (John Doe)
-    logger.info("Seeding John Doe user...");
     const individualRole = await prisma.role.findUnique({
         where: { slug: "individual" },
     });
-    if (individualRole) {
-        const plainIndividualPassword = getSeedPassword(
-            "SEED_INDIVIDUAL_PASSWORD",
-            "John Doe"
-        );
-        const hashedIndividualPassword = await bcrypt.hash(
-            plainIndividualPassword,
-            SALT_ROUNDS
-        );
-        const individual = await prisma.user.upsert({
-            where: { email: "john.doe@example.com" },
-            update: {},
-            create: {
-                email: "john.doe@example.com",
-                phone: "09032000001",
-                userType: UserType.INDIVIDUAL,
-                identifier: "Indv12345",
-                password: hashedIndividualPassword,
-                roleId: individualRole.id,
-                firstName: "John",
-                lastName: "Doe",
-                recoveryEmail: "john.recovery@example.com",
-                accountLimit: {
-                    create: {
-                        sellTokenFiat: 50000,
-                        buyToken: "unlimited",
-                        swapToken: "unlimited",
-                        sendToken: 50000,
-                        receiveToken: "unlimited",
-                    },
-                },
-                bankDetails: {
-                    create: [
-                        {
-                            bankName: "First Bank",
-                            accountName: "John Doe",
-                            accountNumber: "1234567890",
-                        },
-                    ],
-                },
-            },
-        });
-
-        await prisma.recoveryEmailVerificationRequest.upsert({
-            where: {
-                userId: individual.id,
-            },
-            update: { code: generateVerificationCode() },
-            create: {
-                userId: individual.id,
-                email: "john.recovery@example.com",
-                code: generateVerificationCode(),
-                isVerified: false,
-            },
-        });
-    } else {
-        logger.error("Individual role not found");
-    }
-
-    // Seed INDIVIDUAL user (Chidi Nwabeke)
-    logger.info("Seeding Chidi Nwabeke user...");
-    if (individualRole) {
-        const plainChidiPassword = getSeedPassword(
-            "SEED_CHIDI_PASSWORD",
-            "Chidi Nwabeke"
-        );
-        const hashedChidiPassword = await bcrypt.hash(
-            plainChidiPassword,
-            SALT_ROUNDS
-        );
-        const chidi = await prisma.user.upsert({
-            where: { email: "chidi90simeon@gmail.com" },
-            update: {},
-            create: {
-                email: "chidi90simeon@gmail.com",
-                phone: "09034000003",
-                userType: UserType.INDIVIDUAL,
-                identifier: "Chidi67890",
-                password: hashedChidiPassword,
-                roleId: individualRole.id,
-                firstName: "Chidi",
-                lastName: "Nwabeke",
-                recoveryEmail: "chidi.recovery@example.com",
-                accountLimit: {
-                    create: {
-                        sellTokenFiat: 50000,
-                        buyToken: "unlimited",
-                        swapToken: "unlimited",
-                        sendToken: 50000,
-                        receiveToken: "unlimited",
-                    },
-                },
-                bankDetails: {
-                    create: [
-                        {
-                            bankName: "Access Bank",
-                            accountName: "Chidi Nwabeke",
-                            accountNumber: "9876543210",
-                        },
-                    ],
-                },
-            },
-        });
-
-        await prisma.recoveryEmailVerificationRequest.upsert({
-            where: {
-                userId: chidi.id,
-            },
-            update: { code: generateVerificationCode() },
-            create: {
-                userId: chidi.id,
-                email: "chidi.recovery@example.com",
-                code: generateVerificationCode(),
-                isVerified: false,
-            },
-        });
-    } else {
-        logger.error("Individual role not found for Chidi");
-    }
-
-    // Seed VERIFIED INDIVIDUAL user (Jane Smith)
-    logger.info("Seeding Jane Smith user (fully verified with document)...");
-    if (individualRole) {
-        const plainJanePassword = getSeedPassword(
-            "SEED_JANE_PASSWORD",
-            "Jane Smith"
-        );
-        const hashedJanePassword = await bcrypt.hash(plainJanePassword, SALT_ROUNDS);
-        const jane = await prisma.user.upsert({
-            where: { email: "jane.smith@example.com" },
-            update: {},
-            create: {
-                email: "jane.smith@example.com",
-                phone: "09035000004",
-                userType: UserType.INDIVIDUAL,
-                identifier: "Jane12345",
-                password: hashedJanePassword,
-                roleId: individualRole.id,
-                firstName: "Jane",
-                lastName: "Smith",
-                recoveryEmail: "jane.recovery@example.com",
-                bvn: "12345678901", // Sample BVN for verification
-                bvnRegisteredPhone: "09035000004", // Matching phone number
-                nin: "98765432109", // Sample NIN for verification
-                tier: 1, // Tier 1: BVN + Document verified
-                isEmailVerified: true, // Email verified
-                isPhoneVerified: true, // Phone verified
-                isBvnVerified: true, // BVN verified
-                isNinVerified: true, // NIN verified
-                isDocumentVerified: true, // Document verified
-                isPasswordCreated: true, // Password created
-                accountLimit: {
-                    create: {
-                        sellTokenFiat: 50000,
-                        buyToken: "unlimited",
-                        swapToken: "unlimited",
-                        sendToken: 50000,
-                        receiveToken: "unlimited",
-                    },
-                },
-                bankDetails: {
-                    create: [
-                        {
-                            bankName: "UBA",
-                            accountName: "Jane Smith",
-                            accountNumber: "5432109876",
-                        },
-                    ],
-                },
-                userDocument: {
-                    create: {
-                        type: "INTERNATIONAL_PASSPORT",
-                        country: "NIGERIA",
-                        documentNumber: "A12345678",
-                        documentImageUrl: "https://example.com/documents/jane_smith_passport.jpg", // Sample document link
-                        documentImageFieldId: "doc_jane_12345",
-                    },
-                },
-            },
-        });
-
-        await prisma.recoveryEmailVerificationRequest.upsert({
-            where: {
-                userId: jane.id,
-            },
-            update: { code: generateVerificationCode() },
-            create: {
-                userId: jane.id,
-                email: "jane.recovery@example.com",
-                code: generateVerificationCode(),
-                isVerified: true, // Recovery email verified
-            },
-        });
-    } else {
-        logger.error("Individual role not found for Jane Smith");
-    }
-
-    // Seed BUSINESS user (Acme Corp)
-    logger.info("Seeding Acme Corp user...");
-    const businessRole = await prisma.role.findUnique({
-        where: { slug: "business" },
-    });
-    if (businessRole) {
-        const plainBusinessPassword = getSeedPassword(
-            "SEED_BUSINESS_PASSWORD",
-            "Acme Corp"
-        );
-        const hashedBusinessPassword = await bcrypt.hash(
-            plainBusinessPassword,
-            SALT_ROUNDS
-        );
-        const business = await prisma.user.upsert({
-            where: { email: "acme.corp@example.com" },
-            update: {},
-            create: {
-                email: "acme.corp@example.com",
-                phone: "09033000002",
-                userType: UserType.BUSINESS,
-                identifier: "Biz67890",
-                password: hashedBusinessPassword,
-                roleId: businessRole.id,
-                firstName: "Acme",
-                lastName: "Corp",
-                recoveryEmail: "acme.recovery@example.com",
-                accountLimit: {
-                    create: {
-                        sellTokenFiat: 50000,
-                        buyToken: "unlimited",
-                        swapToken: "unlimited",
-                        sendToken: 50000,
-                        receiveToken: "unlimited",
-                    },
-                },
-                bankDetails: {
-                    create: [
-                        {
-                            bankName: "GTBank",
-                            accountName: "Acme Corp",
-                            accountNumber: "0987654321",
-                        },
-                        {
-                            bankName: "Zenith Bank",
-                            accountName: "Acme Corp",
-                            accountNumber: "1122334455",
-                        },
-                    ],
-                },
-            },
-        });
-
-        await prisma.recoveryEmailVerificationRequest.upsert({
-            where: {
-                userId: business.id,
-            },
-            update: { code: generateVerificationCode() },
-            create: {
-                userId: business.id,
-                email: "acme.recovery@example.com",
-                code: generateVerificationCode(),
-                isVerified: false,
-            },
-        });
-    } else {
-        logger.error("Business role not found");
-    }
 
     // Seed FULLY VERIFIED TEST USER (for testing purposes)
     logger.info("Seeding fully verified test user...");
     if (individualRole) {
         const testUserPassword = process.env.TEST_USER_PASSWORD;
-        if (!testUserPassword) {
-            logger.warn('TEST_USER_PASSWORD env var not set — skipping test user seed');
-        } else {
+        if (testUserPassword) {
             const hashedTestPassword = await bcrypt.hash(testUserPassword, SALT_ROUNDS);
 
-        const testUser = await prisma.user.upsert({
-            where: { email: "testuser@flipxer.com" },
-            update: {
-                // Force update password and all verification flags
-                password: hashedTestPassword,
-                isEmailVerified: true,
-                isPhoneVerified: true,
-                isPasswordCreated: true,
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
-                isAddressVerified: true,
-                // NOTE: Do NOT reset isTwoFactorEnabled here - preserve user's 2FA settings
-                tier: 3,
-            },
-            create: {
-                email: "testuser@flipxer.com",
-                phone: "09099999999",
-                userType: UserType.INDIVIDUAL,
-                identifier: "TestUser001",
-                password: hashedTestPassword,
-                roleId: individualRole.id,
-                firstName: "Test",
-                lastName: "User",
-                dateOfBirth: new Date("1990-01-15"),
-                bvn: "22222222222",
-                bvnRegisteredPhone: "09099999999",
-                nin: "12345678901",
-                ninRegisteredPhone: "09099999999",
-                recoveryEmail: "testuser.recovery@flipxer.com",
-                isEmailVerified: true,
-                isPhoneVerified: true,
-                isPasswordCreated: true,
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
-                isAddressVerified: true,
-                isTwoFactorEnabled: false,
-                tier: 3,
-                accountLimit: {
-                    create: {
-                        sellTokenFiat: 100000,
-                        buyToken: "unlimited",
-                        swapToken: "unlimited",
-                        sendToken: 100000,
-                        receiveToken: "unlimited",
+            const testUser = await prisma.user.upsert({
+                where: { email: "testuser@flipxer.com" },
+                update: {
+                    // Force update password and all verification flags
+                    password: hashedTestPassword,
+                    isEmailVerified: true,
+                    isPhoneVerified: true,
+                    isPasswordCreated: true,
+                    isBvnVerified: true,
+                    isNinVerified: true,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    // NOTE: Do NOT reset isTwoFactorEnabled here - preserve user's 2FA settings
+                    tier: 3,
+                },
+                create: {
+                    email: "testuser@flipxer.com",
+                    phone: "09099999999",
+                    userType: UserType.INDIVIDUAL,
+                    identifier: "TestUser001",
+                    password: hashedTestPassword,
+                    roleId: individualRole.id,
+                    firstName: "Test",
+                    lastName: "User",
+                    dateOfBirth: new Date("1990-01-15"),
+                    bvn: "22222222222",
+                    bvnRegisteredPhone: "09099999999",
+                    nin: "12345678901",
+                    ninRegisteredPhone: "09099999999",
+                    recoveryEmail: "testuser.recovery@flipxer.com",
+                    isEmailVerified: true,
+                    isPhoneVerified: true,
+                    isPasswordCreated: true,
+                    isBvnVerified: true,
+                    isNinVerified: true,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    isTwoFactorEnabled: false,
+                    tier: 3,
+                    accountLimit: {
+                        create: {
+                            sellTokenFiat: 100000,
+                            buyToken: "unlimited",
+                            swapToken: "unlimited",
+                            sendToken: 100000,
+                            receiveToken: "unlimited",
+                        },
+                    },
+                    bankDetails: {
+                        create: [
+                            {
+                                bankName: "GTBank",
+                                accountName: "Test User",
+                                accountNumber: "0123456789",
+                            },
+                        ],
                     },
                 },
-                bankDetails: {
-                    create: [
-                        {
-                            bankName: "GTBank",
-                            accountName: "Test User",
-                            accountNumber: "0123456789",
-                        },
-                    ],
+            });
+
+            await prisma.recoveryEmailVerificationRequest.upsert({
+                where: {
+                    userId: testUser.id,
                 },
-            },
-        });
+                update: { code: generateVerificationCode() },
+                create: {
+                    userId: testUser.id,
+                    email: "testuser.recovery@flipxer.com",
+                    code: generateVerificationCode(),
+                    isVerified: true,
+                },
+            });
 
-        await prisma.recoveryEmailVerificationRequest.upsert({
-            where: {
-                userId: testUser.id,
-            },
-            update: { code: generateVerificationCode() },
-            create: {
-                userId: testUser.id,
-                email: "testuser.recovery@flipxer.com",
-                code: generateVerificationCode(),
-                isVerified: true,
-            },
-        });
-
-        logger.info("Test user created - Email: testuser@flipxer.com, Password: TestUser@2024!");
-        } // end: TEST_USER_PASSWORD check
+            logger.info("Test user created - Email: testuser@flipxer.com, Password: TestUser@2024!");
+        } else {
+            logger.warn("TEST_USER_PASSWORD env var not set — skipping test user seed");
+        }
     }
 
 
