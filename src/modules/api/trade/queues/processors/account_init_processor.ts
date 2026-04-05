@@ -42,7 +42,7 @@ export class QuidaxTradingCryptoAccountInitQueueProcessor {
             }
 
             // Create sub-account
-            const result = await this.quidaxService.createSubAccount({
+            const result = await this.quidaxService.createOrFindSubAccount({
                 email: user.email,
                 first_name: user.firstName,
                 last_name: user.lastName,
