@@ -89,3 +89,27 @@ export class PrivilegeEscalationException extends HttpException {
         );
     }
 }
+
+export class AdminInviteNotFoundException extends HttpException {
+    constructor() {
+        super(
+            {
+                success: false,
+                message: "Admin invite not found",
+            },
+            HttpStatus.NOT_FOUND
+        );
+    }
+}
+
+export class AdminInviteAlreadyUsedException extends HttpException {
+    constructor() {
+        super(
+            {
+                success: false,
+                message: "Admin invite has already been used",
+            },
+            HttpStatus.BAD_REQUEST
+        );
+    }
+}

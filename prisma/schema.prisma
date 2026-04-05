@@ -95,6 +95,7 @@ model User {
   passwordResetRequest               PasswordResetRequest?
   payments                           Payment[]
   RecoveryEmailVerificationRequest   RecoveryEmailVerificationRequest?
+  adminInvitesSent                   AdminInvite[]                     @relation("AdminInvitesSent")
   sessions                           Session[]
   userDocument                       UserDocument?
   preferences                        UserPreferences?
@@ -541,6 +542,7 @@ model Role {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   rolePermission RolePermission[]
+  adminInvites   AdminInvite[]
   users          User[]
 
   @@map("Roles")
@@ -555,6 +557,25 @@ model PasswordResetRequest {
   user      User     @relation(fields: [userId], references: [id])
 
   @@map("PasswordResetRequests")
+}
+
+model AdminInvite {
+  id          Int       @id @default(autoincrement())
+  token       String    @unique
+  email       String
+  firstName   String
+  lastName    String
+  roleId      Int
+  invitedById Int
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  role        Role      @relation(fields: [roleId], references: [id])
+  invitedBy   User      @relation("AdminInvitesSent", fields: [invitedById], references: [id])
+
+  @@index([email, acceptedAt])
+  @@map("AdminInvites")
 }
 
 model Permission {

@@ -6,6 +6,7 @@ import {
     HttpStatus,
     Logger,
     Post,
+    Query,
     Req,
     UploadedFile,
     UploadedFiles,
@@ -30,6 +31,8 @@ import {
     VerifyPhoneOtpDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
+    ValidateAdminInviteDto,
+    AcceptAdminInviteDto,
     RefreshTokenDto,
     BusinessDocumentUploadDto,
     BusinessDocumentUploadFormDto,
@@ -471,6 +474,28 @@ export class AuthController {
             user,
             body
         );
+    }
+
+    @UseGuards(RateLimiterGuard)
+    @RateLimit({ limit: 20, windowSeconds: 300, failOpen: false })
+    @HttpCode(HttpStatus.OK)
+    @Get("admin-invite/validate")
+    @ApiOperation({ summary: "validate admin invite token" })
+    async validateAdminInvite(
+        @Query(ValidationPipe) dto: ValidateAdminInviteDto
+    ) {
+        return await this.authService.validateAdminInvite(dto);
+    }
+
+    @UseGuards(RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 300, failOpen: false })
+    @HttpCode(HttpStatus.OK)
+    @Post("admin-invite/accept")
+    @ApiOperation({ summary: "accept admin invite and create password" })
+    async acceptAdminInvite(
+        @Body(ValidationPipe) dto: AcceptAdminInviteDto
+    ) {
+        return await this.authService.acceptAdminInvite(dto);
     }
 
     @UseGuards(RateLimiterGuard)

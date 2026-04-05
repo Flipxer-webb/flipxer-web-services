@@ -93,6 +93,39 @@ export class ResetPasswordDto extends CreatePasswordDto {
     resetCode: string;
 }
 
+export class ValidateAdminInviteDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    token: string;
+}
+
+export class AcceptAdminInviteDto {
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    token: string;
+
+    @ApiProperty()
+    @IsNotEmpty()
+    @IsString()
+    phone: string;
+
+    @ApiProperty({
+        description:
+            "Password (min 12 chars, must include uppercase, lowercase, number, and special character)",
+        minLength: 12,
+    })
+    @IsNotEmpty()
+    @IsString()
+    @MinLength(12)
+    @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])/, {
+        message:
+            "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+    })
+    password: string;
+}
+
 export class Verify2FALoginDto {
     @ApiProperty({ description: "Temporary token received from login" })
     @IsNotEmpty()

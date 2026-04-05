@@ -18,6 +18,8 @@ import {
     SubmitBusinessRecordDto,
     SendForgotPasswordDto,
     ResetPasswordDto,
+    ValidateAdminInviteDto,
+    AcceptAdminInviteDto,
     RefreshTokenDto,
     BusinessDocumentUploadDto,
     UploadBusinessDocumentFileDto,
@@ -45,6 +47,8 @@ import {
     InvalidResetCodeException,
     ResetCodeExpiredException,
     InvalidResetRequestException,
+    InvalidAdminInviteException,
+    AdminInviteExpiredException,
     UserUnauthorizedException,
     InvalidRefreshToken,
     AuthGenericException,
@@ -166,6 +170,10 @@ export class AuthService {
         if (!value) return "N/A";
         if (value.length <= visibleDigits) return value;
         return `${"*".repeat(Math.max(0, value.length - visibleDigits))}${value.slice(-visibleDigits)}`;
+    }
+
+    private deriveAdminUserType(roleSlug: string): UserType {
+        return roleSlug === "super-admin" ? UserType.SUPER_ADMIN : UserType.ADMIN;
     }
 
     /**
@@ -694,6 +702,146 @@ export class AuthService {
         });
     }
 
+    async validateAdminInvite(dto: ValidateAdminInviteDto): Promise<ApiResponse> {
+        const token = dto.token.trim();
+
+        const invite = await (this.prisma as any).adminInvite.findUnique({
+            where: { token },
+            include: {
+                role: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true,
+                    },
+                },
+            },
+        });
+
+        if (!invite || invite.acceptedAt) {
+            throw new InvalidAdminInviteException();
+        }
+
+        if (invite.expiresAt.getTime() < Date.now()) {
+            throw new AdminInviteExpiredException();
+        }
+
+        return buildResponse({
+            message: "Admin invite is valid",
+            data: {
+                email: invite.email,
+                firstName: invite.firstName,
+                lastName: invite.lastName,
+                role: invite.role,
+                expiresAt: invite.expiresAt,
+            },
+        });
+    }
+
+    async acceptAdminInvite(dto: AcceptAdminInviteDto): Promise<ApiResponse> {
+        const token = dto.token.trim();
+        const phone = dto.phone.trim();
+
+        const invite = await (this.prisma as any).adminInvite.findUnique({
+            where: { token },
+            include: {
+                role: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true,
+                        isAdmin: true,
+                    },
+                },
+            },
+        });
+
+        if (!invite || invite.acceptedAt) {
+            throw new InvalidAdminInviteException();
+        }
+
+        if (invite.expiresAt.getTime() < Date.now()) {
+            throw new AdminInviteExpiredException();
+        }
+
+        const existingUser = await this.prisma.user.findUnique({
+            where: { email: invite.email },
+        });
+
+        if (existingUser) {
+            throw new DuplicateUserException(
+                "An account with this email already exists. Please login",
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        if (!invite.role.isAdmin) {
+            throw new RoleNotFoundException(
+                "Admin role not found",
+                HttpStatus.NOT_FOUND,
+            );
+        }
+
+        const existingPhone = await this.prisma.user.findUnique({
+            where: { phone },
+            select: { id: true },
+        });
+
+        if (existingPhone) {
+            throw new DuplicateUserException(
+                "Phone number is already in use",
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        const hashedPassword = await this.hashPassword(dto.password);
+        const identifier = generateId({ type: "identifier" });
+
+        const [admin] = await this.prisma.$transaction([
+            this.prisma.user.create({
+                data: {
+                    identifier,
+                    firstName: invite.firstName,
+                    lastName: invite.lastName,
+                    email: invite.email,
+                    phone,
+                    password: hashedPassword,
+                    userType: this.deriveAdminUserType(invite.role.slug),
+                    roleId: invite.roleId,
+                    isEmailVerified: true,
+                    isPasswordCreated: true,
+                    status: Status.ACTIVE,
+                },
+                select: {
+                    id: true,
+                    identifier: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                    role: {
+                        select: {
+                            id: true,
+                            name: true,
+                            slug: true,
+                        },
+                    },
+                    createdAt: true,
+                },
+            }),
+            (this.prisma as any).adminInvite.update({
+                where: { id: invite.id },
+                data: { acceptedAt: new Date() },
+            }),
+        ]);
+
+        this.logger.log(`Admin invite accepted for ${invite.email}`);
+
+        return buildResponse({
+            message: "Admin account created successfully",
+            data: admin,
+        });
+    }
+
     async signUp(options: SignUpDto, ip: string): Promise<ApiResponse> {
         const email = options.email.toLowerCase().trim();
         const existingUser = await this.prisma.user.findUnique({
@@ -1099,6 +1247,37 @@ export class AuthService {
         });
     }
 
+    private sendDocumentAutoApprovalNotifications(
+        userId: number,
+        userEmail: string,
+        firstName: string,
+        documentType: string,
+        logger: Logger,
+    ): void {
+        if (emailTemplateConfig.document_approved) {
+            this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: userEmail } }],
+                template_key: emailTemplateConfig.document_approved,
+                merge_info: {
+                    first_name: firstName || "User",
+                    document_type: documentType,
+                    company_name: COMPANY_NAME,
+                    rejection_reason: "",
+                    status: "Approved",
+                },
+            }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send approval email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+        }
+        this.notificationDispatcher.notify({
+            userId,
+            title: "Document Verified",
+            body: "Your identity document has been verified successfully.",
+            category: "security",
+            enablePush: true,
+        }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send notification for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+        this.wsGateway.notifyProfileUpdate(userId);
+    }
+
     private ensureIdentityProfilePresent(user: User, identityType: "BVN" | "NIN"): void {
         if (!user.firstName || !user.lastName || !user.dateOfBirth) {
             throw new VerificationGenericException(
@@ -1200,6 +1379,47 @@ export class AuthService {
             this.logger.log(`[KYC][${identityType}] Crypto account enqueue successful for user ${userId}`);
         } catch (error) {
             this.logger.error(`Error in sub account setup: ${error?.message ?? error?.error?.message ?? JSON.stringify(error)}`);
+        }
+
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: { email: true, firstName: true },
+            });
+
+            if (user?.email && emailTemplateConfig.document_approved) {
+                await this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_approved,
+                    merge_info: {
+                        first_name: user.firstName || "User",
+                        document_type: identityType,
+                        company_name: COMPANY_NAME,
+                        rejection_reason: "",
+                        status: "Approved",
+                    },
+                });
+                this.logger.log(`[KYC][${identityType}] Approval email sent to user ${userId}`);
+            } else {
+                this.logger.warn(`[KYC][${identityType}] Skipped approval email for user ${userId}: missing email or template`);
+            }
+        } catch (error) {
+            this.logger.error(`[KYC][${identityType}] Failed to send approval email for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        try {
+            await this.notificationDispatcher.notify({
+                userId,
+                title: "Identity Verified",
+                body: `Your ${identityType} verification has been approved.`,
+                category: "security",
+                enablePush: true,
+            });
+            this.wsGateway.notifyProfileUpdate(userId);
+            this.logger.log(`[KYC][${identityType}] In-app notification sent to user ${userId}`);
+        } catch (error) {
+            this.logger.error(`[KYC][${identityType}] Failed to send notification for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -1560,24 +1780,24 @@ export class AuthService {
         // Sync tier & flush profile cache after document verification
         await this.tierService.syncTierAndCache(user.id);
 
-        // Return appropriate message based on verification result
         if (shouldAutoApprove) {
+            this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
             return buildResponse({
                 message: "Document verified successfully",
             });
-        } else {
-            // In-app notification for pending review
-            await this.notificationDispatcher.notify({
-                userId: user.id,
-                title: "Document Submitted",
-                body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
-                category: "security",
-            });
-
-            return buildResponse({
-                message: "Document submitted for review. You will be notified once verification is complete.",
-            });
         }
+
+        // In-app notification for pending review
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Document Submitted",
+            body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+            category: "security",
+        });
+
+        return buildResponse({
+            message: "Document submitted for review. You will be notified once verification is complete.",
+        });
     }
 
     private async uploadDocumentImage(
@@ -1991,6 +2211,10 @@ export class AuthService {
             // Sync tier & flush cache for both branches — flags were written above
             const updatedUser = await this.tierService.syncTierAndCache(user.id);
 
+            if (serverVerified) {
+                this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
+            }
+
             return this.buildWidgetVerificationResponse(
                 serverVerified, user.id, documentType, dto, updatedUser, logger,
             );
@@ -2162,24 +2386,24 @@ export class AuthService {
         // Sync tier & flush profile cache after base64 document verification
         await this.tierService.syncTierAndCache(user.id);
 
-        // Return appropriate message based on verification result
         if (shouldAutoApprove) {
+            this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
             return buildResponse({
                 message: "Document verified successfully",
             });
-        } else {
-            // In-app notification for pending review
-            await this.notificationDispatcher.notify({
-                userId: user.id,
-                title: "Document Submitted",
-                body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
-                category: "security",
-            });
-
-            return buildResponse({
-                message: "Document verification is pending review",
-            });
         }
+
+        // In-app notification for pending review
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Document Submitted",
+            body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
+            category: "security",
+        });
+
+        return buildResponse({
+            message: "Document verification is pending review",
+        });
     }
 
     async updloadBusinessDocuments(
