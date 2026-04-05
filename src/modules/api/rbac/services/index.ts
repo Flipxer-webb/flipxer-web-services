@@ -510,6 +510,72 @@ export class RbacService {
         });
     }
 
+    async getPendingAdminInvites(query: GetAdminUsersDto): Promise<ApiResponse> {
+        const { pageNumber = 1, pageSize = 20, searchText, roleId } = query;
+
+        const where: Prisma.AdminInviteWhereInput = {
+            acceptedAt: null,
+            ...(roleId && { roleId }),
+            ...(searchText && {
+                OR: [
+                    { firstName: { contains: searchText, mode: "insensitive" } },
+                    { lastName: { contains: searchText, mode: "insensitive" } },
+                    { email: { contains: searchText, mode: "insensitive" } },
+                    { role: { name: { contains: searchText, mode: "insensitive" } } },
+                ],
+            }),
+        };
+
+        const [invites, count] = await this.prisma.$transaction([
+            this.prisma.adminInvite.findMany({
+                where,
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    roleId: true,
+                    role: {
+                        select: {
+                            id: true,
+                            name: true,
+                            slug: true,
+                        },
+                    },
+                    invitedBy: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true,
+                        },
+                    },
+                    expiresAt: true,
+                    acceptedAt: true,
+                    createdAt: true,
+                },
+                skip: (pageNumber - 1) * pageSize,
+                take: pageSize,
+                orderBy: { createdAt: "desc" },
+            }),
+            this.prisma.adminInvite.count({ where }),
+        ]);
+
+        const now = Date.now();
+        const records = invites.map((invite) => ({
+            ...invite,
+            status: invite.expiresAt.getTime() < now ? "EXPIRED" : "PENDING",
+        }));
+
+        return buildResponse({
+            message: "Admin invites retrieved successfully",
+            data: {
+                meta: buildPaginationMeta(pageNumber, pageSize, count, records.length),
+                records,
+            },
+        });
+    }
+
     async getAdminUserById(adminId: number): Promise<ApiResponse> {
         const admin = await this.prisma.user.findFirst({
             where: { id: adminId, userType: { in: ADMIN_USER_TYPES } },
