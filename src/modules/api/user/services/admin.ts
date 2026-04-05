@@ -26,6 +26,9 @@ import {
 import { GetUserTransactionListDto } from "../../transactions/dtos";
 import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
 
+const EXCLUDED_ADMIN_USER_TYPES: UserType[] = [UserType.ADMIN, UserType.SUPER_ADMIN];
+const CUSTOMER_USER_TYPES = new Set<UserType>([UserType.INDIVIDUAL, UserType.BUSINESS]);
+
 @Injectable()
 export class AdminUserService {
     constructor(
@@ -41,11 +44,11 @@ export class AdminUserService {
         const [totalUsers, usersInPeriod] = await Promise.all([
             // Exclude admin users from total count
             this.prisma.user.count({
-                where: { userType: { not: UserType.ADMIN } },
+                where: { userType: { notIn: EXCLUDED_ADMIN_USER_TYPES } },
             }),
             this.prisma.user.count({
                 where: {
-                    userType: { not: UserType.ADMIN },
+                    userType: { notIn: EXCLUDED_ADMIN_USER_TYPES },
                     createdAt: {
                         gte: startDate,
                         lte: endDate,
@@ -88,10 +91,12 @@ export class AdminUserService {
 
     private buildUserListWhere(query: GetUserListDto): Prisma.UserWhereInput {
         const where: Prisma.UserWhereInput = {
-            userType: { not: UserType.ADMIN },
+            userType: { notIn: EXCLUDED_ADMIN_USER_TYPES },
         };
         if (query.status) where.status = query.status;
-        if (query.accountType) where.userType = query.accountType;
+        if (query.accountType && CUSTOMER_USER_TYPES.has(query.accountType)) {
+            where.userType = query.accountType;
+        }
         if (query.searchText) {
             where.OR = [
                 { firstName: { contains: query.searchText, mode: "insensitive" } },
