@@ -116,6 +116,14 @@ export class RbacController {
         return await this.rbacService.getAdminUsers(query);
     }
 
+    @ApiOperation({ summary: "Get pending admin invites" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.ROLES_READ])
+    @Get("admins/invites")
+    async getPendingAdminInvites(@Query() query: GetAdminUsersDto) {
+        return await this.rbacService.getPendingAdminInvites(query);
+    }
+
     @ApiOperation({ summary: "Get admin user by ID" })
     @ApiBearerAuth("access-token")
     @Permissions([PermissionName.ROLES_READ])
