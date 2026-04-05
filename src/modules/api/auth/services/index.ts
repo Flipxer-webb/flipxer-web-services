@@ -1201,6 +1201,47 @@ export class AuthService {
         } catch (error) {
             this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
         }
+
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: { email: true, firstName: true },
+            });
+
+            if (user?.email && emailTemplateConfig.document_approved) {
+                await this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_approved,
+                    merge_info: {
+                        first_name: user.firstName || "User",
+                        document_type: identityType,
+                        company_name: COMPANY_NAME,
+                        rejection_reason: "",
+                        status: "Approved",
+                    },
+                });
+                this.logger.log(`[KYC][${identityType}] Approval email sent to user ${userId}`);
+            } else {
+                this.logger.warn(`[KYC][${identityType}] Skipped approval email for user ${userId}: missing email or template`);
+            }
+        } catch (error) {
+            this.logger.error(`[KYC][${identityType}] Failed to send approval email for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        try {
+            await this.notificationDispatcher.notify({
+                userId,
+                title: "Identity Verified",
+                body: `Your ${identityType} verification has been approved.`,
+                category: "security",
+                enablePush: true,
+            });
+            this.wsGateway.notifyProfileUpdate(userId);
+            this.logger.log(`[KYC][${identityType}] In-app notification sent to user ${userId}`);
+        } catch (error) {
+            this.logger.error(`[KYC][${identityType}] Failed to send notification for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 
     async bvnVerification(user: User, dto: BvnVerificationDto) {
@@ -1562,6 +1603,30 @@ export class AuthService {
 
         // Return appropriate message based on verification result
         if (shouldAutoApprove) {
+            // Email + in-app notification + WS push on auto-approval
+            if (emailTemplateConfig.document_approved) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_approved,
+                    merge_info: {
+                        first_name: user.firstName || "User",
+                        document_type: "Identity Document",
+                        company_name: COMPANY_NAME,
+                        rejection_reason: "",
+                        status: "Approved",
+                    },
+                }).catch((e) => this.logger.error(`[KYC][DOCUMENT] Failed to send approval email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }
+            this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Document Verified",
+                body: "Your identity document has been verified successfully.",
+                category: "security",
+                enablePush: true,
+            }).catch((e) => this.logger.error(`[KYC][DOCUMENT] Failed to send notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            this.wsGateway.notifyProfileUpdate(user.id);
+
             return buildResponse({
                 message: "Document verified successfully",
             });
@@ -1991,6 +2056,32 @@ export class AuthService {
             // Sync tier & flush cache for both branches — flags were written above
             const updatedUser = await this.tierService.syncTierAndCache(user.id);
 
+            if (serverVerified) {
+                // Email + in-app notification + WS push on auto-approval
+                if (emailTemplateConfig.document_approved) {
+                    this.emailService.sendMailWithTemplate({
+                        from: { address: mailConfig.senderMail },
+                        to: [{ email_address: { address: user.email } }],
+                        template_key: emailTemplateConfig.document_approved,
+                        merge_info: {
+                            first_name: user.firstName || "User",
+                            document_type: "Identity Document",
+                            company_name: COMPANY_NAME,
+                            rejection_reason: "",
+                            status: "Approved",
+                        },
+                    }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send approval email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+                }
+                this.notificationDispatcher.notify({
+                    userId: user.id,
+                    title: "Document Verified",
+                    body: "Your identity document has been verified successfully.",
+                    category: "security",
+                    enablePush: true,
+                }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+                this.wsGateway.notifyProfileUpdate(user.id);
+            }
+
             return this.buildWidgetVerificationResponse(
                 serverVerified, user.id, documentType, dto, updatedUser, logger,
             );
@@ -2164,6 +2255,30 @@ export class AuthService {
 
         // Return appropriate message based on verification result
         if (shouldAutoApprove) {
+            // Email + in-app notification + WS push on auto-approval
+            if (emailTemplateConfig.document_approved) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_approved,
+                    merge_info: {
+                        first_name: user.firstName || "User",
+                        document_type: "Identity Document",
+                        company_name: COMPANY_NAME,
+                        rejection_reason: "",
+                        status: "Approved",
+                    },
+                }).catch((e) => this.logger.error(`[KYC][DOCUMENT] Failed to send approval email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }
+            this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Document Verified",
+                body: "Your identity document has been verified successfully.",
+                category: "security",
+                enablePush: true,
+            }).catch((e) => this.logger.error(`[KYC][DOCUMENT] Failed to send notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            this.wsGateway.notifyProfileUpdate(user.id);
+
             return buildResponse({
                 message: "Document verified successfully",
             });
