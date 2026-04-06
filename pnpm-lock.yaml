@@ -234,8 +234,8 @@ importers:
         specifier: ^11.0.3
         version: 11.1.0
       zeptomail:
-        specifier: ^6.1.0
-        version: 6.2.1
+        specifier: ^7.0.2
+        version: 7.0.2
     devDependencies:
       '@commitlint/cli':
         specifier: ^17.6.1
@@ -5978,8 +5978,8 @@ packages:
     resolution: {integrity: sha512-U/PBtDf35ff0D8X8D0jfdzHYEPFxAI7jJlxZXwCSez5M3190m+QobIfh+sWDWSHMCWWJN2AWamkegn6vr6YBTw==}
     engines: {node: '>=18'}
 
-  zeptomail@6.2.1:
-    resolution: {integrity: sha512-5QbN0RACqXrvE4yS0ETvZLx5zC/DRDN2QZlse0HQKMrB4R2G0ciY5rgFZDFUAqssYxCFOyOhKo3QUphRYfrVUg==}
+  zeptomail@7.0.2:
+    resolution: {integrity: sha512-bolBpUJoQgaMoYU5vE8vWuMGlRljtLH31hIhK4R3WpkEZZA1s5DZG3tVc93FQ4SiFbAZsMNvMZiggeQ8Ukk5dA==}
 
   zlibjs@0.3.1:
     resolution: {integrity: sha512-+J9RrgTKOmlxFSDHo0pI1xM6BLVUv+o0ZT9ANtCxGkjIVCCUdx9alUF8Gm+dGLKbkkkidWIHFDZHDMpfITt4+w==}
@@ -12730,7 +12730,7 @@ snapshots:
 
   yoctocolors-cjs@2.1.3: {}
 
-  zeptomail@6.2.1:
+  zeptomail@7.0.2:
     dependencies:
       node-fetch: 2.7.0
     transitivePeerDependencies:
