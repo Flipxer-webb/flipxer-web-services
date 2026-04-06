@@ -28,6 +28,11 @@ jest.mock("otplib", () => ({
     },
 }));
 
+jest.mock("@/utils/name-matcher", () => ({
+    matchNames: jest.fn(),
+    matchDateOfBirth: jest.fn(),
+}));
+
 jest.mock("@/config", () => ({
     ...jest.requireActual("@/config"),
     jwtSecret: "test-jwt-secret",
@@ -40,6 +45,8 @@ jest.mock("@/config", () => ({
         [FORGOT_TEMPLATE_KEY]: "tpl-forgot",
         registration_success: "tpl-reg",
         verify_account: "tpl-verify",
+        document_pending_review: "tpl-pending-review",
+        document_rejected: "tpl-rejected",
     },
     mailConfig: { senderMail: "noreply@flipxer.com" },
     storageDirConfig: { profileDir: "/tmp", documentDir: "/tmp" },
@@ -68,6 +75,7 @@ import { DocumentType, Prisma, Status, UserType } from "@prisma/client";
 import { authenticator } from "otplib";
 import * as bcrypt from "bcryptjs";
 import axios from "axios";
+import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 function makePrisma() {
     return {
@@ -116,6 +124,8 @@ describe("AuthService", () => {
     let jwtService: { signAsync: jest.Mock; verify: jest.Mock; verifyAsync: jest.Mock };
     let emailService: { sendMailWithTemplate: jest.Mock };
     let redisCacheService: { set: jest.Mock; get: jest.Mock; del: jest.Mock };
+    let notificationDispatcher: { notify: jest.Mock };
+    let kycStateMachine: { transition: jest.Mock };
     let dojahService: {
         verifyDocumentWithNameMatch: jest.Mock;
         verifyBusinessDocuments: jest.Mock;
@@ -125,6 +135,11 @@ describe("AuthService", () => {
 
     beforeEach(async () => {
         prisma = makePrisma();
+
+        // Default: all identity checks pass (override in specific tests)
+        (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
+        (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+
         const mockJwt = {
             signAsync: jest.fn().mockResolvedValue("mock-token"),
             verify: jest.fn(),
@@ -204,6 +219,8 @@ describe("AuthService", () => {
         jwtService = module.get(JwtService);
         emailService = module.get(EmailService);
         redisCacheService = module.get(RedisCacheService);
+        notificationDispatcher = module.get(NotificationDispatcher);
+        kycStateMachine = module.get(KycStateMachineService);
         dojahService = module.get(IdentityComplianceInjectionToken.DOJAH);
     });
 
@@ -993,6 +1010,9 @@ describe("AuthService", () => {
         });
 
         it("rejects BVN verification on name or DOB mismatch and records review", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "DOB mismatch" });
+
             const user = {
                 id: 66,
                 isBvnVerified: false,
@@ -1026,6 +1046,9 @@ describe("AuthService", () => {
         });
 
         it("rejects BVN verification when provider response omits identity fields", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Missing fields" });
+
             const user = {
                 id: 68,
                 isBvnVerified: false,
@@ -1056,6 +1079,9 @@ describe("AuthService", () => {
         });
 
         it("routes BVN to manual review when DOB matches but names mismatch", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
             const user = {
                 id: 70,
                 isBvnVerified: false,
@@ -1090,6 +1116,9 @@ describe("AuthService", () => {
         });
 
         it("reopens BVN review with RESUBMITTED when PENDING transition is illegal", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
             const user = {
                 id: 71,
                 isBvnVerified: false,
@@ -1134,6 +1163,9 @@ describe("AuthService", () => {
         });
 
         it("routes NIN to manual review when DOB matches but names mismatch", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
             const user = {
                 id: 72,
                 isNinVerified: false,
@@ -2411,6 +2443,148 @@ describe("AuthService", () => {
                         ipAddress: "client-ip-2",
                     }),
                 }),
+            );
+        });
+    });
+
+    // ── sendPendingReviewEmail ─────────────────────────────
+
+    describe("sendPendingReviewEmail", () => {
+        it("should send pending review email when config is set", () => {
+            (service as any).sendPendingReviewEmail(1, "user@test.com", "John", "BVN");
+
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                    to: [{ email_address: { address: "user@test.com" } }],
+                    merge_info: expect.objectContaining({
+                        name: "John",
+                        document_type: "BVN",
+                    }),
+                }),
+            );
+        });
+
+        it("should default name to 'User' when firstName is empty", () => {
+            (service as any).sendPendingReviewEmail(1, "user@test.com", "", "NIN");
+
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    merge_info: expect.objectContaining({ name: "User" }),
+                }),
+            );
+        });
+
+        it("should not send email when userEmail is empty", () => {
+            (service as any).sendPendingReviewEmail(1, "", "John", "BVN");
+
+            expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
+        });
+    });
+
+    // ── rejectOnIdentityMismatch ────────────────────────────
+
+    describe("rejectOnIdentityMismatch", () => {
+        const mockUser = {
+            id: 10,
+            email: "mismatch@test.com",
+            firstName: "John",
+            lastName: "Doe",
+            dateOfBirth: new Date("1990-01-01"),
+        };
+
+        const mockResult = {
+            data: {
+                entity: {
+                    first_name: "Jane",
+                    last_name: "Doe",
+                    date_of_birth: "1990-01-01",
+                    reference_id: "ref-123",
+                },
+            },
+        };
+
+        it("should throw and send rejection notification + email when DOB mismatches", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "DOB mismatch" });
+
+            await expect(
+                (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN"),
+            ).rejects.toThrow("Incorrect first name, last name or date of birth");
+
+            expect(kycStateMachine.transition).toHaveBeenCalledWith(
+                10, "BVN", "REJECTED", expect.any(Object),
+            );
+            expect(notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 10,
+                    title: "Identity Verification Unsuccessful",
+                    category: "security",
+                }),
+            );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-rejected",
+                    merge_info: expect.objectContaining({
+                        document_type: "BVN",
+                        status: "Rejected",
+                    }),
+                }),
+            );
+        });
+
+        it("should route to manual review and send pending notification + email when names mismatch but DOB matches", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "NIN");
+
+            expect(result).toBe("PENDING_REVIEW");
+            expect(kycStateMachine.transition).toHaveBeenCalledWith(
+                10, "NIN", "PENDING", expect.any(Object),
+            );
+            expect(notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 10,
+                    title: "Identity Verification Under Review",
+                    category: "security",
+                }),
+            );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                    merge_info: expect.objectContaining({
+                        name: "John",
+                        document_type: "NIN",
+                    }),
+                }),
+            );
+        });
+
+        it("should return MATCHED when both names and DOB match", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
+
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN");
+
+            expect(result).toBe("MATCHED");
+            expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+            expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
+        });
+
+        it("should fallback to RESUBMITTED transition when PENDING transition fails", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+            kycStateMachine.transition
+                .mockRejectedValueOnce(new Error("Cannot transition to PENDING"))
+                .mockResolvedValueOnce(undefined);
+
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN");
+
+            expect(result).toBe("PENDING_REVIEW");
+            expect(kycStateMachine.transition).toHaveBeenCalledTimes(2);
+            expect(kycStateMachine.transition).toHaveBeenNthCalledWith(
+                2, 10, "BVN", "RESUBMITTED", expect.any(Object),
             );
         });
     });

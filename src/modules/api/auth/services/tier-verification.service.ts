@@ -121,6 +121,20 @@ export class TierVerificationService {
                 category: "security",
             });
 
+            // Email notification for pending review
+            if (user.email && emailTemplateConfig.document_pending_review) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: user.firstName || "User",
+                        document_type: "Address Document",
+                        company_name: COMPANY_NAME,
+                    },
+                }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }
+
             return buildResponse({
                 message:
                     "Document uploaded successfully. It will be reviewed by our team.",
@@ -259,6 +273,20 @@ export class TierVerificationService {
                 body: "Your income document has been submitted for review. We'll notify you once it's processed.",
                 category: "security",
             });
+
+            // Email notification for pending review
+            if (user.email && emailTemplateConfig.document_pending_review) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: user.firstName || "User",
+                        document_type: "Income Document",
+                        company_name: COMPANY_NAME,
+                    },
+                }).catch((e) => this.logger.error(`[KYC][INCOME] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }
 
             return buildResponse({
                 message:

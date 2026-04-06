@@ -450,10 +450,44 @@ export class KycService {
         verificationType?: string,
         reason?: string
     ): Promise<void> {
-        if (action === "ESCALATE") return; // No email for escalation?
-
         if (!user.email) {
             this.logger.warn(`Cannot send KYC email: user ${user.id} has no email`);
+            return;
+        }
+
+        // Escalation uses a separate template
+        if (action === "ESCALATE") {
+            const escalatedTemplateKey = emailTemplateConfig.document_escalated;
+            if (!escalatedTemplateKey) {
+                this.logger.warn(`Email template not configured for KYC escalation`);
+                return;
+            }
+
+            const friendlyTypeMap: Record<string, string> = {
+                BVN: "BVN",
+                NIN: "NIN",
+                DOCUMENT: "Identity Document",
+                ADDRESS: "Address",
+                INCOME: "Income",
+                BUSINESS_DOCUMENT: "Business Documents",
+            };
+            const documentTypeFriendly = verificationType ? (friendlyTypeMap[verificationType] || verificationType) : "KYC Verification";
+
+            try {
+                await this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: escalatedTemplateKey,
+                    merge_info: {
+                        name: user.firstName || "User",
+                        document_type: documentTypeFriendly,
+                        company_name: COMPANY_NAME,
+                    },
+                });
+                this.logger.log(`KYC escalation email sent to ${user.email}`);
+            } catch (error) {
+                this.logger.error(`Failed to send KYC escalation email to ${user.email}: ${error.message}`);
+            }
             return;
         }
 
