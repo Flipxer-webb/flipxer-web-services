@@ -5,6 +5,7 @@ import { Mutex } from "async-mutex"; // Import Mutex
 import { CryptoAccountQueueProducer } from "@/modules/api/trade/queues/producers/producer.service";
 import { CryptoWalletStatus } from "@prisma/client";
 import { TradingService } from "@/modules/api/trade/services";
+import { QuidaxException } from "@/modules/factory/trading/providers/quidax/errors";
 
 @Injectable()
 export class AssetBalanceSchedulerService {
@@ -120,6 +121,18 @@ export class AssetBalanceSchedulerService {
                                 }
                             }
                         } catch (error) {
+                            // If Quidax returns 404, the address doesn't exist on their side.
+                            // Mark it FAILED to stop retrying every 15 minutes.
+                            if (error instanceof QuidaxException && error.getStatus() === 404) {
+                                this.logger.warn(
+                                    `[WALLET SYNC] Address ${walletAddressId} not found on Quidax (404) — marking as FAILED`
+                                );
+                                await this.prisma.cryptoWalletAddress.update({
+                                    where: { id },
+                                    data: { status: CryptoWalletStatus.FAILED },
+                                });
+                                return;
+                            }
                             this.logger.error(
                                 `Error syncing generated wallet address ${walletAddressId}:`,
                                 error
