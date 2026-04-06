@@ -377,15 +377,29 @@ describe("KycService", () => {
 
     describe("sendKycEmail branch coverage", () => {
         it("returns early when user has no email", async () => {
-            const noEmailUser = { id: 99, email: null, firstName: "NoMail" };
-            await (service as any).sendKycEmail(noEmailUser, "ESCALATE", "DOCUMENT");
+            const noEmailUser = {
+                id: 99,
+                email: null,
+                firstName: "NoMail",
+            };
+            await (service as any).sendKycEmail(
+                noEmailUser,
+                "ESCALATE",
+                "DOCUMENT",
+            );
             expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
         });
 
         it("uses default document type when verificationType is not provided", async () => {
-            const user = { id: 100, email: "test@test.com", firstName: "Test" };
+            const user = {
+                id: 100,
+                email: "test@test.com",
+                firstName: "Test",
+            };
             await (service as any).sendKycEmail(user, "ESCALATE", undefined);
-            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
+            expect(
+                mockEmailService.sendMailWithTemplate,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     merge_info: expect.objectContaining({
                         document_type: "KYC Verification",
@@ -395,7 +409,11 @@ describe("KycService", () => {
         });
 
         it("handles escalation email send failure gracefully", async () => {
-            const user = { id: 101, email: "fail@test.com", firstName: "FailTest" };
+            const user = {
+                id: 101,
+                email: "fail@test.com",
+                firstName: "FailTest",
+            };
             mockEmailService.sendMailWithTemplate.mockRejectedValueOnce(
                 new Error("SMTP timeout"),
             );
@@ -406,7 +424,11 @@ describe("KycService", () => {
         });
 
         it("sends approval email via APPROVE path", async () => {
-            const user = { id: 102, email: "approve@test.com", firstName: "Approved" };
+            const user = {
+                id: 102,
+                email: "approve@test.com",
+                firstName: "Approved",
+            };
             await (service as any).sendKycEmail(user, "APPROVE", "ADDRESS");
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
