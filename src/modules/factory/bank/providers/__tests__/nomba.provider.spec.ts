@@ -211,13 +211,13 @@ describe("NombaBank", () => {
     it("getAccountBalance returns balance on success", async () => {
         nomba.getAccountBalance.mockResolvedValue({
             code: "00",
-            data: { balance: 250000, currency: "NGN" },
+            data: { amount: "250000", currency: "NGN", timeCreated: "2026-01-01T00:00:00.000Z" },
         });
 
         const result = await provider.getAccountBalance();
 
         expect(result.code).toBe("00");
-        expect(result.data.balance).toBe(250000);
+        expect(result.data.amount).toBe("250000");
     });
 
     it("getAccountBalance throws NOMBABankException when code is not 00", async () => {

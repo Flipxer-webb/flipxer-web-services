@@ -620,15 +620,16 @@ export class AdminAccountingController {
         try {
             const nombaBalance = await this.nombaService.getAccountBalance();
             if (nombaBalance?.data) {
-                // Nomba API may return snake_case or camelCase fields
+                // Nomba /v1/accounts/balance returns { amount, currency, timeCreated }
                 const nb = nombaBalance.data as any;
+                const balance = Number(nb.amount ?? 0);
                 gateways.push({
                     provider: "Nomba",
                     status: "connected",
                     currency: nb.currency || "NGN",
-                    availableBalance: Number(nb.availableBalance ?? nb.available_balance ?? nb.balance ?? 0),
-                    lockedBalance: Number(nb.lockedBalance ?? nb.locked_balance ?? 0),
-                    ledgerBalance: Number(nb.balance ?? nb.ledgerBalance ?? nb.ledger_balance ?? 0),
+                    availableBalance: balance,
+                    lockedBalance: 0,
+                    ledgerBalance: balance,
                 });
             }
         } catch (error) {
@@ -728,7 +729,7 @@ export class AdminAccountingController {
             reference: p.reference,
             transactionId: p.transactionId,
             provider: p.paymentMethod === PaymentMethod.FINCRA ? "Fincra" : "Nomba",
-            type: p.flow === "IN" ? "collection" : "payout",
+            type: p.flow === "OUT" ? "payout" : "collection",
             amount: Number(p.amount),
             currency: p.expectedCurrency || "NGN",
             status: p.status,
