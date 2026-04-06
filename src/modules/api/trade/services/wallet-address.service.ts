@@ -268,6 +268,7 @@ export class WalletAddressService {
                 where: {
                     userId,
                     assetSymbol: assetSymbolUpper,
+                    status: { not: CryptoWalletStatus.FAILED },
                 },
                 select: {
                     network: true,
@@ -302,6 +303,19 @@ export class WalletAddressService {
         this.logWalletFlow("ensureWalletPaymentAddresses:networks_to_create", {
             networksToCreate,
         });
+
+        // Remove FAILED records for networks we are about to re-create
+        // to avoid unique constraint violation on [userId, assetSymbol, network]
+        if (networksToCreate.length) {
+            await this.prisma.cryptoWalletAddress.deleteMany({
+                where: {
+                    userId,
+                    assetSymbol: assetSymbolUpper,
+                    network: { in: networksToCreate as NetworkTypes[] },
+                    status: CryptoWalletStatus.FAILED,
+                },
+            });
+        }
 
         if (!networksToCreate.length) {
             this.logWalletFlow(
