@@ -421,7 +421,7 @@ describe("NombaLib", () => {
         getMock.mockResolvedValueOnce({
             data: {
                 code: "00",
-                data: { balance: 300000, currency: "NGN", availableBalance: 280000 },
+                data: { amount: "300000", currency: "NGN", timeCreated: "2026-01-01T00:00:00.000Z" },
             },
         });
 
@@ -429,8 +429,8 @@ describe("NombaLib", () => {
         const result = await lib.getAccountBalance();
 
         expect(result.code).toBe("00");
-        expect(result.data.balance).toBe(300000);
-        expect(getMock).toHaveBeenCalledWith(`/v1/accounts/${baseOptions.accountId}`);
+        expect(result.data.amount).toBe("300000");
+        expect(getMock).toHaveBeenCalledWith(`/v1/accounts/balance`);
     });
 
     it("getAccountBalance throws on network error", async () => {

@@ -167,11 +167,9 @@ export interface NombaAccountBalanceResponse {
     code: string;
     description: string;
     data: {
-        accountId: string;
+        amount: string;
         currency: string;
-        balance: number;
-        availableBalance: number;
-        lockedBalance?: number;
+        timeCreated: string;
     };
 }
 
@@ -588,7 +586,7 @@ export class NombaLib {
     async getAccountBalance(): Promise<NombaAccountBalanceResponse> {
         try {
             const { data } = await this.axios.get<NombaAccountBalanceResponse>(
-                `/v1/accounts/${this.options.accountId}`
+                `/v1/accounts/balance`
             );
             return data;
         } catch (error) {

@@ -356,10 +356,9 @@ describe("AdminAccountingController", () => {
 
         nombaService.getAccountBalance.mockResolvedValue({
             data: {
+                amount: "300000",
                 currency: "NGN",
-                availableBalance: 300000,
-                lockedBalance: 10000,
-                balance: 310000,
+                timeCreated: "2026-01-01T00:00:00.000Z",
             },
         });
 
@@ -394,10 +393,9 @@ describe("AdminAccountingController", () => {
 
         nombaService.getAccountBalance.mockResolvedValue({
             data: {
+                amount: "200000",
                 currency: "NGN",
-                available_balance: 200000,
-                locked_balance: 5000,
-                balance: 205000,
+                timeCreated: "2026-01-01T00:00:00.000Z",
             },
         });
 
@@ -407,7 +405,7 @@ describe("AdminAccountingController", () => {
         expect(result.data.gateways[0].lockedBalance).toBe(30000);
         expect(result.data.gateways[0].ledgerBalance).toBe(780000);
         expect(result.data.gateways[1].availableBalance).toBe(200000);
-        expect(result.data.gateways[1].lockedBalance).toBe(5000);
+        expect(result.data.gateways[1].lockedBalance).toBe(0);
         expect(result.data.totals.totalAvailable).toBe(950000);
     });
 
@@ -430,6 +428,32 @@ describe("AdminAccountingController", () => {
         expect(result.data.gateways[1].lockedBalance).toBe(0);
         expect(result.data.gateways[1].ledgerBalance).toBe(0);
         expect(result.data.totals.totalAvailable).toBe(0);
+    });
+
+    it("maps null flow to collection (legacy records without flow field)", async () => {
+        prisma.payment.findMany.mockResolvedValue([
+            {
+                id: 10,
+                reference: "ref-legacy",
+                transactionId: "txn-legacy",
+                paymentMethod: "NOMBA",
+                flow: null,
+                amount: 25000,
+                expectedCurrency: "NGN",
+                status: "COMPLETED",
+                userId: 1,
+                narration: "Legacy deposit",
+                createdAt: new Date("2025-12-01"),
+                updatedAt: new Date("2025-12-01"),
+                user: { id: 1, email: "alice@example.com", firstName: "Alice", lastName: "Doe" },
+            },
+        ]);
+        prisma.payment.count.mockResolvedValue(1);
+
+        const result = await controller.getFiatGatewayActivity(1, 20);
+
+        expect(result.data.records[0].type).toBe("collection");
+        expect(result.data.records[0].provider).toBe("Nomba");
     });
 
     it("returns fiat gateway summary with error status when providers fail", async () => {
