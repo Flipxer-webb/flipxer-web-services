@@ -54,17 +54,34 @@ export class QuidaxTradingBalanceSyncProcessor {
             }),
         ]);
 
-        // Create a map using Quidax wallet ID (wallet.id) as the key
-        const walletMap = new Map(
-            (quidaxWallets.data || []).map((w) => [w.id, w])
+        // Create maps for matching: primary by wallet ID, fallback by currency
+        const quidaxWalletList = quidaxWallets.data || [];
+        const walletMapById = new Map(
+            quidaxWalletList.map((w) => [w.id, w])
+        );
+        const walletMapByCurrency = new Map(
+            quidaxWalletList.map((w) => [w.currency.toUpperCase(), w])
         );
 
         for (const wallet of wallets) {
-            const updated = walletMap.get(wallet.quidaxWalletId);
+            let updated = walletMapById.get(wallet.quidaxWalletId);
+
+            // Fallback: match by currency if quidaxWalletId is stale/synthetic
+            if (!updated) {
+                updated = walletMapByCurrency.get(
+                    wallet.assetCurrency.toUpperCase()
+                );
+                if (updated) {
+                    this.logger.warn(
+                        `[WALLET SYNC] Repairing stale quidaxWalletId for ${wallet.assetCurrency}: ` +
+                            `${wallet.quidaxWalletId} → ${updated.id}`
+                    );
+                }
+            }
 
             if (!updated) {
-                this.logger.warn(
-                    `No wallet update data found for walletId: ${wallet.quidaxWalletId}`
+                this.logger.debug(
+                    `No wallet update data found for walletId: ${wallet.quidaxWalletId} (${wallet.assetCurrency})`
                 );
                 continue;
             }
@@ -76,6 +93,8 @@ export class QuidaxTradingBalanceSyncProcessor {
             await this.prisma.assetWallet.update({
                 where: { id: wallet.id },
                 data: {
+                    // Repair stale quidaxWalletId so future syncs match directly
+                    quidaxWalletId: updated.id,
                     // Metadata only - balance is in LedgerEntry
                     blockchainEnabled: updated.blockchain_enabled,
                     defaultNetwork: updated.default_network,
