@@ -193,7 +193,7 @@
         "@commitlint/cli": "^17.6.1",
         "@commitlint/config-conventional": "^17.6.1",
         "@isaacs/brace-expansion": "^5.0.1",
-        "@nestjs/cli": "^11.0.16",
+        "@nestjs/cli": "^11.0.17",
         "@nestjs/schematics": "^9.0.0",
         "@nestjs/testing": "^10.3.10",
         "@types/bcryptjs": "^2.4.2",
