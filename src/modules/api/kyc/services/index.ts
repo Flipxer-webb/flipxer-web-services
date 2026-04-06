@@ -198,12 +198,10 @@ export class KycService {
         const enrichedUsers = users.map((user) => {
             // Build a map of verificationType → status from active KycVerification records
             const kycVerificationStatuses: Record<string, string> = {};
-            for (const kv of (user as any).kycVerifications || []) {
+            for (const kv of user.kycVerifications || []) {
                 kycVerificationStatuses[kv.verificationType] = kv.status;
             }
-            const needsReview = Object.values(kycVerificationStatuses).some(
-                (s) => s === "PENDING",
-            );
+            const needsReview = Object.values(kycVerificationStatuses).includes("PENDING");
 
             return {
                 ...user,
