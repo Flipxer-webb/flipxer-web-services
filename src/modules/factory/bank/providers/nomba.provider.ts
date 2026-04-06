@@ -1,5 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
-import { NombaLib, NombaBankListResponse } from "@/libs/nomba";
+import { NombaLib, NombaBankListResponse, NombaAccountBalanceResponse } from "@/libs/nomba";
 import { PrismaService } from "@/modules/core/prisma/services";
 import logger from "moment-logger";
 import { generateId } from "@/utils";
@@ -492,5 +492,27 @@ export class NombaBank implements TNomba.INombaBank {
                 expectedCurrency: options.currency || "NGN",
             },
         });
+    }
+
+    async getAccountBalance(): Promise<NombaAccountBalanceResponse> {
+        try {
+            const response = await this.nomba.getAccountBalance();
+            if (response?.code !== "00") {
+                throw new e.NOMBABankException(
+                    "Failed to fetch Nomba account balance",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return response;
+        } catch (error) {
+            logger.error(error, "****GET ACCOUNT BALANCE****** NOMBA");
+            if (error instanceof e.NOMBABankException) {
+                throw error;
+            }
+            throw new e.NOMBABankException(
+                error instanceof Error ? error.message : "Failed to fetch account balance",
+                HttpStatus.BAD_REQUEST
+            );
+        }
     }
 }

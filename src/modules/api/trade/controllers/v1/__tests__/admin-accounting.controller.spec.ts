@@ -39,6 +39,10 @@ describe("AdminAccountingController", () => {
         assetWallet: {
             findMany: jest.Mock;
         };
+        payment: {
+            findMany: jest.Mock;
+            count: jest.Mock;
+        };
         $queryRaw: jest.Mock;
     };
     let solvencyService: {
@@ -46,6 +50,12 @@ describe("AdminAccountingController", () => {
     };
     let rateService: {
         getAssetUsdtPrice: jest.Mock;
+    };
+    let fincraService: {
+        getWallets: jest.Mock;
+    };
+    let nombaService: {
+        getAccountBalance: jest.Mock;
     };
 
     beforeEach(() => {
@@ -63,6 +73,10 @@ describe("AdminAccountingController", () => {
             assetWallet: {
                 findMany: jest.fn(),
             },
+            payment: {
+                findMany: jest.fn(),
+                count: jest.fn(),
+            },
             $queryRaw: jest.fn(),
         };
 
@@ -79,11 +93,21 @@ describe("AdminAccountingController", () => {
             confirmSwap: jest.fn(),
         };
 
+        fincraService = {
+            getWallets: jest.fn(),
+        };
+
+        nombaService = {
+            getAccountBalance: jest.fn(),
+        };
+
         controller = new AdminAccountingController(
             prisma as any,
             solvencyService as any,
             rateService as any,
             adminSwapService as any,
+            fincraService as any,
+            nombaService as any,
         );
 
         jest.spyOn((controller as any).logger, "log").mockImplementation(() => undefined);
@@ -296,5 +320,112 @@ describe("AdminAccountingController", () => {
         expect(result.data.totals.walletCount).toBe(2);
         expect(result.data.totals.totalValueUsd).toBe(503);
         expect(result.data.overallStatus).toBe("HEALTHY");
+    });
+
+    it("returns fiat gateway summary with balances from both providers", async () => {
+        fincraService.getWallets.mockResolvedValue({
+            data: [
+                {
+                    currency: "NGN",
+                    availableBalance: 500000,
+                    lockedBalance: 20000,
+                    ledgerBalance: 520000,
+                },
+                {
+                    currency: "USD",
+                    availableBalance: 1000,
+                    lockedBalance: 0,
+                    ledgerBalance: 1000,
+                },
+            ],
+        });
+
+        nombaService.getAccountBalance.mockResolvedValue({
+            data: {
+                currency: "NGN",
+                availableBalance: 300000,
+                lockedBalance: 10000,
+                balance: 310000,
+            },
+        });
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.message).toBe("Fiat gateway summary retrieved");
+        expect(result.data.gateways).toHaveLength(3);
+        expect(result.data.gateways[0]).toEqual(
+            expect.objectContaining({ provider: "Fincra", status: "connected", currency: "NGN" }),
+        );
+        expect(result.data.gateways[2]).toEqual(
+            expect.objectContaining({ provider: "Nomba", status: "connected", currency: "NGN" }),
+        );
+        expect(result.data.totals.totalAvailable).toBe(801000);
+        expect(result.data.totals.connectedGateways).toBe(3);
+    });
+
+    it("returns fiat gateway summary with error status when providers fail", async () => {
+        fincraService.getWallets.mockRejectedValue(new Error("Fincra timeout"));
+        nombaService.getAccountBalance.mockRejectedValue(new Error("Nomba auth failed"));
+
+        jest.spyOn((controller as any).logger, "error").mockImplementation(() => undefined);
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.message).toBe("Fiat gateway summary retrieved");
+        expect(result.data.gateways).toHaveLength(2);
+        expect(result.data.gateways[0]).toEqual(
+            expect.objectContaining({ provider: "Fincra", status: "error", error: "Unable to connect to Fincra" }),
+        );
+        expect(result.data.gateways[1]).toEqual(
+            expect.objectContaining({ provider: "Nomba", status: "error", error: "Unable to connect to Nomba" }),
+        );
+        expect(result.data.totals.totalAvailable).toBe(0);
+        expect(result.data.totals.connectedGateways).toBe(0);
+    });
+
+    it("returns paginated fiat gateway activity with filters", async () => {
+        prisma.payment.findMany.mockResolvedValue([
+            {
+                id: 1,
+                reference: "ref-001",
+                transactionId: "txn-001",
+                paymentMethod: "FINCRA",
+                flow: "IN",
+                amount: 50000,
+                expectedCurrency: "NGN",
+                status: "COMPLETED",
+                userId: 1,
+                narration: "Deposit",
+                createdAt: new Date("2026-01-10"),
+                updatedAt: new Date("2026-01-10"),
+                user: { id: 1, email: "alice@example.com", firstName: "Alice", lastName: "Doe" },
+            },
+        ]);
+        prisma.payment.count.mockResolvedValue(1);
+
+        const result = await controller.getFiatGatewayActivity(1, 20, "fincra", "collection");
+
+        expect(result.message).toBe("Fiat gateway activity retrieved");
+        expect(result.data.records).toHaveLength(1);
+        expect(result.data.records[0]).toEqual(
+            expect.objectContaining({
+                provider: "Fincra",
+                type: "collection",
+                amount: 50000,
+                currency: "NGN",
+            }),
+        );
+        expect(result.data.meta.totalCount).toBe(1);
+    });
+
+    it("returns fiat gateway activity for all providers when no filter specified", async () => {
+        prisma.payment.findMany.mockResolvedValue([]);
+        prisma.payment.count.mockResolvedValue(0);
+
+        const result = await controller.getFiatGatewayActivity(1, 20);
+
+        expect(result.message).toBe("Fiat gateway activity retrieved");
+        expect(result.data.records).toHaveLength(0);
+        expect(result.data.meta.totalCount).toBe(0);
     });
 });

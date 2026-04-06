@@ -19,6 +19,7 @@ describe("NombaBank", () => {
         getCheckoutStatus: jest.fn(),
         initiateBankTransfer: jest.fn(),
         getTransferByMerchantRef: jest.fn(),
+        getAccountBalance: jest.fn(),
     };
 
     const prisma = {
@@ -205,5 +206,29 @@ describe("NombaBank", () => {
                 }),
             }),
         );
+    });
+
+    it("getAccountBalance returns balance on success", async () => {
+        nomba.getAccountBalance.mockResolvedValue({
+            code: "00",
+            data: { balance: 250000, currency: "NGN" },
+        });
+
+        const result = await provider.getAccountBalance();
+
+        expect(result.code).toBe("00");
+        expect(result.data.balance).toBe(250000);
+    });
+
+    it("getAccountBalance throws NOMBABankException when code is not 00", async () => {
+        nomba.getAccountBalance.mockResolvedValue({ code: "99", description: "fail" });
+
+        await expect(provider.getAccountBalance()).rejects.toBeInstanceOf(errors.NOMBABankException);
+    });
+
+    it("getAccountBalance throws NOMBABankException on network error", async () => {
+        nomba.getAccountBalance.mockRejectedValue(new Error("connection refused"));
+
+        await expect(provider.getAccountBalance()).rejects.toBeInstanceOf(errors.NOMBABankException);
     });
 });

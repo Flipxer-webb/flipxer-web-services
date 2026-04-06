@@ -8,6 +8,7 @@ import {
     Logger,
     ParseIntPipe,
     DefaultValuePipe,
+    Inject,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from "@nestjs/swagger";
 import {
@@ -15,7 +16,7 @@ import {
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
 import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
+import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma, PaymentMethod } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -26,6 +27,9 @@ import { AdminSwapQuoteDto, AdminSwapConfirmDto } from "../../dtos";
 import { User } from "@/modules/api/user/decorators";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
+import { BankInjectionToken } from "@/modules/factory/bank/types";
+import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
+import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
@@ -42,6 +46,10 @@ export class AdminAccountingController {
         private readonly solvencyService: SolvencyService,
         private readonly rateService: RateService,
         private readonly adminSwapService: AdminSwapService,
+        @Inject(BankInjectionToken.FINCRA)
+        private readonly fincraService: FincraBank,
+        @Inject(BankInjectionToken.NOMBA)
+        private readonly nombaService: NombaBank,
     ) {}
 
     // =========================================================================
@@ -552,5 +560,185 @@ export class AdminAccountingController {
         @User() admin: UserEntity,
     ) {
         return this.adminSwapService.confirmSwap(dto, admin.id);
+    }
+
+    // =========================================================================
+    // FIAT GATEWAY ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get fiat gateway balances from all configured providers (Fincra, Nomba)" })
+    @Get("fiat-gateway-summary")
+    async getFiatGatewaySummary() {
+        this.logger.log("Admin fetching fiat gateway summary");
+
+        const gateways: Array<{
+            provider: string;
+            status: "connected" | "error";
+            currency: string;
+            availableBalance: number;
+            lockedBalance: number;
+            ledgerBalance: number;
+            error?: string;
+        }> = [];
+
+        // Fetch Fincra wallets
+        try {
+            const fincraWallets = await this.fincraService.getWallets();
+            if (fincraWallets?.data?.length) {
+                for (const wallet of fincraWallets.data) {
+                    gateways.push({
+                        provider: "Fincra",
+                        status: "connected",
+                        currency: wallet.currency || "NGN",
+                        availableBalance: Number(wallet.availableBalance ?? 0),
+                        lockedBalance: Number(wallet.lockedBalance ?? 0),
+                        ledgerBalance: Number(wallet.ledgerBalance ?? 0),
+                    });
+                }
+            }
+        } catch (error) {
+            this.logger.error(`Failed to fetch Fincra wallets: ${(error as Error).message}`);
+            gateways.push({
+                provider: "Fincra",
+                status: "error",
+                currency: "NGN",
+                availableBalance: 0,
+                lockedBalance: 0,
+                ledgerBalance: 0,
+                error: "Unable to connect to Fincra",
+            });
+        }
+
+        // Fetch Nomba balance
+        try {
+            const nombaBalance = await this.nombaService.getAccountBalance();
+            if (nombaBalance?.data) {
+                gateways.push({
+                    provider: "Nomba",
+                    status: "connected",
+                    currency: nombaBalance.data.currency || "NGN",
+                    availableBalance: Number(nombaBalance.data.availableBalance ?? nombaBalance.data.balance ?? 0),
+                    lockedBalance: Number(nombaBalance.data.lockedBalance ?? 0),
+                    ledgerBalance: Number(nombaBalance.data.balance ?? 0),
+                });
+            }
+        } catch (error) {
+            this.logger.error(`Failed to fetch Nomba balance: ${(error as Error).message}`);
+            gateways.push({
+                provider: "Nomba",
+                status: "error",
+                currency: "NGN",
+                availableBalance: 0,
+                lockedBalance: 0,
+                ledgerBalance: 0,
+                error: "Unable to connect to Nomba",
+            });
+        }
+
+        const totalAvailable = gateways
+            .filter((g) => g.status === "connected")
+            .reduce((sum, g) => sum + g.availableBalance, 0);
+        const totalLocked = gateways
+            .filter((g) => g.status === "connected")
+            .reduce((sum, g) => sum + g.lockedBalance, 0);
+        const connectedCount = gateways.filter((g) => g.status === "connected").length;
+
+        return buildResponse({
+            message: "Fiat gateway summary retrieved",
+            data: {
+                gateways,
+                totals: {
+                    totalAvailable,
+                    totalLocked,
+                    totalLedger: totalAvailable + totalLocked,
+                    connectedGateways: connectedCount,
+                    totalGateways: gateways.length,
+                },
+                timestamp: new Date().toISOString(),
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Get recent fiat gateway activity (buy/sell orders involving NGN)" })
+    @ApiQuery({ name: "page", required: false, type: Number })
+    @ApiQuery({ name: "limit", required: false, type: Number })
+    @ApiQuery({ name: "provider", required: false, description: "Filter by gateway provider: fincra, nomba, or all" })
+    @ApiQuery({ name: "type", required: false, description: "Filter by type: collection, payout, or all" })
+    @Get("fiat-gateway-activity")
+    async getFiatGatewayActivity(
+        @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
+        @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit: number,
+        @Query("provider") provider?: string,
+        @Query("type") type?: string,
+    ) {
+        this.logger.log(`Admin fetching fiat gateway activity (page ${page})`);
+
+        const pageSize = Math.min(limit, 100);
+        const skip = (Math.max(page, 1) - 1) * pageSize;
+
+        const where: any = {};
+
+        // Filter by payment method (maps to provider)
+        if (provider === "fincra") {
+            where.paymentMethod = PaymentMethod.FINCRA;
+        } else if (provider === "nomba") {
+            where.paymentMethod = PaymentMethod.NOMBA;
+        } else {
+            where.paymentMethod = { in: [PaymentMethod.FINCRA, PaymentMethod.NOMBA] };
+        }
+
+        // Filter by flow type
+        if (type === "collection") {
+            where.flow = "IN";
+        } else if (type === "payout") {
+            where.flow = "OUT";
+        }
+
+        const [payments, total] = await Promise.all([
+            this.prisma.payment.findMany({
+                where,
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                        },
+                    },
+                },
+                orderBy: { createdAt: "desc" },
+                skip,
+                take: pageSize,
+            }),
+            this.prisma.payment.count({ where }),
+        ]);
+
+        const records = payments.map((p) => ({
+            id: p.id,
+            reference: p.reference,
+            transactionId: p.transactionId,
+            provider: p.paymentMethod === PaymentMethod.FINCRA ? "Fincra" : "Nomba",
+            type: p.flow === "IN" ? "collection" : "payout",
+            amount: Number(p.amount),
+            currency: p.expectedCurrency || "NGN",
+            status: p.status,
+            userId: p.userId,
+            userName: p.user
+                ? `${p.user.firstName ?? ""} ${p.user.lastName ?? ""}`.trim()
+                : "Unknown",
+            email: p.user?.email ?? "",
+            narration: p.narration,
+            createdAt: p.createdAt,
+            updatedAt: p.updatedAt,
+        }));
+
+        return buildResponse({
+            message: "Fiat gateway activity retrieved",
+            data: {
+                meta: buildPaginationMeta(page, pageSize, total, records.length),
+                records,
+            },
+        });
     }
 }
