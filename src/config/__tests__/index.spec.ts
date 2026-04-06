@@ -129,4 +129,12 @@ describe("config module", () => {
             })
         );
     });
+
+    it("normalizes ZeptoMail endpoint URL to host format", () => {
+        const cfg = loadConfig({
+            ZEPTOMAIL_URL: "https://api.zeptomail.com/v1.1/email",
+        });
+
+        expect(cfg.mailConfig.url).toBe("api.zeptomail.com/");
+    });
 });

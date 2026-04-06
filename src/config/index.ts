@@ -236,10 +236,33 @@ export interface EMailConfig {
     senderMail: string;
 }
 
+const normalizeZeptoMailUrl = (rawUrl?: string): string => {
+    const value = (rawUrl || "").trim();
+
+    if (!value) {
+        return value;
+    }
+
+    // ZeptoMail SDK expects a host/base URL. If /v1.1 is provided,
+    // strip API path so template requests resolve to /v1.1/email/template.
+    if (!/\/v1\.1(\/|$)/i.test(value)) {
+        return value;
+    }
+
+    const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+    try {
+        const parsed = new URL(candidate);
+        return `${parsed.host}/`;
+    } catch {
+        return value;
+    }
+};
+
 export const mailConfig: EMailConfig = {
-    url: process.env.ZEPTOMAIL_URL,
+    url: normalizeZeptoMailUrl(process.env.ZEPTOMAIL_URL),
     token: process.env.ZEPTOMAIL_TOKEN,
-    senderMail: process.env.ZEPTOMAIL_SENDER,
+    senderMail: process.env.ZEPTOMAIL_SENDER?.trim(),
 };
 
 // Rest of the config remains unchanged...
