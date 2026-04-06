@@ -14,6 +14,16 @@ jest.mock("@/modules/api/user", () => {
     };
 });
 
+jest.mock("@/config", () => ({
+    emailTemplateConfig: {
+        document_approved: "tpl-approved",
+        document_rejected: "tpl-rejected",
+        document_escalated: "tpl-escalated",
+    },
+    mailConfig: { senderMail: "noreply@test.com" },
+    COMPANY_NAME: "Flipxer",
+}));
+
 import { KycService } from "../index";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TierService } from "@/modules/api/auth/services/tier.service";
@@ -67,6 +77,7 @@ describe("KycService", () => {
 
     const mockEmailService = {
         send: jest.fn().mockResolvedValue(undefined),
+        sendMailWithTemplate: jest.fn().mockResolvedValue(undefined),
     };
 
     const mockWsGateway = {
@@ -288,6 +299,146 @@ describe("KycService", () => {
 
             // Verify the DTO shape has no newTier property
             expect(dto).not.toHaveProperty("newTier");
+        });
+
+        it("should send escalation email and notification on ESCALATE action", async () => {
+            const escalateUser = {
+                id: 5,
+                email: "escalate@example.com",
+                firstName: "Escalated",
+                tier: 1,
+                userType: UserType.INDIVIDUAL,
+                isBvnVerified: true,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+                isEmailVerified: true,
+                documentVerificationStatus: "PENDING",
+            };
+
+            mockPrismaService.user.findUnique.mockResolvedValue(escalateUser);
+            mockPrismaService.user.update.mockResolvedValue({
+                ...escalateUser,
+                documentVerificationStatus: "ESCALATED",
+            });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                ...escalateUser,
+                tier: 1,
+            });
+            mockPrismaService.kycVerification.create.mockResolvedValue({});
+            mockPrismaService.auditLog.create.mockResolvedValue({});
+
+            await service.processKycDecision(
+                {
+                    userId: 5,
+                    action: "ESCALATE",
+                    verificationType: "DOCUMENT",
+                    note: "Needs senior review",
+                },
+                99
+            );
+
+            // Should send in-app notification with "Escalated" title
+            expect(mockNotificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 5,
+                    title: "KYC Verification Escalated",
+                    category: "security",
+                }),
+            );
+
+            // Should send escalation email via sendKycEmail
+            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-escalated",
+                    to: [
+                        { email_address: { address: "escalate@example.com" } },
+                    ],
+                    merge_info: expect.objectContaining({
+                        name: "Escalated",
+                        document_type: "Identity Document",
+                    }),
+                }),
+            );
+
+            // Should log audit with ESCALATE action
+            expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        action: "KYC_ESCALATE",
+                    }),
+                }),
+            );
+        });
+    });
+
+    // ==================== sendKycEmail branch coverage ====================
+
+    describe("sendKycEmail branch coverage", () => {
+        it("returns early when user has no email", async () => {
+            const noEmailUser = {
+                id: 99,
+                email: null,
+                firstName: "NoMail",
+            };
+            await (service as any).sendKycEmail(
+                noEmailUser,
+                "ESCALATE",
+                "DOCUMENT",
+            );
+            expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
+        });
+
+        it("uses default document type when verificationType is not provided", async () => {
+            const user = {
+                id: 100,
+                email: "test@test.com",
+                firstName: "Test",
+            };
+            await (service as any).sendKycEmail(user, "ESCALATE", undefined);
+            expect(
+                mockEmailService.sendMailWithTemplate,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    merge_info: expect.objectContaining({
+                        document_type: "KYC Verification",
+                    }),
+                }),
+            );
+        });
+
+        it("handles escalation email send failure gracefully", async () => {
+            const user = {
+                id: 101,
+                email: "fail@test.com",
+                firstName: "FailTest",
+            };
+            mockEmailService.sendMailWithTemplate.mockRejectedValueOnce(
+                new Error("SMTP timeout"),
+            );
+            // Should not throw
+            await expect(
+                (service as any).sendKycEmail(user, "ESCALATE", "BVN"),
+            ).resolves.toBeUndefined();
+        });
+
+        it("sends approval email via APPROVE path", async () => {
+            const user = {
+                id: 102,
+                email: "approve@test.com",
+                firstName: "Approved",
+            };
+            await (service as any).sendKycEmail(user, "APPROVE", "ADDRESS");
+            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-approved",
+                    merge_info: expect.objectContaining({
+                        document_type: "Address",
+                        status: "Approved",
+                    }),
+                }),
+            );
         });
     });
 
