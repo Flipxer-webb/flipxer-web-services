@@ -104,6 +104,7 @@ describe("AdminAccountingController", () => {
         controller = new AdminAccountingController(
             prisma as any,
             solvencyService as any,
+            { pairedCredit: jest.fn() } as any,
             rateService as any,
             adminSwapService as any,
             fincraService as any,
