@@ -64,6 +64,17 @@ export class KycService {
                     { businessDocumentsUploaded: true, businessDocumentVerificationStatus: { not: "VERIFIED" } },
                 ],
             };
+        } else if (status === "NEEDS_REVIEW") {
+            // Users who have at least one active KycVerification with PENDING status
+            // i.e. they submitted something that requires admin action
+            verificationFilter = {
+                kycVerifications: {
+                    some: {
+                        status: "PENDING",
+                        isActive: true,
+                    } as any,
+                },
+            };
         } else if (status === "APPROVED") {
             // Users who have completed all core verifications
             verificationFilter = {
@@ -164,6 +175,15 @@ export class KycService {
                     },
                     businessDocument: true,
                     businessRecord: true,
+                    kycVerifications: {
+                        where: { isActive: true },
+                        select: {
+                            verificationType: true,
+                            status: true,
+                            submittedAt: true,
+                            reviewNote: true,
+                        },
+                    },
                     createdAt: true,
                     updatedAt: true,
                 },
@@ -175,21 +195,34 @@ export class KycService {
         ]);
 
         // Enrich with verification status summary - use stored tier from database
-        const enrichedUsers = users.map((user) => ({
-            ...user,
-            // Use stored tier from database (not calculated) so admin resets persist
-            tier: user.tier ?? 0,
-            verificationSummary: {
-                email: user.isEmailVerified,
-                phone: user.isPhoneVerified,
-                bvn: user.isBvnVerified,
-                nin: user.isNinVerified,
-                document: user.isDocumentVerified,
-                address: user.isAddressVerified,
-                income: user.isIncomeVerified,
-            },
-            pendingVerifications: this.getPendingVerifications(user),
-        }));
+        const enrichedUsers = users.map((user) => {
+            // Build a map of verificationType → status from active KycVerification records
+            const kycVerificationStatuses: Record<string, string> = {};
+            for (const kv of (user as any).kycVerifications || []) {
+                kycVerificationStatuses[kv.verificationType] = kv.status;
+            }
+            const needsReview = Object.values(kycVerificationStatuses).some(
+                (s) => s === "PENDING",
+            );
+
+            return {
+                ...user,
+                // Use stored tier from database (not calculated) so admin resets persist
+                tier: user.tier ?? 0,
+                verificationSummary: {
+                    email: user.isEmailVerified,
+                    phone: user.isPhoneVerified,
+                    bvn: user.isBvnVerified,
+                    nin: user.isNinVerified,
+                    document: user.isDocumentVerified,
+                    address: user.isAddressVerified,
+                    income: user.isIncomeVerified,
+                },
+                pendingVerifications: this.getPendingVerifications(user),
+                needsReview,
+                kycVerificationStatuses,
+            };
+        });
 
         return buildResponse({
             message: "KYC queue retrieved successfully",
@@ -712,6 +745,7 @@ export class KycService {
             totalUsers,
             tierGroups,
             pendingKyc,
+            needsReviewCount,
             bvnVerified,
             ninVerified,
             documentVerified,
@@ -734,6 +768,15 @@ export class KycService {
                         { isNinVerified: false },
                         { isDocumentVerified: false },
                     ],
+                },
+            }),
+
+            this.prisma.user.count({
+                where: {
+                    ...nonAdminWhere,
+                    kycVerifications: {
+                        some: { status: "PENDING", isActive: true } as any,
+                    },
                 },
             }),
 
@@ -770,6 +813,7 @@ export class KycService {
                 overview: {
                     totalUsers,
                     pendingKyc,
+                    needsReview: needsReviewCount,
                     kycCompletionRate: totalUsers > 0
                         ? (((totalUsers - pendingKyc) / totalUsers) * 100).toFixed(2)
                         : "0.00",
