@@ -545,3 +545,32 @@ export class AdminSwapConfirmDto {
     @IsString()
     quotation_id: string;
 }
+
+export class AdminAdjustmentDto {
+    @ApiProperty({ example: 12, description: "User ID to credit" })
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    userId: number;
+
+    @ApiProperty({ example: "usdt", description: "Currency to credit" })
+    @IsNotEmpty()
+    @IsString()
+    currency: string;
+
+    @ApiProperty({ example: 2, description: "Amount to credit" })
+    @IsNotEmpty()
+    @IsNumber()
+    @IsPositive()
+    amount: number;
+
+    @ApiProperty({ example: "Backfill for order 2 — legacy path did not create ledger entry" })
+    @IsNotEmpty()
+    @IsString()
+    reason: string;
+
+    @ApiProperty({ example: 2, description: "Optional order ID to link the ledger entry to", required: false })
+    @IsOptional()
+    @IsNumber()
+    orderId?: number;
+}
