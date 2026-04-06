@@ -1062,6 +1062,7 @@ enum PermissionGroup {
 enum CryptoWalletStatus {
   ACTIVE
   PENDING
+  FAILED
 }
 
 enum NetworkTypes {
