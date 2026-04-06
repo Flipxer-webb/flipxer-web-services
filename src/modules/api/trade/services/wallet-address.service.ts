@@ -712,16 +712,40 @@ export class WalletAddressService {
     }
 
     /**
-     * Gets all wallet addresses for a user and specific asset
+     * Gets all wallet addresses for a user and specific asset.
+     * Automatically triggers address creation for any missing or failed networks.
      * 
      * @param userId - The user's database ID
      * @param dto - Query parameters (asset)
      */
     async getWalletAddresses(userId: number, dto: GetWalletAddressesDto) {
+        const assetSymbol = dto.asset.toUpperCase();
+
+        // Ensure wallet addresses exist (handles FAILED cleanup + creation)
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: { cryptoSubAccountId: true },
+            });
+
+            if (user?.cryptoSubAccountId) {
+                await this.ensureWalletPaymentAddresses({
+                    userId,
+                    cryptoSubAccountId: user.cryptoSubAccountId,
+                    assetSymbol,
+                });
+            }
+        } catch (error) {
+            this.logger.warn(
+                `getWalletAddresses: failed to ensure addresses for ${assetSymbol}: ${error.message}`
+            );
+        }
+
         const wallets = await this.prisma.cryptoWalletAddress.findMany({
             where: {
                 userId,
-                assetSymbol: dto.asset.toUpperCase(),
+                assetSymbol,
+                status: { not: CryptoWalletStatus.FAILED },
             },
             orderBy: { createdAt: "desc" },
         });
