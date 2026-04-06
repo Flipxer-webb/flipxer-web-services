@@ -15,7 +15,6 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam } from '@nestjs/swagger'
 import { AuthGuard, EnabledAccountGuard } from '../../auth/guard';
 import { RoleGuard } from '../../authorize/guards/role.guard';
 import { UserTypes, ADMIN_USER_TYPES } from '../../authorize/decorator';
-import { BankService } from '../services';
 import { SwapService } from '../../trade/services/swap.service';
 import { BuyOrderService } from '../../trade/services/buy-order.service';
 import { StuckOrderReconciliationService } from '../../trade/services/stuck-order-reconciliation.service';
@@ -41,7 +40,6 @@ export class AdminOrderController {
     private readonly logger = new Logger('AdminOrderController');
 
     constructor(
-        private readonly bankService: BankService,
         private readonly prisma: PrismaService,
         private readonly swapService: SwapService,
         private readonly buyOrderService: BuyOrderService,
@@ -118,23 +116,36 @@ export class AdminOrderController {
         this.logger.log(`Processing payment ${payment.reference} for order ${id}`);
 
         try {
-            await this.bankService.paymentSuccessHandler(payment.reference);
-            this.logger.log(`Successfully completed order ${id}`);
+            // Reset payment to PENDING if needed so fulfillBuyOrder's atomic claim works
+            if (payment.status !== TransactionStatus.PENDING) {
+                await this.prisma.payment.update({
+                    where: { id: payment.id },
+                    data: {
+                        status: TransactionStatus.PENDING,
+                        paymentStatus: TransactionStatus.PENDING,
+                    },
+                });
+                this.logger.log(`Reset payment ${payment.id} from ${payment.status} to PENDING for fulfillment`);
+            }
+
+            await this.buyOrderService.fulfillBuyOrder(payment.reference);
+            this.logger.log(`Successfully completed order ${id} via omnibus ledger`);
 
             const updatedOrder = await this.prisma.order.findUnique({
                 where: { id },
             });
 
             return buildResponse({
-                message: 'Order completed successfully. Crypto withdrawal initiated.',
+                message: 'Order completed successfully via ledger credit.',
                 data: {
                     orderId: updatedOrder?.id,
                     transactionId: updatedOrder?.transactionId,
                     status: updatedOrder?.status,
                     streamlinedStatus: updatedOrder?.streamlinedStatus,
+                    fulfilled: updatedOrder?.fulfilled,
                     amount: updatedOrder?.amount,
                     currency: updatedOrder?.currency,
-                    recipient: updatedOrder?.recipient,
+                    ledgerEntryId: updatedOrder?.ledgerEntryId,
                 },
             });
         } catch (error) {
@@ -306,22 +317,29 @@ export class AdminOrderController {
             throw new NotFoundException(`Payment not found for order ${id}`);
         }
 
-        // Allow retry for SUCCESS (stuck after payment) or APPROVED (stuck during processing)
-        // but need to reset to PENDING first so fulfillBuyOrder can claim it
-        if (payment.status !== TransactionStatus.SUCCESS && payment.status !== TransactionStatus.APPROVED) {
-            throw new BadRequestException(`Payment for order ${id} is not SUCCESS or APPROVED (status: ${payment.status})`);
+        // Allow retry for PENDING (webhook never arrived), SUCCESS (stuck after payment),
+        // or APPROVED (stuck during processing)
+        if (
+            payment.status !== TransactionStatus.PENDING &&
+            payment.status !== TransactionStatus.SUCCESS &&
+            payment.status !== TransactionStatus.APPROVED
+        ) {
+            throw new BadRequestException(`Payment for order ${id} is not in a retryable state (status: ${payment.status})`);
         }
 
-        // Reset payment to PENDING so fulfillBuyOrder's atomic update can claim it
-        await this.prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-                status: TransactionStatus.PENDING,
-                paymentStatus: TransactionStatus.PENDING,
-            },
-        });
+        // Only reset to PENDING if not already PENDING
+        if (payment.status !== TransactionStatus.PENDING) {
+            await this.prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                    status: TransactionStatus.PENDING,
+                    paymentStatus: TransactionStatus.PENDING,
+                },
+            });
+            this.logger.log(`Reset payment ${payment.id} from ${payment.status} to PENDING`);
+        }
 
-        this.logger.log(`Reset payment to PENDING. Retrying fulfillment for order ${id}, payment reference: ${payment.reference}`);
+        this.logger.log(`Retrying fulfillment for order ${id}, payment reference: ${payment.reference}`);
 
         try {
             await this.buyOrderService.fulfillBuyOrder(payment.reference);
