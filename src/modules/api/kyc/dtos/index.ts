@@ -17,7 +17,7 @@ export class GetKycQueueDto {
 
     @ApiPropertyOptional({
         description: "KYC status filter",
-        enum: ["PENDING", "APPROVED", "REJECTED", "ESCALATED", "all"],
+        enum: ["PENDING", "NEEDS_REVIEW", "APPROVED", "REJECTED", "ESCALATED", "all"],
     })
     @IsOptional()
     @IsString()
