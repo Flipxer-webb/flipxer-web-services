@@ -32,9 +32,11 @@ describe("AdminAccountingController", () => {
         };
         order: {
             findMany: jest.Mock;
+            update: jest.Mock;
         };
         user: {
             findMany: jest.Mock;
+            findUnique: jest.Mock;
         };
         assetWallet: {
             findMany: jest.Mock;
@@ -57,6 +59,9 @@ describe("AdminAccountingController", () => {
     let nombaService: {
         getAccountBalance: jest.Mock;
     };
+    let ledgerService: {
+        pairedCredit: jest.Mock;
+    };
 
     beforeEach(() => {
         prisma = {
@@ -66,9 +71,11 @@ describe("AdminAccountingController", () => {
             },
             order: {
                 findMany: jest.fn(),
+                update: jest.fn(),
             },
             user: {
                 findMany: jest.fn(),
+                findUnique: jest.fn(),
             },
             assetWallet: {
                 findMany: jest.fn(),
@@ -101,16 +108,22 @@ describe("AdminAccountingController", () => {
             getAccountBalance: jest.fn(),
         };
 
+        ledgerService = {
+            pairedCredit: jest.fn(),
+        };
+
         controller = new AdminAccountingController(
             prisma as any,
             solvencyService as any,
-            { pairedCredit: jest.fn() } as any,
+            ledgerService as any,
             rateService as any,
             adminSwapService as any,
             fincraService as any,
             nombaService as any,
         );
 
+        jest.spyOn((controller as any).logger, "warn").mockImplementation(() => undefined);
+        jest.spyOn((controller as any).logger, "error").mockImplementation(() => undefined);
         jest.spyOn((controller as any).logger, "log").mockImplementation(() => undefined);
     });
 
@@ -428,5 +441,70 @@ describe("AdminAccountingController", () => {
         expect(result.message).toBe("Fiat gateway activity retrieved");
         expect(result.data.records).toHaveLength(0);
         expect(result.data.meta.totalCount).toBe(0);
+    });
+
+    // =========================================================================
+    // ADMIN ADJUSTMENT TESTS
+    // =========================================================================
+
+    const adminUser = { id: 1, email: "admin@resolve.ng" } as any;
+
+    it("creates adjustment and links to order", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedCredit.mockResolvedValue({
+            success: true,
+            userEntry: { id: "ledger-123", balanceAfter: 2, reference: "adj-ref" },
+            userBalanceAfter: 2,
+        });
+        prisma.order.update.mockResolvedValue({});
+
+        const dto = { userId: 12, currency: "usdt", amount: 2, reason: "backfill", orderId: 2 };
+        const result = await controller.createAdjustment(dto, adminUser);
+
+        expect(result.message).toBe("Adjustment applied successfully");
+        expect(result.data.ledgerEntryId).toBe("ledger-123");
+        expect(result.data.balanceAfter).toBe("2");
+        expect(ledgerService.pairedCredit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                userId: 12,
+                currency: "USDT",
+                type: "ADJUSTMENT",
+                amount: 2,
+            }),
+        );
+        expect(prisma.order.update).toHaveBeenCalledWith({
+            where: { id: 2 },
+            data: { ledgerEntryId: "ledger-123", fulfilled: true },
+        });
+    });
+
+    it("throws NotFoundException when user does not exist", async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+
+        const dto = { userId: 999, currency: "usdt", amount: 2, reason: "test" };
+        await expect(controller.createAdjustment(dto, adminUser)).rejects.toThrow("User 999 not found");
+    });
+
+    it("throws BadRequestException when ledger credit fails", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedCredit.mockResolvedValue({ success: false, error: "Insufficient balance" });
+
+        const dto = { userId: 12, currency: "usdt", amount: 2, reason: "test" };
+        await expect(controller.createAdjustment(dto, adminUser)).rejects.toThrow("Adjustment failed: Insufficient balance");
+    });
+
+    it("succeeds without orderId (no order link)", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedCredit.mockResolvedValue({
+            success: true,
+            userEntry: { id: "ledger-456", balanceAfter: 5, reference: "adj-ref" },
+            userBalanceAfter: 5,
+        });
+
+        const dto = { userId: 12, currency: "btc", amount: 0.5, reason: "courtesy credit" };
+        const result = await controller.createAdjustment(dto, adminUser);
+
+        expect(result.message).toBe("Adjustment applied successfully");
+        expect(prisma.order.update).not.toHaveBeenCalled();
     });
 });
