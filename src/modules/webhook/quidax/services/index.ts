@@ -28,8 +28,11 @@ export interface WebhookMetrics {
 export class QuidaxWebhookService implements QuidaxWebhook {
     private readonly logger = new Logger("QuidaxWebhookService");
 
-    // Maximum age for webhook events (5 minutes)
-    private readonly MAX_WEBHOOK_AGE_MS = 5 * 60 * 1000;
+    // Maximum age for webhook events (default: 5 minutes, configurable via env)
+    private readonly MAX_WEBHOOK_AGE_MS = parseInt(process.env.WEBHOOK_MAX_AGE_SECONDS || '300', 10) * 1000;
+
+    // Allowance for upstream clock skew (default: 1 hour to accommodate Quidax clock drift)
+    private readonly CLOCK_SKEW_ALLOWANCE_MS = parseInt(process.env.WEBHOOK_CLOCK_SKEW_SECONDS || '3700', 10) * 1000;
 
     // Webhook metrics for monitoring
     private metrics: WebhookMetrics = {
@@ -78,8 +81,11 @@ export class QuidaxWebhookService implements QuidaxWebhook {
             return { valid: false, ageMs };
         }
 
+        // Combined threshold: base max age + clock-skew allowance
+        const effectiveMaxAge = this.MAX_WEBHOOK_AGE_MS + this.CLOCK_SKEW_ALLOWANCE_MS;
+
         return {
-            valid: ageMs <= this.MAX_WEBHOOK_AGE_MS,
+            valid: ageMs <= effectiveMaxAge,
             ageMs,
         };
     }
@@ -153,15 +159,16 @@ export class QuidaxWebhookService implements QuidaxWebhook {
 
         // SECURITY: Validate webhook timestamp to prevent replay attacks
         const timestampCheck = this.isWebhookTimestampValid(eventBody.data);
+        const effectiveMaxSec = (this.MAX_WEBHOOK_AGE_MS + this.CLOCK_SKEW_ALLOWANCE_MS) / 1000;
         if (!timestampCheck.valid) {
             this.logger.error(
                 `[WEBHOOK_REJECTED] Stale webhook rejected | ` +
                 `Event: ${eventType} | ` +
                 `Age: ${Math.round(timestampCheck.ageMs / 1000)}s | ` +
-                `Max allowed: ${this.MAX_WEBHOOK_AGE_MS / 1000}s | ` +
+                `Max allowed: ${effectiveMaxSec}s (base: ${this.MAX_WEBHOOK_AGE_MS / 1000}s + skew: ${this.CLOCK_SKEW_ALLOWANCE_MS / 1000}s) | ` +
                 `Data ID: ${(eventBody.data as any)?.id || 'N/A'}`
             );
-            throw new Error(`Webhook rejected: event is ${Math.round(timestampCheck.ageMs / 1000)} seconds old (max: ${this.MAX_WEBHOOK_AGE_MS / 1000}s)`);
+            throw new Error(`Webhook rejected: event is ${Math.round(timestampCheck.ageMs / 1000)} seconds old (max: ${effectiveMaxSec}s)`);
         }
 
         try {
