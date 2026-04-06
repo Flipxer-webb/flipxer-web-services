@@ -9,6 +9,8 @@ import {
     ParseIntPipe,
     DefaultValuePipe,
     Inject,
+    NotFoundException,
+    BadRequestException,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from "@nestjs/swagger";
 import {
@@ -21,9 +23,10 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { SolvencyService } from "../../services/ledger/solvency.service";
+import { LedgerService } from "../../services/ledger/ledger.service";
 import { RateService } from "../../services/rate.service";
 import { AdminSwapService } from "../../services/admin-swap.service";
-import { AdminSwapQuoteDto, AdminSwapConfirmDto } from "../../dtos";
+import { AdminSwapQuoteDto, AdminSwapConfirmDto, AdminAdjustmentDto } from "../../dtos";
 import { User } from "@/modules/api/user/decorators";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
@@ -44,6 +47,7 @@ export class AdminAccountingController {
     constructor(
         private readonly prisma: PrismaService,
         private readonly solvencyService: SolvencyService,
+        private readonly ledgerService: LedgerService,
         private readonly rateService: RateService,
         private readonly adminSwapService: AdminSwapService,
         @Inject(BankInjectionToken.FINCRA)
@@ -738,6 +742,76 @@ export class AdminAccountingController {
             data: {
                 meta: buildPaginationMeta(page, pageSize, total, records.length),
                 records,
+            },
+        });
+    }
+
+    // =========================================================================
+    // ADMIN LEDGER ADJUSTMENT
+    // =========================================================================
+
+    @ApiOperation({ summary: "Credit or debit a user's ledger balance (admin adjustment)" })
+    @Post("adjustment")
+    async createAdjustment(
+        @Body() dto: AdminAdjustmentDto,
+        @User() admin: UserEntity,
+    ) {
+        const { userId, currency, amount, reason, orderId } = dto;
+
+        // Verify user exists
+        const user = await this.prisma.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            throw new NotFoundException(`User ${userId} not found`);
+        }
+
+        const reference = `admin-adj:${admin.id}:${Date.now()}`;
+
+        this.logger.warn(
+            `[ADMIN ADJUSTMENT] Admin ${admin.id} (${admin.email}) crediting ${amount} ${currency} to user ${userId} (${user.email}) | Reason: ${reason} | OrderId: ${orderId ?? "none"}`,
+        );
+
+        const result = await this.ledgerService.pairedCredit({
+            userId,
+            currency: currency.toUpperCase(),
+            type: LedgerType.ADJUSTMENT,
+            amount,
+            reference,
+            description: `Admin adjustment: ${reason}`,
+            metadata: {
+                adminId: admin.id,
+                adminEmail: admin.email,
+                reason,
+                ...(orderId ? { orderId } : {}),
+            },
+            sweepStatus: undefined,
+            createPlatformEntry: true,
+        });
+
+        if (!result.success) {
+            this.logger.error(`[ADMIN ADJUSTMENT] Failed: ${result.error}`);
+            throw new BadRequestException(`Adjustment failed: ${result.error}`);
+        }
+
+        // If an orderId was provided, link the ledger entry to the order
+        if (orderId && result.userEntry) {
+            await this.prisma.order.update({
+                where: { id: orderId },
+                data: { ledgerEntryId: result.userEntry.id, fulfilled: true },
+            }).catch((err) => {
+                this.logger.warn(`[ADMIN ADJUSTMENT] Could not link ledger entry to order ${orderId}: ${err.message}`);
+            });
+        }
+
+        this.logger.log(
+            `[ADMIN ADJUSTMENT] Success | LedgerEntry: ${result.userEntry?.id} | BalanceAfter: ${result.userBalanceAfter}`,
+        );
+
+        return buildResponse({
+            message: "Adjustment applied successfully",
+            data: {
+                ledgerEntryId: result.userEntry?.id,
+                balanceAfter: result.userBalanceAfter?.toString(),
+                reference,
             },
         });
     }
