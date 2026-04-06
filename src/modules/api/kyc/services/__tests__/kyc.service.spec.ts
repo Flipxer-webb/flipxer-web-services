@@ -318,8 +318,14 @@ describe("KycService", () => {
             };
 
             mockPrismaService.user.findUnique.mockResolvedValue(escalateUser);
-            mockPrismaService.user.update.mockResolvedValue({ ...escalateUser, documentVerificationStatus: "ESCALATED" });
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...escalateUser, tier: 1 });
+            mockPrismaService.user.update.mockResolvedValue({
+                ...escalateUser,
+                documentVerificationStatus: "ESCALATED",
+            });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                ...escalateUser,
+                tier: 1,
+            });
             mockPrismaService.kycVerification.create.mockResolvedValue({});
             mockPrismaService.auditLog.create.mockResolvedValue({});
 
@@ -346,7 +352,9 @@ describe("KycService", () => {
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "tpl-escalated",
-                    to: [{ email_address: { address: "escalate@example.com" } }],
+                    to: [
+                        { email_address: { address: "escalate@example.com" } },
+                    ],
                     merge_info: expect.objectContaining({
                         name: "Escalated",
                         document_type: "Identity Document",

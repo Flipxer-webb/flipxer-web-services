@@ -74,7 +74,10 @@ describe("TierVerificationService", () => {
     let mockNotificationDispatcher: any;
     let mockUploadService: any;
     let mockWsGateway: any;
-    let mockEmailService: { sendEmail: jest.Mock; sendMailWithTemplate: jest.Mock };
+    let mockEmailService: {
+        sendEmail: jest.Mock;
+        sendMailWithTemplate: jest.Mock;
+    };
 
     const mockFile = {
         buffer: Buffer.from("test"),
@@ -97,8 +100,13 @@ describe("TierVerificationService", () => {
     beforeEach(async () => {
         prisma = makePrisma();
         mockTierService = { syncTierAndCache: jest.fn() };
-        mockNotificationDispatcher = { notify: jest.fn().mockResolvedValue(undefined) };
-        mockEmailService = { sendEmail: jest.fn(), sendMailWithTemplate: jest.fn().mockResolvedValue(undefined) };
+        mockNotificationDispatcher = {
+            notify: jest.fn().mockResolvedValue(undefined),
+        };
+        mockEmailService = {
+            sendEmail: jest.fn(),
+            sendMailWithTemplate: jest.fn().mockResolvedValue(undefined),
+        };
         mockWsGateway = { server: { to: jest.fn() }, notifyProfileUpdate: jest.fn() };
         prisma.user.findFirst.mockResolvedValue(null);
         mockUploadService = {
