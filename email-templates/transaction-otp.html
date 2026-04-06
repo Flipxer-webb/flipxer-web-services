@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>Transaction Verification Code - Flipxer</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            supported-color-schemes: light dark;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .wrapper {
+                background-color: #1a1a1a !important;
+            }
+
+            .container {
+                background-color: #2d2d2d !important;
+            }
+
+            .greeting {
+                color: #5b8def !important;
+            }
+
+            .message,
+            .expiry,
+            .footer-text {
+                color: #b3b3b3 !important;
+            }
+
+            .otp-box {
+                background-color: #1e3a5f !important;
+            }
+
+            .otp-code {
+                color: #5b8def !important;
+            }
+
+            .note {
+                background-color: #3d3d3d !important;
+                color: #b3b3b3 !important;
+            }
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f5;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #020202;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        .wrapper {
+            width: 100%;
+            background-color: #f4f4f5;
+            padding: 40px 16px;
+        }
+
+        .container {
+            max-width: 520px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);
+        }
+
+        .header {
+            text-align: center;
+            padding: 32px 24px 24px;
+            border-bottom: 3px solid #305DC9;
+        }
+
+        .logo {
+            width: 140px;
+            height: auto;
+        }
+
+        .content {
+            padding: 40px 28px;
+            text-align: center;
+        }
+
+        .icon-wrapper {
+            width: 100%;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .icon-circle {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, #305DC9 0%, #2850B0 100%);
+            border-radius: 50%;
+            text-align: center;
+            display: inline-block;
+        }
+
+        .greeting {
+            font-size: 22px;
+            font-weight: 600;
+            color: #305DC9;
+            margin: 0 0 16px;
+        }
+
+        .message {
+            color: #5a5b5b;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 0 0 32px;
+        }
+
+        .otp-box {
+            background-color: #ebf5ff;
+            border: 2px dashed #305DC9;
+            border-radius: 12px;
+            padding: 28px;
+            margin-bottom: 28px;
+        }
+
+        .otp-label {
+            color: #aaabac;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .otp-code {
+            font-size: 40px;
+            font-weight: 700;
+            color: #305DC9;
+            letter-spacing: 10px;
+            font-family: monospace;
+        }
+
+        .expiry {
+            color: #5a5b5b;
+            font-size: 13px;
+            margin-top: 16px;
+        }
+
+        .note {
+            background-color: #f4f4f5;
+            border-left: 4px solid #305DC9;
+            padding: 16px;
+            text-align: left;
+            font-size: 13px;
+            color: #5a5b5b;
+            margin-bottom: 24px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .footer {
+            border-top: 3px solid #305DC9;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .footer-logo {
+            width: 90px;
+            height: auto;
+            margin-bottom: 12px;
+        }
+
+        .footer-text {
+            color: #5a5b5b;
+            font-size: 12px;
+            margin: 0 0 6px;
+        }
+
+        .footer-copyright {
+            color: #aaabac;
+            font-size: 11px;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrapper">
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer" class="logo">
+            </div>
+            <div class="content">
+                <!-- Icon -->
+                <div class="icon-wrapper">
+                    <div class="icon-circle">
+                        <img src="https://img.icons8.com/ios-filled/36/ffffff/new-post.png" alt="✉" width="36" height="36" style="margin-top:18px;">
+                    </div>
+                </div>
+                <h1 class="greeting">Transaction Verification</h1>
+                <p class="message">Hi {{name}},<br><br>
+                    Please use the verification code below to authorise your transaction.</p>
+                <!-- OTP Box -->
+                <div class="otp-box">
+                    <div class="otp-label">
+                        Verification Code
+                    </div>
+                    <div class="otp-code">
+                        {{otp}}
+                    </div>
+                    <div class="expiry">
+                        ⏱ Expires in {{expiry_minutes}} minutes
+                    </div>
+                </div>
+                <div class="note">
+                    <strong>Didn't request this?</strong>
+                    <br>
+                    If you did not initiate this transaction, please ignore this email or contact support immediately if you have concerns.
+                </div>
+            </div>
+            <!-- Footer -->
+            <div class="footer">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer" class="footer-logo">
+                <p class="footer-text">hello@flipxer.com • flipxer.com</p>
+                <p class="footer-copyright">© 2025 Flipxer. All rights reserved.</p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

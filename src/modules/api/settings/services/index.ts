@@ -28,6 +28,7 @@ import * as bcrypt from "bcryptjs";
 import { generateBackupCodes, hashBackupCodes, verifyBackupCode, removeUsedBackupCode } from "../../auth/utils/backup-codes.util";
 import { SmsService } from "@/modules/core/sms/services";
 import { EmailService } from "@/modules/core/email/services";
+import { emailTemplateConfig, mailConfig } from "@/config";
 import { encryptField, decryptField } from "@/utils";
 
 const NON_PUBLIC_IP_RANGES = new Set([
@@ -1101,18 +1102,15 @@ export class SettingService {
             await this.smsService.sendVerificationCode(userData.phone, otp);
         } else {
             this.logger.log(`Sending transaction OTP via email to ${userData.email}`);
-            await this.emailService.sendMail({
-                from: { address: "noreply@flipxer.com", name: "Flipxer" },
-                to: [{ email_address: { address: userData.email, name: userData.firstName || "User" } }],
-                subject: "Flipxer Transaction Verification Code",
-                textbody: `Your transaction verification code is: ${otp}. This code expires in 5 minutes.`,
-                htmlbody: `
-                    <h2>Transaction Verification</h2>
-                    <p>Your transaction verification code is:</p>
-                    <h1 style="font-size: 32px; letter-spacing: 4px; color: #3b82f6;">${otp}</h1>
-                    <p>This code expires in 5 minutes.</p>
-                    <p>If you did not request this code, please ignore this email.</p>
-                `,
+            await this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: userData.email } }],
+                template_key: emailTemplateConfig.transaction_otp,
+                merge_info: {
+                    name: userData.firstName || "User",
+                    otp,
+                    expiry_minutes: "5",
+                },
             });
         }
 

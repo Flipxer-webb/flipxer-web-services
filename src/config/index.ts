@@ -209,6 +209,7 @@ export interface EMailTemplateConfig {
     document_approved: string;
     document_rejected: string;
     admin_invite: string;
+    transaction_otp: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
@@ -221,6 +222,7 @@ export const emailTemplateConfig: EMailTemplateConfig = {
     document_approved: process.env.DOCUMENT_APPROVED_TEMPLATE || "",
     document_rejected: process.env.DOCUMENT_REJECTED_TEMPLATE || "",
     admin_invite: process.env.ADMIN_INVITE_TEMPLATE || "",
+    transaction_otp: process.env.TRANSACTION_OTP_TEMPLATE || "",
 };
 
 // Email config
