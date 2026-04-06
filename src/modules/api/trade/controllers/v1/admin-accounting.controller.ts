@@ -588,15 +588,18 @@ export class AdminAccountingController {
         // Fetch Fincra wallets
         try {
             const fincraWallets = await this.fincraService.getWallets();
+            this.logger.debug(`Fincra wallets raw keys: ${fincraWallets?.data?.length ? Object.keys(fincraWallets.data[0]).join(", ") : "no data"}`);
             if (fincraWallets?.data?.length) {
                 for (const wallet of fincraWallets.data) {
+                    // Fincra API may return snake_case or camelCase fields
+                    const w = wallet as any;
                     gateways.push({
                         provider: "Fincra",
                         status: "connected",
-                        currency: wallet.currency || "NGN",
-                        availableBalance: Number(wallet.availableBalance ?? 0),
-                        lockedBalance: Number(wallet.lockedBalance ?? 0),
-                        ledgerBalance: Number(wallet.ledgerBalance ?? 0),
+                        currency: w.currency || "NGN",
+                        availableBalance: Number(w.availableBalance ?? w.available_balance ?? 0),
+                        lockedBalance: Number(w.lockedBalance ?? w.locked_balance ?? 0),
+                        ledgerBalance: Number(w.ledgerBalance ?? w.ledger_balance ?? 0),
                     });
                 }
             }
@@ -617,13 +620,15 @@ export class AdminAccountingController {
         try {
             const nombaBalance = await this.nombaService.getAccountBalance();
             if (nombaBalance?.data) {
+                // Nomba API may return snake_case or camelCase fields
+                const nb = nombaBalance.data as any;
                 gateways.push({
                     provider: "Nomba",
                     status: "connected",
-                    currency: nombaBalance.data.currency || "NGN",
-                    availableBalance: Number(nombaBalance.data.availableBalance ?? nombaBalance.data.balance ?? 0),
-                    lockedBalance: Number(nombaBalance.data.lockedBalance ?? 0),
-                    ledgerBalance: Number(nombaBalance.data.balance ?? 0),
+                    currency: nb.currency || "NGN",
+                    availableBalance: Number(nb.availableBalance ?? nb.available_balance ?? nb.balance ?? 0),
+                    lockedBalance: Number(nb.lockedBalance ?? nb.locked_balance ?? 0),
+                    ledgerBalance: Number(nb.balance ?? nb.ledgerBalance ?? nb.ledger_balance ?? 0),
                 });
             }
         } catch (error) {

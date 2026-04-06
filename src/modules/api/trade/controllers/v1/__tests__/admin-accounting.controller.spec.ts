@@ -377,6 +377,61 @@ describe("AdminAccountingController", () => {
         expect(result.data.totals.connectedGateways).toBe(3);
     });
 
+    it("handles snake_case fields from Fincra API response", async () => {
+        fincraService.getWallets.mockResolvedValue({
+            status: true,
+            data: [
+                {
+                    id: "w1",
+                    wallet_number: "WALLET-001",
+                    currency: "NGN",
+                    available_balance: 750000,
+                    locked_balance: 30000,
+                    ledger_balance: 780000,
+                },
+            ],
+        });
+
+        nombaService.getAccountBalance.mockResolvedValue({
+            data: {
+                currency: "NGN",
+                available_balance: 200000,
+                locked_balance: 5000,
+                balance: 205000,
+            },
+        });
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.data.gateways[0].availableBalance).toBe(750000);
+        expect(result.data.gateways[0].lockedBalance).toBe(30000);
+        expect(result.data.gateways[0].ledgerBalance).toBe(780000);
+        expect(result.data.gateways[1].availableBalance).toBe(200000);
+        expect(result.data.gateways[1].lockedBalance).toBe(5000);
+        expect(result.data.totals.totalAvailable).toBe(950000);
+    });
+
+    it("defaults to 0 when balance fields are missing entirely", async () => {
+        fincraService.getWallets.mockResolvedValue({
+            status: true,
+            data: [{ id: "w1", currency: "NGN" }],
+        });
+
+        nombaService.getAccountBalance.mockResolvedValue({
+            data: { currency: "NGN" },
+        });
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.data.gateways[0].availableBalance).toBe(0);
+        expect(result.data.gateways[0].lockedBalance).toBe(0);
+        expect(result.data.gateways[0].ledgerBalance).toBe(0);
+        expect(result.data.gateways[1].availableBalance).toBe(0);
+        expect(result.data.gateways[1].lockedBalance).toBe(0);
+        expect(result.data.gateways[1].ledgerBalance).toBe(0);
+        expect(result.data.totals.totalAvailable).toBe(0);
+    });
+
     it("returns fiat gateway summary with error status when providers fail", async () => {
         fincraService.getWallets.mockRejectedValue(new Error("Fincra timeout"));
         nombaService.getAccountBalance.mockRejectedValue(new Error("Nomba auth failed"));
