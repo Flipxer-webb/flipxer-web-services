@@ -214,7 +214,7 @@
         "eslint-config-prettier": "^8.3.0",
         "eslint-plugin-prettier": "^4.0.0",
         "flatted": "^3.4.2",
-        "husky": "^8.0.3",
+        "husky": "^9.1.7",
         "jest": "28.1.2",
         "lint-staged": "^15.1.0",
         "mailosaur": "^10.0.0",
