@@ -114,12 +114,17 @@ export class NombaWebhookController {
         // 3. Map Event Type
         let type: NormalizedPaymentEvent['type'] = 'other';
 
+        // wallet_topup events are merchant-level wallet funding (not VA credits).
+        // They never carry a reference we can match to a Payment, so classify as 'other'
+        // to avoid infinite 500 retries from Nomba.
+        const isWalletTopup = transaction.type === 'wallet_topup';
+
         switch (eventTypeRaw) {
             case 'payment_success':
             case 'order_success':
             case NombaWebhookEventType.TRANSACTION_COMPLETED:
             case NombaWebhookEventType.VIRTUAL_ACCOUNT_CREDITED:
-                type = 'payment_success';
+                type = (isWalletTopup && !reference) ? 'other' : 'payment_success';
                 break;
             case 'payout_success':
             case NombaWebhookEventType.TRANSFER_SUCCESSFUL:
@@ -265,13 +270,15 @@ export class NombaWebhookController {
         const { reference, amount } = event;
 
         if (!reference) {
-            this.logger.error(
-                `Missing reference in normalized payment event. Raw event_type: ${event.raw?.event_type || event.raw?.event}. ` +
-                `Keys in data: ${Object.keys(event.raw?.data || {}).join(', ')}`
+            this.logger.warn(
+                `Ignoring payment webhook with no extractable reference. ` +
+                `Raw event_type: ${event.raw?.event_type || event.raw?.event}. ` +
+                `Transaction type: ${event.raw?.data?.transaction?.type || 'unknown'}. ` +
+                `Keys in data: ${Object.keys(event.raw?.data || {}).join(', ')}. ` +
+                `Provider ref: ${event.providerReference || 'none'}`
             );
-            throw new Error(
-                'Cannot process payment webhook: no reference could be extracted from the payload'
-            );
+            // Return 200 so Nomba stops retrying — this event has no Payment match possible
+            return;
         }
 
         this.logger.log(`Processing incoming payment: ${amount} | Ref: ${reference}`);
