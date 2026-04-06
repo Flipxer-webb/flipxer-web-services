@@ -3,6 +3,7 @@ import {
     FincraLib,
     FincraPayInPayload,
     FincraBankListResponse,
+    FincraWalletsResponse,
 } from "@/libs/fincra";
 import { PrismaService } from "@/modules/core/prisma/services";
 import logger from "moment-logger";
@@ -330,6 +331,28 @@ export class FincraBank implements TFincra.IFincraBank {
             throw new e.FincraWorkflowException(
                 error instanceof Error ? error.message : "Failed to verify transfer",
                 HttpStatus.NOT_IMPLEMENTED
+            );
+        }
+    }
+
+    async getWallets(): Promise<FincraWalletsResponse> {
+        try {
+            const response = await this.fincra.getWallets();
+            if (!response?.status) {
+                throw new e.FINCRABankException(
+                    "Failed to fetch Fincra wallets",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return response;
+        } catch (error) {
+            logger.error(error, "****GET WALLETS****** FINCRA");
+            if (error instanceof e.FINCRABankException) {
+                throw error;
+            }
+            throw new e.FINCRABankException(
+                error instanceof Error ? error.message : "Failed to fetch wallets",
+                HttpStatus.BAD_REQUEST
             );
         }
     }

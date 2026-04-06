@@ -162,6 +162,19 @@ export interface NombaCheckoutStatusResponse {
     };
 }
 
+// Account balance types
+export interface NombaAccountBalanceResponse {
+    code: string;
+    description: string;
+    data: {
+        accountId: string;
+        currency: string;
+        balance: number;
+        availableBalance: number;
+        lockedBalance?: number;
+    };
+}
+
 interface TokenCache {
     accessToken: string;
     refreshToken: string;
@@ -561,6 +574,21 @@ export class NombaLib {
                         id: orderReference
                     }
                 }
+            );
+            return data;
+        } catch (error) {
+            this.handleError(error as AxiosError);
+            throw error;
+        }
+    }
+
+    /**
+     * Get parent account balance
+     */
+    async getAccountBalance(): Promise<NombaAccountBalanceResponse> {
+        try {
+            const { data } = await this.axios.get<NombaAccountBalanceResponse>(
+                `/v1/accounts/${this.options.accountId}`
             );
             return data;
         } catch (error) {
