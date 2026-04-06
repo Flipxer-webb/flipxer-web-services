@@ -1278,6 +1278,26 @@ export class AuthService {
         this.wsGateway.notifyProfileUpdate(userId);
     }
 
+    private sendPendingReviewEmail(
+        userId: number,
+        userEmail: string,
+        firstName: string,
+        documentType: string,
+    ): void {
+        if (userEmail && emailTemplateConfig.document_pending_review) {
+            this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: userEmail } }],
+                template_key: emailTemplateConfig.document_pending_review,
+                merge_info: {
+                    name: firstName || "User",
+                    document_type: documentType,
+                    company_name: COMPANY_NAME,
+                },
+            }).catch((e) => this.logger.error(`[KYC] Failed to send pending review email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+        }
+    }
+
     private ensureIdentityProfilePresent(user: User, identityType: "BVN" | "NIN"): void {
         if (!user.firstName || !user.lastName || !user.dateOfBirth) {
             throw new VerificationGenericException(
@@ -1331,6 +1351,31 @@ export class AuthService {
                 providerRawResponse: result?.data,
                 reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
             });
+
+            // Notify user of rejection (fire-and-forget)
+            this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Identity Verification Unsuccessful",
+                body: `Your ${identityType} verification was unsuccessful. Please check your details and try again.`,
+                category: "security",
+                enablePush: true,
+            }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send rejection notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+
+            if (user.email && emailTemplateConfig.document_rejected) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_rejected,
+                    merge_info: {
+                        first_name: user.firstName || "User",
+                        document_type: identityType,
+                        company_name: COMPANY_NAME,
+                        rejection_reason: "The details provided do not match the identity records. Please ensure your name and date of birth are correct.",
+                        status: "Rejected",
+                    },
+                }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send rejection email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }
+
             throw new VerificationGenericException(
                 "Incorrect first name, last name or date of birth",
                 HttpStatus.BAD_REQUEST
@@ -1350,6 +1395,28 @@ export class AuthService {
             } catch {
                 // If an active REJECTED record exists, reopen via RESUBMITTED -> PENDING.
                 await this.kycStateMachine.transition(user.id, identityType, "RESUBMITTED", transitionMeta);
+            }
+
+            // Notify user of pending review (fire-and-forget)
+            this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Identity Verification Under Review",
+                body: `Your ${identityType} verification has been submitted for manual review. We'll notify you once it's processed.`,
+                category: "security",
+                enablePush: true,
+            }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send pending notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+
+            if (user.email && emailTemplateConfig.document_pending_review) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: user.firstName || "User",
+                        document_type: identityType,
+                        company_name: COMPANY_NAME,
+                    },
+                }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
             }
 
             return "PENDING_REVIEW";
@@ -1825,6 +1892,8 @@ export class AuthService {
             category: "security",
         });
 
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Identity Document");
+
         return buildResponse({
             message: "Document submitted for review. You will be notified once verification is complete.",
         });
@@ -2186,6 +2255,9 @@ export class AuthService {
             body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
             category: "security",
         });
+
+        this.sendPendingReviewEmail(userId, updatedUser.email, updatedUser.firstName, "Identity Document");
+
         return buildResponse({
             message: "Document submitted for review. You will be notified once verification is complete.",
             data: { verified: false, documentType, pendingReview: true },
@@ -2431,6 +2503,8 @@ export class AuthService {
             category: "security",
         });
 
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Identity Document");
+
         return buildResponse({
             message: "Document verification is pending review",
         });
@@ -2598,6 +2672,8 @@ export class AuthService {
             body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
             category: "security",
         });
+
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Business Documents");
 
         // Fire-and-forget: Run Dojah business verification in background
         // This does NOT block the user response — results are stored async
@@ -2869,6 +2945,8 @@ export class AuthService {
             body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
             category: "security",
         });
+
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Business Documents");
 
         // For Dojah verification we need the CAC image buffer.
         // Since we already uploaded to ImageKit, fetch it back as base64.
