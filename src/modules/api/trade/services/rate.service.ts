@@ -271,7 +271,24 @@ export class RateService {
 
         // Dynamic mode: Fetch all data upfront for consistency
         // This ensures all rates use the same USDT base rate and price snapshot
-        const usdtBaseRate = await this.getUsdtBaseRate();
+        let usdtBaseRate: UsdtBaseRate;
+        try {
+            usdtBaseRate = await this.getUsdtBaseRate();
+        } catch (error) {
+            this.logger.warn(
+                `USDT base rate unavailable for getAllRates; falling back to database rates. reason=${error?.message ?? "unknown"}`
+            );
+
+            // Degrade gracefully for read-only consumers such as wallet/rate listing endpoints.
+            // Trade execution flows still use strict getUsdtBaseRate/getAssetRate paths.
+            return dbRates.map((rate) => ({
+                currency: rate.currency,
+                buyRate: rate.buyRate,
+                sellRate: rate.sellRate,
+                source: "database" as const,
+                lastUpdated: rate.updatedAt,
+            }));
+        }
 
         const currencies = dbRates.map((r) => r.currency);
         const batchPrices = await this.liveCoinWatchService.getBatchUsdtPrices(currencies);

@@ -220,5 +220,24 @@ describe("RateService", () => {
             expect(btcRate?.source).toBe("dynamic");
             expect(btcRate?.buyRate).toBe(65000 * 1600);
         });
+
+        it("should gracefully fallback to database rates when USDT base rate is missing", async () => {
+            redisCacheService.get
+                .mockResolvedValueOnce(null)  // feature flag -> true
+                .mockResolvedValueOnce(null); // USDT cache miss
+
+            prisma.cryptoRate.findMany.mockResolvedValue([
+                { currency: "USDT", buyRate: 0, sellRate: 0, updatedAt: new Date() },
+                { currency: "BTC", buyRate: 100000000, sellRate: 105000000, updatedAt: new Date() },
+            ]);
+
+            prisma.cryptoRate.findUnique.mockResolvedValue(null);
+
+            const rates = await service.getAllRates();
+
+            expect(rates).toHaveLength(2);
+            expect(rates.every((r) => r.source === "database")).toBe(true);
+            expect(liveCoinWatch.getBatchUsdtPrices).not.toHaveBeenCalled();
+        });
     });
 });
