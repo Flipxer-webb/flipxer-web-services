@@ -416,4 +416,28 @@ describe("NombaLib", () => {
 
         warnSpy.mockRestore();
     });
+
+    it("getAccountBalance returns balance data", async () => {
+        getMock.mockResolvedValueOnce({
+            data: {
+                code: "00",
+                data: { balance: 300000, currency: "NGN", availableBalance: 280000 },
+            },
+        });
+
+        const lib = new NombaLib(baseOptions);
+        const result = await lib.getAccountBalance();
+
+        expect(result.code).toBe("00");
+        expect(result.data.balance).toBe(300000);
+        expect(getMock).toHaveBeenCalledWith(`/v1/accounts/${baseOptions.accountId}`);
+    });
+
+    it("getAccountBalance throws on network error", async () => {
+        getMock.mockRejectedValueOnce(new Error("connection timeout"));
+
+        const lib = new NombaLib(baseOptions);
+
+        await expect(lib.getAccountBalance()).rejects.toThrow();
+    });
 });
