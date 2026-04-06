@@ -20,7 +20,9 @@ jest.mock("@/config", () => ({
         document: "/var/lib/flipxer/test-docs",
         documentDir: "/var/lib/flipxer/test-docs",
     },
-    emailTemplateConfig: {},
+    emailTemplateConfig: {
+        document_pending_review: "tpl-pending-review",
+    },
     COMPANY_NAME: "Flipxer",
     mailConfig: { senderMail: "noreply@test.com" },
     cloudinaryConfig: {},
@@ -72,6 +74,7 @@ describe("TierVerificationService", () => {
     let mockNotificationDispatcher: any;
     let mockUploadService: any;
     let mockWsGateway: any;
+    let mockEmailService: { sendEmail: jest.Mock; sendMailWithTemplate: jest.Mock };
 
     const mockFile = {
         buffer: Buffer.from("test"),
@@ -94,7 +97,8 @@ describe("TierVerificationService", () => {
     beforeEach(async () => {
         prisma = makePrisma();
         mockTierService = { syncTierAndCache: jest.fn() };
-        mockNotificationDispatcher = { notify: jest.fn() };
+        mockNotificationDispatcher = { notify: jest.fn().mockResolvedValue(undefined) };
+        mockEmailService = { sendEmail: jest.fn(), sendMailWithTemplate: jest.fn().mockResolvedValue(undefined) };
         mockWsGateway = { server: { to: jest.fn() }, notifyProfileUpdate: jest.fn() };
         prisma.user.findFirst.mockResolvedValue(null);
         mockUploadService = {
@@ -112,7 +116,7 @@ describe("TierVerificationService", () => {
                 { provide: PrismaService, useValue: prisma },
                 { provide: UploadFactory, useValue: mockUploadFactory },
                 { provide: TierService, useValue: mockTierService },
-                { provide: EmailService, useValue: { sendEmail: jest.fn(), sendMailWithTemplate: jest.fn() } },
+                { provide: EmailService, useValue: mockEmailService },
                 { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
                 { provide: WsGateway, useValue: mockWsGateway },
             ],
@@ -154,6 +158,15 @@ describe("TierVerificationService", () => {
             const result = await service.verifyAddress(mockUser, mockFile);
             expect(result.message).toContain("reviewed by our team");
             expect(result.data.status).toBe("PENDING");
+            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                    merge_info: expect.objectContaining({
+                        name: "John",
+                        document_type: "Address Document",
+                    }),
+                }),
+            );
         });
 
         it("should auto-approve when OCR passes", async () => {
@@ -205,6 +218,15 @@ describe("TierVerificationService", () => {
 
             const result = await service.verifyIncome(mockUser, mockFile);
             expect(result.data.status).toBe("PENDING");
+            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                    merge_info: expect.objectContaining({
+                        name: "John",
+                        document_type: "Income Document",
+                    }),
+                }),
+            );
         });
 
         it("should auto-approve when OCR passes", async () => {
