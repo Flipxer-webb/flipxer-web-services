@@ -1559,6 +1559,7 @@ export class AuthService {
             if (identityMatchOutcome === "PENDING_REVIEW") {
                 return buildResponse({
                     message: "BVN submitted for manual review. An admin will review your details shortly.",
+                    data: { status: "PENDING" },
                 });
             }
             await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, dto.bvn, user.id, {
@@ -1635,6 +1636,7 @@ export class AuthService {
             if (identityMatchOutcome === "PENDING_REVIEW") {
                 return buildResponse({
                     message: "NIN submitted for manual review. An admin will review your details shortly.",
+                    data: { status: "PENDING" },
                 });
             }
             await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, dto.nin, user.id, {
@@ -1896,6 +1898,7 @@ export class AuthService {
 
         return buildResponse({
             message: "Document submitted for review. You will be notified once verification is complete.",
+            data: { status: "PENDING" },
         });
     }
 
@@ -2260,7 +2263,7 @@ export class AuthService {
 
         return buildResponse({
             message: "Document submitted for review. You will be notified once verification is complete.",
-            data: { verified: false, documentType, pendingReview: true },
+            data: { status: "PENDING", verified: false, documentType, pendingReview: true },
         });
     }
 
@@ -2507,6 +2510,7 @@ export class AuthService {
 
         return buildResponse({
             message: "Document verification is pending review",
+            data: { status: "PENDING" },
         });
     }
 
