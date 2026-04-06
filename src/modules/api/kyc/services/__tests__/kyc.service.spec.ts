@@ -470,6 +470,7 @@ describe("KycService", () => {
                     userDocument: { id: 1, type: "PASSPORT", documentNumber: "A1", documentImageUrl: "u", documentImageUrl2: null },
                     businessDocument: null,
                     businessRecord: null,
+                    kycVerifications: [],
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 },
@@ -489,19 +490,74 @@ describe("KycService", () => {
             expect(result.data.records).toHaveLength(1);
             expect(result.data.records[0].pendingVerifications).toContain("document");
             expect(result.data.records[0].pendingVerifications).toContain("address");
+            expect(result.data.records[0].needsReview).toBe(false);
+            expect(result.data.records[0].kycVerificationStatuses).toEqual({});
+        });
+
+        it("enriches users with needsReview=true when kycVerifications contain PENDING", async () => {
+            const users = [
+                {
+                    id: 11,
+                    identifier: "usr-11",
+                    firstName: "Bob",
+                    lastName: "Review",
+                    email: "bob@flipxer.com",
+                    phone: "08000000001",
+                    photo: null,
+                    userType: UserType.INDIVIDUAL,
+                    tier: 1,
+                    status: "ACTIVE",
+                    bvn: "99999999999",
+                    nin: null,
+                    isBvnVerified: false,
+                    isNinVerified: false,
+                    isDocumentVerified: false,
+                    isAddressVerified: false,
+                    isIncomeVerified: false,
+                    isEmailVerified: true,
+                    isPhoneVerified: false,
+                    businessDocumentsUploaded: false,
+                    businessDocumentVerificationStatus: null,
+                    userDocument: null,
+                    businessDocument: null,
+                    businessRecord: null,
+                    kycVerifications: [
+                        { verificationType: "BVN", status: "PENDING", submittedAt: new Date(), reviewNote: null },
+                        { verificationType: "DOCUMENT", status: "APPROVED", submittedAt: new Date(), reviewNote: null },
+                    ],
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            ];
+
+            mockPrismaService.$transaction.mockResolvedValue([users, 1]);
+
+            const result = await service.getKycQueue({
+                pageNumber: 1,
+                pageSize: 20,
+                status: "NEEDS_REVIEW",
+                sortBy: "desc",
+            } as any);
+
+            expect(result.data.records[0].needsReview).toBe(true);
+            expect(result.data.records[0].kycVerificationStatuses).toEqual({
+                BVN: "PENDING",
+                DOCUMENT: "APPROVED",
+            });
         });
     });
 
     describe("getKycStats", () => {
         it("returns aggregate stats and tier distribution", async () => {
             mockPrismaService.user.count
-                .mockResolvedValueOnce(100)
-                .mockResolvedValueOnce(30)
-                .mockResolvedValueOnce(70)
-                .mockResolvedValueOnce(60)
-                .mockResolvedValueOnce(40)
-                .mockResolvedValueOnce(20)
-                .mockResolvedValueOnce(15);
+                .mockResolvedValueOnce(100)  // totalUsers
+                .mockResolvedValueOnce(30)   // pendingKyc
+                .mockResolvedValueOnce(5)    // needsReviewCount
+                .mockResolvedValueOnce(70)   // bvnVerified
+                .mockResolvedValueOnce(60)   // ninVerified
+                .mockResolvedValueOnce(40)   // documentVerified
+                .mockResolvedValueOnce(20)   // newUsersInPeriod
+                .mockResolvedValueOnce(15);  // usersUpdatedInPeriod
             mockPrismaService.user.groupBy.mockResolvedValue([
                 { tier: 0, _count: { _all: 10 } },
                 { tier: 1, _count: { _all: 20 } },
@@ -515,6 +571,7 @@ describe("KycService", () => {
             expect(result.message).toBe("KYC statistics retrieved successfully");
             expect(result.data.overview.totalUsers).toBe(100);
             expect(result.data.overview.pendingKyc).toBe(30);
+            expect(result.data.overview.needsReview).toBe(5);
             expect(result.data.tierDistribution.tier2.count).toBe(30);
             expect(result.data.verificationBreakdown.bvn.verified).toBe(70);
             expect(result.data.periodMetrics.newUsers).toBe(20);
