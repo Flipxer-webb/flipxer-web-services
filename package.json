@@ -217,7 +217,7 @@
         "husky": "^8.0.3",
         "jest": "28.1.2",
         "lint-staged": "^15.1.0",
-        "mailosaur": "^10.0.0",
+        "mailosaur": "^11.1.0",
         "nodemon-webpack-plugin": "^4.8.0",
         "prettier": "^2.3.2",
         "source-map-support": "^0.5.20",
