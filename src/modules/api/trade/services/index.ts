@@ -1600,6 +1600,55 @@ export class TradingService {
         };
     }
 
+    async getUserWalletAddressRecords(userId: number) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                email: true,
+                cryptoSubAccountId: true,
+            },
+        });
+
+        if (!user) {
+            return { error: "User not found" };
+        }
+
+        const records = await this.prisma.cryptoWalletAddress.findMany({
+            where: { userId: user.id },
+            orderBy: [
+                { assetSymbol: "asc" },
+                { network: "asc" },
+                { createdAt: "desc" },
+            ],
+            select: {
+                id: true,
+                assetSymbol: true,
+                network: true,
+                status: true,
+                address: true,
+                walletAddressId: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        const grouped = records.reduce((acc, record) => {
+            if (!acc[record.assetSymbol]) {
+                acc[record.assetSymbol] = [];
+            }
+
+            acc[record.assetSymbol].push(record);
+            return acc;
+        }, {} as Record<string, typeof records>);
+
+        return {
+            user,
+            totalRecords: records.length,
+            grouped,
+        };
+    }
+
     /**
      * Lightweight order status check (DB-only, no external provider calls).
      * Used as a polling fallback when WebSocket is unavailable.
