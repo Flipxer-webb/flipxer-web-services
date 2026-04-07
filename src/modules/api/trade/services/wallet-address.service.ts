@@ -292,6 +292,11 @@ export class WalletAddressService {
             providerAddressMap, targetNetworks, existingNetworkSet, userId, assetSymbolUpper,
         });
 
+        // Fallback: use wallet's deposit_address to fill PENDING records for the default network
+        await this.applyWalletAddressFallback(
+            userId, assetSymbolUpper, walletResponse,
+        );
+
         targetNetworks = targetNetworks.filter(
             (network) => !existingNetworkSet.has(network)
         );
@@ -567,6 +572,48 @@ export class WalletAddressService {
         }
 
         return backfilledAddresses;
+    }
+
+    /**
+     * Fallback: if Quidax's wallet object has a deposit_address but the
+     * payment-address APIs returned null, update any PENDING records on
+     * the wallet's default network with the known address.
+     */
+    private async applyWalletAddressFallback(
+        userId: number,
+        assetSymbolUpper: string,
+        walletResponse: GetUserWalletResponse,
+    ): Promise<void> {
+        if (!walletResponse.deposit_address) return;
+
+        const defaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+            walletResponse.default_network,
+        );
+        if (!defaultNetwork) return;
+
+        const result = await this.prisma.cryptoWalletAddress.updateMany({
+            where: {
+                userId,
+                assetSymbol: assetSymbolUpper,
+                network: defaultNetwork,
+                status: CryptoWalletStatus.PENDING,
+                address: null,
+            },
+            data: {
+                address: walletResponse.deposit_address,
+                destination_tag: walletResponse.destination_tag,
+                status: CryptoWalletStatus.ACTIVE,
+                lastSyncedAt: new Date(),
+            },
+        });
+
+        if (result.count > 0) {
+            this.logWalletFlow("applyWalletAddressFallback:updated", {
+                network: defaultNetwork,
+                updatedCount: result.count,
+                depositAddress: walletResponse.deposit_address,
+            });
+        }
     }
 
     private async persistCreatedAddresses(options: {
