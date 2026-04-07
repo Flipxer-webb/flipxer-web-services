@@ -36,6 +36,7 @@ import {
     AdminInviteAlreadyUsedException,
 } from "../errors";
 import { PermissionNames } from "../enums";
+import { PermissionName } from "../../authorize/enums/role";
 import { ADMIN_USER_TYPES } from "../../authorize/decorator";
 
 @Injectable()
@@ -1195,5 +1196,51 @@ export class RbacService {
         }
 
         this.logger.log(`Seeded ${permissionsList.length} permissions`);
+    }
+
+    /**
+     * Get the current admin user's profile with role and permissions.
+     */
+    async getAdminProfile(adminId: number): Promise<ApiResponse> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: adminId },
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                userType: true,
+                role: {
+                    select: {
+                        name: true,
+                        slug: true,
+                        rolePermission: {
+                            select: { permission: { select: { name: true } } },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!user) {
+            throw new AdminUserNotFoundException();
+        }
+
+        const permissions = user.userType === UserType.SUPER_ADMIN
+            ? Object.values(PermissionName)
+            : (user.role?.rolePermission ?? []).map((rp) => rp.permission.name);
+
+        return buildResponse({
+            message: "Admin profile retrieved successfully",
+            data: {
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                userType: user.userType,
+                role: user.role ? { name: user.role.name, slug: user.role.slug } : null,
+                permissions,
+            },
+        });
     }
 }

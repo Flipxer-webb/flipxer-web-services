@@ -14,7 +14,8 @@ import { FeatureFlagService } from "../../../services/feature-flag.service";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { FeatureFlagDto, UpdateFeatureFlagDto, FeatureFlagEvaluationContext } from "../../../types";
@@ -29,6 +30,7 @@ export class AdminFeatureFlagController {
     /**
      * Get all feature flags
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get()
     async getAllFlags() {
         const flags = await this.flagService.getAllFlags();
@@ -41,6 +43,7 @@ export class AdminFeatureFlagController {
     /**
      * Get a feature flag by key
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get("key/:key")
     async getFlagByKey(@Param("key") key: string) {
         const flag = await this.flagService.getFlagByKey(key);
@@ -53,6 +56,7 @@ export class AdminFeatureFlagController {
     /**
      * Create a new feature flag
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post()
     async createFlag(
         @Body() dto: FeatureFlagDto,
@@ -68,6 +72,7 @@ export class AdminFeatureFlagController {
     /**
      * Update a feature flag
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Put(":id")
     async updateFlag(
         @Param("id", ParseIntPipe) id: number,
@@ -84,6 +89,7 @@ export class AdminFeatureFlagController {
     /**
      * Delete a feature flag
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Delete(":id")
     async deleteFlag(
         @Param("id", ParseIntPipe) id: number,
@@ -98,6 +104,7 @@ export class AdminFeatureFlagController {
     /**
      * Enable a feature flag
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Put(":id/enable")
     async enableFlag(
         @Param("id", ParseIntPipe) id: number,
@@ -113,6 +120,7 @@ export class AdminFeatureFlagController {
     /**
      * Disable a feature flag
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Put(":id/disable")
     async disableFlag(
         @Param("id", ParseIntPipe) id: number,
@@ -128,6 +136,7 @@ export class AdminFeatureFlagController {
     /**
      * Get feature flag audit log
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get(":id/audit")
     async getFlagAuditLog(
         @Param("id", ParseIntPipe) id: number,
@@ -143,6 +152,7 @@ export class AdminFeatureFlagController {
     /**
      * Evaluate a feature flag for a specific context
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post("evaluate/:key")
     async evaluateFlag(
         @Param("key") key: string,
@@ -158,6 +168,7 @@ export class AdminFeatureFlagController {
     /**
      * Evaluate multiple feature flags at once
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post("evaluate-batch")
     async evaluateFlagsBatch(
         @Body() body: { keys: string[]; context: FeatureFlagEvaluationContext }
@@ -172,6 +183,7 @@ export class AdminFeatureFlagController {
     /**
      * Get feature flag statistics overview
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get("statistics/overview")
     async getFlagStatistics() {
         const flags = await this.flagService.getAllFlags();

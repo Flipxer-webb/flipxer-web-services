@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Patch, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags, ApiOperation } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
-import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";import { PermissionGuard } from \"@/modules/api/authorize/guards/permission.guard\";import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse } from "@/utils/api-response-util";
 import { CreateSwapPairDto, BulkUpdateSwapPairDto } from "../../../trade/dtos/create-swap-pair.dto";
@@ -10,7 +10,7 @@ import { SUPPORTED_ASSETS } from "../../../trade/constants";
 
 @ApiTags("Admin Swap Pairs")
 @Controller("admin/swap-pairs")
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth()
 export class AdminSwapPairController {
@@ -20,6 +20,7 @@ export class AdminSwapPairController {
         this.db = prisma as any;
     }
 
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get()
     @ApiOperation({ summary: "List all swap pairs" })
     async getSwapPairs() {
@@ -30,6 +31,7 @@ export class AdminSwapPairController {
         return buildResponse({ message: "Swap pairs retrieved", data: pairs });
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post()
     @ApiOperation({ summary: "Create or Update a specific Swap Pair Override" })
     async upsertSwapPair(@Body() dto: CreateSwapPairDto) {
@@ -57,6 +59,7 @@ export class AdminSwapPairController {
         return buildResponse({ message: "Swap pair updated", data: pair });
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post("generate")
     @ApiOperation({ summary: "Generate all possible permutations of Swap Pairs (Inactive by default)" })
     async generateAllPairs() {
@@ -97,6 +100,7 @@ export class AdminSwapPairController {
         return buildResponse({ message: `Generated ${count} new swap pair records.`, data: count });
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Patch("bulk")
     @ApiOperation({ summary: "Bulk Update Swap Pairs (e.g. Activate all USDT pairs)" })
     async bulkUpdate(@Body() dto: BulkUpdateSwapPairDto) {
