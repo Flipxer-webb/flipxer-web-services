@@ -522,6 +522,24 @@ describe("AdminAccountingController", () => {
         expect(result.data.meta.totalCount).toBe(0);
     });
 
+    it("filters fiat gateway activity by date range", async () => {
+        prisma.payment.findMany.mockResolvedValue([]);
+        prisma.payment.count.mockResolvedValue(0);
+
+        await controller.getFiatGatewayActivity(1, 20, undefined, undefined, "2026-01-01T00:00:00.000Z", "2026-01-31T23:59:59.000Z");
+
+        expect(prisma.payment.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    createdAt: {
+                        gte: new Date("2026-01-01T00:00:00.000Z"),
+                        lte: new Date("2026-01-31T23:59:59.000Z"),
+                    },
+                }),
+            }),
+        );
+    });
+
     // =========================================================================
     // ADMIN ADJUSTMENT TESTS
     // =========================================================================

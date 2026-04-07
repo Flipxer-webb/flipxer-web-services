@@ -674,12 +674,16 @@ export class AdminAccountingController {
     @ApiQuery({ name: "limit", required: false, type: Number })
     @ApiQuery({ name: "provider", required: false, description: "Filter by gateway provider: fincra, nomba, or all" })
     @ApiQuery({ name: "type", required: false, description: "Filter by type: collection, payout, or all" })
+    @ApiQuery({ name: "startDate", required: false, description: "Filter from date (ISO 8601)" })
+    @ApiQuery({ name: "endDate", required: false, description: "Filter to date (ISO 8601)" })
     @Get("fiat-gateway-activity")
     async getFiatGatewayActivity(
         @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
         @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit: number,
         @Query("provider") provider?: string,
         @Query("type") type?: string,
+        @Query("startDate") startDate?: string,
+        @Query("endDate") endDate?: string,
     ) {
         this.logger.log(`Admin fetching fiat gateway activity (page ${page})`);
 
@@ -702,6 +706,17 @@ export class AdminAccountingController {
             where.flow = "IN";
         } else if (type === "payout") {
             where.flow = "OUT";
+        }
+
+        // Filter by date range
+        if (startDate || endDate) {
+            where.createdAt = {};
+            if (startDate) {
+                where.createdAt.gte = new Date(startDate);
+            }
+            if (endDate) {
+                where.createdAt.lte = new Date(endDate);
+            }
         }
 
         const [payments, total] = await Promise.all([
