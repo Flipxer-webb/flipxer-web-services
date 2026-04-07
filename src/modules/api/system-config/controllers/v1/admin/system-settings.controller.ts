@@ -14,7 +14,8 @@ import { MaintenanceModeService } from "../../../services/maintenance-mode.servi
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { SystemSettingDto, MaintenanceModeConfig } from "../../../types";
@@ -32,6 +33,7 @@ export class AdminSystemSettingsController {
     /**
      * Get all system settings
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get()
     async getAllSettings() {
         const settings = await this.settingsService.getAllSettings();
@@ -44,6 +46,7 @@ export class AdminSystemSettingsController {
     /**
      * Get a specific setting by key
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get(":key")
     async getSetting(@Param("key") keyParam: unknown) {
         if (typeof keyParam !== "string") {
@@ -61,6 +64,7 @@ export class AdminSystemSettingsController {
     /**
      * Create or update a setting
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post()
     async setSetting(
         @Body() dto: SystemSettingDto,
@@ -75,6 +79,7 @@ export class AdminSystemSettingsController {
     /**
      * Bulk update settings
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Put("bulk")
     async bulkUpdateSettings(
         @Body() settings: unknown,
@@ -97,6 +102,7 @@ export class AdminSystemSettingsController {
     /**
      * Delete a setting
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Delete(":key")
     async deleteSetting(@Param("key") keyParam: unknown) {
         if (typeof keyParam !== "string") {
@@ -113,6 +119,7 @@ export class AdminSystemSettingsController {
     /**
      * Get current maintenance mode status
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get("maintenance/status")
     async getMaintenanceStatus() {
         const config = await this.maintenanceService.getMaintenanceConfig();
@@ -125,6 +132,7 @@ export class AdminSystemSettingsController {
     /**
      * Enable maintenance mode
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post("maintenance/enable")
     async enableMaintenanceMode(
         @Body() body: { message: string; estimatedEndTime?: string; allowedIps?: string[] },
@@ -147,6 +155,7 @@ export class AdminSystemSettingsController {
     /**
      * Disable maintenance mode
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post("maintenance/disable")
     async disableMaintenanceMode(@User() user: UserModel) {
         const result = await this.maintenanceService.disableMaintenance(user.id);
@@ -159,6 +168,7 @@ export class AdminSystemSettingsController {
     /**
      * Update maintenance mode configuration
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Put("maintenance")
     async updateMaintenanceConfig(
         @Body() config: Partial<MaintenanceModeConfig>,

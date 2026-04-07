@@ -17,7 +17,8 @@ import {
     AuthGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma, PaymentMethod } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
@@ -67,6 +68,7 @@ export class AdminAccountingController {
     @ApiQuery({ name: "search", required: false, description: "Search by user email or name" })
     @ApiQuery({ name: "accountType", required: false, description: "Filter by account type (INDIVIDUAL/BUSINESS)" })
     @ApiQuery({ name: "sortBalance", required: false, description: "Sort by total balance: highest or lowest" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("trading-balances")
     async getTradingBalances(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
@@ -245,6 +247,7 @@ export class AdminAccountingController {
     @ApiQuery({ name: "status", required: false, description: "Filter by status" })
     @ApiQuery({ name: "currency", required: false, description: "Filter by from/to currency" })
     @ApiQuery({ name: "source", required: false, description: "Filter by swap source (admin | user | all)" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("swap-log")
     async getSwapLog(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
@@ -377,6 +380,7 @@ export class AdminAccountingController {
     @ApiQuery({ name: "limit", required: false, type: Number })
     @ApiQuery({ name: "currency", required: false, type: String })
     @ApiQuery({ name: "search", required: false, type: String })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("deposit-withdrawal-summary")
     async getDepositWithdrawalSummary(
         @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -506,6 +510,7 @@ export class AdminAccountingController {
     // =========================================================================
 
     @ApiOperation({ summary: "Get on-chain solvency summary (wallet balances vs ledger)" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("on-chain-summary")
     async getOnChainSummary() {
         this.logger.log("Admin fetching on-chain summary");
@@ -552,12 +557,14 @@ export class AdminAccountingController {
     // =========================================================================
 
     @ApiOperation({ summary: "Get a swap quote for the platform main wallet via Quidax" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("swap-quote")
     async getSwapQuote(@Body() dto: AdminSwapQuoteDto) {
         return this.adminSwapService.getSwapQuote(dto);
     }
 
     @ApiOperation({ summary: "Confirm and execute a swap on the platform main wallet via Quidax" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("swap-confirm")
     async confirmSwap(
         @Body() dto: AdminSwapConfirmDto,
@@ -571,6 +578,7 @@ export class AdminAccountingController {
     // =========================================================================
 
     @ApiOperation({ summary: "Get fiat gateway balances from all configured providers (Fincra, Nomba)" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("fiat-gateway-summary")
     async getFiatGatewaySummary() {
         this.logger.log("Admin fetching fiat gateway summary");
@@ -676,6 +684,7 @@ export class AdminAccountingController {
     @ApiQuery({ name: "type", required: false, description: "Filter by type: collection, payout, or all" })
     @ApiQuery({ name: "startDate", required: false, description: "Filter from date (ISO 8601)" })
     @ApiQuery({ name: "endDate", required: false, description: "Filter to date (ISO 8601)" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("fiat-gateway-activity")
     async getFiatGatewayActivity(
         @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -772,6 +781,7 @@ export class AdminAccountingController {
     // =========================================================================
 
     @ApiOperation({ summary: "Credit or debit a user's ledger balance (admin adjustment)" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("adjustment")
     async createAdjustment(
         @Body() dto: AdminAdjustmentDto,

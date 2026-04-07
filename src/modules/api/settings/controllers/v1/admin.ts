@@ -21,14 +21,15 @@ import {
 } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import {
     CreateOrUpdateCryptoRateDto,
     CreateOrUpdateCryptoTransactionFeeDto,
 } from "../../dtos";
 
 @ApiTags("admin")
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
 @ApiBearerAuth("access-token")
 @Controller({
@@ -40,6 +41,7 @@ export class AdminSettingController {
         private readonly rateService: RateService
     ) {}
 
+    @Permissions([PermissionName.SETTINGS_READ])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get crypto rate list" })
     @Get("crypto/rates")
@@ -47,6 +49,7 @@ export class AdminSettingController {
         return this.settingService.getCryptoRateList();
     }
 
+    @Permissions([PermissionName.SETTINGS_READ])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get crypto transaction fee list" })
     @Get("crypto/transaction-fees")
@@ -54,6 +57,7 @@ export class AdminSettingController {
         return this.settingService.getCryptoTransactionFeeList();
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "create or update crypto rate" })
     @Post("crypto/rates")
@@ -61,6 +65,7 @@ export class AdminSettingController {
         return this.settingService.createOrUpdateCryptoRate(dto);
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "create or update crypto transaction fee" })
     @Post("crypto/transaction-fees")
@@ -70,6 +75,7 @@ export class AdminSettingController {
         return this.settingService.createOrUpdateCryptoTransactionFee(dto);
     }
 
+    @Permissions([PermissionName.SETTINGS_READ])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get crypto rate detail" })
     @Get("crypto/rates/:rateId")
@@ -77,6 +83,7 @@ export class AdminSettingController {
         return this.settingService.getCryptoRateDetail(rateId);
     }
 
+    @Permissions([PermissionName.SETTINGS_READ])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "get crypto transaction fee detail" })
     @Get("crypto/transaction-fees/:transactionFeeId")
@@ -88,6 +95,7 @@ export class AdminSettingController {
         );
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "delete crypto rate" })
     @Delete("crypto/rates/:rateId")
@@ -95,6 +103,7 @@ export class AdminSettingController {
         return this.settingService.deleteCryptoRate(rateId);
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "delete crypto transaction fee" })
     @Delete("crypto/transaction-fees/:transactionFeeId")
@@ -106,6 +115,7 @@ export class AdminSettingController {
 
     // ============ Dynamic Rates Endpoints ============
 
+    @Permissions([PermissionName.SETTINGS_READ])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Get calculated rates with dynamic pricing info" })
     @Get("crypto/calculated-rates")
@@ -124,6 +134,7 @@ export class AdminSettingController {
         });
     }
 
+    @Permissions([PermissionName.SETTINGS_READ])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Get dynamic rates feature status" })
     @Get("crypto/dynamic-rates/status")
@@ -135,6 +146,7 @@ export class AdminSettingController {
         });
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Toggle dynamic rates feature on/off" })
     @Post("crypto/dynamic-rates/toggle")
@@ -146,6 +158,7 @@ export class AdminSettingController {
         });
     }
 
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Invalidate USDT rate cache (after admin updates USDT rate)" })
     @Post("crypto/dynamic-rates/invalidate-cache")

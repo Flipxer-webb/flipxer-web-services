@@ -13,7 +13,8 @@ import { WalletManagementService } from "../../../services/wallet-management.ser
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { LiquidityThreshold } from "../../../types";
@@ -28,6 +29,7 @@ export class AdminWalletController {
     /**
      * Get all Quidax wallet balances (cached for 45s)
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get()
     async getWalletBalances(
         @Query("refresh", new ParseBoolPipe({ optional: true })) refresh?: boolean
@@ -42,6 +44,7 @@ export class AdminWalletController {
     /**
      * Get a specific wallet balance
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("balance/:currency")
     async getWalletBalance(
         @Param("currency") currency: string,
@@ -57,6 +60,7 @@ export class AdminWalletController {
     /**
      * Get platform-wide wallet statistics
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("statistics")
     async getWalletStatistics() {
         const statistics = await this.walletService.getWalletStatistics();
@@ -69,6 +73,7 @@ export class AdminWalletController {
     /**
      * Get liquidity thresholds configuration
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("thresholds")
     async getLiquidityThresholds() {
         const thresholds = await this.walletService.getLiquidityThresholds();
@@ -81,6 +86,7 @@ export class AdminWalletController {
     /**
      * Update liquidity thresholds
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Put("thresholds")
     async updateLiquidityThresholds(
         @Body() thresholds: LiquidityThreshold[],
@@ -96,6 +102,7 @@ export class AdminWalletController {
     /**
      * Check liquidity thresholds and return any breaches
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("thresholds/check")
     async checkLiquidityThresholds() {
         const result = await this.walletService.checkLiquidityThresholds();
@@ -108,6 +115,7 @@ export class AdminWalletController {
     /**
      * Invalidate wallet cache
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post("cache/invalidate")
     async invalidateCache() {
         await this.walletService.invalidateWalletCache();

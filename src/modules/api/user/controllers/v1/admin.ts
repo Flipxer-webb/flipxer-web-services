@@ -14,7 +14,8 @@ import {
     AuthGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { UserType, User as UserModel } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
@@ -22,7 +23,7 @@ import { GetUserListDto, UnflagUserDto, FlagUserDto, SetLimitOverrideDto, Remove
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 import { User } from "../../decorators";
 
-@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard)
+@UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
 @ApiTags("admin")
 @Controller({
@@ -31,6 +32,7 @@ import { User } from "../../decorators";
 export class AdminUserController {
     constructor(private readonly adminService: AdminUserService) {}
 
+    @Permissions([PermissionName.ANALYTICS_READ])
     @ApiOperation({ summary: "Admin gets Dashboard analytics overview" })
     @ApiBearerAuth("access-token")
     @Get("analytics-overview")
@@ -42,6 +44,7 @@ export class AdminUserController {
         return await this.adminService.getAnalyticsOverview(period, startDate, endDate);
     }
 
+    @Permissions([PermissionName.READ_USERS])
     @ApiOperation({ summary: "Admin gets all users list" })
     @ApiBearerAuth("access-token")
     @Get("all")
@@ -49,6 +52,7 @@ export class AdminUserController {
         return await this.adminService.getUserList(query);
     }
 
+    @Permissions([PermissionName.READ_USERS])
     @ApiOperation({ summary: "Admin gets filter-aware user stats" })
     @ApiBearerAuth("access-token")
     @Get("stats")
@@ -56,6 +60,7 @@ export class AdminUserController {
         return await this.adminService.getUserFilteredStats(query);
     }
 
+    @Permissions([PermissionName.READ_USERS])
     @ApiOperation({ summary: "Admin gets user transactions list" })
     @ApiBearerAuth("access-token")
     @Get("transactions/:userId")
@@ -66,6 +71,7 @@ export class AdminUserController {
         return this.adminService.getUserTransactionList(query, userId);
     }
 
+    @Permissions([PermissionName.READ_USERS])
     @ApiOperation({ summary: "Admin gets user personal info" })
     @ApiBearerAuth("access-token")
     @Get(":userId")
@@ -73,6 +79,7 @@ export class AdminUserController {
         return this.adminService.getUserInfo(userId);
     }
 
+    @Permissions([PermissionName.UPDATE_USERS])
     @ApiOperation({ summary: "Admin unflags a user account" })
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
@@ -81,6 +88,7 @@ export class AdminUserController {
         return await this.adminService.unflagUser(dto);
     }
 
+    @Permissions([PermissionName.UPDATE_USERS])
     @ApiOperation({ summary: "Admin flags a user account" })
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
@@ -89,6 +97,7 @@ export class AdminUserController {
         return await this.adminService.flagUser(dto);
     }
 
+    @Permissions([PermissionName.UPDATE_USERS])
     @ApiOperation({ summary: "Admin sets a limit override for a user" })
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
@@ -97,6 +106,7 @@ export class AdminUserController {
         return await this.adminService.setLimitOverride(dto, admin.id);
     }
 
+    @Permissions([PermissionName.UPDATE_USERS])
     @ApiOperation({ summary: "Admin removes a limit override for a user" })
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
@@ -105,6 +115,7 @@ export class AdminUserController {
         return await this.adminService.removeLimitOverride(dto);
     }
 
+    @Permissions([PermissionName.READ_USERS])
     @ApiOperation({ summary: "Admin gets a user's limit override" })
     @ApiBearerAuth("access-token")
     @Get("limit-override/:userId")
