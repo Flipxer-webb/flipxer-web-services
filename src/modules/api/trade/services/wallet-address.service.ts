@@ -745,7 +745,8 @@ export class WalletAddressService {
             where: {
                 userId,
                 assetSymbol,
-                status: { not: CryptoWalletStatus.FAILED },
+                status: CryptoWalletStatus.ACTIVE,
+                address: { not: null },
             },
             orderBy: { createdAt: "desc" },
         });
