@@ -64,15 +64,11 @@ export class AssetBalanceSchedulerService {
         // Use the mutex to ensure only one execution at a time
         const release = await this.mutex.acquire();
         try {
-            const cutoffTime = new Date();
-            cutoffTime.setHours(cutoffTime.getHours() - 2); //2hrs
-
-            // Fetch all pending address
+            // Fetch all pending addresses so older records are retried until resolved
             const pendingAddresses =
                 await this.prisma.cryptoWalletAddress.findMany({
                     where: {
                         status: CryptoWalletStatus.PENDING,
-                        createdAt: { gte: cutoffTime },
                     },
                     select: {
                         id: true,
