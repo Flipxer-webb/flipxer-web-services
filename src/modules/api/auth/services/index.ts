@@ -118,6 +118,7 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 
 /**
  * Build a spread-safe object for a file field in update operations.
@@ -3222,7 +3223,7 @@ export class AuthService {
             password: true,
             userType: true,
             status: true,
-            role: { select: { name: true, rolePermission: true } },
+            role: { select: { name: true, slug: true, rolePermission: { select: { permission: { select: { name: true } } } } } },
             lastLogin: true,
             loginCount: true,
             flaggedRecord: true,
@@ -3370,12 +3371,18 @@ export class AuthService {
         });
 
         if (loginPlatform === LoginPlatform.ADMIN) {
+            const permissions = user.userType === UserType.SUPER_ADMIN
+                ? Object.values(PermissionName)
+                : (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
+
             return buildResponse({
                 message: "Login successful",
                 data: {
                     accessToken: tokens.accessToken,
                     refreshToken: tokens.refreshToken,
                     userType: user.userType,
+                    role: user.role ? { name: user.role.name, slug: (user.role as any).slug } : null,
+                    permissions,
                 },
             });
         }
@@ -3548,6 +3555,7 @@ export class AuthService {
                 isDocumentVerified: true,
                 businessRecordCompleted: true,
                 businessDocumentVerificationStatus: true,
+                role: { select: { name: true, slug: true, rolePermission: { select: { permission: { select: { name: true } } } } } },
             },
         });
 
@@ -3647,6 +3655,24 @@ export class AuthService {
                 lastLogin: new Date(),
             },
         });
+
+        // Admin platform: return enriched response with permissions
+        if (payload.platform === LoginPlatform.ADMIN) {
+            const permissions = user.userType === UserType.SUPER_ADMIN
+                ? Object.values(PermissionName)
+                : (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
+
+            return buildResponse({
+                message: "Login successful",
+                data: {
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                    userType: user.userType,
+                    role: user.role ? { name: user.role.name, slug: (user.role as any).slug } : null,
+                    permissions,
+                },
+            });
+        }
 
         const verificationStatus: VerificationStatus = {
             isEmailVerified: user.isEmailVerified,
