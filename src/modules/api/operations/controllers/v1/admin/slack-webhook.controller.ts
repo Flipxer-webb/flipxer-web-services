@@ -13,7 +13,8 @@ import { SlackWebhookService } from "../../../services/slack-webhook.service";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { CreateSlackWebhookDto, UpdateSlackWebhookDto } from "../../../types";
 import { buildResponse } from "@/utils/api-response-util";
 
@@ -26,6 +27,7 @@ export class AdminSlackWebhookController {
     /**
      * Get all Slack webhooks
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get()
     async getWebhooks() {
         const webhooks = await this.slackService.getWebhooks();
@@ -38,6 +40,7 @@ export class AdminSlackWebhookController {
     /**
      * Get a specific Slack webhook
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Get(":id")
     async getWebhook(@Param("id", ParseIntPipe) id: number) {
         const webhook = await this.slackService.getWebhookById(id);
@@ -50,6 +53,7 @@ export class AdminSlackWebhookController {
     /**
      * Create a new Slack webhook
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post()
     async createWebhook(@Body() dto: CreateSlackWebhookDto) {
         const webhook = await this.slackService.createWebhook(dto);
@@ -62,6 +66,7 @@ export class AdminSlackWebhookController {
     /**
      * Update a Slack webhook
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Put(":id")
     async updateWebhook(
         @Param("id", ParseIntPipe) id: number,
@@ -77,6 +82,7 @@ export class AdminSlackWebhookController {
     /**
      * Delete a Slack webhook
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Delete(":id")
     async deleteWebhook(@Param("id", ParseIntPipe) id: number) {
         await this.slackService.deleteWebhook(id);
@@ -88,6 +94,7 @@ export class AdminSlackWebhookController {
     /**
      * Test a Slack webhook
      */
+    @Permissions([PermissionName.SYSTEM_SETTINGS])
     @Post(":id/test")
     async testWebhook(@Param("id", ParseIntPipe) id: number) {
         const result = await this.slackService.testWebhook(id);

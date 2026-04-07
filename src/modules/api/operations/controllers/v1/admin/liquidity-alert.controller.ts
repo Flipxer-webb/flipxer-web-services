@@ -13,7 +13,8 @@ import { LiquidityAlertService } from "../../../services/liquidity-alert.service
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { 
@@ -31,6 +32,7 @@ export class AdminLiquidityAlertController {
     /**
      * Get all liquidity alerts with filters
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get()
     async getAlerts(
         @Query("status") status?: string,
@@ -57,6 +59,7 @@ export class AdminLiquidityAlertController {
     /**
      * Get pending alerts summary
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("summary/pending")
     async getPendingAlertsSummary() {
         return this.alertService.getPendingAlertsSummary();
@@ -65,6 +68,7 @@ export class AdminLiquidityAlertController {
     /**
      * Get alert statistics
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("statistics")
     async getAlertStatistics(
         @Query("days", new ParseIntPipe({ optional: true })) days?: number
@@ -75,6 +79,7 @@ export class AdminLiquidityAlertController {
     /**
      * Create a new liquidity alert manually
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post()
     async createAlert(@Body() dto: CreateLiquidityAlertDto) {
         return this.alertService.createAlert(dto);
@@ -83,6 +88,7 @@ export class AdminLiquidityAlertController {
     /**
      * Run automated liquidity check
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post("check")
     async runLiquidityCheck() {
         return this.alertService.runLiquidityCheck();
@@ -91,6 +97,7 @@ export class AdminLiquidityAlertController {
     /**
      * Acknowledge an alert
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Put(":id/acknowledge")
     async acknowledgeAlert(
         @Param("id", ParseIntPipe) id: number,
@@ -102,6 +109,7 @@ export class AdminLiquidityAlertController {
     /**
      * Resolve an alert
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Put(":id/resolve")
     async resolveAlert(
         @Param("id", ParseIntPipe) id: number,
@@ -114,6 +122,7 @@ export class AdminLiquidityAlertController {
     /**
      * Escalate an alert
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Put(":id/escalate")
     async escalateAlert(@Param("id", ParseIntPipe) id: number) {
         return this.alertService.escalateAlert(id);
