@@ -155,7 +155,7 @@ describe("AssetBalanceSchedulerService", () => {
             await expect(service.syncWalletAddress()).resolves.toBeUndefined();
         });
 
-        it("should only query recent pending wallet addresses", async () => {
+        it("should query all pending wallet addresses", async () => {
             prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
 
             await service.syncWalletAddress();
@@ -164,7 +164,6 @@ describe("AssetBalanceSchedulerService", () => {
                 expect.objectContaining({
                     where: expect.objectContaining({
                         status: CryptoWalletStatus.PENDING,
-                        createdAt: { gte: expect.any(Date) },
                     }),
                 }),
             );
