@@ -210,6 +210,16 @@ export class AdminTransactionController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Debug: Get all wallet-address records for a user grouped by asset" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
+    @Get("wallet-address-records/:userId")
+    async getWalletAddressRecords(
+        @Param("userId", ParseIntPipe) userId: number,
+    ) {
+        return this.tradingService.getUserWalletAddressRecords(userId);
+    }
+
+    @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Trigger wallet address update for a user across all supported assets" })
     @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("trigger-wallet-update/:userId")
