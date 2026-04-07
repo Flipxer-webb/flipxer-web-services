@@ -16,6 +16,9 @@ import {
 import { TransactionService } from "../../services";
 import { AdminTransactionService } from "../../services/admin-transaction.service";
 import { TradingService } from "@/modules/api/trade/services";
+import { SUPPORTED_ASSETS } from "@/modules/api/trade/constants";
+import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
+import { buildResponse } from "@/utils/api-response-util";
 import {
     ApiTags,
     ApiOperation,
@@ -204,5 +207,28 @@ export class AdminTransactionController {
         @Param("currency") currency: string,
     ) {
         return this.tradingService.debugUserWallet(userId, currency);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Trigger wallet address update for a user across all supported assets" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
+    @Post("trigger-wallet-update/:userId")
+    async triggerWalletUpdate(@Param("userId", ParseIntPipe) userId: number) {
+        const results: Record<string, { status: string; addressCount: number }> = {};
+
+        for (const asset of SUPPORTED_ASSETS) {
+            try {
+                const response = await this.tradingService.getWalletAddresses(userId, { asset: asset.toLowerCase() as SupportedAssets });
+                const addresses = response?.data ?? [];
+                results[asset] = { status: "ok", addressCount: Array.isArray(addresses) ? addresses.length : 0 };
+            } catch (error) {
+                results[asset] = { status: `error: ${error.message}`, addressCount: 0 };
+            }
+        }
+
+        return buildResponse({
+            message: "wallet update triggered",
+            data: results,
+        });
     }
 }
