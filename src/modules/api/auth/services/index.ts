@@ -3212,6 +3212,39 @@ export class AuthService {
         return await this.signIn(options, LoginPlatform.ADMIN, ip);
     }
 
+    /**
+     * Create a login session with error handling.
+     * Session creation failure should NOT prevent login.
+     */
+    private async createLoginSession(
+        userId: number,
+        deviceInfo: { deviceName?: string; deviceType?: string; browser?: string; os?: string },
+        ip: string,
+    ): Promise<string | undefined> {
+        try {
+            const sessionInfo: SessionInfo = {
+                deviceName: deviceInfo.deviceName,
+                deviceType: deviceInfo.deviceType,
+                browser: deviceInfo.browser,
+                os: deviceInfo.os,
+                ipAddress: ip,
+            };
+            const sessionResult = await this.sessionService.createSession(userId, sessionInfo);
+            return sessionResult.sessionId;
+        } catch (sessionError: unknown) {
+            const errMsg = sessionError instanceof Error ? sessionError.message : JSON.stringify(sessionError);
+            Logger.error(`Failed to create session for user ${userId}: ${errMsg}`);
+            return undefined;
+        }
+    }
+
+    private buildAdminPermissions(user: { userType: string; role?: { rolePermission?: Array<{ permission: { name: string } }> } }): string[] {
+        if (user.userType === UserType.SUPER_ADMIN) {
+            return Object.values(PermissionName);
+        }
+        return (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
+    }
+
     private async signIn(
         options: SignInOptions,
         loginPlatform: LoginPlatform,
@@ -3328,33 +3361,14 @@ export class AuthService {
         }
 
         // Create session for user logins with error handling
-        // Session creation failure should NOT prevent login
-        let sessionId: string | undefined;
-        if (loginPlatform === LoginPlatform.USER) {
-            try {
-                const sessionInfo: SessionInfo = {
-                    deviceName: options.deviceName,
-                    deviceType: options.deviceType,
-                    browser: options.browser,
-                    os: options.os,
-                    ipAddress: ip,
-                };
-                const sessionResult = await this.sessionService.createSession(
-                    user.id,
-                    sessionInfo
-                );
-                sessionId = sessionResult.sessionId;
-            } catch (sessionError) {
-                // Log the error but don't fail the login
-                Logger.error(`Failed to create session for user ${user.id}: ${sessionError.message}`);
-                // Session creation is non-critical, login should still succeed
-            }
-        }
+        const sessionId = loginPlatform === LoginPlatform.USER
+            ? await this.createLoginSession(user.id, options, ip)
+            : undefined;
 
         const tokenPayload: Record<string, any> = {
             sub: user.id,
             platform: loginPlatform,
-            ...(sessionId ? { sessionId } : {}),
+            sessionId,
         };
 
         const tokens = await this.generateTokens(tokenPayload);
@@ -3371,9 +3385,7 @@ export class AuthService {
         });
 
         if (loginPlatform === LoginPlatform.ADMIN) {
-            const permissions = user.userType === UserType.SUPER_ADMIN
-                ? Object.values(PermissionName)
-                : (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
+            const permissions = this.buildAdminPermissions(user);
 
             return buildResponse({
                 message: "Login successful",
@@ -3616,33 +3628,15 @@ export class AuthService {
         }
 
         // Create session for user logins (2FA complete) with error handling
-        // Session creation failure should NOT prevent login
-        let sessionId: string | undefined;
-        if (payload.platform === LoginPlatform.USER) {
-            try {
-                const sessionInfo: SessionInfo = {
-                    deviceName: dto.deviceName,
-                    deviceType: dto.deviceType,
-                    browser: dto.browser,
-                    os: dto.os,
-                    ipAddress: ip,
-                };
-                const sessionResult = await this.sessionService.createSession(
-                    user.id,
-                    sessionInfo
-                );
-                sessionId = sessionResult.sessionId;
-            } catch (sessionError) {
-                // Log the error but don't fail the login
-                Logger.error(`Failed to create 2FA session for user ${user.id}: ${sessionError.message}`);
-                // Session creation is non-critical, login should still succeed
-            }
-        }
+        // Create session for user logins (2FA complete) with error handling
+        const sessionId = payload.platform === LoginPlatform.USER
+            ? await this.createLoginSession(user.id, dto, ip)
+            : undefined;
 
         const tokens = await this.generateTokens({
             sub: user.id,
             platform: payload.platform,
-            ...(sessionId ? { sessionId } : {}),
+            sessionId,
         });
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
@@ -3658,9 +3652,7 @@ export class AuthService {
 
         // Admin platform: return enriched response with permissions
         if (payload.platform === LoginPlatform.ADMIN) {
-            const permissions = user.userType === UserType.SUPER_ADMIN
-                ? Object.values(PermissionName)
-                : (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
+            const permissions = this.buildAdminPermissions(user);
 
             return buildResponse({
                 message: "Login successful",

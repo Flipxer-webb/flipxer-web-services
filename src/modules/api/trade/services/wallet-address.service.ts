@@ -316,7 +316,7 @@ export class WalletAddressService {
                 where: {
                     userId,
                     assetSymbol: assetSymbolUpper,
-                    network: { in: networksToCreate as NetworkTypes[] },
+                    network: { in: networksToCreate },
                     status: CryptoWalletStatus.FAILED,
                 },
             });
