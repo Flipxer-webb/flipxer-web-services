@@ -52,4 +52,9 @@ export enum PermissionName {
     // System permissions
     SYSTEM_AUDIT_LOGS = "system.audit_logs",
     SYSTEM_SETTINGS = "system.settings",
+
+    // AML compliance permissions
+    AML_READ = "aml.read",
+    AML_CHECK = "aml.check",
+    AML_INVESTIGATE = "aml.investigate",
 }

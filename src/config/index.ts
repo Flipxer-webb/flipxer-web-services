@@ -438,6 +438,19 @@ export const nombaOptions: NombaOptions = {
     webhookSecret: process.env.NOMBA_WEBHOOK_SECRET || "",
 };
 
+// AMLBot (optional - AML/KYT compliance checks will not work without credentials)
+export interface AmlBotConfig {
+    baseUrl: string;
+    accessKey: string;
+    accessId: string;
+}
+
+export const amlBotConfig: AmlBotConfig = {
+    baseUrl: process.env.AMLBOT_BASE_URL || "https://extrnlapiendpoint.silencatech.com",
+    accessKey: process.env.AMLBOT_ACCESS_KEY || "",
+    accessId: process.env.AMLBOT_ACCESS_ID || "",
+};
+
 // Slack webhook for payout failure alerts (optional)
 export const slackPayoutAlertWebhookUrl = process.env.SLACK_PAYOUT_ALERT_WEBHOOK_URL || "";
 
