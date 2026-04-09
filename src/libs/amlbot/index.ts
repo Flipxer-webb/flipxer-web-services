@@ -4,7 +4,7 @@ import Axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from "axios";
 export * from "./errors";
 export * from "./types";
 import * as t from "./types";
-import * as qs from "querystring";
+import * as qs from "node:querystring";
 
 export class AmlBotLib {
     constructor(protected instanceOptions: t.AmlBotOptions) {}

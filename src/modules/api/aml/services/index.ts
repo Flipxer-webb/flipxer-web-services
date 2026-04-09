@@ -73,13 +73,13 @@ export class AmlService {
                     data: {
                         uid: result.data.uid,
                         status: "pending",
-                        tx: (result.data as AML.AmlBotTransactionData).tx,
+                        tx: result.data.tx,
                         asset: result.data.asset,
                     },
                 });
             }
 
-            const txData = result.data as AML.AmlBotTransactionData;
+            const txData = result.data;
             return buildResponse({
                 message: "Transaction AML check completed",
                 data: {
