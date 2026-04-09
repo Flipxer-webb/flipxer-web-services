@@ -16,6 +16,7 @@ import { HealthModule } from "./health";
 import { OperationsModule } from "./operations";
 import { ReportsModule } from "./reports";
 import { SystemConfigModule } from "./system-config";
+import { AmlModule } from "./aml";
 
 @Module({
     imports: [
@@ -36,6 +37,7 @@ import { SystemConfigModule } from "./system-config";
         OperationsModule,
         ReportsModule,
         SystemConfigModule,
+        AmlModule,
     ],
 })
 export class APIModule {}
