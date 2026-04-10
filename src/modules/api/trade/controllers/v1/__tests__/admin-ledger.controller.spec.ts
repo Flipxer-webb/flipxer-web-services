@@ -45,11 +45,13 @@ import { SweepService } from "../../../services/ledger/sweep.service";
 import { OrphanedHoldService } from "../../../services/ledger/orphaned-hold.service";
 import { DepositReviewService } from "../../../services/ledger/deposit-review.service";
 import { SolvencyService } from "../../../services/ledger/solvency.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 type MockFn = jest.Mock<any, any>;
 
 describe("AdminLedgerController", () => {
     let controller: AdminLedgerController;
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     let reconciliationService: {
         getLatestReconciliations: MockFn;
@@ -177,6 +179,7 @@ describe("AdminLedgerController", () => {
                 { provide: OrphanedHoldService, useValue: orphanedHoldService },
                 { provide: DepositReviewService, useValue: depositReviewService },
                 { provide: SolvencyService, useValue: solvencyService },
+                { provide: AuditLogService, useValue: mockAuditLogService },
             ],
         }).compile();
 
@@ -195,7 +198,7 @@ describe("AdminLedgerController", () => {
         reconciliationService.runReconciliation.mockResolvedValue({ checked: 3 });
 
         const status = await controller.getReconciliationStatus();
-        const run = await controller.runReconciliation();
+        const run = await controller.runReconciliation({ id: 1 } as never);
 
         expect(status.message).toBe("Reconciliation status retrieved");
         expect(status.data).toEqual({ BTC: { ok: true }, USDT: { ok: false } });
@@ -218,8 +221,8 @@ describe("AdminLedgerController", () => {
         withdrawalQueueService.getAdminQueueStats.mockResolvedValue({ pending: 2 });
 
         const queue = await controller.getWithdrawalQueue("USDT");
-        const pause = await controller.pauseWithdrawalQueue({ reason: "ops" });
-        const resume = await controller.resumeWithdrawalQueue();
+        const pause = await controller.pauseWithdrawalQueue({ id: 1 } as never, { reason: "ops" });
+        const resume = await controller.resumeWithdrawalQueue({ id: 1 } as never);
         const timeout = await controller.processWithdrawalQueueTimeouts();
         const stats = await controller.getWithdrawalQueueStats("USDT");
 
@@ -272,10 +275,10 @@ describe("AdminLedgerController", () => {
         sweepService.getSweepStats.mockResolvedValue({ total: 7 });
 
         const pending = await controller.getPendingSweeps();
-        const process = await controller.processPendingSweeps();
+        const process = await controller.processPendingSweeps({ id: 1 } as never);
         const stats = await controller.getSweepStats();
         const resolve = await controller.resolveSweep("entry-1", { id: 17 } as any, "manual review");
-        const retry = await controller.retryFailedSweeps();
+        const retry = await controller.retryFailedSweeps({ id: 1 } as never);
 
         expect(pending.data.count).toBe(1);
         expect(process.data.processedCount).toBe(2);

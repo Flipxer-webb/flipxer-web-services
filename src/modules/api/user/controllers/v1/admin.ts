@@ -7,8 +7,10 @@ import {
     ParseIntPipe,
     Query,
     Body,
+    Req,
     UseGuards,
 } from "@nestjs/common";
+import { Request } from "express";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
     AuthGuard,
@@ -84,8 +86,8 @@ export class AdminUserController {
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
     @Post("unflag")
-    async unflagUser(@Body() dto: UnflagUserDto) {
-        return await this.adminService.unflagUser(dto);
+    async unflagUser(@Body() dto: UnflagUserDto, @Req() req: Request) {
+        return await this.adminService.unflagUser(dto, (req as any).user?.id);
     }
 
     @Permissions([PermissionName.UPDATE_USERS])
@@ -93,8 +95,8 @@ export class AdminUserController {
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
     @Post("flag")
-    async flagUser(@Body() dto: FlagUserDto) {
-        return await this.adminService.flagUser(dto);
+    async flagUser(@Body() dto: FlagUserDto, @Req() req: Request) {
+        return await this.adminService.flagUser(dto, (req as any).user?.id);
     }
 
     @Permissions([PermissionName.UPDATE_USERS])
@@ -111,8 +113,8 @@ export class AdminUserController {
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
     @Post("limit-override/remove")
-    async removeLimitOverride(@Body() dto: RemoveLimitOverrideDto) {
-        return await this.adminService.removeLimitOverride(dto);
+    async removeLimitOverride(@Body() dto: RemoveLimitOverrideDto, @Req() req: Request) {
+        return await this.adminService.removeLimitOverride(dto, (req as any).user?.id);
     }
 
     @Permissions([PermissionName.READ_USERS])

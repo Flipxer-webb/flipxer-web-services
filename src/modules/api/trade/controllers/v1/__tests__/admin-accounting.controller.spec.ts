@@ -67,6 +67,7 @@ describe("AdminAccountingController", () => {
         getSwapQuote: jest.Mock;
         confirmSwap: jest.Mock;
     };
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     beforeEach(() => {
         prisma = {
@@ -125,6 +126,7 @@ describe("AdminAccountingController", () => {
             adminSwapService as any,
             fincraService as any,
             nombaService as any,
+            mockAuditLogService as any,
         );
 
         jest.spyOn((controller as any).logger, "warn").mockImplementation(() => undefined);

@@ -16,6 +16,7 @@ import { AdminUserService } from "../../../services/admin";
 
 describe("AdminUserController", () => {
     let controller: AdminUserController;
+    const mockReq = { ip: '127.0.0.1', headers: { 'user-agent': 'test' }, user: { id: 1 } } as any;
     let adminService: {
         getAnalyticsOverview: jest.Mock;
         getUserList: jest.Mock;
@@ -74,7 +75,7 @@ describe("AdminUserController", () => {
         adminService.unflagUser.mockResolvedValue({ message: "unflagged" });
         adminService.flagUser.mockResolvedValue({ message: "flagged" });
 
-        await expect(controller.unflagUser({ userId: 8 } as any)).resolves.toEqual({ message: "unflagged" });
-        await expect(controller.flagUser({ userId: 8, reason: "risk" } as any)).resolves.toEqual({ message: "flagged" });
+        await expect(controller.unflagUser({ userId: 8 } as any, mockReq as never)).resolves.toEqual({ message: "unflagged" });
+        await expect(controller.flagUser({ userId: 8, reason: "risk" } as any, mockReq as never)).resolves.toEqual({ message: "flagged" });
     });
 });

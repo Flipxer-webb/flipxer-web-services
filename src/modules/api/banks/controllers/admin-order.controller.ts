@@ -19,6 +19,7 @@ import { SwapService } from '../../trade/services/swap.service';
 import { BuyOrderService } from '../../trade/services/buy-order.service';
 import { StuckOrderReconciliationService } from '../../trade/services/stuck-order-reconciliation.service';
 import { PrismaService } from '@/modules/core/prisma/services';
+import { AuditLogService } from '@/modules/api/audit-log';
 import { buildResponse } from '@/utils';
 import { User } from '@/modules/api/user';
 import { User as UserModel, OrderCategory, OrderStatus, TransactionStatus } from '@prisma/client';
@@ -44,6 +45,7 @@ export class AdminOrderController {
         private readonly swapService: SwapService,
         private readonly buyOrderService: BuyOrderService,
         private readonly stuckOrderReconciliation: StuckOrderReconciliationService,
+        private readonly auditLogService: AuditLogService,
     ) { }
 
     private async requireAdmin(userId: number): Promise<void> {
@@ -151,6 +153,14 @@ export class AdminOrderController {
         } catch (error) {
             this.logger.error(`Failed to complete order ${id}: ${error.message}`);
             throw new BadRequestException(`Failed to complete order: ${error.message}`);
+        } finally {
+            await this.auditLogService.log({
+                action: 'COMPLETE_ORDER',
+                resource: 'order',
+                resourceId: id.toString(),
+                details: { orderId: id },
+                adminId: user.id,
+            });
         }
     }
 
@@ -364,6 +374,14 @@ export class AdminOrderController {
         } catch (error) {
             this.logger.error(`Failed to retry fulfillment for order ${id}: ${error.message}`);
             throw new BadRequestException(`Failed to retry fulfillment: ${error.message}`);
+        } finally {
+            await this.auditLogService.log({
+                action: 'RETRY_ORDER_FULFILLMENT',
+                resource: 'order',
+                resourceId: id.toString(),
+                details: { orderId: id },
+                adminId: user.id,
+            });
         }
     }
 
@@ -388,7 +406,15 @@ export class AdminOrderController {
         const id = Number.parseInt(orderId);
         this.logger.log(`Admin ${user.id} request to retry swap order ${id}`);
 
-        return await this.swapService.retryPendingSwap(id);
+        const result = await this.swapService.retryPendingSwap(id);
+        await this.auditLogService.log({
+            action: 'RETRY_SWAP_ORDER',
+            resource: 'order',
+            resourceId: id.toString(),
+            details: { orderId: id },
+            adminId: user.id,
+        });
+        return result;
     }
 
     /**
@@ -407,6 +433,16 @@ export class AdminOrderController {
         this.logger.log(`Admin ${user.id} triggered manual stuck-order reconciliation`);
 
         const result = await this.stuckOrderReconciliation.reconcile();
+
+        await this.auditLogService.log({
+            action: 'RUN_ORDER_RECONCILIATION',
+            resource: 'order',
+            details: {
+                stuckDetected: result.stuckBuyOrders.detected,
+                autoRetried: result.stuckBuyOrders.autoRetried,
+            },
+            adminId: user.id,
+        });
 
         return buildResponse({
             message: 'Reconciliation complete',

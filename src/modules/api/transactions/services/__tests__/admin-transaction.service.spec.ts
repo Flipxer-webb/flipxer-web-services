@@ -9,6 +9,7 @@ import { SettingService } from "@/modules/api/settings/services";
 import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
 import { SwapService } from "@/modules/api/trade/services/swap.service";
 import { WithdrawalWebhookHandler } from "@/modules/api/trade/services/webhook-handlers/withdrawal-webhook.handler";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 function makePrisma() {
     return {
@@ -40,6 +41,7 @@ describe("AdminTransactionService", () => {
     let buyOrderService: { fulfillBuyOrder: jest.Mock };
     let swapService: { retryPendingSwap: jest.Mock };
     let withdrawalWebhookHandler: { retryFiatPayout: jest.Mock };
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -62,6 +64,7 @@ describe("AdminTransactionService", () => {
                 { provide: BuyOrderService, useValue: buyOrderService },
                 { provide: SwapService, useValue: swapService },
                 { provide: WithdrawalWebhookHandler, useValue: withdrawalWebhookHandler },
+                { provide: AuditLogService, useValue: mockAuditLogService },
             ],
         }).compile();
 
@@ -142,7 +145,7 @@ describe("AdminTransactionService", () => {
         );
 
         expect(prisma.order.update).toHaveBeenCalled();
-        expect(prisma.auditLog.create).toHaveBeenCalled();
+        expect(mockAuditLogService.log).toHaveBeenCalled();
         expect(result.message).toContain("updated successfully");
     });
 
@@ -207,7 +210,7 @@ describe("AdminTransactionService", () => {
         );
 
         expect(ledgerService.credit).toHaveBeenCalled();
-        expect(prisma.auditLog.create).toHaveBeenCalled();
+        expect(mockAuditLogService.log).toHaveBeenCalled();
         expect(result.message).toContain("manually approved");
     });
 

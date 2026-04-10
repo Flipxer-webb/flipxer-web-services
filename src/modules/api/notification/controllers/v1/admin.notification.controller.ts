@@ -7,8 +7,10 @@ import {
     Param, 
     Query, 
     Body, 
+    Req,
     UseGuards 
 } from "@nestjs/common";
+import { Request } from "express";
 import { AdminNotificationService } from "../../services/admin.notification.service";
 import * as dto from "../../dtos/notification.dto";
 import { AuthGuard, CountryBlockGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
@@ -40,15 +42,15 @@ export class AdminNotificationController {
     @Permissions([PermissionName.NOTIFICATIONS_BROADCAST])
     @ApiOperation({ summary: "Broadcast notification to multiple users" })
     @Post("broadcast")
-    async broadcastNotification(@Body() broadcastDto: dto.BroadcastNotificationDto) {
-        return await this.adminNotificationService.broadcastNotification(broadcastDto);
+    async broadcastNotification(@Body() broadcastDto: dto.BroadcastNotificationDto, @Req() req: Request) {
+        return await this.adminNotificationService.broadcastNotification(broadcastDto, (req as any).user?.id);
     }
 
     @Permissions([PermissionName.NOTIFICATIONS_CREATE])
     @ApiOperation({ summary: "Create a new notification" })
     @Post()
-    async createNotification(@Body() createDto: dto.CreateNotificationDto) {
-        return await this.adminNotificationService.createNotification(createDto);
+    async createNotification(@Body() createDto: dto.CreateNotificationDto, @Req() req: Request) {
+        return await this.adminNotificationService.createNotification(createDto, (req as any).user?.id);
     }
 
     @Permissions([PermissionName.NOTIFICATIONS_READ])
@@ -72,20 +74,23 @@ export class AdminNotificationController {
     @Patch(":notificationId/status")
     async updateNotificationStatus(
         @Param() param: dto.NotificationIdParamDto,
-        @Body() statusDto: dto.UpdateNotificationStatusDto
+        @Body() statusDto: dto.UpdateNotificationStatusDto,
+        @Req() req: Request
     ) {
         return await this.adminNotificationService.updateNotificationStatus(
             param.notificationId,
-            statusDto.status
+            statusDto.status,
+            (req as any).user?.id
         );
     }
 
     @Permissions([PermissionName.NOTIFICATIONS_DELETE])
     @ApiOperation({ summary: "Delete notification" })
     @Delete(":notificationId")
-    async deleteNotification(@Param() param: dto.NotificationIdParamDto) {
+    async deleteNotification(@Param() param: dto.NotificationIdParamDto, @Req() req: Request) {
         return await this.adminNotificationService.deleteNotification(
-            param.notificationId
+            param.notificationId,
+            (req as any).user?.id
         );
     }
 }

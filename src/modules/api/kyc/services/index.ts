@@ -20,6 +20,7 @@ import { EmailService } from "@/modules/core/email/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { IdentityResolutionService } from "@/modules/api/auth/services/identity-resolution.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { emailTemplateConfig, mailConfig, COMPANY_NAME } from "@/config";
 
 @Injectable()
@@ -36,6 +37,7 @@ export class KycService {
         private readonly redisCacheService: RedisCacheService,
         private readonly wsGateway: WsGateway,
         private readonly identityResolution: IdentityResolutionService,
+        private readonly auditLogService: AuditLogService,
     ) { }
 
     // ==================== KYC QUEUE ====================
@@ -435,18 +437,16 @@ export class KycService {
         const syncedUser = await this.tierService.syncTierAndCache(userId);
 
         // Create audit log — use syncedUser.tier (post-recalculation) for accuracy
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: `KYC_${action}`,
-                resource: "kyc",
-                resourceId: userId.toString(),
-                details: {
-                    previousTier: user.tier,
-                    newTier: syncedUser.tier,
-                    verificationType,
-                    note,
-                },
+        await this.auditLogService.log({
+            adminId,
+            action: `KYC_${action}`,
+            resource: "kyc",
+            resourceId: userId.toString(),
+            details: {
+                previousTier: user.tier,
+                newTier: syncedUser.tier,
+                verificationType,
+                note,
             },
         });
 
@@ -618,17 +618,15 @@ export class KycService {
         await this.redisCacheService.del(this.getProfileCacheKey(userId));
 
         // Audit log
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "UPDATE_USER_TIER",
-                resource: "kyc",
-                resourceId: userId.toString(),
-                details: {
-                    previousTier,
-                    newTier: dto.tier,
-                    reason: dto.reason,
-                },
+        await this.auditLogService.log({
+            adminId,
+            action: "UPDATE_USER_TIER",
+            resource: "kyc",
+            resourceId: userId.toString(),
+            details: {
+                previousTier,
+                newTier: dto.tier,
+                reason: dto.reason,
             },
         });
 
@@ -706,16 +704,14 @@ export class KycService {
         await this.resolveIdentityForAdmin(dto, user, userId);
 
         // Audit log
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "UPDATE_USER_VERIFICATION",
-                resource: "kyc",
-                resourceId: userId.toString(),
-                details: {
-                    changes,
-                    reason: dto.reason,
-                },
+        await this.auditLogService.log({
+            adminId,
+            action: "UPDATE_USER_VERIFICATION",
+            resource: "kyc",
+            resourceId: userId.toString(),
+            details: {
+                changes,
+                reason: dto.reason,
             },
         });
 

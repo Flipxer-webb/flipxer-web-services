@@ -61,6 +61,7 @@ describe("AdminSystemSettingsController", () => {
     };
 
     const admin = { id: 321 } as any;
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     beforeEach(() => {
         settingsService = {
@@ -80,6 +81,7 @@ describe("AdminSystemSettingsController", () => {
         controller = new AdminSystemSettingsController(
             settingsService as never,
             maintenanceService as never,
+            mockAuditLogService as never,
         );
     });
 
