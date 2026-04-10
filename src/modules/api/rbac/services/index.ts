@@ -38,6 +38,7 @@ import {
 import { PermissionNames } from "../enums";
 import { PermissionName } from "../../authorize/enums/role";
 import { ADMIN_USER_TYPES } from "../../authorize/decorator";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 @Injectable()
 export class RbacService {
@@ -46,6 +47,7 @@ export class RbacService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly emailService: EmailService,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     /**
@@ -240,7 +242,7 @@ export class RbacService {
             },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "CREATE_ROLE",
             resource: "role",
             resourceId: role.id.toString(),
@@ -314,7 +316,7 @@ export class RbacService {
             },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "UPDATE_ROLE",
             resource: "role",
             resourceId: roleId.toString(),
@@ -362,7 +364,7 @@ export class RbacService {
             where: { id: roleId },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "DELETE_ROLE",
             resource: "role",
             resourceId: roleId.toString(),
@@ -412,7 +414,7 @@ export class RbacService {
             })),
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "ASSIGN_PERMISSIONS",
             resource: "role",
             resourceId: roleId.toString(),
@@ -685,7 +687,7 @@ export class RbacService {
             },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "CREATE_ADMIN_USER",
             resource: "admin_user",
             resourceId: admin.id.toString(),
@@ -776,7 +778,7 @@ export class RbacService {
             );
         }
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "INVITE_ADMIN_USER",
             resource: "admin_invite",
             resourceId: invite.id.toString(),
@@ -892,7 +894,7 @@ export class RbacService {
             );
         }
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "RESEND_ADMIN_INVITE",
             resource: "admin_invite",
             resourceId: invite.id.toString(),
@@ -940,7 +942,7 @@ export class RbacService {
             where: { id: invite.id },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "REVOKE_ADMIN_INVITE",
             resource: "admin_invite",
             resourceId: invite.id.toString(),
@@ -1008,7 +1010,7 @@ export class RbacService {
             },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "UPDATE_ADMIN_USER",
             resource: "admin_user",
             resourceId: adminId.toString(),
@@ -1044,7 +1046,7 @@ export class RbacService {
             data: { status: "BLOCKED" },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "DELETE_ADMIN_USER",
             resource: "admin_user",
             resourceId: adminId.toString(),
@@ -1080,7 +1082,7 @@ export class RbacService {
             data: { password: hashedPassword },
         });
 
-        await this.createAuditLog({
+        await this.auditLogService.log({
             action: "CHANGE_ADMIN_PASSWORD",
             resource: "admin_user",
             resourceId: adminId.toString(),
@@ -1145,32 +1147,6 @@ export class RbacService {
     }
 
     // ==================== HELPERS ====================
-
-    private async createAuditLog(params: {
-        action: string;
-        resource: string;
-        resourceId: string;
-        details: Record<string, any>;
-        adminId?: number;
-        ipAddress?: string;
-        userAgent?: string;
-    }): Promise<void> {
-        try {
-            await this.prisma.auditLog.create({
-                data: {
-                    action: params.action,
-                    resource: params.resource,
-                    resourceId: params.resourceId,
-                    details: params.details,
-                    adminId: params.adminId,
-                    ipAddress: params.ipAddress,
-                    userAgent: params.userAgent,
-                },
-            });
-        } catch (error) {
-            this.logger.error("Failed to create audit log", error);
-        }
-    }
 
     // Initialize permissions from enum (for seeding)
     async seedPermissions(): Promise<void> {

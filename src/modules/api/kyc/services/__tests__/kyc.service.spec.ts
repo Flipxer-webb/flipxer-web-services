@@ -33,6 +33,7 @@ import { EmailService } from "@/modules/core/email/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { IdentityResolutionService } from "@/modules/api/auth/services/identity-resolution.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { UserType } from "@prisma/client";
 
 describe("KycService", () => {
@@ -40,6 +41,8 @@ describe("KycService", () => {
     const mockKycStateMachine = {
         transition: jest.fn().mockResolvedValue(undefined),
     };
+
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     const mockPrismaService = {
         $transaction: jest.fn(),
@@ -51,7 +54,6 @@ describe("KycService", () => {
             groupBy: jest.fn(),
         },
         auditLog: {
-            create: jest.fn(),
             findMany: jest.fn(),
         },
         kycVerification: {
@@ -101,6 +103,7 @@ describe("KycService", () => {
                 { provide: RedisCacheService, useValue: mockRedisCacheService },
                 { provide: WsGateway, useValue: mockWsGateway },
                 { provide: IdentityResolutionService, useValue: mockIdentityResolutionService },
+                { provide: AuditLogService, useValue: mockAuditLogService },
             ],
         }).compile();
 
@@ -133,7 +136,7 @@ describe("KycService", () => {
             mockPrismaService.user.findUnique.mockResolvedValue(baseUser);
             mockTierService.calculateTier.mockReturnValue(1); // BVN only → Tier 1
             mockPrismaService.user.update.mockResolvedValue({ id: 1, email: baseUser.email, tier: 1 });
-            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockAuditLogService.log.mockResolvedValue(undefined);
 
             const result = await service.updateUserTier(1, { tier: 1 }, 99);
 
@@ -149,7 +152,7 @@ describe("KycService", () => {
             mockPrismaService.user.findUnique.mockResolvedValue(baseUser);
             mockTierService.calculateTier.mockReturnValue(1); // Only BVN → Tier 1
             mockPrismaService.user.update.mockResolvedValue({ id: 1, email: baseUser.email, tier: 1 });
-            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockAuditLogService.log.mockResolvedValue(undefined);
 
             const result = await service.updateUserTier(1, { tier: 4 }, 99);
 
@@ -167,7 +170,7 @@ describe("KycService", () => {
             mockPrismaService.user.findUnique.mockResolvedValue(verifiedUser);
             mockTierService.calculateTier.mockReturnValue(2); // BVN + Doc → Tier 2
             mockPrismaService.user.update.mockResolvedValue({ id: 1, email: verifiedUser.email, tier: 0 });
-            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockAuditLogService.log.mockResolvedValue(undefined);
 
             const result = await service.updateUserTier(1, { tier: 0, reason: "Investigation" }, 99);
 
@@ -227,7 +230,7 @@ describe("KycService", () => {
             mockPrismaService.user.update.mockResolvedValue(updatedUserAfterApproval);
             mockTierService.syncTierAndCache.mockResolvedValue({ ...updatedUserAfterApproval, tier: 2 });
             mockPrismaService.kycVerification.create.mockResolvedValue({});
-            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockAuditLogService.log.mockResolvedValue(undefined);
 
             await service.processKycDecision(
                 {
@@ -242,13 +245,11 @@ describe("KycService", () => {
             expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(2);
 
             // Audit log should use the recalculated tier (2), not the intermediate value (1)
-            expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith(
+            expect(mockAuditLogService.log).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        details: expect.objectContaining({
-                            previousTier: 1,
-                            newTier: 2,
-                        }),
+                    details: expect.objectContaining({
+                        previousTier: 1,
+                        newTier: 2,
                     }),
                 })
             );
@@ -274,7 +275,7 @@ describe("KycService", () => {
             // After rejection, syncTierAndCache recalculates — tier stays based on flags
             mockTierService.syncTierAndCache.mockResolvedValue({ ...rejectedUser, tier: 2 });
             mockPrismaService.kycVerification.create.mockResolvedValue({});
-            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockAuditLogService.log.mockResolvedValue(undefined);
 
             await service.processKycDecision(
                 {
@@ -327,7 +328,7 @@ describe("KycService", () => {
                 tier: 1,
             });
             mockPrismaService.kycVerification.create.mockResolvedValue({});
-            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockAuditLogService.log.mockResolvedValue(undefined);
 
             await service.processKycDecision(
                 {
@@ -363,11 +364,9 @@ describe("KycService", () => {
             );
 
             // Should log audit with ESCALATE action
-            expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith(
+            expect(mockAuditLogService.log).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        action: "KYC_ESCALATE",
-                    }),
+                    action: "KYC_ESCALATE",
                 }),
             );
         });
@@ -600,7 +599,7 @@ describe("KycService", () => {
                 isAddressVerified: false,
                 isIncomeVerified: false,
             });
-            mockPrismaService.auditLog.create.mockResolvedValue({});
+            mockAuditLogService.log.mockResolvedValue(undefined);
             mockTierService.syncTierAndCache.mockResolvedValue({ id: 4, tier: 1 });
 
             const result = await service.updateUserVerification(
@@ -610,11 +609,9 @@ describe("KycService", () => {
             );
 
             expect(result.message).toBe("User verification status updated successfully");
-            expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith(
+            expect(mockAuditLogService.log).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        action: "UPDATE_USER_VERIFICATION",
-                    }),
+                    action: "UPDATE_USER_VERIFICATION",
                 }),
             );
             expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(4);

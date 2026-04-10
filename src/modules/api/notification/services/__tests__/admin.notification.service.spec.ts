@@ -47,6 +47,8 @@ describe("AdminNotificationService", () => {
         notifyUser: jest.fn(),
     };
 
+    const auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+
     let service: AdminNotificationService;
 
     beforeEach(() => {
@@ -55,7 +57,8 @@ describe("AdminNotificationService", () => {
             prisma as any,
             notificationEvent as any,
             pushNotificationService as any,
-            wsGateway as any
+            wsGateway as any,
+            auditLogService as any,
         );
     });
 
@@ -139,12 +142,10 @@ describe("AdminNotificationService", () => {
         );
 
         expect(prisma.notification.create).toHaveBeenCalled();
-        expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect(auditLogService.log).toHaveBeenCalledWith(
             expect.objectContaining({
-                data: expect.objectContaining({
-                    adminId: 7,
-                    action: "CREATE_NOTIFICATION",
-                }),
+                adminId: 7,
+                action: "CREATE_NOTIFICATION",
             })
         );
         expect(result.message).toBe("Notification created successfully");
@@ -281,7 +282,7 @@ describe("AdminNotificationService", () => {
                 body: "Broadcast",
             })
         );
-        expect(prisma.auditLog.create).toHaveBeenCalled();
+        expect(auditLogService.log).toHaveBeenCalled();
         expect(result.message).toBe("Notification status updated");
     });
 
@@ -340,12 +341,10 @@ describe("AdminNotificationService", () => {
         expect(prisma.notification.delete).toHaveBeenCalledWith({
             where: { id: 5 },
         });
-        expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect(auditLogService.log).toHaveBeenCalledWith(
             expect.objectContaining({
-                data: expect.objectContaining({
-                    adminId: 99,
-                    action: "DELETE_NOTIFICATION",
-                }),
+                adminId: 99,
+                action: "DELETE_NOTIFICATION",
             })
         );
         expect(result.message).toBe("Notification deleted successfully");

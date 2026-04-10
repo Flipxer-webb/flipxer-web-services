@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import { Request } from "express";
 import { ApiBearerAuth, ApiTags, ApiOperation } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
@@ -6,6 +7,7 @@ import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard
 import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { buildResponse } from "@/utils/api-response-util";
 import { CreateSwapPairDto, BulkUpdateSwapPairDto } from "../../../trade/dtos/create-swap-pair.dto";
 import { SUPPORTED_ASSETS } from "../../../trade/constants";
@@ -18,7 +20,10 @@ import { SUPPORTED_ASSETS } from "../../../trade/constants";
 export class AdminSwapPairController {
     // Cast once to access swapPair model (not yet in generated Prisma types)
     private readonly db: any;
-    constructor(private readonly prisma: PrismaService) {
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly auditLogService: AuditLogService,
+    ) {
         this.db = prisma as any;
     }
 
@@ -36,7 +41,7 @@ export class AdminSwapPairController {
     @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post()
     @ApiOperation({ summary: "Create or Update a specific Swap Pair Override" })
-    async upsertSwapPair(@Body() dto: CreateSwapPairDto) {
+    async upsertSwapPair(@Body() dto: CreateSwapPairDto, @Req() req: Request) {
         const { fromCurrency, toCurrency, rate, isActive } = dto;
 
         const pair = await this.db.swapPair.upsert({
@@ -58,13 +63,23 @@ export class AdminSwapPairController {
             }
         });
 
+        await this.auditLogService.log({
+            action: "UPSERT_SWAP_PAIR",
+            resource: "swap_pair",
+            resourceId: `${fromCurrency}_${toCurrency}`,
+            details: { fromCurrency, toCurrency, rate, isActive },
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
+
         return buildResponse({ message: "Swap pair updated", data: pair });
     }
 
     @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post("generate")
     @ApiOperation({ summary: "Generate all possible permutations of Swap Pairs (Inactive by default)" })
-    async generateAllPairs() {
+    async generateAllPairs(@Req() req: Request) {
         const assets = Array.from(SUPPORTED_ASSETS);
         let count = 0;
 
@@ -99,13 +114,22 @@ export class AdminSwapPairController {
             }
         });
 
+        await this.auditLogService.log({
+            action: "GENERATE_SWAP_PAIRS",
+            resource: "swap_pair",
+            details: { newPairsCount: count },
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
+
         return buildResponse({ message: `Generated ${count} new swap pair records.`, data: count });
     }
 
     @Permissions([PermissionName.SETTINGS_UPDATE])
     @Patch("bulk")
     @ApiOperation({ summary: "Bulk Update Swap Pairs (e.g. Activate all USDT pairs)" })
-    async bulkUpdate(@Body() dto: BulkUpdateSwapPairDto) {
+    async bulkUpdate(@Body() dto: BulkUpdateSwapPairDto, @Req() req: Request) {
         const { targetCurrency, isActive, rateMultiplier } = dto;
         const target = targetCurrency.toUpperCase();
 
@@ -138,6 +162,14 @@ export class AdminSwapPairController {
                     }
                 }
             });
+            await this.auditLogService.log({
+                action: "BULK_UPDATE_SWAP_PAIRS",
+                resource: "swap_pair",
+                details: { targetCurrency: target, rateMultiplier, isActive, updatedCount },
+                adminId: (req as any).user?.id,
+                ipAddress: req.ip,
+                userAgent: req.headers["user-agent"],
+            });
             return buildResponse({ message: `Bulk updated rates for ${updatedCount} pairs related to ${target}.` });
 
         } else {
@@ -147,6 +179,14 @@ export class AdminSwapPairController {
                 data: {
                     ...(isActive !== undefined && { isActive })
                 }
+            });
+            await this.auditLogService.log({
+                action: "BULK_UPDATE_SWAP_PAIRS",
+                resource: "swap_pair",
+                details: { targetCurrency: target, isActive, rateMultiplier },
+                adminId: (req as any).user?.id,
+                ipAddress: req.ip,
+                userAgent: req.headers["user-agent"],
             });
             return buildResponse({ message: `Bulk updated ${result.count} pairs related to ${target}.`, data: result });
         }

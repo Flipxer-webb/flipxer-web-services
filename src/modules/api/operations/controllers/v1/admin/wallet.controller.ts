@@ -8,6 +8,7 @@ import {
     Param,
     UseGuards,
     ParseBoolPipe,
+    BadRequestException,
 } from "@nestjs/common";
 import { WalletManagementService } from "../../../services/wallet-management.service";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
@@ -18,13 +19,17 @@ import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { LiquidityThreshold } from "../../../types";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/wallets")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
 export class AdminWalletController {
-    constructor(private readonly walletService: WalletManagementService) {}
+    constructor(
+        private readonly walletService: WalletManagementService,
+        private readonly auditLogService: AuditLogService,
+    ) {}
 
     /**
      * Get all Quidax wallet balances (cached for 45s)
@@ -92,7 +97,16 @@ export class AdminWalletController {
         @Body() thresholds: LiquidityThreshold[],
         @User() user: UserModel
     ) {
+        if (!Array.isArray(thresholds)) {
+            throw new BadRequestException("Request body must be an array of thresholds");
+        }
         const result = await this.walletService.updateLiquidityThresholds(thresholds, user.id);
+        await this.auditLogService.log({
+            action: "UPDATE_LIQUIDITY_THRESHOLDS",
+            resource: "wallet",
+            details: { thresholdCount: thresholds.length },
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Liquidity thresholds updated successfully",
             data: result,
@@ -117,8 +131,13 @@ export class AdminWalletController {
      */
     @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post("cache/invalidate")
-    async invalidateCache() {
+    async invalidateCache(@User() user: UserModel) {
         await this.walletService.invalidateWalletCache();
+        await this.auditLogService.log({
+            action: "INVALIDATE_WALLET_CACHE",
+            resource: "wallet",
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Wallet cache invalidated successfully",
         });

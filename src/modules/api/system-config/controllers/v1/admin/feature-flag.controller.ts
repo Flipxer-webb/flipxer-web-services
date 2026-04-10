@@ -19,13 +19,17 @@ import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { FeatureFlagDto, UpdateFeatureFlagDto, FeatureFlagEvaluationContext } from "../../../types";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/feature-flags")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
 export class AdminFeatureFlagController {
-    constructor(private readonly flagService: FeatureFlagService) {}
+    constructor(
+        private readonly flagService: FeatureFlagService,
+        private readonly auditLogService: AuditLogService,
+    ) {}
 
     /**
      * Get all feature flags
@@ -63,6 +67,13 @@ export class AdminFeatureFlagController {
         @User() user: UserModel
     ) {
         const flag = await this.flagService.createFlag(dto, user.id);
+        await this.auditLogService.log({
+            action: "CREATE_FEATURE_FLAG",
+            resource: "feature_flag",
+            resourceId: flag.id?.toString(),
+            details: { key: dto.key, isEnabled: dto.isEnabled },
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Feature flag created successfully",
             data: flag,
@@ -80,6 +91,13 @@ export class AdminFeatureFlagController {
         @User() user: UserModel
     ) {
         const flag = await this.flagService.updateFlag(id, dto, user.id);
+        await this.auditLogService.log({
+            action: "UPDATE_FEATURE_FLAG",
+            resource: "feature_flag",
+            resourceId: id.toString(),
+            details: { ...dto },
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Feature flag updated successfully",
             data: flag,
@@ -96,6 +114,12 @@ export class AdminFeatureFlagController {
         @User() user: UserModel
     ) {
         await this.flagService.deleteFlag(id, user.id);
+        await this.auditLogService.log({
+            action: "DELETE_FEATURE_FLAG",
+            resource: "feature_flag",
+            resourceId: id.toString(),
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Feature flag deleted successfully",
         });
@@ -111,6 +135,12 @@ export class AdminFeatureFlagController {
         @User() user: UserModel
     ) {
         const flag = await this.flagService.updateFlag(id, { isEnabled: true }, user.id);
+        await this.auditLogService.log({
+            action: "ENABLE_FEATURE_FLAG",
+            resource: "feature_flag",
+            resourceId: id.toString(),
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Feature flag enabled successfully",
             data: flag,
@@ -127,6 +157,12 @@ export class AdminFeatureFlagController {
         @User() user: UserModel
     ) {
         const flag = await this.flagService.updateFlag(id, { isEnabled: false }, user.id);
+        await this.auditLogService.log({
+            action: "DISABLE_FEATURE_FLAG",
+            resource: "feature_flag",
+            resourceId: id.toString(),
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Feature flag disabled successfully",
             data: flag,

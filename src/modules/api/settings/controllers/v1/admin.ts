@@ -9,11 +9,14 @@ import {
     Param,
     ParseIntPipe,
     Post,
+    Req,
     UseGuards,
 } from "@nestjs/common";
+import { Request } from "express";
 
 import { SettingService } from "../../services";
 import { RateService } from "@/modules/api/trade/services/rate.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 import {
     ApiTags,
     ApiOperation,
@@ -38,7 +41,8 @@ import {
 export class AdminSettingController {
     constructor(
         private readonly settingService: SettingService,
-        private readonly rateService: RateService
+        private readonly rateService: RateService,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     @Permissions([PermissionName.SETTINGS_READ])
@@ -61,8 +65,17 @@ export class AdminSettingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "create or update crypto rate" })
     @Post("crypto/rates")
-    async createOrUpdateCryptoRate(@Body() dto: CreateOrUpdateCryptoRateDto) {
-        return this.settingService.createOrUpdateCryptoRate(dto);
+    async createOrUpdateCryptoRate(@Body() dto: CreateOrUpdateCryptoRateDto, @Req() req: Request) {
+        const result = await this.settingService.createOrUpdateCryptoRate(dto);
+        await this.auditLogService.log({
+            action: "UPSERT_CRYPTO_RATE",
+            resource: "crypto_rate",
+            details: { ...dto },
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
+        return result;
     }
 
     @Permissions([PermissionName.SETTINGS_UPDATE])
@@ -70,9 +83,19 @@ export class AdminSettingController {
     @ApiOperation({ summary: "create or update crypto transaction fee" })
     @Post("crypto/transaction-fees")
     async createOrUpdateCryptoTransactionFee(
-        @Body() dto: CreateOrUpdateCryptoTransactionFeeDto
+        @Body() dto: CreateOrUpdateCryptoTransactionFeeDto,
+        @Req() req: Request
     ) {
-        return this.settingService.createOrUpdateCryptoTransactionFee(dto);
+        const result = await this.settingService.createOrUpdateCryptoTransactionFee(dto);
+        await this.auditLogService.log({
+            action: "UPSERT_CRYPTO_TRANSACTION_FEE",
+            resource: "crypto_transaction_fee",
+            details: { ...dto },
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
+        return result;
     }
 
     @Permissions([PermissionName.SETTINGS_READ])
@@ -99,8 +122,17 @@ export class AdminSettingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "delete crypto rate" })
     @Delete("crypto/rates/:rateId")
-    async deleteCryptoRate(@Param("rateId", ParseIntPipe) rateId: number) {
-        return this.settingService.deleteCryptoRate(rateId);
+    async deleteCryptoRate(@Param("rateId", ParseIntPipe) rateId: number, @Req() req: Request) {
+        const result = await this.settingService.deleteCryptoRate(rateId);
+        await this.auditLogService.log({
+            action: "DELETE_CRYPTO_RATE",
+            resource: "crypto_rate",
+            resourceId: rateId.toString(),
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
+        return result;
     }
 
     @Permissions([PermissionName.SETTINGS_UPDATE])
@@ -108,9 +140,19 @@ export class AdminSettingController {
     @ApiOperation({ summary: "delete crypto transaction fee" })
     @Delete("crypto/transaction-fees/:transactionFeeId")
     async deleteCryptoTransactionFee(
-        @Param("transactionFeeId", ParseIntPipe) transactionFeeId: number
+        @Param("transactionFeeId", ParseIntPipe) transactionFeeId: number,
+        @Req() req: Request
     ) {
-        return this.settingService.deleteCryptoTransactionFee(transactionFeeId);
+        const result = await this.settingService.deleteCryptoTransactionFee(transactionFeeId);
+        await this.auditLogService.log({
+            action: "DELETE_CRYPTO_TRANSACTION_FEE",
+            resource: "crypto_transaction_fee",
+            resourceId: transactionFeeId.toString(),
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
+        return result;
     }
 
     // ============ Dynamic Rates Endpoints ============
@@ -150,8 +192,16 @@ export class AdminSettingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Toggle dynamic rates feature on/off" })
     @Post("crypto/dynamic-rates/toggle")
-    async toggleDynamicRates(@Body() dto: { enabled: boolean }) {
+    async toggleDynamicRates(@Body() dto: { enabled: boolean }, @Req() req: Request) {
         await this.rateService.setDynamicRatesEnabled(dto.enabled);
+        await this.auditLogService.log({
+            action: "TOGGLE_DYNAMIC_RATES",
+            resource: "settings",
+            details: { enabled: dto.enabled },
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
         return buildResponse({
             message: `Dynamic rates ${dto.enabled ? "enabled" : "disabled"}`,
             data: { enabled: dto.enabled },
@@ -162,8 +212,15 @@ export class AdminSettingController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Invalidate USDT rate cache (after admin updates USDT rate)" })
     @Post("crypto/dynamic-rates/invalidate-cache")
-    async invalidateRateCache() {
+    async invalidateRateCache(@Req() req: Request) {
         await this.rateService.invalidateUsdtCache();
+        await this.auditLogService.log({
+            action: "INVALIDATE_RATE_CACHE",
+            resource: "settings",
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
         return buildResponse({
             message: "USDT rate cache invalidated",
             data: null,

@@ -19,6 +19,7 @@ import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User } from "@/modules/api/user";
 import { User as UserModel } from "@prisma/client";
 import { SystemSettingDto, MaintenanceModeConfig } from "../../../types";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { buildResponse } from "@/utils/api-response-util";
 
 @Controller("admin/settings/system")
@@ -28,6 +29,7 @@ export class AdminSystemSettingsController {
     constructor(
         private readonly settingsService: SystemSettingsService,
         private readonly maintenanceService: MaintenanceModeService,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     /**
@@ -71,6 +73,13 @@ export class AdminSystemSettingsController {
         @User() user: UserModel
     ) {
         await this.settingsService.setSetting(dto, user.id);
+        await this.auditLogService.log({
+            action: "SET_SYSTEM_SETTING",
+            resource: "system_setting",
+            resourceId: dto.key,
+            details: { key: dto.key },
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Setting saved successfully",
         });
@@ -94,6 +103,13 @@ export class AdminSystemSettingsController {
             await this.settingsService.setSetting(setting, user.id);
         }
 
+        await this.auditLogService.log({
+            action: "BULK_UPDATE_SYSTEM_SETTINGS",
+            resource: "system_setting",
+            details: { count: typedSettings.length, keys: typedSettings.map(s => s.key) },
+            adminId: user.id,
+        });
+
         return buildResponse({
             message: `${typedSettings.length} settings updated successfully`,
         });
@@ -111,6 +127,11 @@ export class AdminSystemSettingsController {
 
         const key = keyParam;
         await this.settingsService.deleteSetting(key);
+        await this.auditLogService.log({
+            action: "DELETE_SYSTEM_SETTING",
+            resource: "system_setting",
+            resourceId: key,
+        });
         return buildResponse({
             message: "Setting deleted successfully",
         });
@@ -146,6 +167,12 @@ export class AdminSystemSettingsController {
                 allowedIps: body.allowedIps,
             }
         );
+        await this.auditLogService.log({
+            action: "ENABLE_MAINTENANCE_MODE",
+            resource: "system_setting",
+            details: { message: body.message, estimatedEndTime: body.estimatedEndTime },
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Maintenance mode enabled successfully",
             data: result,
@@ -159,6 +186,11 @@ export class AdminSystemSettingsController {
     @Post("maintenance/disable")
     async disableMaintenanceMode(@User() user: UserModel) {
         const result = await this.maintenanceService.disableMaintenance(user.id);
+        await this.auditLogService.log({
+            action: "DISABLE_MAINTENANCE_MODE",
+            resource: "system_setting",
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Maintenance mode disabled successfully",
             data: result,
@@ -175,6 +207,12 @@ export class AdminSystemSettingsController {
         @User() user: UserModel
     ) {
         const result = await this.maintenanceService.updateMaintenanceConfig(config, user.id);
+        await this.auditLogService.log({
+            action: "UPDATE_MAINTENANCE_CONFIG",
+            resource: "system_setting",
+            details: { configKeys: Object.keys(config) },
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Maintenance configuration updated successfully",
             data: result,

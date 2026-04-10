@@ -21,9 +21,19 @@ jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
     __esModule: true,
 }));
 
+jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
+    PermissionGuard: class {
+        isStub() {
+            return true;
+        }
+    },
+    __esModule: true,
+}));
+
 jest.mock("@/modules/api/authorize/decorator", () => ({
     UserTypes: () => () => undefined,
     ADMIN_USER_TYPES: ["SUPER_ADMIN"],
+    Permissions: () => () => undefined,
     __esModule: true,
 }));
 
@@ -57,6 +67,8 @@ import { AdminSettingController } from "../admin";
 
 describe("AdminSettingController", () => {
     let controller: AdminSettingController;
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    const mockReq = { ip: '127.0.0.1', headers: { 'user-agent': 'test' }, user: { id: 1 } } as any;
     let settingService: {
         getCryptoRateList: jest.Mock;
         getCryptoTransactionFeeList: jest.Mock;
@@ -96,6 +108,7 @@ describe("AdminSettingController", () => {
         controller = new AdminSettingController(
             settingService as never,
             rateService as never,
+            mockAuditLogService as never,
         );
     });
 
@@ -118,8 +131,8 @@ describe("AdminSettingController", () => {
         settingService.createOrUpdateCryptoRate.mockResolvedValue({ id: 1 });
         settingService.createOrUpdateCryptoTransactionFee.mockResolvedValue({ id: 2 });
 
-        await controller.createOrUpdateCryptoRate(rateDto as never);
-        await controller.createOrUpdateCryptoTransactionFee(feeDto as never);
+        await controller.createOrUpdateCryptoRate(rateDto as never, mockReq as never);
+        await controller.createOrUpdateCryptoTransactionFee(feeDto as never, mockReq as never);
 
         expect(settingService.createOrUpdateCryptoRate).toHaveBeenCalledWith(rateDto);
         expect(settingService.createOrUpdateCryptoTransactionFee).toHaveBeenCalledWith(feeDto);
@@ -133,8 +146,8 @@ describe("AdminSettingController", () => {
 
         await expect(controller.getCryptoRateDetail(3)).resolves.toEqual({ id: 3 });
         await expect(controller.getCryptoTransactionFeeDetail(4)).resolves.toEqual({ id: 4 });
-        await expect(controller.deleteCryptoRate(3)).resolves.toEqual({ deleted: true });
-        await expect(controller.deleteCryptoTransactionFee(4)).resolves.toEqual({ deleted: true });
+        await expect(controller.deleteCryptoRate(3, mockReq as never)).resolves.toEqual({ deleted: true });
+        await expect(controller.deleteCryptoTransactionFee(4, mockReq as never)).resolves.toEqual({ deleted: true });
     });
 
     it("returns calculated rates payload with dynamic status metadata", async () => {
@@ -157,9 +170,9 @@ describe("AdminSettingController", () => {
         rateService.getStatus.mockResolvedValue({ isDynamic: false, usdtRate: 1600 });
 
         const statusResult = await controller.getDynamicRatesStatus();
-        const toggleOnResult = await controller.toggleDynamicRates({ enabled: true });
-        const toggleOffResult = await controller.toggleDynamicRates({ enabled: false });
-        const invalidateResult = await controller.invalidateRateCache();
+        const toggleOnResult = await controller.toggleDynamicRates({ enabled: true }, mockReq as never);
+        const toggleOffResult = await controller.toggleDynamicRates({ enabled: false }, mockReq as never);
+        const invalidateResult = await controller.invalidateRateCache(mockReq as never);
 
         expect(statusResult.message).toBe("Dynamic rates status retrieved");
         expect(toggleOnResult.message).toContain("enabled");

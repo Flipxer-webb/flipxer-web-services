@@ -34,6 +34,7 @@ import { buildPaginationMeta } from "@/utils";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
@@ -55,6 +56,7 @@ export class AdminAccountingController {
         private readonly fincraService: FincraBank,
         @Inject(BankInjectionToken.NOMBA)
         private readonly nombaService: NombaBank,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     // =========================================================================
@@ -570,7 +572,14 @@ export class AdminAccountingController {
         @Body() dto: AdminSwapConfirmDto,
         @User() admin: UserEntity,
     ) {
-        return this.adminSwapService.confirmSwap(dto, admin.id);
+        const result = await this.adminSwapService.confirmSwap(dto, admin.id);
+        await this.auditLogService.log({
+            action: "CONFIRM_ADMIN_SWAP",
+            resource: "swap",
+            details: { ...dto },
+            adminId: admin.id,
+        });
+        return result;
     }
 
     // =========================================================================
@@ -836,6 +845,14 @@ export class AdminAccountingController {
         this.logger.log(
             `[ADMIN ADJUSTMENT] Success | LedgerEntry: ${result.userEntry?.id} | BalanceAfter: ${result.userBalanceAfter}`,
         );
+
+        await this.auditLogService.log({
+            action: "CREATE_ADJUSTMENT",
+            resource: "ledger",
+            resourceId: result.userEntry?.id,
+            details: { userId, currency, amount, reason, orderId, reference },
+            adminId: admin.id,
+        });
 
         return buildResponse({
             message: "Adjustment applied successfully",

@@ -28,6 +28,7 @@ jest.mock("@/modules/api/user", () => ({
 
 import { AdminFeatureFlagController } from "../feature-flag.controller";
 import { FeatureFlagService } from "../../../../services/feature-flag.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 describe("AdminFeatureFlagController", () => {
     let controller: AdminFeatureFlagController;
@@ -42,6 +43,7 @@ describe("AdminFeatureFlagController", () => {
         evaluateFlags: jest.Mock;
     };
 
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
     const admin = { id: 1, email: "admin@flipxer.com" } as any;
 
     beforeEach(async () => {
@@ -60,6 +62,7 @@ describe("AdminFeatureFlagController", () => {
             controllers: [AdminFeatureFlagController],
             providers: [
                 { provide: FeatureFlagService, useValue: flagService },
+                { provide: AuditLogService, useValue: mockAuditLogService },
             ],
         }).compile();
 

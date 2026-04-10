@@ -25,6 +25,7 @@ import {
 } from "../../transactions/types";
 import { GetUserTransactionListDto } from "../../transactions/dtos";
 import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 const EXCLUDED_ADMIN_USER_TYPES: UserType[] = [UserType.ADMIN, UserType.SUPER_ADMIN];
 const CUSTOMER_USER_TYPES = new Set<UserType>([UserType.INDIVIDUAL, UserType.BUSINESS]);
@@ -33,7 +34,8 @@ const CUSTOMER_USER_TYPES = new Set<UserType>([UserType.INDIVIDUAL, UserType.BUS
 export class AdminUserService {
     constructor(
         private readonly prisma: PrismaService,
-        private readonly emailService: EmailService
+        private readonly emailService: EmailService,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     async getAnalyticsOverview(period?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
@@ -480,7 +482,7 @@ export class AdminUserService {
         });
     }
 
-    async unflagUser(dto: UnflagUserDto): Promise<ApiResponse> {
+    async unflagUser(dto: UnflagUserDto, adminId?: number): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: dto.id },
             select: {
@@ -543,13 +545,21 @@ export class AdminUserService {
             }
         });
 
+        await this.auditLogService.log({
+            action: "UNFLAG_USER",
+            resource: "user",
+            resourceId: dto.id.toString(),
+            details: { userId: dto.id },
+            adminId,
+        });
+
         return buildResponse({
             message: "Account unflagged successfully.",
             data: { flaggedRecord: { flagged: false, reason: "" } },
         });
     }
 
-    async flagUser(dto: FlagUserDto): Promise<ApiResponse> {
+    async flagUser(dto: FlagUserDto, adminId?: number): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: dto.id },
             select: {
@@ -616,6 +626,14 @@ export class AdminUserService {
             }
         });
 
+        await this.auditLogService.log({
+            action: "FLAG_USER",
+            resource: "user",
+            resourceId: dto.id.toString(),
+            details: { userId: dto.id, reason: dto.reason },
+            adminId,
+        });
+
         return buildResponse({
             message: "Account flagged successfully.",
             data: { flaggedRecord: { flagged: true, reason: dto.reason } },
@@ -646,6 +664,14 @@ export class AdminUserService {
             },
         });
 
+        await this.auditLogService.log({
+            action: "SET_LIMIT_OVERRIDE",
+            resource: "user",
+            resourceId: dto.userId.toString(),
+            details: { dailyLimitUSD: dto.dailyLimitUSD, reason: dto.reason, expiresAt: dto.expiresAt },
+            adminId: adminUserId,
+        });
+
         return buildResponse({
             message: "Limit override set successfully.",
             data: {
@@ -657,13 +683,21 @@ export class AdminUserService {
         });
     }
 
-    async removeLimitOverride(dto: RemoveLimitOverrideDto): Promise<ApiResponse> {
+    async removeLimitOverride(dto: RemoveLimitOverrideDto, adminId?: number): Promise<ApiResponse> {
         const override = await this.prisma.limitOverride.findUnique({ where: { userId: dto.userId } });
         if (!override) {
             return buildResponse({ message: "No limit override found for this user.", data: null });
         }
 
         await this.prisma.limitOverride.delete({ where: { userId: dto.userId } });
+
+        await this.auditLogService.log({
+            action: "REMOVE_LIMIT_OVERRIDE",
+            resource: "user",
+            resourceId: dto.userId.toString(),
+            details: { userId: dto.userId },
+            adminId,
+        });
 
         return buildResponse({
             message: "Limit override removed successfully.",
