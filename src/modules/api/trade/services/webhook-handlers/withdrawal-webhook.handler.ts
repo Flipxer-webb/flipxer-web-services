@@ -610,7 +610,7 @@ export class WithdrawalWebhookHandler {
     /**
      * Initiate fiat payout to seller - Nomba only
      */
-    private async initiateFiatPayout(transaction: any) {
+    public async initiateFiatPayout(transaction: any) {
         const payoutReference = generateId({ type: "reference" });
         const payoutData = {
             accountName: transaction.destinationBankAccountName,
