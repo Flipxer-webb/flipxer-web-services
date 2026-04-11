@@ -373,12 +373,9 @@ export class SellOrderService {
             // CRITICAL FIX: Await payout to ensure we know if it succeeded before returning success
             // Previously: Fire-and-forget could return "success" even if payout failed
             try {
-                await this.withdrawalWebhookHandler.handle({
-                    orderReference: reference,
-                    status: OrderStatus.done,
-                });
+                await this.withdrawalWebhookHandler.initiateFiatPayout(order);
 
-                this.logger.log(`[Omnibus] Sell Order ${order.id} payout initiated successfully`);
+                this.logger.log(`[Omnibus] Sell Order ${order.id} payout initiated successfully - awaiting confirmation webhook`);
 
                 // Re-fetch order from DB to return the latest status after payout processing
                 const freshOrder = await this.prisma.order.findUnique({

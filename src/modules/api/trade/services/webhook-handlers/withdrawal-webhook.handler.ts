@@ -55,6 +55,25 @@ export class WithdrawalWebhookHandler {
         private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
+
+    /**
+     * Public entry point for refunding a SELL order by order ID.
+     * Called by NombaWebhookController when Nomba payout confirmation fails.
+     */
+    async refundSellOrderByOrderId(orderId: number): Promise<void> {
+        const order = await this.prisma.order.findUnique({
+            where: { id: orderId },
+            include: { user: { select: { id: true, email: true } } },
+        });
+
+        if (!order) {
+            this.logger.error(`Cannot refund — order ${orderId} not found`);
+            return;
+        }
+
+        await this.refundSellOrder(order);
+    }
+
     /**
      * Retry a failed fiat payout for a SELL order.
      * Called by AdminTransactionService.
@@ -475,7 +494,7 @@ export class WithdrawalWebhookHandler {
      * Refund a failed SELL order
      * Credits the total crypto amount back to the user's ledger
      */
-    private async refundSellOrder(transaction: any) {
+    public async refundSellOrder(transaction: any) {
         this.logger.log(`Initiating refund for failed SELL order ${transaction.id}`);
 
         try {
@@ -610,7 +629,7 @@ export class WithdrawalWebhookHandler {
     /**
      * Initiate fiat payout to seller - Nomba only
      */
-    private async initiateFiatPayout(transaction: any) {
+    public async initiateFiatPayout(transaction: any) {
         const payoutReference = generateId({ type: "reference" });
         const payoutData = {
             accountName: transaction.destinationBankAccountName,

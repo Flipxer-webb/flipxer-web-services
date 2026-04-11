@@ -7,6 +7,9 @@ import * as Config from "@/config";
 import * as crypto from "node:crypto";
 import { BuyOrderService } from "../../trade/services/buy-order.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { WithdrawalWebhookHandler } from "../../trade/services/webhook-handlers/withdrawal-webhook.handler";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
+import { WsGateway } from "../../trade/gateway/v1";
 
 @Controller("webhooks")
 export class NombaWebhookController {
@@ -16,6 +19,9 @@ export class NombaWebhookController {
         private readonly prisma: PrismaService,
         private readonly buyOrderService: BuyOrderService,
         private readonly slackWebhookService: SlackWebhookService,
+        private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly wsGateway: WsGateway,
     ) { }
 
     /**
@@ -374,8 +380,11 @@ export class NombaWebhookController {
 
         this.logger.log(`Processing transfer success: ${reference}`);
 
-        // updateMany doesn't support externalReference (no unique filter), use findFirst + update
-        const payment = await this.prisma.payment.findFirst({ where: { reference } });
+        const payment = await this.prisma.payment.findFirst({
+            where: { reference },
+            select: { id: true, orderId: true },
+        });
+
         if (payment) {
             await this.prisma.payment.update({
                 where: { id: payment.id },
@@ -385,6 +394,83 @@ export class NombaWebhookController {
                     ...(event.providerReference ? { externalReference: event.providerReference } : {}),
                 },
             });
+
+            // Complete the linked SELL order and notify user
+            if (payment.orderId) {
+                const order = await this.prisma.order.findUnique({
+                    where: { id: payment.orderId },
+                    select: {
+                        id: true,
+                        orderCategory: true,
+                        status: true,
+                        transactionId: true,
+                        amount: true,
+                        currency: true,
+                        totalToReceiveInFiat: true,
+                        destinationBankName: true,
+                        destinationBankAccountNumber: true,
+                        user: { select: { id: true, email: true } },
+                    },
+                });
+
+                if (
+                    order?.orderCategory === OrderCategory.SELL &&
+                    order.status === OrderStatus.processing
+                ) {
+                    // Mark order done
+                    const completedOrder = await this.prisma.order.update({
+                        where: { id: order.id },
+                        data: {
+                            status: OrderStatus.done,
+                            streamlinedStatus: 'completed',
+                            fulfilled: true,
+                        },
+                    });
+
+                    // Notify frontend via WebSocket
+                    this.wsGateway.notifyTransactionUpdate(order.user.id, {
+                        type: 'transaction_update',
+                        transaction: {
+                            id: completedOrder.id,
+                            transactionId: completedOrder.transactionId,
+                            status: completedOrder.status,
+                            streamlinedStatus: completedOrder.streamlinedStatus,
+                            orderCategory: completedOrder.orderCategory,
+                            amount: completedOrder.amount,
+                            currency: completedOrder.currency,
+                            createdAt: completedOrder.createdAt,
+                            updatedAt: completedOrder.updatedAt,
+                        },
+                    });
+                    this.wsGateway.notifyWalletUpdate(order.user.id);
+
+                    // Send success notification
+                    await this.notificationDispatcher.notify({
+                        userId: order.user.id,
+                        title: "Sell order completed",
+                        body: `Your sell of ${order.amount} ${order.currency.toUpperCase()} is complete. ₦${order.totalToReceiveInFiat} has been sent to ${order.destinationBankName} (${order.destinationBankAccountNumber}). Transaction ID: ${order.transactionId}`,
+                        category: "transaction",
+                        currency: order.currency,
+                        transactionType: OrderCategory.SELL,
+                        enableEmail: true,
+                        emailPayload: {
+                            email: order.user.email,
+                            transactionType: 'sell',
+                            transactionId: order.transactionId,
+                            amount: String(order.amount),
+                            currency: order.currency.toUpperCase(),
+                            status: 'completed',
+                            date: new Date().toISOString(),
+                            fiatAmount: String(order.totalToReceiveInFiat || ''),
+                            bankName: order.destinationBankName || '',
+                            accountNumber: order.destinationBankAccountNumber || '',
+                        },
+                        enablePush: true,
+                    });
+
+                    this.logger.log(`SELL order ${order.id} marked done after Nomba payout success`);
+                }
+            }
         }
     }
 
@@ -433,23 +519,68 @@ export class NombaWebhookController {
                 },
             });
 
-            if (order?.orderCategory === OrderCategory.SELL && order.status === OrderStatus.done) {
-                await this.prisma.order.update({
+            if (order?.orderCategory === OrderCategory.SELL && (order.status === OrderStatus.processing || order.status === OrderStatus.done)) {
+                // Mark order failed
+                const failedOrder = await this.prisma.order.update({
                     where: { id: order.id },
-                    data: { paymentStatus: TransactionStatus.FAILED },
+                    data: {
+                        status: OrderStatus.failed,
+                        streamlinedStatus: 'failed',
+                        paymentStatus: TransactionStatus.FAILED,
+                        reason: `Nomba payout failed for reference: ${reference}`,
+                    },
+                });
+
+                // Notify frontend via WebSocket
+                this.wsGateway.notifyTransactionUpdate(order.user.id, {
+                    type: 'transaction_update',
+                    transaction: {
+                        id: failedOrder.id,
+                        transactionId: failedOrder.transactionId,
+                        status: failedOrder.status,
+                        streamlinedStatus: failedOrder.streamlinedStatus,
+                        orderCategory: failedOrder.orderCategory,
+                        amount: failedOrder.amount,
+                        currency: failedOrder.currency,
+                        createdAt: failedOrder.createdAt,
+                        updatedAt: failedOrder.updatedAt,
+                    },
+                });
+
+                // Trigger refund via WithdrawalWebhookHandler
+                await this.withdrawalWebhookHandler.refundSellOrderByOrderId(order.id);
+
+                // Send failure notification
+                await this.notificationDispatcher.notify({
+                    userId: order.user.id,
+                    title: "Sell order failed",
+                    body: `Your sell of ${order.amount} ${order.currency.toUpperCase()} could not be completed. Your funds have been refunded. Transaction ID: ${order.transactionId}`,
+                    category: "transaction",
+                    currency: order.currency,
+                    transactionType: OrderCategory.SELL,
+                    enableEmail: true,
+                    emailPayload: {
+                        email: order.user.email,
+                        transactionType: 'sell',
+                        transactionId: order.transactionId,
+                        amount: String(order.amount),
+                        currency: order.currency.toUpperCase(),
+                        status: 'failed',
+                        date: new Date().toISOString(),
+                    },
+                    enablePush: true,
                 });
 
                 this.logger.error(
-                    `SELL order ${order.id} payout failed. User ${order.user.id} owed ₦${order.totalToReceiveInFiat}`,
+                    `SELL order ${order.id} marked failed after Nomba payout failure. Refund initiated.`,
                 );
 
                 await this.slackWebhookService.sendWebhookFailureAlert(
                     'nomba',
                     reference,
-                    `SELL order #${order.transactionId} payout FAILED after completion. ` +
+                    `SELL order #${order.transactionId} payout FAILED — order marked failed and refund initiated. ` +
                     `User owed ₦${order.totalToReceiveInFiat}. ` +
-                    `Bank: ${order.destinationBankName} / ${order.destinationBankAccountNumber}. ` +
-                    `Manual retry required.`,
+                    `Bank: ${order.destinationBankName} / ${order.destinationBankAccountNumber}.`,
                     {
                         orderId: order.id,
                         userId: order.user.id,
