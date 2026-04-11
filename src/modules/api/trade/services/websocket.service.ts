@@ -9,7 +9,7 @@ import { UserService } from "../../user/services";
 
 @Injectable()
 export class WsService {
-    private readonly userSocketMap: Map<string, string> = new Map(); // userId -> socketId
+    private readonly userSocketMap: Map<string, Set<string>> = new Map(); // userId -> socketIds
     private readonly socketUserMap: Map<string, string> = new Map(); // socketId -> userId
     constructor(
         private readonly prismaService: PrismaService,
@@ -32,9 +32,12 @@ export class WsService {
      */
     async handlePostConnection(client: Socket) {
         const user = client.data.user as User;
+        const userId = user.id.toString();
+        const socketIds = this.userSocketMap.get(userId) ?? new Set<string>();
 
-        this.userSocketMap.set(user.id.toString(), client.id);
-        this.socketUserMap.set(client.id, user.id.toString());
+        socketIds.add(client.id);
+        this.userSocketMap.set(userId, socketIds);
+        this.socketUserMap.set(client.id, userId);
         client.join(`user:${user.id}`);
 
         if (user.userType === UserType.ADMIN) {
@@ -55,9 +58,9 @@ export class WsService {
         payload: IWsNewNotification,
         server: Server
     ) {
-        const socketId = this.userSocketMap.get(userId.toString());
-        if (socketId) {
-            server.to(socketId).emit(
+        const socketIds = this.userSocketMap.get(userId.toString());
+        if (socketIds?.size) {
+            server.to(`user:${userId}`).emit(
                 "notification",
                 Utils.buildResponse({
                     message: "new Notification",
@@ -74,9 +77,9 @@ export class WsService {
         payload: IWsTransactionUpdate,
         server: Server
     ) {
-        const socketId = this.userSocketMap.get(userId.toString());
-        if (socketId) {
-            server.to(socketId).emit(
+        const socketIds = this.userSocketMap.get(userId.toString());
+        if (socketIds?.size) {
+            server.to(`user:${userId}`).emit(
                 "transactionUpdate",
                 Utils.buildResponse({
                     message: "transaction updated",
@@ -90,15 +93,15 @@ export class WsService {
     }
 
     async emitWalletUpdateToUser(userId: number, server: Server) {
-        const socketId = this.userSocketMap.get(userId.toString());
-        if (socketId) {
+        const socketIds = this.userSocketMap.get(userId.toString());
+        if (socketIds?.size) {
             try {
                 const walletData = await this.userService.getUserWallets(
                     userId,
                     {} as GetUserAssetsDto
                 );
                 
-                server.to(socketId).emit(
+                server.to(`user:${userId}`).emit(
                     "walletAssetsUpdate",
                     Utils.buildResponse({
                         message: "wallet assets update",
@@ -138,8 +141,8 @@ export class WsService {
         if (!server) return;
 
         const results = await Promise.allSettled(
-            [...this.userSocketMap.entries()].map(
-                async ([userId, socketId]) => {
+            [...this.userSocketMap.keys()].map(
+                async (userId) => {
                     try {
                         if (!userId) return;
 
@@ -149,7 +152,7 @@ export class WsService {
                                 {} as GetUserAssetsDto
                             );
 
-                        server.to(socketId).emit(
+                        server.to(`user:${userId}`).emit(
                             "walletAssetsUpdate",
                             Utils.buildResponse({
                                 message: "wallet assets update",
@@ -183,7 +186,16 @@ export class WsService {
 
         const userId = this.socketUserMap.get(client.id);
         if (userId) {
-            this.userSocketMap.delete(userId);
+            const socketIds = this.userSocketMap.get(userId);
+            if (socketIds) {
+                socketIds.delete(client.id);
+
+                if (socketIds.size === 0) {
+                    this.userSocketMap.delete(userId);
+                } else {
+                    this.userSocketMap.set(userId, socketIds);
+                }
+            }
             this.socketUserMap.delete(client.id);
         }
     }
