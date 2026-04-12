@@ -515,6 +515,8 @@ export class NombaWebhookController {
                     totalToReceiveInFiat: true,
                     destinationBankName: true,
                     destinationBankAccountNumber: true,
+                    amount: true,
+                    currency: true,
                     user: { select: { id: true, email: true } },
                 },
             });
