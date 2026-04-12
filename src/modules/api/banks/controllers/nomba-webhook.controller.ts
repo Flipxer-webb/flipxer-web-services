@@ -521,7 +521,7 @@ export class NombaWebhookController {
                 },
             });
 
-            if (order?.orderCategory === OrderCategory.SELL && (order.status === OrderStatus.processing || order.status === OrderStatus.done)) {
+            if (order?.orderCategory === OrderCategory.SELL && order.status === OrderStatus.processing) {
                 // Mark order failed
                 const failedOrder = await this.prisma.order.update({
                     where: { id: order.id },
