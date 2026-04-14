@@ -224,11 +224,73 @@ describe("RateLimiterService (redis mode)", () => {
 
     it("quits redis client on destroy", async () => {
         const quitMock = jest.fn().mockResolvedValue("OK");
+        const disconnectMock = jest.fn();
         (service as any).client = {
+            status: "ready",
             quit: quitMock,
+            disconnect: disconnectMock,
         };
 
         await service.onModuleDestroy();
         expect(quitMock).toHaveBeenCalled();
+    });
+
+    it("does nothing on destroy when no redis client exists", async () => {
+        (service as any).client = null;
+
+        await expect(service.onModuleDestroy()).resolves.toBeUndefined();
+    });
+
+    it("disconnects closed redis client on destroy", async () => {
+        const quitMock = jest.fn();
+        const disconnectMock = jest.fn();
+        (service as any).client = {
+            status: "end",
+            quit: quitMock,
+            disconnect: disconnectMock,
+        };
+
+        await service.onModuleDestroy();
+
+        expect(disconnectMock).toHaveBeenCalledWith(false);
+        expect(quitMock).not.toHaveBeenCalled();
+    });
+
+    it("disconnects redis client when quit throws closed connection", async () => {
+        const quitMock = jest
+            .fn()
+            .mockRejectedValue(new Error("Connection is closed."));
+        const disconnectMock = jest.fn();
+        (service as any).client = {
+            status: "ready",
+            quit: quitMock,
+            disconnect: disconnectMock,
+        };
+
+        await service.onModuleDestroy();
+
+        expect(disconnectMock).toHaveBeenCalledWith(false);
+    });
+
+    it("logs and swallows unexpected destroy errors", async () => {
+        const quitMock = jest.fn().mockRejectedValue(new Error("shutdown failed"));
+        const disconnectMock = jest.fn();
+        const warnSpy = jest
+            .spyOn((service as any).logger, "warn")
+            .mockImplementation(() => undefined);
+
+        (service as any).client = {
+            status: "ready",
+            quit: quitMock,
+            disconnect: disconnectMock,
+        };
+
+        await service.onModuleDestroy();
+
+        expect(warnSpy).toHaveBeenCalledWith(
+            "Rate limiter shutdown error: shutdown failed"
+        );
+
+        warnSpy.mockRestore();
     });
 });

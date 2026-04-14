@@ -12,6 +12,8 @@ jest.mock("ioredis", () => {
         exists: jest.fn(),
         pttl: jest.fn(),
         quit: jest.fn(),
+        disconnect: jest.fn(),
+        status: "ready",
     };
     return jest.fn(() => mockRedis);
 });
@@ -252,8 +254,51 @@ describe("DistributedLockService", () => {
         });
 
         it("should quit redis client on module destroy", async () => {
+            mockRedis.status = "ready";
+
             await service.onModuleDestroy();
             expect(mockRedis.quit).toHaveBeenCalled();
+        });
+
+        it("should do nothing on module destroy when no client exists", async () => {
+            (service as any).client = null;
+
+            await expect(service.onModuleDestroy()).resolves.toBeUndefined();
+        });
+
+        it("should disconnect redis client when it is already closed", async () => {
+            mockRedis.status = "end";
+
+            await service.onModuleDestroy();
+
+            expect(mockRedis.disconnect).toHaveBeenCalledWith(false);
+            expect(mockRedis.quit).not.toHaveBeenCalled();
+        });
+
+        it("should disconnect redis client when quit throws closed connection", async () => {
+            mockRedis.status = "ready";
+            mockRedis.quit.mockRejectedValueOnce(new Error("Connection is closed."));
+
+            await service.onModuleDestroy();
+
+            expect(mockRedis.disconnect).toHaveBeenCalledWith(false);
+        });
+
+        it("should swallow unexpected shutdown errors after logging a warning", async () => {
+            const warnSpy = jest
+                .spyOn((service as any).logger, "warn")
+                .mockImplementation(() => undefined);
+
+            mockRedis.status = "ready";
+            mockRedis.quit.mockRejectedValueOnce(new Error("shutdown failed"));
+
+            await service.onModuleDestroy();
+
+            expect(warnSpy).toHaveBeenCalledWith(
+                "Lock service shutdown error: shutdown failed"
+            );
+
+            warnSpy.mockRestore();
         });
     });
 });
