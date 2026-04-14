@@ -224,11 +224,29 @@ describe("RateLimiterService (redis mode)", () => {
 
     it("quits redis client on destroy", async () => {
         const quitMock = jest.fn().mockResolvedValue("OK");
+        const disconnectMock = jest.fn();
         (service as any).client = {
+            status: "ready",
             quit: quitMock,
+            disconnect: disconnectMock,
         };
 
         await service.onModuleDestroy();
         expect(quitMock).toHaveBeenCalled();
+    });
+
+    it("disconnects closed redis client on destroy", async () => {
+        const quitMock = jest.fn();
+        const disconnectMock = jest.fn();
+        (service as any).client = {
+            status: "end",
+            quit: quitMock,
+            disconnect: disconnectMock,
+        };
+
+        await service.onModuleDestroy();
+
+        expect(disconnectMock).toHaveBeenCalledWith(false);
+        expect(quitMock).not.toHaveBeenCalled();
     });
 });
