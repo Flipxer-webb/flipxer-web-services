@@ -11,6 +11,8 @@ jest.mock("@/config", () => ({
 jest.mock("ioredis", () => {
     return jest.fn().mockImplementation(() => ({
         on: jest.fn(),
+        status: "wait",
+        connector: { stream: { writable: true, destroyed: false } },
         get: jest.fn(),
         set: jest.fn(),
         del: jest.fn(),
@@ -149,6 +151,8 @@ describe("RedisCacheService - with Redis enabled but not connected", () => {
         (service as any).isConnected = false;
         (service as any).REDIS_DISABLED = false;
         (service as any).client = {
+            status: "end",
+            connector: { stream: { writable: false, destroyed: false } },
             get: jest.fn().mockRejectedValue(new Error("Connection refused")),
             set: jest.fn().mockRejectedValue(new Error("Connection refused")),
             del: jest.fn().mockRejectedValue(new Error("Connection refused")),
@@ -221,6 +225,8 @@ describe("RedisCacheService - circuit breaker", () => {
         (service as any).REDIS_DISABLED = false;
         (service as any).isConnected = true;
         mockClient = {
+            status: "ready",
+            connector: { stream: { writable: true, destroyed: false } },
             get: jest.fn(),
             set: jest.fn(),
             del: jest.fn(),
@@ -412,6 +418,24 @@ describe("RedisCacheService - circuit breaker", () => {
         expect((service as any).getFallback("set-fail")).toBe("value");
     });
 
+    it("should use fallback when client status is not ready", async () => {
+        mockClient.status = "connect";
+        (service as any).setFallback("status-key", "cached", 60);
+
+        await expect(service.get("status-key")).resolves.toBe("cached");
+        expect(mockClient.get).not.toHaveBeenCalled();
+        expect(service.getStats().isConnected).toBe(false);
+    });
+
+    it("should skip Redis commands when the stream is not writable", async () => {
+        mockClient.connector.stream.writable = false;
+
+        await expect(service.set("stream-key", "value", 60)).resolves.toBeUndefined();
+        expect(mockClient.set).not.toHaveBeenCalled();
+        expect((service as any).getFallback("stream-key")).toBe("value");
+        expect(service.getStats().isConnected).toBe(false);
+    });
+
     it("should return early for del and getCounter when not connected", async () => {
         (service as any).setFallback("del-key", "value", 60);
         (service as any).isConnected = false;
@@ -476,10 +500,16 @@ describe("RedisCacheService - module init with Redis enabled", () => {
 
         expect(listeners.has("error")).toBe(true);
         expect(listeners.has("connect")).toBe(true);
+        expect(listeners.has("ready")).toBe(true);
         expect(listeners.has("close")).toBe(true);
         expect(listeners.has("reconnecting")).toBe(true);
+        expect(listeners.has("end")).toBe(true);
 
         listeners.get("connect")?.();
+        expect(service.getStats().isConnected).toBe(false);
+
+        mockClient.status = "ready";
+        listeners.get("ready")?.();
         expect(service.getStats().isConnected).toBe(true);
 
         listeners.get("close")?.();
@@ -487,6 +517,12 @@ describe("RedisCacheService - module init with Redis enabled", () => {
 
         listeners.get("reconnecting")?.();
 
+        expect(service.getStats().isConnected).toBe(false);
+
+        listeners.get("end")?.();
+        expect(service.getStats().isConnected).toBe(false);
+
+        listeners.get("reconnecting")?.();
         listeners.get("error")?.(new Error("redis-down"));
         expect(service.getStats().isConnected).toBe(false);
     });
