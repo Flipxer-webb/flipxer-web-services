@@ -354,6 +354,74 @@ describe("BuyOrderService", () => {
                 }),
             );
         });
+
+        it("falls back to hosted checkout when the Nomba sandbox VA cap is reached", async () => {
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                depositAddress: "bc1qcheckoutaddress",
+                defaultNetwork: "btc",
+            });
+
+            (service as any).nombaService.initializePaymentViaVirtualAccount = jest
+                .fn()
+                .mockRejectedValue(
+                    new Error("Only 2 sandbox virtual accounts are allowed per account holder")
+                );
+            (service as any).nombaService.initializePayment = jest
+                .fn()
+                .mockResolvedValue({
+                    data: {
+                        reference: "checkout-ref-1",
+                        link: "https://checkout.nomba.test/session-1",
+                        amount: 100,
+                    },
+                });
+
+            const paymentCreate = jest.fn().mockResolvedValue({ id: 505 });
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    order: {
+                        create: jest.fn().mockResolvedValue({
+                            id: 304,
+                            amount: 0.01,
+                            currency: "BTC",
+                            status: OrderStatus.pending,
+                            streamlinedStatus: "pending",
+                            orderCategory: OrderStatus.pending,
+                            transactionId: "tx-304",
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                        }),
+                    },
+                    payment: {
+                        create: paymentCreate,
+                    },
+                }),
+            );
+
+            const result = await service.buyCryptoOrder(mockUser as any, {
+                ...orderDto,
+                idempotencyKey: "checkout-idem-1",
+            });
+
+            expect((service as any).nombaService.initializePayment).toHaveBeenCalledTimes(1);
+            expect(paymentCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        reference: "checkout-ref-1",
+                        externalReference: "https://checkout.nomba.test/session-1",
+                        destinationBankAccountNumber: null,
+                    }),
+                }),
+            );
+            expect(result.data.paymentInfo.authorization_url).toBe(
+                "https://checkout.nomba.test/session-1"
+            );
+            expect(result.data.paymentInfo.reference).toBe("checkout-ref-1");
+        });
     });
 
     describe("helper branches", () => {
@@ -454,6 +522,26 @@ describe("BuyOrderService", () => {
             };
             expect(() => (service as any).buildExistingOrderResponse(almostExpired)).toThrow(
                 "Your previous order has nearly expired. Please wait a moment and try again.",
+            );
+        });
+
+        it("buildExistingOrderResponse returns checkout reopen details for pending hosted-checkout orders", () => {
+            const existingPayment = {
+                createdAt: new Date(Date.now() - 10 * 60 * 1000),
+                reference: "checkout-ref-2",
+                destinationBankAccountNumber: null,
+                destinationBankAccountName: null,
+                destinationBankName: null,
+                externalReference: "https://checkout.nomba.test/session-2",
+                totalAmount: "10000",
+                order: { id: 2 },
+            };
+
+            const response = (service as any).buildExistingOrderResponse(existingPayment);
+
+            expect(response.data.paymentInfo.reference).toBe("checkout-ref-2");
+            expect(response.data.paymentInfo.authorization_url).toBe(
+                "https://checkout.nomba.test/session-2"
             );
         });
     });

@@ -4,7 +4,7 @@ import { BankInjectionToken } from "@/modules/factory/bank/types";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
-import { COMPANY_NAME } from "@/config";
+import { COMPANY_NAME, frontendUrl } from "@/config";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
@@ -62,6 +62,13 @@ export class BuyOrderService {
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly distributedLockService: DistributedLockService
     ) { }
+
+    private isNombaSandboxVirtualAccountLimitError(error: unknown): boolean {
+        return error instanceof Error
+            && error.message.includes(
+                "Only 2 sandbox virtual accounts are allowed per account holder"
+            );
+    }
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -333,12 +340,65 @@ export class BuyOrderService {
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
 
-        // Create a dynamic virtual account instead of a hosted checkout
-        const { data: vaData } =
-            await this.nombaService.initializePaymentViaVirtualAccount(
-                userData,
-                amount
+        let paymentGatewayData:
+            | {
+                mode: "virtual_account";
+                reference: string;
+                amount: number;
+                expiryAt: string;
+                accountNumber: string;
+                accountName: string;
+                bankName: string;
+                bankCode: string;
+            }
+            | {
+                mode: "checkout";
+                reference: string;
+                amount: number;
+                expiryAt: string;
+                authorizationUrl: string;
+            };
+
+        try {
+            const { data: vaData } =
+                await this.nombaService.initializePaymentViaVirtualAccount(
+                    userData,
+                    amount
+                );
+
+            paymentGatewayData = {
+                mode: "virtual_account",
+                reference: vaData.reference,
+                amount,
+                expiryAt: vaData.expiryAt,
+                accountNumber: vaData.accountNumber,
+                accountName: vaData.accountName,
+                bankName: vaData.bankName,
+                bankCode: vaData.bankCode,
+            };
+        } catch (error) {
+            if (!this.isNombaSandboxVirtualAccountLimitError(error)) {
+                throw error;
+            }
+
+            this.logger.warn(
+                `Nomba sandbox virtual account cap reached for user ${user.id}; falling back to hosted checkout`
             );
+
+            const { data: checkoutData } = await this.nombaService.initializePayment(
+                userData,
+                amount,
+                frontendUrl
+            );
+
+            paymentGatewayData = {
+                mode: "checkout",
+                reference: checkoutData.reference,
+                amount: Number(checkoutData.amount ?? amount),
+                expiryAt: new Date(Date.now() + 35 * 60 * 1000).toISOString(),
+                authorizationUrl: checkoutData.link,
+            };
+        }
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -372,7 +432,7 @@ export class BuyOrderService {
                 });
                 await tx.payment.create({
                     data: {
-                        reference: vaData.reference,
+                        reference: paymentGatewayData.reference,
                         userId: user.id,
                         amount:
                             responseData.buyRate * responseData.cryptoBuyAmount,
@@ -393,9 +453,22 @@ export class BuyOrderService {
                         isDebit: false,
                         expectedCurrency: responseData.currency,
                         idempotencyKey: dto.idempotencyKey || null,
-                        destinationBankAccountNumber: vaData.accountNumber,
-                        destinationBankAccountName: vaData.accountName,
-                        destinationBankName: vaData.bankName,
+                        externalReference:
+                            paymentGatewayData.mode === "checkout"
+                                ? paymentGatewayData.authorizationUrl
+                                : null,
+                        destinationBankAccountNumber:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.accountNumber
+                                : null,
+                        destinationBankAccountName:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.accountName
+                                : null,
+                        destinationBankName:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.bankName
+                                : null,
                     },
                 });
 
@@ -429,27 +502,40 @@ export class BuyOrderService {
         });
 
         // Generate USSD code if bank is supported
-        const ussdCode = generateUssdCode(
-            vaData.bankCode,
-            vaData.accountNumber,
-            amount
-        );
+        const ussdCode =
+            paymentGatewayData.mode === "virtual_account"
+                ? generateUssdCode(
+                    paymentGatewayData.bankCode,
+                    paymentGatewayData.accountNumber,
+                    amount
+                )
+                : null;
 
         return buildResponse({
             message:
                 "Order placed successfully, Please proceed to make payment",
             data: {
                 order: order,
-                paymentInfo: {
-                    reference: vaData.reference,
-                    accountNumber: vaData.accountNumber,
-                    accountName: vaData.accountName,
-                    bankName: vaData.bankName,
-                    bankCode: vaData.bankCode,
-                    amount,
-                    expiryAt: vaData.expiryAt,
-                    ussdCode,
-                },
+                paymentInfo:
+                    paymentGatewayData.mode === "virtual_account"
+                        ? {
+                            reference: paymentGatewayData.reference,
+                            accountNumber: paymentGatewayData.accountNumber,
+                            accountName: paymentGatewayData.accountName,
+                            bankName: paymentGatewayData.bankName,
+                            bankCode: paymentGatewayData.bankCode,
+                            amount,
+                            expiryAt: paymentGatewayData.expiryAt,
+                            ussdCode,
+                        }
+                        : {
+                            authorization_url:
+                                paymentGatewayData.authorizationUrl,
+                            reference: paymentGatewayData.reference,
+                            amount: paymentGatewayData.amount,
+                            expiryAt: paymentGatewayData.expiryAt,
+                            ussdCode: null,
+                        },
             },
         });
             },
@@ -705,20 +791,30 @@ export class BuyOrderService {
             );
         }
 
+        const paymentInfo = existingPayment.destinationBankAccountNumber
+            ? {
+                reference: existingPayment.reference,
+                accountNumber: existingPayment.destinationBankAccountNumber || "",
+                accountName: existingPayment.destinationBankAccountName || "",
+                bankName: existingPayment.destinationBankName || "",
+                bankCode: "",
+                amount: Number(existingPayment.totalAmount),
+                expiryAt,
+                ussdCode: null,
+            }
+            : {
+                authorization_url: existingPayment.externalReference || "",
+                reference: existingPayment.reference,
+                amount: Number(existingPayment.totalAmount),
+                expiryAt,
+                ussdCode: null,
+            };
+
         return buildResponse({
             message: "Order already exists for this request",
             data: {
                 order: existingPayment.order,
-                paymentInfo: {
-                    reference: existingPayment.reference,
-                    accountNumber: existingPayment.destinationBankAccountNumber || "",
-                    accountName: existingPayment.destinationBankAccountName || "",
-                    bankName: existingPayment.destinationBankName || "",
-                    bankCode: "",
-                    amount: Number(existingPayment.totalAmount),
-                    expiryAt,
-                    ussdCode: null,
-                },
+                paymentInfo,
             },
         });
     }
