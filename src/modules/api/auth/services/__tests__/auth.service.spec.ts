@@ -1532,8 +1532,8 @@ describe("AuthService", () => {
             validateSpy.mockRestore();
         });
 
-        it("preserves sessionId and family on successful rotation", async () => {
-            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-abc" });
+        it("preserves sessionId, platform, and family on successful rotation", async () => {
+            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-abc", platform: "USER" });
 
             const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
                 .mockResolvedValue({ valid: true, family: "family-xyz" });
@@ -1547,7 +1547,7 @@ describe("AuthService", () => {
             const result = await service.refreshToken({ refreshToken: "refresh-with-session" } as any);
 
             expect(result.data).toMatchObject({ accessToken: "next-access", refreshToken: "next-refresh" });
-            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, sessionId: "session-abc" });
+            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER", sessionId: "session-abc" });
             expect(saveSpy).toHaveBeenCalledWith(1, "next-refresh", "family-xyz");
 
             validateSpy.mockRestore();
