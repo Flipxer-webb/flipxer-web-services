@@ -3472,6 +3472,7 @@ export class AuthService {
 
                 const newTokens = await this.generateTokens({
                     sub: payload.sub,
+                    ...(payload.platform ? { platform: payload.platform } : {}),
                     ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
                 });
 
