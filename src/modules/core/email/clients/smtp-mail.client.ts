@@ -85,13 +85,15 @@ export class SmtpMailClient implements ISendMailClient {
         const recipients = (options.to as MailRecipient[] | undefined) ?? [];
         const results = await Promise.all(
             recipients.map(async (recipient) => {
+                const mergeInfo = this.mergeRecipientData(
+                    [recipient],
+                    options.merge_info
+                );
+
                 return await this.sendMailWithTemplate({
                     ...options,
                     to: [recipient] as never,
-                    merge_info: {
-                        ...(options.merge_info ?? {}),
-                        ...(recipient.merge_info ?? {}),
-                    },
+                    merge_info: mergeInfo,
                 });
             })
         );
@@ -125,12 +127,17 @@ export class SmtpMailClient implements ISendMailClient {
         clientReference?: string,
         mimeHeaders?: Record<string, string>
     ) {
-        return {
-            ...(mimeHeaders ?? {}),
-            ...(clientReference
-                ? { "X-Client-Reference": clientReference }
-                : {}),
-        };
+        const headers: Record<string, string> = {};
+
+        if (mimeHeaders) {
+            Object.assign(headers, mimeHeaders);
+        }
+
+        if (clientReference) {
+            headers["X-Client-Reference"] = clientReference;
+        }
+
+        return Object.keys(headers).length > 0 ? headers : undefined;
     }
 
     private buildAttachments(
@@ -140,13 +147,17 @@ export class SmtpMailClient implements ISendMailClient {
             name: string;
         }>
     ) {
-        return (attachments ?? [])
-            .filter((attachment) => Boolean(attachment.content))
-            .map((attachment) => ({
+        return (attachments ?? []).flatMap((attachment) => {
+            if (!attachment.content) {
+                return [];
+            }
+
+            return [{
                 filename: attachment.name,
-                content: Buffer.from(attachment.content!, "base64"),
+                content: Buffer.from(attachment.content, "base64"),
                 contentType: attachment.mime_type,
-            }));
+            }];
+        });
     }
 
     private buildInlineImages(
@@ -156,27 +167,35 @@ export class SmtpMailClient implements ISendMailClient {
             cid: string;
         }>
     ) {
-        return (inlineImages ?? [])
-            .filter((inlineImage) => Boolean(inlineImage.content))
-            .map((inlineImage, index) => ({
+        return (inlineImages ?? []).flatMap((inlineImage, index) => {
+            if (!inlineImage.content) {
+                return [];
+            }
+
+            return [{
                 filename: `inline-${index}`,
-                content: Buffer.from(inlineImage.content!, "base64"),
+                content: Buffer.from(inlineImage.content, "base64"),
                 contentType: inlineImage.mime_type,
                 cid: inlineImage.cid,
-            }));
+            }];
+        });
     }
 
     private mergeRecipientData(
         recipients?: MailRecipient[],
         mergeInfo?: Record<string, unknown>
     ) {
-        return (recipients ?? []).reduce<Record<string, unknown>>(
-            (accumulator, recipient) => ({
-                ...accumulator,
-                ...(recipient.merge_info ?? {}),
-            }),
-            { ...(mergeInfo ?? {}) }
-        );
+        const merged: Record<string, unknown> = mergeInfo
+            ? { ...mergeInfo }
+            : {};
+
+        for (const recipient of recipients ?? []) {
+            if (recipient.merge_info) {
+                Object.assign(merged, recipient.merge_info);
+            }
+        }
+
+        return merged;
     }
 
     private buildTemplateText(
@@ -339,10 +358,10 @@ export class SmtpMailClient implements ISendMailClient {
 
     private escapeHtml(value: string) {
         return value
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/\"/g, "&quot;")
-            .replace(/'/g, "&#39;");
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
     }
 }
