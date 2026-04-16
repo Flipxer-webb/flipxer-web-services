@@ -63,7 +63,10 @@ describe("SellOrderService", () => {
         const mockTradeHelpers = { calculateFee: jest.fn() };
         const mockWallet = { syncWallet: jest.fn().mockResolvedValue(undefined) };
         const mockWalletMgmt = { invalidateWalletCache: jest.fn() };
-        const mockWithdrawalHandler = { handle: jest.fn().mockResolvedValue(undefined) };
+        const mockWithdrawalHandler = {
+            handle: jest.fn().mockResolvedValue(undefined),
+            initiateFiatPayout: jest.fn().mockResolvedValue(undefined),
+        };
         const mockLedger = {
             hold: jest.fn().mockResolvedValue({ success: true, entry: { id: 1 } }),
             releaseHold: jest.fn().mockResolvedValue({ success: true }),
@@ -266,16 +269,19 @@ describe("SellOrderService", () => {
             });
             prisma.order.findUnique.mockResolvedValue({
                 id: 1,
-                status: "completed",
+                status: "processing",
+                streamlinedStatus: "processing",
             });
 
             const result = await service.sellCryptoOrder(mockUser, dto);
+            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
 
             expect(ledgerService.hold).toHaveBeenCalled();
             expect(ledgerService.releaseHoldWithPlatformEntry).toHaveBeenCalledWith(
                 expect.objectContaining({ settle: true }),
             );
             expect(prisma.order.create).toHaveBeenCalled();
+            expect(withdrawalHandler.initiateFiatPayout).toHaveBeenCalled();
             expect(result.message).toContain("Order placed");
         });
 
@@ -307,7 +313,7 @@ describe("SellOrderService", () => {
                 updatedAt: new Date(),
             };
             prisma.order.create.mockResolvedValue(createdOrder);
-            prisma.order.findUnique.mockResolvedValue({ ...createdOrder, status: "completed" });
+            prisma.order.findUnique.mockResolvedValue(createdOrder);
 
             const wsGateway = service["wsGateway"] as any;
 
@@ -348,7 +354,7 @@ describe("SellOrderService", () => {
 
             // Payout handler throws
             const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
-            withdrawalHandler.handle.mockRejectedValueOnce(new Error("Nomba unavailable"));
+            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(new Error("Nomba unavailable"));
 
             // Refund succeeds so we get to the WebSocket emit
             ledgerService.pairedCredit.mockResolvedValue({ success: true, userEntry: { id: 88 } });
@@ -383,7 +389,7 @@ describe("SellOrderService", () => {
                 updatedAt: new Date(),
             };
             prisma.order.create.mockResolvedValue(createdOrder);
-            prisma.order.findUnique.mockResolvedValue({ ...createdOrder, status: "completed" });
+            prisma.order.findUnique.mockResolvedValue(createdOrder);
 
             const wsGateway = service["wsGateway"] as any;
 

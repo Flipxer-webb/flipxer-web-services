@@ -731,6 +731,7 @@ export class BuyOrderService {
                     currency: order.currency,
                     status: 'completed',
                     date: new Date().toISOString(),
+                    notice: message,
                 },
                 enablePush: true,
             });
@@ -889,7 +890,7 @@ export class BuyOrderService {
     async cancelBuyOrder(reference: string, userId: number) {
         const payment = await this.prisma.payment.findFirst({
             where: { reference, userId, status: TransactionStatus.PENDING },
-            include: { order: true },
+            include: { order: true, user: true },
         });
 
         if (!payment) {
@@ -953,15 +954,27 @@ export class BuyOrderService {
         }
         this.wsGateway.notifyWalletUpdate(userId);
 
-        // Send cancellation notification (push only - user initiated this)
+        // Send cancellation notification (push + email)
         if (payment.order) {
+            const message = `Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled. Transaction ID: ${payment.order.transactionId}.`;
             await this.notificationDispatcher.notify({
                 userId: userId,
                 title: "Buy order cancelled",
-                body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled. Transaction ID: ${payment.order.transactionId}.`,
+                body: `\uD83D\uDEAB ${message}`,
                 category: "transaction",
                 currency: payment.order.currency,
                 transactionType: OrderCategory.BUY,
+                enableEmail: true,
+                emailPayload: {
+                    email: payment.user?.email || '',
+                    transactionType: 'buy',
+                    transactionId: payment.order.transactionId,
+                    amount: String(payment.order.amount),
+                    currency: payment.order.currency.toUpperCase(),
+                    status: 'cancelled',
+                    date: new Date().toISOString(),
+                    notice: message,
+                },
                 enablePush: true,
             });
         }
@@ -1205,10 +1218,11 @@ export class BuyOrderService {
 
                 // Send expired cancellation notification (push + email - user may not be in app)
                 if (payment.order) {
+                    const expiredMessage = `Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled because the payment window expired. Transaction ID: ${payment.order.transactionId}.`;
                     await this.notificationDispatcher.notify({
                         userId: payment.userId,
                         title: "Buy order expired",
-                        body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled because the payment window expired. Transaction ID: ${payment.order.transactionId}.`,
+                        body: `\uD83D\uDEAB ${expiredMessage}`,
                         category: "transaction",
                         currency: payment.order.currency,
                         transactionType: OrderCategory.BUY,
@@ -1221,6 +1235,7 @@ export class BuyOrderService {
                             currency: payment.order.currency.toUpperCase(),
                             status: 'cancelled',
                             date: new Date().toISOString(),
+                            notice: expiredMessage,
                         },
                         enablePush: true,
                     });
@@ -1323,10 +1338,11 @@ export class BuyOrderService {
                 if (payment.order) {
                     const expected = Number(payment.totalAmount);
                     const received = Number(payment.receivedAmount);
+                    const underpaidMessage = `Your payment of \u20a6${received} was less than the required \u20a6${expected}. Order #${payment.order.transactionId} has been cancelled. Our team will process your refund shortly.`;
                     await this.notificationDispatcher.notify({
                         userId: payment.userId,
                         title: "Buy order cancelled - underpayment",
-                        body: `⚠️ Your payment of ₦${received} was less than the required ₦${expected}. Order #${payment.order.transactionId} has been cancelled. Our team will process your refund shortly.`,
+                        body: `\u26a0\ufe0f ${underpaidMessage}`,
                         category: "transaction",
                         currency: payment.order.currency,
                         transactionType: OrderCategory.BUY,
@@ -1339,6 +1355,7 @@ export class BuyOrderService {
                             currency: payment.order.currency.toUpperCase(),
                             status: 'cancelled',
                             date: new Date().toISOString(),
+                            notice: underpaidMessage,
                         },
                         enablePush: true,
                     });
