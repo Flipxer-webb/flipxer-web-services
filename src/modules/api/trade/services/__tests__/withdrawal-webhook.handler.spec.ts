@@ -289,6 +289,42 @@ describe("WithdrawalWebhookHandler", () => {
         expect(wsGateway.notifyWalletUpdate).not.toHaveBeenCalled();
     });
 
+    it("rejects retryFiatPayout when the transaction does not exist", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        await expect(handler.retryFiatPayout(404)).rejects.toThrow("Transaction not found");
+
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects retryFiatPayout when the SELL order is already completed", async () => {
+        const completedSellTx = makeTransaction({
+            orderCategory: OrderCategory.SELL,
+            status: OrderStatus.done,
+            streamlinedStatus: OrderStreamlinedStatus.completed,
+        });
+        prisma.order.findUnique.mockResolvedValue(completedSellTx);
+
+        await expect(handler.retryFiatPayout(completedSellTx.id)).rejects.toThrow("Transaction already completed");
+
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects retryFiatPayout when the transaction is not a SELL order", async () => {
+        const sendTx = makeTransaction({
+            orderCategory: OrderCategory.SEND,
+            status: OrderStatus.failed,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+        });
+        prisma.order.findUnique.mockResolvedValue(sendTx);
+
+        await expect(handler.retryFiatPayout(sendTx.id)).rejects.toThrow(
+            "Only SELL orders can be retried via this method",
+        );
+
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
     it("handles retry payout failure and marks transaction failed", async () => {
         const sellTx = makeTransaction({
             orderCategory: OrderCategory.SELL,
