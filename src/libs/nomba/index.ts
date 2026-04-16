@@ -185,6 +185,13 @@ export class NombaLib {
     private readonly tokenMutex = new Mutex();
     private readonly logger = new Logger('NombaLib');
 
+    /**
+     * Returns true when the configured base URL points to the Nomba sandbox.
+     */
+    get isSandbox(): boolean {
+        return this.options.baseUrl.includes("sandbox");
+    }
+
     constructor(private readonly options: NombaOptions) {
         this.axios = Axios.create({
             baseURL: options.baseUrl,
@@ -469,6 +476,46 @@ export class NombaLib {
         try {
             const { data } = await this.axios.get<NombaVirtualAccountResponse>(
                 `/v1/accounts/virtual/${accountRef}`
+            );
+            return data;
+        } catch (error) {
+            this.handleError(error as AxiosError);
+            throw error;
+        }
+    }
+
+    /**
+     * Delete a virtual account by its accountRef.
+     * Returns true if deleted successfully, false if already gone (404).
+     */
+    async deleteVirtualAccount(accountRef: string): Promise<boolean> {
+        try {
+            const { data } = await this.axios.delete<{ code: string; status: boolean }>(
+                `/v1/accounts/virtual/${accountRef}`
+            );
+            return data?.code === "00";
+        } catch (error) {
+            const axiosError = error as AxiosError;
+            if (axiosError.response?.status === 404) {
+                return false;
+            }
+            this.handleError(axiosError);
+            throw error;
+        }
+    }
+
+    /**
+     * Update an existing virtual account (e.g. refresh its expiry).
+     * Used as a sandbox fallback when the VA creation quota is exhausted.
+     */
+    async updateVirtualAccount(
+        accountRef: string,
+        updates: { accountName?: string; expiryDate?: string },
+    ): Promise<NombaVirtualAccountResponse> {
+        try {
+            const { data } = await this.axios.put<NombaVirtualAccountResponse>(
+                `/v1/accounts/virtual/${accountRef}`,
+                updates,
             );
             return data;
         } catch (error) {

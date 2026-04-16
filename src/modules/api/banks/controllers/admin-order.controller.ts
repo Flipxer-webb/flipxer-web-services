@@ -21,7 +21,7 @@ import { StuckOrderReconciliationService } from '../../trade/services/stuck-orde
 import { PrismaService } from '@/modules/core/prisma/services';
 import { AuditLogService } from '@/modules/api/audit-log';
 import { buildResponse } from '@/utils';
-import { User } from '@/modules/api/user';
+import { User } from '@/modules/api/user/decorators';
 import { User as UserModel, OrderCategory, OrderStatus, TransactionStatus } from '@prisma/client';
 
 /**

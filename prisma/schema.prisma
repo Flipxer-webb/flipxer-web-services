@@ -136,6 +136,7 @@ model Session {
   location       String?
   isActive       Boolean   @default(true)
   isCurrent      Boolean   @default(false)
+  isBotSession   Boolean   @default(false)
   lastActiveAt   DateTime  @default(now())
   expiresAt      DateTime
   createdAt      DateTime  @default(now())
@@ -145,6 +146,7 @@ model Session {
   @@index([userId])
   @@index([isActive])
   @@index([userId, isActive, lastActiveAt(sort: Desc)])
+  @@index([isBotSession])
   @@map("Sessions")
 }
 

@@ -28,6 +28,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
 
         processor = new QuidaxTradingBalanceSyncProcessor(prisma as never, quidaxService as never);
         jest.spyOn((processor as any).logger, "warn").mockImplementation(() => undefined);
+        jest.spyOn((processor as any).logger, "debug").mockImplementation(() => undefined);
     });
 
     afterEach(() => {
@@ -48,14 +49,15 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
     it("syncs wallet metadata and activates address when deposit address exists", async () => {
         prisma.user.findUnique.mockResolvedValue({ id: 20, cryptoSubAccountId: "sub-20" });
         prisma.assetWallet.findMany.mockResolvedValue([
-            { id: 1, userId: 20, quidaxWalletId: "w1" },
-            { id: 2, userId: 20, quidaxWalletId: "w2" },
+            { id: 1, userId: 20, quidaxWalletId: "w1", assetCurrency: "USDT" },
+            { id: 2, userId: 20, quidaxWalletId: "w2", assetCurrency: "USDC" },
         ]);
 
         quidaxService.getUserWalletList.mockResolvedValue({
             data: [
                 {
                     id: "w1",
+                    currency: "usdt",
                     blockchain_enabled: true,
                     default_network: "TRON",
                     is_crypto: true,
@@ -66,6 +68,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
                 },
                 {
                     id: "w2",
+                    currency: "usdc",
                     blockchain_enabled: true,
                     default_network: "ERC20",
                     is_crypto: true,
@@ -106,7 +109,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
     it("warns when no update payload is found for an existing wallet", async () => {
         prisma.user.findUnique.mockResolvedValue({ id: 30, cryptoSubAccountId: "sub-30" });
         prisma.assetWallet.findMany.mockResolvedValue([
-            { id: 3, userId: 30, quidaxWalletId: "wallet-missing" },
+            { id: 3, userId: 30, quidaxWalletId: "wallet-missing", assetCurrency: "BTC" },
         ]);
         quidaxService.getUserWalletList.mockResolvedValue({ data: [] });
 
@@ -114,14 +117,14 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
             processor.handleSyncBalance({ data: { user_id: 30 } } as never),
         ).resolves.toBeUndefined();
 
-        expect((processor as any).logger.warn).toHaveBeenCalled();
+        expect((processor as any).logger.debug).toHaveBeenCalled();
         expect(prisma.assetWallet.update).not.toHaveBeenCalled();
     });
 
     it("handles missing wallet data array by using an empty map", async () => {
         prisma.user.findUnique.mockResolvedValue({ id: 31, cryptoSubAccountId: "sub-31" });
         prisma.assetWallet.findMany.mockResolvedValue([
-            { id: 4, userId: 31, quidaxWalletId: "w4" },
+            { id: 4, userId: 31, quidaxWalletId: "w4", assetCurrency: "ETH" },
         ]);
         quidaxService.getUserWalletList.mockResolvedValue({});
 
@@ -129,6 +132,6 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
             processor.handleSyncBalance({ data: { user_id: 31 } } as never),
         ).resolves.toBeUndefined();
 
-        expect((processor as any).logger.warn).toHaveBeenCalled();
+        expect((processor as any).logger.debug).toHaveBeenCalled();
     });
 });

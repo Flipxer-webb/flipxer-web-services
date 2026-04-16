@@ -19,7 +19,7 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { RbacService } from "../services";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 import {
     CreateRoleDto,

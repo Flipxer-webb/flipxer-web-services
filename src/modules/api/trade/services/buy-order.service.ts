@@ -854,12 +854,21 @@ export class BuyOrderService {
         }
 
         const order = payment.order;
-        const statusMap: Record<string, string> = {
-            [TransactionStatus.SUCCESS]: "completed",
-            [TransactionStatus.FAILED]: "failed",
-            [TransactionStatus.APPROVED]: "processing",
-        };
-        const status = statusMap[payment.status] ?? "pending";
+
+        // Derive client-facing status from payment + order state.
+        // A cancelled order has payment.status = FAILED (set by cancelBuyOrder) and
+        // order.status = cancelled. Distinguish it from a genuine payment failure so
+        // the frontend can show the correct message to the user.
+        let status: string;
+        if (payment.status === TransactionStatus.SUCCESS) {
+            status = "completed";
+        } else if (payment.status === TransactionStatus.APPROVED) {
+            status = "processing";
+        } else if (payment.status === TransactionStatus.FAILED) {
+            status = order?.status === OrderStatus.cancelled ? "cancelled" : "failed";
+        } else {
+            status = "pending";
+        }
 
         return buildResponse({
             message: "Buy order status retrieved",
@@ -956,6 +965,9 @@ export class BuyOrderService {
                 enablePush: true,
             });
         }
+
+        // Best-effort: free the Nomba sandbox VA slot (no-op on production errors)
+        void this.nombaService.deleteVirtualAccount(payment.reference).catch(() => {});
 
         this.logger.log(
             `Buy order cancelled by user ${userId} | Payment ref: ${reference}`
@@ -1214,6 +1226,9 @@ export class BuyOrderService {
                     });
                 }
 
+                // Best-effort: free the Nomba VA slot
+                void this.nombaService.deleteVirtualAccount(payment.reference).catch(() => {});
+
                 this.logger.log(
                     `Cancelled expired buy order | Payment: ${payment.id} | Ref: ${payment.reference}`
                 );
@@ -1346,6 +1361,9 @@ export class BuyOrderService {
                         senderBankName: payment.senderBankName,
                     },
                 );
+
+                // Best-effort: free the Nomba VA slot
+                void this.nombaService.deleteVirtualAccount(payment.reference).catch(() => {});
 
                 this.logger.log(
                     `Cancelled underpaid buy order | Payment: ${payment.id} | Ref: ${payment.reference} | Received: ₦${Number(payment.receivedAmount)} of ₦${Number(payment.totalAmount)}`,

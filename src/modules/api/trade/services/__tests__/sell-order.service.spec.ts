@@ -290,6 +290,111 @@ describe("SellOrderService", () => {
 
             expect(ledgerService.releaseHold).toHaveBeenCalled();
         });
+
+        // ── WebSocket state emission ──────────────────────────────
+
+        it("emits processing status via WebSocket immediately after order creation", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 5,
+                transactionId: "TX-WS-PROC",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.findUnique.mockResolvedValue({ ...createdOrder, status: "completed" });
+
+            const wsGateway = service["wsGateway"] as any;
+
+            await service.sellCryptoOrder(mockUser, dto);
+
+            expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalledWith(
+                mockUser.id,
+                expect.objectContaining({
+                    type: "transaction_update",
+                    transaction: expect.objectContaining({
+                        transactionId: "TX-WS-PROC",
+                        streamlinedStatus: "processing",
+                        status: "processing",
+                    }),
+                }),
+            );
+        });
+
+        it("emits failed status via WebSocket when payout initiation fails", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 6,
+                transactionId: "TX-WS-FAIL",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.update.mockResolvedValue({
+                ...createdOrder,
+                status: "failed",
+                streamlinedStatus: "failed",
+            });
+
+            // Payout handler throws
+            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
+            withdrawalHandler.handle.mockRejectedValueOnce(new Error("Nomba unavailable"));
+
+            // Refund succeeds so we get to the WebSocket emit
+            ledgerService.pairedCredit.mockResolvedValue({ success: true, userEntry: { id: 88 } });
+
+            const wsGateway = service["wsGateway"] as any;
+
+            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+
+            // First call = processing, second call = failed
+            const calls = wsGateway.notifyTransactionUpdate.mock.calls;
+            const failedCall = calls.find(
+                ([_uid, payload]: [number, any]) =>
+                    payload?.transaction?.streamlinedStatus === "failed",
+            );
+            expect(failedCall).toBeDefined();
+            expect(failedCall[0]).toBe(mockUser.id);
+            expect(failedCall[1].transaction.status).toBe("failed");
+            expect(failedCall[1].transaction.transactionId).toBe("TX-WS-FAIL");
+        });
+
+        it("does not emit failed WebSocket when sell order succeeds end-to-end", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 7,
+                transactionId: "TX-WS-OK",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.findUnique.mockResolvedValue({ ...createdOrder, status: "completed" });
+
+            const wsGateway = service["wsGateway"] as any;
+
+            await service.sellCryptoOrder(mockUser, dto);
+
+            const failedEmit = wsGateway.notifyTransactionUpdate.mock.calls.find(
+                ([_uid, payload]: [number, any]) =>
+                    payload?.transaction?.streamlinedStatus === "failed",
+            );
+            expect(failedEmit).toBeUndefined();
+        });
     });
 
     // ── executeInternalSell ──────────────────────────────────

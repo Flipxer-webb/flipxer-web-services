@@ -31,7 +31,7 @@ import {
 } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 import {
     GetUserTransactionListDto,

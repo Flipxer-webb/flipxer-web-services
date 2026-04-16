@@ -13,7 +13,7 @@ import { Request } from "express";
 import {
     AccountDeletedException,
     UserNotFoundException,
-} from "@/modules/api/user";
+} from "@/modules/api/user/errors";
 import {
     AuthTokenValidationException,
     InvalidAuthTokenException,

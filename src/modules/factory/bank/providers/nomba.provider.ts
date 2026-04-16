@@ -174,6 +174,32 @@ export class NombaBank implements TNomba.INombaBank {
     }
 
     /**
+     * Delete a virtual account by its accountRef (= payment reference).
+     * Best-effort: logs errors but does not throw.
+     * Returns true if deleted, false if already gone or on error.
+     */
+    async deleteVirtualAccount(accountRef: string): Promise<boolean> {
+        try {
+            logger.info(
+                { accountRef },
+                "****DELETE VIRTUAL ACCOUNT REQUEST****** NOMBA"
+            );
+            const deleted = await this.nomba.deleteVirtualAccount(accountRef);
+            logger.info(
+                { accountRef, deleted },
+                "****DELETE VIRTUAL ACCOUNT RESPONSE****** NOMBA"
+            );
+            return deleted;
+        } catch (error) {
+            logger.error(
+                { accountRef, error },
+                "****DELETE VIRTUAL ACCOUNT ERROR****** NOMBA"
+            );
+            return false;
+        }
+    }
+
+    /**
      * Initialize payment using Nomba Checkout (hosted redirect flow).
      * Returns a checkout link for the user to complete payment.
      *
@@ -281,6 +307,10 @@ export class NombaBank implements TNomba.INombaBank {
      * Initialize payment via a dynamic virtual account (no hosted checkout redirect).
      * Creates a temporary Nomba virtual account with an expiry.
      * Returns account details for the user to transfer to directly.
+     *
+     * Sandbox fallback: When the Nomba sandbox VA quota is exhausted (lifetime cap),
+     * reuses an existing VA by updating its expiry via PUT and fetching fresh details.
+     * Controlled by the NOMBA_SANDBOX_FALLBACK_VA_REF env var.
      */
     async initializePaymentViaVirtualAccount(
         user: NombaUserRecord,
@@ -305,14 +335,44 @@ export class NombaBank implements TNomba.INombaBank {
                 "****INITIALIZE VA PAYMENT REQUEST****** NOMBA"
             );
 
-            const result = await this.nomba.createVirtualAccount({
-                accountRef: reference,
-                accountName:
-                    `${user.firstName} ${user.lastName}`.trim() ||
-                    "Flipxer User",
-                currency: "NGN",
-                expiryDate,
-            });
+            let result;
+            try {
+                result = await this.nomba.createVirtualAccount({
+                    accountRef: reference,
+                    accountName:
+                        `${user.firstName} ${user.lastName}`.trim() ||
+                        "Flipxer User",
+                    currency: "NGN",
+                    expiryDate,
+                });
+            } catch (createError) {
+                const errMsg = createError instanceof Error ? createError.message : String(createError);
+                const fallbackRef = process.env.NOMBA_SANDBOX_FALLBACK_VA_REF;
+
+                if (
+                    this.nomba.isSandbox &&
+                    fallbackRef &&
+                    errMsg.toLowerCase().includes("sandbox virtual accounts")
+                ) {
+                    logger.warn(
+                        { fallbackRef, reference, originalError: errMsg },
+                        "****SANDBOX VA QUOTA HIT — REUSING EXISTING VA****** NOMBA"
+                    );
+
+                    // Update the surviving VA's expiry
+                    await this.nomba.updateVirtualAccount(fallbackRef, {
+                        accountName:
+                            `${user.firstName} ${user.lastName}`.trim() ||
+                            "Flipxer User",
+                        expiryDate,
+                    });
+
+                    // Fetch updated VA details (bankAccountNumber, bankName, etc.)
+                    result = await this.nomba.getVirtualAccount(fallbackRef);
+                } else {
+                    throw createError;
+                }
+            }
 
             logger.info(
                 { result: JSON.stringify(result) },

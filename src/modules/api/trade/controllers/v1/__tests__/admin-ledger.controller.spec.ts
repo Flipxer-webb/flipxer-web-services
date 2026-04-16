@@ -24,6 +24,7 @@ jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
 
 jest.mock("@/modules/api/user/decorators", () => ({
     User: () => () => undefined,
+    ClientData: () => () => undefined,
     __esModule: true,
 }));
 
