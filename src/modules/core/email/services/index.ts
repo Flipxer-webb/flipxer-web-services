@@ -21,7 +21,12 @@ export class EmailService {
     ): Promise<any> {
         this.logger.log(`Sending email to: ${JSON.stringify(options.to)}, template: ${options.template_key}`);
         try {
-            const result = await this.client.sendMailWithTemplate(options);
+            // Remap template_key → mail_template_key for ZeptoMail API compatibility
+            const { template_key, ...rest } = options;
+            const mapped = template_key
+                ? { ...rest, mail_template_key: template_key }
+                : rest;
+            const result = await this.client.sendMailWithTemplate(mapped as any);
             this.logger.log(`Email sent successfully: ${JSON.stringify(result)}`);
             return result;
         } catch (error) {
@@ -31,6 +36,11 @@ export class EmailService {
     }
 
     async sendBatchMail(options: MailBatchWithTemplateOptions): Promise<any> {
-        return await this.client.mailBatchWithTemplate(options);
+        // Remap template_key → mail_template_key for ZeptoMail API compatibility
+        const { template_key, ...rest } = options;
+        const mapped = template_key
+            ? { ...rest, mail_template_key: template_key }
+            : rest;
+        return await this.client.mailBatchWithTemplate(mapped as any);
     }
 }

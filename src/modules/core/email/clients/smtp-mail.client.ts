@@ -46,7 +46,9 @@ export class SmtpMailClient implements ISendMailClient {
     async sendMailWithTemplate(
         options: SendMailWithTemplateOptions
     ): Promise<unknown> {
-        const templateKey = options.template_key?.trim();
+        const templateKey =
+            (options as any).mail_template_key?.trim() ??
+            options.template_key?.trim();
         const templateName = this.resolveTemplateName(options);
         const templateDisplayName = this.humanizeTemplateName(templateName);
         const mergeInfo = this.mergeRecipientData(
@@ -290,7 +292,9 @@ export class SmtpMailClient implements ISendMailClient {
             return templateAlias;
         }
 
-        const templateKey = options.template_key?.trim();
+        const templateKey =
+            (options as any).mail_template_key?.trim() ??
+            options.template_key?.trim();
         const configuredAlias = this.resolveConfiguredTemplateAlias(templateKey);
 
         return configuredAlias || templateKey || "local-template";
