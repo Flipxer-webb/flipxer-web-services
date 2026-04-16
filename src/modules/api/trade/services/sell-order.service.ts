@@ -8,6 +8,7 @@ import {
     LedgerType,
     OrderCategory,
     OrderStatus,
+    TransactionStatus,
     User,
 } from "@prisma/client";
 import {
@@ -370,15 +371,14 @@ export class SellOrderService {
             // Trigger fiat payout handler since virtual balance is already debited
             this.logger.log(`[Omnibus] Sell Order ${order.id} ledger debit complete - triggering fiat payout | Reference: ${reference}`);
 
-            // CRITICAL FIX: Await payout to ensure we know if it succeeded before returning success
-            // Previously: Fire-and-forget could return "success" even if payout failed
+            // Wait for payout initiation so synchronous Nomba failures still roll back immediately.
+            // Final SELL completion now happens only after Nomba transfer webhooks confirm success.
             try {
-                await this.withdrawalWebhookHandler.handle({
-                    orderReference: reference,
-                    status: OrderStatus.done,
-                });
+                await this.withdrawalWebhookHandler.initiateFiatPayout(order);
 
-                this.logger.log(`[Omnibus] Sell Order ${order.id} payout initiated successfully`);
+                this.logger.log(
+                    `[Omnibus] Sell Order ${order.id} payout initiated successfully - awaiting Nomba confirmation webhook`
+                );
 
                 // Re-fetch order from DB to return the latest status after payout processing
                 const freshOrder = await this.prisma.order.findUnique({
@@ -441,6 +441,7 @@ export class SellOrderService {
                     data: {
                         status: OrderStatus.failed,
                         streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
+                        paymentStatus: TransactionStatus.FAILED,
                         transaction_note: `Payout initiation failed: ${payoutError.message}`,
                     },
                 });

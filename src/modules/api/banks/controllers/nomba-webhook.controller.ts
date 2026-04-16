@@ -2,11 +2,19 @@ import { Controller, Post, Get, Body, Headers, HttpCode, Logger, UnauthorizedExc
 import { NombaWebhookEventType } from "../dtos/nomba-webhook.dto";
 import { NormalizedPaymentEvent } from "../types/payment-event.interface";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { TransactionStatus, OrderCategory, OrderStatus } from "@prisma/client";
+import {
+    TransactionStatus,
+    OrderCategory,
+    OrderStatus,
+    OrderStreamlinedStatus,
+} from "@prisma/client";
 import * as Config from "@/config";
 import * as crypto from "node:crypto";
 import { BuyOrderService } from "../../trade/services/buy-order.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
+import { WithdrawalWebhookHandler } from "../../trade/services/webhook-handlers/withdrawal-webhook.handler";
+import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
+import { WsGateway } from "../../trade/gateway/v1";
 
 @Controller("webhooks")
 export class NombaWebhookController {
@@ -16,6 +24,9 @@ export class NombaWebhookController {
         private readonly prisma: PrismaService,
         private readonly buyOrderService: BuyOrderService,
         private readonly slackWebhookService: SlackWebhookService,
+        private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly wsGateway: WsGateway,
     ) { }
 
     /**
@@ -385,6 +396,84 @@ export class NombaWebhookController {
                     ...(event.providerReference ? { externalReference: event.providerReference } : {}),
                 },
             });
+
+            if (!payment.orderId) {
+                return;
+            }
+
+            const order = await this.prisma.order.findUnique({
+                where: { id: payment.orderId },
+                select: {
+                    id: true,
+                    orderCategory: true,
+                    status: true,
+                    transactionId: true,
+                    amount: true,
+                    currency: true,
+                    totalToReceiveInFiat: true,
+                    destinationBankName: true,
+                    destinationBankAccountNumber: true,
+                    user: { select: { id: true, email: true } },
+                },
+            });
+
+            if (order?.orderCategory !== OrderCategory.SELL) {
+                return;
+            }
+
+            if (order.status !== OrderStatus.processing) {
+                this.logger.warn(
+                    `Ignoring payout success for SELL order ${order.id} with status ${order.status}`
+                );
+                return;
+            }
+
+            const completedOrder = await this.prisma.order.update({
+                where: { id: order.id },
+                data: {
+                    status: OrderStatus.done,
+                    streamlinedStatus: OrderStreamlinedStatus.completed,
+                    paymentStatus: TransactionStatus.SUCCESS,
+                    fulfilled: true,
+                    reason: null,
+                },
+            });
+
+            this.emitSellOrderUpdate(order.user.id, completedOrder);
+            this.wsGateway.notifyWalletUpdate(order.user.id);
+
+            const payoutDestination = this.formatPayoutDestination(
+                order.destinationBankName,
+                order.destinationBankAccountNumber,
+            );
+
+            await this.notificationDispatcher.notify({
+                userId: order.user.id,
+                title: "Sell order completed",
+                body:
+                    `Your sell order of ${order.amount} ${order.currency.toUpperCase()} has been completed. ` +
+                    `₦${order.totalToReceiveInFiat} was sent to ${payoutDestination}. ` +
+                    `Transaction ID: ${order.transactionId}.`,
+                category: "transaction",
+                currency: order.currency,
+                transactionType: OrderCategory.SELL,
+                enableEmail: true,
+                emailPayload: {
+                    email: order.user.email,
+                    transactionType: "sell",
+                    transactionId: order.transactionId,
+                    amount: String(order.amount),
+                    currency: order.currency.toUpperCase(),
+                    status: "completed",
+                    date: new Date().toISOString(),
+                    fiatAmount: String(order.totalToReceiveInFiat || ""),
+                    bankName: order.destinationBankName || "",
+                    accountNumber: order.destinationBankAccountNumber || "",
+                },
+                enablePush: true,
+            });
+
+            this.logger.log(`SELL order ${order.id} marked done after Nomba payout success`);
         }
     }
 
@@ -426,6 +515,8 @@ export class NombaWebhookController {
                     orderCategory: true,
                     status: true,
                     transactionId: true,
+                    amount: true,
+                    currency: true,
                     totalToReceiveInFiat: true,
                     destinationBankName: true,
                     destinationBankAccountNumber: true,
@@ -433,31 +524,111 @@ export class NombaWebhookController {
                 },
             });
 
-            if (order?.orderCategory === OrderCategory.SELL && order.status === OrderStatus.done) {
-                await this.prisma.order.update({
-                    where: { id: order.id },
-                    data: { paymentStatus: TransactionStatus.FAILED },
-                });
-
-                this.logger.error(
-                    `SELL order ${order.id} payout failed. User ${order.user.id} owed ₦${order.totalToReceiveInFiat}`,
-                );
-
-                await this.slackWebhookService.sendWebhookFailureAlert(
-                    'nomba',
-                    reference,
-                    `SELL order #${order.transactionId} payout FAILED after completion. ` +
-                    `User owed ₦${order.totalToReceiveInFiat}. ` +
-                    `Bank: ${order.destinationBankName} / ${order.destinationBankAccountNumber}. ` +
-                    `Manual retry required.`,
-                    {
-                        orderId: order.id,
-                        userId: order.user.id,
-                        email: order.user.email,
-                        amount: order.totalToReceiveInFiat,
-                    },
-                );
+            if (order?.orderCategory !== OrderCategory.SELL) {
+                continue;
             }
+
+            if (order.status !== OrderStatus.processing) {
+                this.logger.warn(
+                    `Ignoring payout failure for SELL order ${order.id} with status ${order.status}`
+                );
+                continue;
+            }
+
+            const failedOrder = await this.prisma.order.update({
+                where: { id: order.id },
+                data: {
+                    status: OrderStatus.failed,
+                    streamlinedStatus: OrderStreamlinedStatus.failed,
+                    paymentStatus: TransactionStatus.FAILED,
+                    fulfilled: false,
+                    reason: `Nomba payout failed for reference: ${reference}`,
+                },
+            });
+
+            this.emitSellOrderUpdate(order.user.id, failedOrder);
+            await this.withdrawalWebhookHandler.refundSellOrderByOrderId(order.id);
+
+            await this.notificationDispatcher.notify({
+                userId: order.user.id,
+                title: "Sell order failed",
+                body:
+                    `Your sell order of ${order.amount} ${order.currency.toUpperCase()} could not be completed. ` +
+                    `A refund has been initiated. Transaction ID: ${order.transactionId}.`,
+                category: "transaction",
+                currency: order.currency,
+                transactionType: OrderCategory.SELL,
+                enableEmail: true,
+                emailPayload: {
+                    email: order.user.email,
+                    transactionType: "sell",
+                    transactionId: order.transactionId,
+                    amount: String(order.amount),
+                    currency: order.currency.toUpperCase(),
+                    status: "failed",
+                    date: new Date().toISOString(),
+                },
+                enablePush: true,
+            });
+
+            this.logger.error(
+                `SELL order ${order.id} marked failed after Nomba payout failure. Refund initiated.`,
+            );
+
+            await this.slackWebhookService.sendWebhookFailureAlert(
+                'nomba',
+                reference,
+                `SELL order #${order.transactionId} payout FAILED. ` +
+                `Order marked failed and refund initiated. ` +
+                `User owed ₦${order.totalToReceiveInFiat}. ` +
+                `Bank: ${order.destinationBankName} / ${order.destinationBankAccountNumber}.`,
+                {
+                    orderId: order.id,
+                    userId: order.user.id,
+                    email: order.user.email,
+                    amount: order.totalToReceiveInFiat,
+                },
+            );
         }
+    }
+
+    private emitSellOrderUpdate(userId: number, order: {
+        id: number;
+        transactionId: string;
+        status: OrderStatus;
+        streamlinedStatus: OrderStreamlinedStatus;
+        orderCategory: OrderCategory;
+        amount: number;
+        currency: string;
+        createdAt: Date;
+        updatedAt: Date;
+    }) {
+        this.wsGateway.notifyTransactionUpdate(userId, {
+            type: "transaction_update",
+            transaction: {
+                id: order.id,
+                transactionId: order.transactionId,
+                status: order.status,
+                streamlinedStatus: order.streamlinedStatus,
+                orderCategory: order.orderCategory,
+                amount: order.amount,
+                currency: order.currency,
+                createdAt: order.createdAt,
+                updatedAt: order.updatedAt,
+            },
+        });
+    }
+
+    private formatPayoutDestination(
+        bankName?: string | null,
+        bankAccountNumber?: string | null,
+    ): string {
+        const bankLabel = bankName || "your bank";
+
+        if (!bankAccountNumber) {
+            return bankLabel;
+        }
+
+        return `${bankLabel} (${bankAccountNumber})`;
     }
 }
