@@ -27,7 +27,6 @@ jest.mock("@/modules/api/auth/utils/backup-codes.util", () => ({
     generateBackupCodes: jest.fn().mockReturnValue(["CODE1", "CODE2"]),
     hashBackupCodes: jest.fn().mockResolvedValue(["hashed1", "hashed2"]),
     verifyBackupCode: jest.fn(),
-    removeUsedBackupCode: jest.fn(),
 }));
 
 jest.mock("@/utils", () => ({
@@ -57,7 +56,7 @@ import { EmailService } from "@/modules/core/email/services";
 import * as ipaddr from "ipaddr.js";
 import { authenticator } from "otplib";
 import * as bcrypt from "bcryptjs";
-import { verifyBackupCode, removeUsedBackupCode } from "@/modules/api/auth/utils/backup-codes.util";
+import { verifyBackupCode } from "@/modules/api/auth/utils/backup-codes.util";
 
 function makePrisma() {
     return {
@@ -83,6 +82,15 @@ function makePrisma() {
             findUnique: jest.fn(),
             update: jest.fn(),
         },
+        twoFactorBackupCode: {
+            findMany: jest.fn(),
+            count: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+            deleteMany: jest.fn(),
+            aggregate: jest.fn(),
+        },
+        $transaction: jest.fn().mockImplementation((ops) => Promise.resolve(ops)),
     };
 }
 
@@ -366,8 +374,8 @@ describe("SettingService", () => {
         it("should verify and enable 2FA for the first time", async () => {
             prisma.user.findUnique
                 .mockResolvedValueOnce({ twoFactorSecret: "encrypted", isTwoFactorEnabled: false })
-                .mockResolvedValueOnce({ securityMethods: {} })
-                .mockResolvedValueOnce({ twoFactorBackupCodes: '["a","b"]' });
+                .mockResolvedValueOnce({ securityMethods: {} });
+            prisma.twoFactorBackupCode.count.mockResolvedValue(2);
             (authenticator.verify as jest.Mock).mockReturnValue(true);
             prisma.user.update.mockResolvedValue({});
 
@@ -472,35 +480,43 @@ describe("SettingService", () => {
             expect(result).toBe(false);
         });
 
-        it("should verify and remove used backup code", async () => {
+        it("should verify and mark used backup code", async () => {
             prisma.user.findUnique.mockResolvedValue({
                 isTwoFactorEnabled: true,
-                twoFactorBackupCodes: '["hash1","hash2"]',
             });
+            prisma.twoFactorBackupCode.findMany.mockResolvedValue([
+                { id: 1, codeHash: "hash1", usedAt: null },
+                { id: 2, codeHash: "hash2", usedAt: null },
+            ]);
             (verifyBackupCode as jest.Mock).mockResolvedValue(0);
-            (removeUsedBackupCode as jest.Mock).mockReturnValue(["hash2"]);
-            prisma.user.update.mockResolvedValue({});
+            prisma.twoFactorBackupCode.update.mockResolvedValue({});
 
             const result = await service.verifyBackupCode(1, "CODE1");
             expect(result).toBe(true);
+            expect(prisma.twoFactorBackupCode.update).toHaveBeenCalledWith({
+                where: { id: 1 },
+                data: { usedAt: expect.any(Date) },
+            });
         });
 
         it("should return false if code not found", async () => {
             prisma.user.findUnique.mockResolvedValue({
                 isTwoFactorEnabled: true,
-                twoFactorBackupCodes: '["hash1"]',
             });
+            prisma.twoFactorBackupCode.findMany.mockResolvedValue([
+                { id: 1, codeHash: "hash1", usedAt: null },
+            ]);
             (verifyBackupCode as jest.Mock).mockResolvedValue(-1);
 
             const result = await service.verifyBackupCode(1, "WRONG");
             expect(result).toBe(false);
         });
 
-        it("should return false on error", async () => {
+        it("should return false if no backup codes exist", async () => {
             prisma.user.findUnique.mockResolvedValue({
                 isTwoFactorEnabled: true,
-                twoFactorBackupCodes: "invalid-json",
             });
+            prisma.twoFactorBackupCode.findMany.mockResolvedValue([]);
 
             const result = await service.verifyBackupCode(1, "CODE");
             expect(result).toBe(false);
@@ -536,13 +552,15 @@ describe("SettingService", () => {
             prisma.user.findUnique.mockResolvedValue({
                 securityMethods: { sms: true, email: false, authenticator: false, tradingPassword: false, biometric: false },
                 requiredMethodCount: 1,
-                twoFactorBackupCodes: '["a"]',
-                backupCodesGeneratedAt: new Date(),
                 isTwoFactorEnabled: false,
                 isPhoneVerified: true,
                 isEmailVerified: true,
                 tradingPassword: null,
                 tier: 1,
+            });
+            prisma.twoFactorBackupCode.aggregate.mockResolvedValue({
+                _count: 1,
+                _max: { createdAt: new Date() },
             });
 
             const result = await service.getSecurityPreferences(mockUser);
@@ -624,11 +642,11 @@ describe("SettingService", () => {
                 password: "hashed",
                 tradingPassword: null,
                 securityMethods: {},
-                twoFactorBackupCodes: null,
             });
             (bcrypt.compare as jest.Mock)
                 .mockResolvedValueOnce(true)
                 .mockResolvedValueOnce(false);
+            prisma.twoFactorBackupCode.count.mockResolvedValue(0);
             prisma.user.update.mockResolvedValue({});
 
             const result = await service.setTradingPassword(mockUser, { tradingPassword: "newtp", accountPassword: "pw" });

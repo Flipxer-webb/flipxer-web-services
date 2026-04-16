@@ -95,7 +95,14 @@ export class NombaWebhookController {
     private normalizePayload(body: any): NormalizedPaymentEvent {
         // Nomba sends event type in 'event_type' (new) or 'event' (old)
         const eventTypeRaw = body.event_type || body.event;
-        const data = body.data || {};
+        const outerData = body.data || {};
+
+        // Nomba payout webhooks use a double-nested structure:
+        //   { event_type, data: { event_type, data: { merchant, transaction, customer } } }
+        // Detect this and unwrap so field extraction always works.
+        const data = (outerData.data && (outerData.data.transaction || outerData.data.merchant))
+            ? outerData.data
+            : outerData;
 
         // Handle nested structures strictly here
         const transaction = data.transaction || {};

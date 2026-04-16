@@ -175,6 +175,44 @@ function transferFailed(merchantTxRef: string) {
     };
 }
 
+/** Build a double-nested payout_success webhook body (real Nomba sandbox format). */
+function payoutSuccessDoubleNested(merchantTxRef: string, amount = 1449) {
+    return {
+        event_type: 'payout_success',
+        requestId: 'b1bc6551-b41d-4b18-8c6a-9951bc01d149',
+        data: {
+            event_type: 'payout_success',
+            requestId: 'c7a5b6d7-d498-4888-b974-8519e10ac0be',
+            data: {
+                merchant: {
+                    userId: 'c7a5b6d7-d498-4888-b974-8519e10ac0be',
+                    walletId: '6752c1a888888hhhh55bced9f',
+                    walletBalance: 4039647.16,
+                },
+                terminal: { terminalId: '', terminalLabel: '' },
+                transaction: {
+                    transactionId: 'API-TRANSFER-028706ba-0e2e-4da0-8678-e835a8b8c293',
+                    type: 'transfer',
+                    originatingFrom: 'api',
+                    rrn: '251018131900',
+                    sessionId: '260325515668563586728',
+                    transactionAmount: amount,
+                    fee: 50,
+                    time: '2026-04-16T06:31:22.921658551',
+                    merchantTxRef,
+                    narration: 'Wallet withdrawal',
+                },
+                customer: {
+                    accountNumber: '7061797925',
+                    bankName: 'Paycom (Opay)',
+                    senderName: 'Resolve',
+                    recipientName: 'OLUKOLADE ABISOYE AKINYEYE',
+                },
+            },
+        },
+    };
+}
+
 /** Build a payment_success webhook with transaction.accountRef (the shape that was failing in prod). */
 function paymentSuccessViaTransaction(accountRef: string, amount = 1500) {
     return {
@@ -690,6 +728,35 @@ describe('NombaWebhookController', () => {
 
             expect(result).toEqual({ success: true, message: 'Webhook processed' });
             expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+        });
+
+        it('should unwrap double-nested payout_success and complete SELL order', async () => {
+            const ref = 'sell-double-nested-ref';
+            const processingOrder = makeSellOrder();
+            const completedOrder = makeSellOrder({
+                status: OrderStatus.done,
+                streamlinedStatus: OrderStreamlinedStatus.completed,
+                paymentStatus: TransactionStatus.SUCCESS,
+                fulfilled: true,
+                reason: null,
+            });
+            prisma.payment.findFirst.mockResolvedValue({ id: 80, orderId: processingOrder.id, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 80, orderId: processingOrder.id, reference: ref });
+            prisma.order.findUnique.mockResolvedValue(processingOrder);
+            prisma.order.update.mockResolvedValue(completedOrder);
+
+            await controller.handleWebhook(payoutSuccessDoubleNested(ref, 1449), sigHeaders);
+
+            expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
+            expect(prisma.order.update).toHaveBeenCalledWith({
+                where: { id: processingOrder.id },
+                data: expect.objectContaining({
+                    status: OrderStatus.done,
+                    streamlinedStatus: OrderStreamlinedStatus.completed,
+                    paymentStatus: TransactionStatus.SUCCESS,
+                    fulfilled: true,
+                }),
+            });
         });
 
         it('should complete a processing SELL payout on transfer.successful', async () => {

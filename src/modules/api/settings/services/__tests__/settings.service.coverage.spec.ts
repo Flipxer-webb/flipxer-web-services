@@ -5,7 +5,6 @@ import {
     generateBackupCodes,
     hashBackupCodes,
     verifyBackupCode,
-    removeUsedBackupCode,
 } from "@/modules/api/auth/utils/backup-codes.util";
 import { SettingService } from "../index";
 
@@ -24,7 +23,6 @@ jest.mock("@/modules/api/auth/utils/backup-codes.util", () => ({
     generateBackupCodes: jest.fn().mockReturnValue(["CODE-1", "CODE-2"]),
     hashBackupCodes: jest.fn().mockResolvedValue(["HASH-1", "HASH-2"]),
     verifyBackupCode: jest.fn(),
-    removeUsedBackupCode: jest.fn().mockReturnValue(["HASH-2"]),
 }));
 
 jest.mock("@/utils", () => ({
@@ -38,6 +36,15 @@ function makePrisma() {
             findUnique: jest.fn(),
             update: jest.fn(),
         },
+        twoFactorBackupCode: {
+            findMany: jest.fn(),
+            count: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+            deleteMany: jest.fn(),
+            aggregate: jest.fn(),
+        },
+        $transaction: jest.fn().mockImplementation((ops) => Promise.resolve(ops)),
         $executeRaw: jest.fn(),
         $queryRaw: jest.fn(),
     };
@@ -72,26 +79,18 @@ describe("SettingService coverage wave", () => {
     });
 
     it("generates and persists new backup codes", async () => {
-        prisma.user.update.mockResolvedValue({});
-
         const result = await service.generateNewBackupCodes(mockUser);
 
         expect(generateBackupCodes).toHaveBeenCalledWith(5);
         expect(hashBackupCodes).toHaveBeenCalledWith(["CODE-1", "CODE-2"]);
-        expect(prisma.user.update).toHaveBeenCalledWith({
-            where: { id: mockUser.id },
-            data: {
-                twoFactorBackupCodes: JSON.stringify(["HASH-1", "HASH-2"]),
-                backupCodesGeneratedAt: expect.any(Date),
-            },
-        });
+        expect(prisma.$transaction).toHaveBeenCalled();
         expect(result.message).toContain("New backup codes generated successfully");
     });
 
     it("returns backup code count", async () => {
-        prisma.user.findUnique.mockResolvedValue({
-            twoFactorBackupCodes: JSON.stringify(["A", "B", "C"]),
-            backupCodesGeneratedAt: new Date("2026-01-01T00:00:00.000Z"),
+        prisma.twoFactorBackupCode.aggregate.mockResolvedValue({
+            _count: 3,
+            _max: { createdAt: new Date("2026-01-01T00:00:00.000Z") },
         });
 
         const result = await service.getBackupCodesCount(mockUser);
@@ -283,26 +282,33 @@ describe("SettingService coverage wave", () => {
     it("verifyBackupCode returns false for invalid states and true for successful use", async () => {
         prisma.user.findUnique.mockResolvedValueOnce({
             isTwoFactorEnabled: false,
-            twoFactorBackupCodes: null,
         });
         expect(await service.verifyBackupCode(mockUser.id, "CODE-1")).toBe(false);
 
         prisma.user.findUnique.mockResolvedValueOnce({
             isTwoFactorEnabled: true,
-            twoFactorBackupCodes: JSON.stringify(["HASH-1", "HASH-2"]),
         });
+        prisma.twoFactorBackupCode.findMany.mockResolvedValueOnce([
+            { id: 1, codeHash: "HASH-1", usedAt: null },
+            { id: 2, codeHash: "HASH-2", usedAt: null },
+        ]);
         (verifyBackupCode as jest.Mock).mockResolvedValueOnce(-1);
         expect(await service.verifyBackupCode(mockUser.id, "BAD")).toBe(false);
 
         prisma.user.findUnique.mockResolvedValueOnce({
             isTwoFactorEnabled: true,
-            twoFactorBackupCodes: JSON.stringify(["HASH-1", "HASH-2"]),
         });
+        prisma.twoFactorBackupCode.findMany.mockResolvedValueOnce([
+            { id: 1, codeHash: "HASH-1", usedAt: null },
+            { id: 2, codeHash: "HASH-2", usedAt: null },
+        ]);
         (verifyBackupCode as jest.Mock).mockResolvedValueOnce(0);
-        (removeUsedBackupCode as jest.Mock).mockReturnValueOnce(["HASH-2"]);
-        prisma.user.update.mockResolvedValue({});
+        prisma.twoFactorBackupCode.update.mockResolvedValue({});
 
         expect(await service.verifyBackupCode(mockUser.id, "CODE-1")).toBe(true);
-        expect(prisma.user.update).toHaveBeenCalled();
+        expect(prisma.twoFactorBackupCode.update).toHaveBeenCalledWith({
+            where: { id: 1 },
+            data: { usedAt: expect.any(Date) },
+        });
     });
 });
