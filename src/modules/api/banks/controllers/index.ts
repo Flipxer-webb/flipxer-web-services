@@ -27,7 +27,7 @@ import {
     VerifyBankAccountDto,
 } from "../dtos";
 import { ApiResponse } from "@/utils";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 
 @ApiTags("Bank")

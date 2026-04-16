@@ -50,13 +50,13 @@ describe("SettingService coverage wave", () => {
     let prisma: ReturnType<typeof makePrisma>;
     let service: SettingService;
     let smsService: { sendVerificationCode: jest.Mock };
-    let emailService: { sendMail: jest.Mock };
+    let emailService: { sendMail: jest.Mock; sendMailWithTemplate: jest.Mock };
     let jwtService: Pick<JwtService, "signAsync">;
 
     beforeEach(() => {
         prisma = makePrisma();
         smsService = { sendVerificationCode: jest.fn() };
-        emailService = { sendMail: jest.fn() };
+        emailService = { sendMail: jest.fn(), sendMailWithTemplate: jest.fn() };
         jwtService = { signAsync: jest.fn().mockResolvedValue("verification-token") };
 
         service = new SettingService(
@@ -76,7 +76,7 @@ describe("SettingService coverage wave", () => {
 
         const result = await service.generateNewBackupCodes(mockUser);
 
-        expect(generateBackupCodes).toHaveBeenCalledWith(10);
+        expect(generateBackupCodes).toHaveBeenCalledWith(5);
         expect(hashBackupCodes).toHaveBeenCalledWith(["CODE-1", "CODE-2"]);
         expect(prisma.user.update).toHaveBeenCalledWith({
             where: { id: mockUser.id },
@@ -252,7 +252,7 @@ describe("SettingService coverage wave", () => {
 
         const emailResult = await service.sendTransactionOtp(mockUser, "email");
         expect(emailResult.data.method).toBe("email");
-        expect(emailService.sendMail).toHaveBeenCalled();
+        expect(emailService.sendMailWithTemplate).toHaveBeenCalled();
     });
 
     it("getTransactionSecurityRequirements computes tier thresholds", async () => {

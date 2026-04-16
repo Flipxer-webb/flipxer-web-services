@@ -17,7 +17,7 @@ import {
     ApiBearerAuth,
 } from "@nestjs/swagger";
 import { AuthGuard, CountryBlockGuard } from "@/modules/api/auth/guard";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 import {
     GeneralReportDownloadDto,

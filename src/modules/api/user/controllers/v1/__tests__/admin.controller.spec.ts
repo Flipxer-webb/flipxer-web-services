@@ -11,8 +11,32 @@ jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
     __esModule: true,
 }));
 
+jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
+    PermissionGuard: class { isStub() { return true; } },
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/authorize/decorator", () => ({
+    UserTypes: () => () => undefined,
+    ADMIN_USER_TYPES: ["SUPER_ADMIN"],
+    Permissions: () => () => undefined,
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/authorize/enums/role", () => ({
+    PermissionName: {},
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/user/decorators", () => ({
+    User: () => () => undefined,
+    ClientData: () => () => undefined,
+    __esModule: true,
+}));
+
 import { AdminUserController } from "../admin";
 import { AdminUserService } from "../../../services/admin";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 describe("AdminUserController", () => {
     let controller: AdminUserController;
@@ -40,7 +64,10 @@ describe("AdminUserController", () => {
 
         const module: TestingModule = await Test.createTestingModule({
             controllers: [AdminUserController],
-            providers: [{ provide: AdminUserService, useValue: adminService }],
+            providers: [
+                { provide: AdminUserService, useValue: adminService },
+                { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+            ],
         }).compile();
 
         controller = module.get(AdminUserController);

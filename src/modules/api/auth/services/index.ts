@@ -32,7 +32,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
 import { generateFileName, generateId, generateRandomNum, decryptField } from "@/utils";
 import { customAlphabet } from "nanoid";
-import { DuplicateUserException } from "../../user";
+import { DuplicateUserException } from "@/modules/api/user/errors";
 import {
     UserNotFoundException,
     InvalidCredentialException,

@@ -35,6 +35,7 @@ jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
 
 jest.mock("@/modules/api/authorize/decorator", () => ({
     UserTypes: () => () => undefined,
+    Permissions: () => () => undefined,
     ADMIN_USER_TYPES: ["SUPER_ADMIN"],
     __esModule: true,
 }));
@@ -50,6 +51,7 @@ jest.mock("@/modules/api/user", () => ({
     __esModule: true,
 }));
 
+import { AuditLogService } from "@/modules/api/audit-log";
 import * as adminExports from "../index";
 import { AdminWalletController } from "../wallet.controller";
 import { AdminSlackWebhookController } from "../slack-webhook.controller";

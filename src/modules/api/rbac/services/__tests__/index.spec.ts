@@ -642,7 +642,7 @@ describe("RbacService", () => {
         ).rejects.toBeInstanceOf(AdminUserNotFoundException);
     });
 
-    it("continues response when audit log write fails", async () => {
+    it("propagates error when audit log write fails", async () => {
         prisma.role.findFirst.mockResolvedValue(null);
         prisma.permission.findMany.mockResolvedValue([{ id: 1 }]);
         prisma.role.create.mockResolvedValue({
@@ -654,13 +654,13 @@ describe("RbacService", () => {
         });
         mockAuditLogService.log.mockRejectedValueOnce(new Error("audit down"));
 
-        const result = await service.createRole({
-            name: "Recovery Admin",
-            description: "Recovery",
-            permissionIds: [1],
-        } as any);
-
-        expect(result.success).toBe(true);
+        await expect(
+            service.createRole({
+                name: "Recovery Admin",
+                description: "Recovery",
+                permissionIds: [1],
+            } as any)
+        ).rejects.toThrow("audit down");
     });
 
     it("returns paginated admin users", async () => {

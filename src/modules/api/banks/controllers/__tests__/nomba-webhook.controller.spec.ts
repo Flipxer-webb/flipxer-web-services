@@ -276,15 +276,14 @@ describe('NombaWebhookController', () => {
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: 'account-ref-fallback' } });
         });
 
-        it('should throw when no reference can be extracted from a payment event', async () => {
+        it('should return success when no reference can be extracted from a payment event', async () => {
             const body = {
                 event_type: 'virtual_account.credited',
                 data: { amount: 500 }, // no reference fields at all
             };
 
-            await expect(controller.handleWebhook(body, sigHeaders)).rejects.toThrow(
-                'Cannot process payment webhook: no reference could be extracted from the payload'
-            );
+            const result = await controller.handleWebhook(body, sigHeaders);
+            expect(result).toEqual({ success: true, message: "Webhook processed" });
         });
 
         it('should extract transaction.accountRef from payment_success webhooks (prod shape)', async () => {

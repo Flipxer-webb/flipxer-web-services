@@ -33,8 +33,8 @@ describe("auth utils", () => {
 
     it("generates unique formatted backup codes even when random output repeats", () => {
         const seq = [
-            ...Array(20).fill(0), // first two generated codes are duplicates (AAAAAAAAAA)
-            ...Array(10).fill(1), // third generated code is different (BBBBBBBBBB)
+            ...Array(40).fill(0), // first two generated codes are duplicates (AAAA...)
+            ...Array(20).fill(1), // third generated code is different (BBBB...)
         ];
         randomIntMock.mockImplementation(() => {
             if (!seq.length) return 2;
@@ -43,9 +43,9 @@ describe("auth utils", () => {
 
         const codes = generateBackupCodes(2);
 
-        expect(codes).toEqual(["AAAA-AAAA-AA", "BBBB-BBBB-BB"]);
+        expect(codes).toEqual(["AAAAA-AAAAA-AAAAA-AAAAA", "BBBBB-BBBBB-BBBBB-BBBBB"]);
         expect(codes).toHaveLength(2);
-        expect(codes.every((c) => /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{2}$/.test(c))).toBe(true);
+        expect(codes.every((c) => /^[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(c))).toBe(true);
     });
 
     it("uses default count when count is omitted", () => {
@@ -57,8 +57,8 @@ describe("auth utils", () => {
 
         const codes = generateBackupCodes();
 
-        expect(codes).toHaveLength(10);
-        expect(new Set(codes).size).toBe(10);
+        expect(codes).toHaveLength(5);
+        expect(new Set(codes).size).toBe(5);
     });
 
     it("hashes backup codes", async () => {

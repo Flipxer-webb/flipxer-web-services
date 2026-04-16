@@ -409,8 +409,8 @@ export class SettingService {
         // Generate QR code as data URL
         const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-        // Generate backup codes (10 codes in format XXXX-XXXX-XX)
-        const plainBackupCodes = generateBackupCodes(10);
+        // Generate backup codes (5 codes in format XXXXX-XXXXX-XXXXX-XXXXX)
+        const plainBackupCodes = generateBackupCodes(5);
         const hashedBackupCodes = await hashBackupCodes(plainBackupCodes);
 
         // Store the secret and hashed backup codes but DO NOT enable 2FA yet
@@ -554,12 +554,14 @@ export class SettingService {
             throw new UserForbiddenException("Invalid verification code", HttpStatus.FORBIDDEN);
         }
 
-        // Disable 2FA and clear secret
+        // Disable 2FA, clear secret and backup codes
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
                 isTwoFactorEnabled: false,
                 twoFactorSecret: null,
+                twoFactorBackupCodes: null,
+                backupCodesGeneratedAt: null,
             },
         });
 
@@ -883,7 +885,7 @@ export class SettingService {
         let hashedBackupCodes: string[] | null = null;
 
         if (isFirstAdvancedMethod && !userData?.twoFactorBackupCodes) {
-            backupCodes = generateBackupCodes(10);
+            backupCodes = generateBackupCodes(5);
             hashedBackupCodes = await hashBackupCodes(backupCodes);
         }
 
@@ -923,7 +925,7 @@ export class SettingService {
      * Generate new backup codes (replaces existing)
      */
     async generateNewBackupCodes(user: User) {
-        const backupCodes = generateBackupCodes(10);
+        const backupCodes = generateBackupCodes(5);
         const hashedBackupCodes = await hashBackupCodes(backupCodes);
 
         await this.prisma.user.update({

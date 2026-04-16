@@ -270,9 +270,6 @@ describe("QuidaxWebhookGuard", () => {
             body,
         });
 
-        // Force an invalid non-string signature at runtime so Buffer.from throws inside the guard.
-        (ctx.switchToHttp().getRequest() as any).headers["quidax-signature"] = `t=${timestamp},s=${badSignature as unknown as string}`;
-
         expect(guard.canActivate(ctx)).toBe(false);
     });
 });

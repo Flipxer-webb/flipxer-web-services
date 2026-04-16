@@ -2,6 +2,7 @@ const buildResponseMock = jest.fn((payload) => payload);
 const getBotTrafficReasonMock = jest.fn();
 const isCloudProviderIPMock = jest.fn();
 const isSuspiciousCombinationMock = jest.fn();
+const isLikelyBotTrafficMock = jest.fn().mockReturnValue(false);
 
 jest.mock("@/utils/api-response-util", () => ({
     __esModule: true,
@@ -13,6 +14,7 @@ jest.mock("@/modules/api/session/utils/bot-detection", () => ({
     getBotTrafficReason: getBotTrafficReasonMock,
     isCloudProviderIP: isCloudProviderIPMock,
     isSuspiciousCombination: isSuspiciousCombinationMock,
+    isLikelyBotTraffic: isLikelyBotTrafficMock,
 }));
 
 jest.mock("@/config", () => ({

@@ -5,6 +5,9 @@ jest.mock("@/modules/api/auth/guard", () => ({
     CountryBlockGuard: class {
         readonly __stub = true;
     },
+    EnabledAccountGuard: class {
+        readonly __stub = true;
+    },
     SocketAuthGuard: class {
         readonly __stub = true;
     },
