@@ -16,6 +16,7 @@ import {
     OrderCategory,
     OrderStatus,
     OrderStreamlinedStatus,
+    TransactionStatus,
 } from "@prisma/client";
 
 import { generateId } from "@/utils";
@@ -55,25 +56,6 @@ export class WithdrawalWebhookHandler {
         private readonly notificationDispatcher: NotificationDispatcher
     ) { }
 
-
-    /**
-     * Public entry point for refunding a SELL order by order ID.
-     * Called by NombaWebhookController when Nomba payout confirmation fails.
-     */
-    async refundSellOrderByOrderId(orderId: number): Promise<void> {
-        const order = await this.prisma.order.findUnique({
-            where: { id: orderId },
-            include: { user: { select: { id: true, email: true } } },
-        });
-
-        if (!order) {
-            this.logger.error(`Cannot refund — order ${orderId} not found`);
-            return;
-        }
-
-        await this.refundSellOrder(order);
-    }
-
     /**
      * Retry a failed fiat payout for a SELL order.
      * Called by AdminTransactionService.
@@ -105,18 +87,22 @@ export class WithdrawalWebhookHandler {
         try {
             await this.initiateFiatPayout(transaction);
 
-            // Update to completed on success
-            const completedOrder = await this.prisma.order.update({
+            // Keep SELL orders in processing until Nomba confirms the payout outcome.
+            const processingOrder = await this.prisma.order.update({
                 where: { id: transaction.id },
                 data: {
-                    status: OrderStatus.done,
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                    fulfilled: true,
+                    status: OrderStatus.processing,
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    paymentStatus: TransactionStatus.PENDING,
+                    fulfilled: false,
+                    reason: null,
                 },
             });
-            this.emitTransactionUpdate(transaction.user.id, completedOrder);
-            this.wsGateway.notifyWalletUpdate(transaction.user.id);
-            this.logger.log(`Retry payout SUCCESS for order ${transaction.id}`);
+
+            this.emitTransactionUpdate(transaction.user.id, processingOrder);
+            this.logger.log(
+                `Retry payout initiated for order ${transaction.id}; awaiting Nomba confirmation webhook`
+            );
             return { success: true };
 
         } catch (error) {
@@ -126,12 +112,31 @@ export class WithdrawalWebhookHandler {
                 data: {
                     status: OrderStatus.failed,
                     streamlinedStatus: OrderStreamlinedStatus.failed,
+                    paymentStatus: TransactionStatus.FAILED,
                     reason: `Retry payout failed: ${error.message}`,
                 },
             });
             this.emitTransactionUpdate(transaction.user.id, failedOrder);
             throw error;
         }
+    }
+
+    /**
+     * Refund a SELL order by order ID.
+     * Used by bank transfer webhook handlers after payout confirmation fails.
+     */
+    async refundSellOrderByOrderId(orderId: number): Promise<void> {
+        const order = await this.prisma.order.findUnique({
+            where: { id: orderId },
+            include: { user: { select: { id: true, email: true } } },
+        });
+
+        if (!order) {
+            this.logger.error(`Cannot refund SELL order ${orderId}; order not found`);
+            return;
+        }
+
+        await this.refundSellOrder(order);
     }
 
     /**
@@ -494,7 +499,7 @@ export class WithdrawalWebhookHandler {
      * Refund a failed SELL order
      * Credits the total crypto amount back to the user's ledger
      */
-    public async refundSellOrder(transaction: any) {
+    private async refundSellOrder(transaction: any) {
         this.logger.log(`Initiating refund for failed SELL order ${transaction.id}`);
 
         try {
