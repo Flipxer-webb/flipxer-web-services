@@ -313,6 +313,32 @@ describe("WithdrawalWebhookHandler", () => {
         );
     });
 
+    it("refundSellOrderByOrderId delegates to refundSellOrder when the order exists", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL });
+        prisma.order.findUnique.mockResolvedValue(sellTx);
+        const refundSpy = jest.spyOn(handler as any, "refundSellOrder").mockResolvedValue(undefined);
+
+        await expect(handler.refundSellOrderByOrderId(sellTx.id)).resolves.toBeUndefined();
+
+        expect(prisma.order.findUnique).toHaveBeenCalledWith({
+            where: { id: sellTx.id },
+            include: { user: { select: { id: true, email: true } } },
+        });
+        expect(refundSpy).toHaveBeenCalledWith(sellTx);
+    });
+
+    it("refundSellOrderByOrderId logs and returns when the order does not exist", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+        const refundSpy = jest.spyOn(handler as any, "refundSellOrder").mockResolvedValue(undefined);
+        const loggerSpy = jest.spyOn((handler as any).logger, "error").mockImplementation(() => undefined);
+
+        await expect(handler.refundSellOrderByOrderId(999)).resolves.toBeUndefined();
+
+        expect(refundSpy).not.toHaveBeenCalled();
+        expect(loggerSpy).toHaveBeenCalledWith("Cannot refund SELL order 999; order not found");
+        loggerSpy.mockRestore();
+    });
+
     it("routes failed SELL-with-BUY-link and regular SELL failure flows", async () => {
         const withBuyRef = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: "BUY:101" });
         const regularSell = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });

@@ -735,8 +735,89 @@ describe('NombaWebhookController', () => {
                 expect.objectContaining({
                     userId: processingOrder.user.id,
                     title: 'Sell order completed',
+                    body: 'Your sell order of 100 USDT has been completed. ₦22000 was sent to Bank A (1234567890). Transaction ID: TXN-9001.',
                 }),
             );
+        });
+
+        it('should use the generic bank label when transfer.successful has no bank metadata', async () => {
+            const ref = 'sell-success-generic-bank-ref';
+            const processingOrder = makeSellOrder({
+                destinationBankName: null,
+                destinationBankAccountNumber: null,
+            });
+            const completedOrder = makeSellOrder({
+                destinationBankName: null,
+                destinationBankAccountNumber: null,
+                status: OrderStatus.done,
+                streamlinedStatus: OrderStreamlinedStatus.completed,
+                paymentStatus: TransactionStatus.SUCCESS,
+                fulfilled: true,
+                reason: null,
+                updatedAt: new Date('2026-04-16T10:05:30.000Z'),
+            });
+            prisma.payment.findFirst.mockResolvedValue({ id: 73, orderId: processingOrder.id, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 73, orderId: processingOrder.id, reference: ref });
+            prisma.order.findUnique.mockResolvedValue(processingOrder);
+            prisma.order.update.mockResolvedValue(completedOrder);
+
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
+
+            expect(notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    body: 'Your sell order of 100 USDT has been completed. ₦22000 was sent to your bank. Transaction ID: TXN-9001.',
+                }),
+            );
+        });
+
+        it('should stop after updating the payment when transfer.successful has no linked order', async () => {
+            const ref = 'sell-success-no-order-ref';
+            prisma.payment.findFirst.mockResolvedValue({ id: 74, orderId: null, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 74, orderId: null, reference: ref });
+
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
+
+            expect(prisma.order.findUnique).not.toHaveBeenCalled();
+            expect(prisma.order.update).not.toHaveBeenCalled();
+            expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+        });
+
+        it('should ignore transfer.successful when the linked order is not a SELL order', async () => {
+            const ref = 'sell-success-non-sell-ref';
+            prisma.payment.findFirst.mockResolvedValue({ id: 75, orderId: 9002, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 75, orderId: 9002, reference: ref });
+            prisma.order.findUnique.mockResolvedValue(
+                makeSellOrder({
+                    id: 9002,
+                    orderCategory: OrderCategory.BUY,
+                }),
+            );
+
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
+
+            expect(prisma.order.update).not.toHaveBeenCalled();
+            expect(wsGateway.notifyTransactionUpdate).not.toHaveBeenCalled();
+            expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+        });
+
+        it('should ignore late transfer.successful events after a SELL payout is already completed', async () => {
+            const ref = 'sell-success-late-ref';
+            prisma.payment.findFirst.mockResolvedValue({ id: 76, orderId: 9003, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 76, orderId: 9003, reference: ref });
+            prisma.order.findUnique.mockResolvedValue(
+                makeSellOrder({
+                    id: 9003,
+                    status: OrderStatus.done,
+                    streamlinedStatus: OrderStreamlinedStatus.completed,
+                    paymentStatus: TransactionStatus.SUCCESS,
+                }),
+            );
+
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
+
+            expect(prisma.order.update).not.toHaveBeenCalled();
+            expect(wsGateway.notifyWalletUpdate).not.toHaveBeenCalled();
+            expect(notificationDispatcher.notify).not.toHaveBeenCalled();
         });
 
         it('should fail a processing SELL payout on transfer.failed and initiate a refund', async () => {
@@ -780,6 +861,38 @@ describe('NombaWebhookController', () => {
                 expect.stringContaining('payout FAILED'),
                 expect.objectContaining({ orderId: processingOrder.id, userId: 16, amount: 22000 }),
             );
+        });
+
+        it('should skip refund handling when transfer.failed has no linked SELL order', async () => {
+            const ref = 'sell-failure-no-order-ref';
+            prisma.payment.findMany.mockResolvedValue([{ id: 77, orderId: null, userId: 16, totalAmount: 22000 }]);
+            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+            await controller.handleWebhook(transferFailed(ref), sigHeaders);
+
+            expect(prisma.order.findUnique).not.toHaveBeenCalled();
+            expect(prisma.order.update).not.toHaveBeenCalled();
+            expect(withdrawalWebhookHandler.refundSellOrderByOrderId).not.toHaveBeenCalled();
+            expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+        });
+
+        it('should ignore transfer.failed when the linked order is not a SELL order', async () => {
+            const ref = 'sell-failure-non-sell-ref';
+            prisma.payment.findMany.mockResolvedValue([{ id: 78, orderId: 9004, userId: 16, totalAmount: 22000 }]);
+            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+            prisma.order.findUnique.mockResolvedValue(
+                makeSellOrder({
+                    id: 9004,
+                    orderCategory: OrderCategory.BUY,
+                }),
+            );
+
+            await controller.handleWebhook(transferFailed(ref), sigHeaders);
+
+            expect(prisma.order.update).not.toHaveBeenCalled();
+            expect(withdrawalWebhookHandler.refundSellOrderByOrderId).not.toHaveBeenCalled();
+            expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+            expect(slackService.sendWebhookFailureAlert).not.toHaveBeenCalled();
         });
 
         it('should ignore late transfer.failed events after a SELL payout is already completed', async () => {

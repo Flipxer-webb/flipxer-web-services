@@ -442,13 +442,17 @@ export class NombaWebhookController {
             this.emitSellOrderUpdate(order.user.id, completedOrder);
             this.wsGateway.notifyWalletUpdate(order.user.id);
 
+            const payoutDestination = this.formatPayoutDestination(
+                order.destinationBankName,
+                order.destinationBankAccountNumber,
+            );
+
             await this.notificationDispatcher.notify({
                 userId: order.user.id,
                 title: "Sell order completed",
                 body:
                     `Your sell order of ${order.amount} ${order.currency.toUpperCase()} has been completed. ` +
-                    `₦${order.totalToReceiveInFiat} was sent to ${order.destinationBankName || "your bank"}` +
-                    `${order.destinationBankAccountNumber ? ` (${order.destinationBankAccountNumber})` : ""}. ` +
+                    `₦${order.totalToReceiveInFiat} was sent to ${payoutDestination}. ` +
                     `Transaction ID: ${order.transactionId}.`,
                 category: "transaction",
                 currency: order.currency,
@@ -613,5 +617,18 @@ export class NombaWebhookController {
                 updatedAt: order.updatedAt,
             },
         });
+    }
+
+    private formatPayoutDestination(
+        bankName?: string | null,
+        bankAccountNumber?: string | null,
+    ): string {
+        const bankLabel = bankName || "your bank";
+
+        if (!bankAccountNumber) {
+            return bankLabel;
+        }
+
+        return `${bankLabel} (${bankAccountNumber})`;
     }
 }
