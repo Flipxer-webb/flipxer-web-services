@@ -29,6 +29,7 @@ describe("NombaBank", () => {
     const prisma = {
         payment: {
             create: jest.fn(),
+            updateMany: jest.fn(),
         },
         $transaction: jest.fn(),
     };
@@ -157,14 +158,7 @@ describe("NombaBank", () => {
             },
         });
 
-        const paymentCreate = jest.fn().mockResolvedValue(undefined);
-        prisma.$transaction.mockImplementation(async (cb: any) =>
-            cb({
-                payment: {
-                    create: paymentCreate,
-                },
-            }),
-        );
+        prisma.payment.create.mockResolvedValue(undefined);
 
         await provider.initializeTransfer({
             userId: 10,
@@ -180,7 +174,7 @@ describe("NombaBank", () => {
             senderName: "Flipxer",
         } as never);
 
-        expect(paymentCreate).toHaveBeenCalledTimes(1);
+        expect(prisma.payment.create).toHaveBeenCalledTimes(1);
         expect(nomba.initiateBankTransfer).toHaveBeenCalledWith(
             expect.objectContaining({
                 amount: 1500,
@@ -550,9 +544,8 @@ describe("NombaBank", () => {
             data: { accountNumber: "1234567890", accountName: "Test User", bankCode: "058" },
         });
 
-        const paymentCreate = jest.fn().mockResolvedValue(undefined);
+        prisma.payment.create.mockResolvedValue(undefined);
         nomba.initiateBankTransfer.mockResolvedValue(undefined);
-        prisma.$transaction.mockImplementation(async (cb: any) => cb({ payment: { create: paymentCreate } }));
 
         await provider.initializeTransfer({
             userId: 10, orderId: 20, amount: 2000, serviceCharge: 100,
@@ -560,7 +553,7 @@ describe("NombaBank", () => {
             bankName: "GTB", bankCode: "058", reference: "wd-total",
         } as never);
 
-        expect(paymentCreate).toHaveBeenCalledWith(
+        expect(prisma.payment.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: expect.objectContaining({ amount: 2000, totalAmount: 2100 }),
             }),
@@ -573,10 +566,9 @@ describe("NombaBank", () => {
             data: { accountNumber: "1234567890", accountName: "Test User", bankCode: "058" },
         });
 
+        prisma.payment.create.mockResolvedValue(undefined);
+        prisma.payment.updateMany.mockResolvedValue({ count: 1 });
         nomba.initiateBankTransfer.mockRejectedValue(new Error("Nomba downstream error"));
-        prisma.$transaction.mockImplementation(async (cb: any) =>
-            cb({ payment: { create: jest.fn().mockResolvedValue(undefined) } }),
-        );
 
         await expect(
             provider.initializeTransfer({
@@ -585,6 +577,12 @@ describe("NombaBank", () => {
                 bankName: "GTB", bankCode: "058", reference: "wd-fail",
             } as never),
         ).rejects.toBeInstanceOf(errors.NombaWorkflowException);
+
+        // Payment should be marked as FAILED when transfer fails
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+            where: { reference: "wd-fail" },
+            data: expect.objectContaining({ status: "FAILED" }),
+        });
     });
 
     // ─── recordIncomingPayment edge cases ─────────────────────────────────────

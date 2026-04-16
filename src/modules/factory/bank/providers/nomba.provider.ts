@@ -425,33 +425,36 @@ export class NombaBank implements TNomba.INombaBank {
             const transactionId = generateId({ type: "transaction" });
             const totalAmount = options.amount + options.serviceCharge;
 
-            await this.prisma.$transaction(async (tx) => {
-                // Create payment record
-                await tx.payment.create({
-                    data: {
-                        amount: options.amount,
-                        flow: TransactionFlow.OUT,
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.SUCCESS,
-                        totalAmount: totalAmount,
-                        type: TransactionType.TRANSFER_FUND,
-                        userId: options.userId,
-                        transactionId: transactionId,
-                        orderId: options.orderId,
-                        chargeFee: options.serviceCharge,
-                        destinationBankAccountName: options.accountName,
-                        destinationBankName: options.bankName,
-                        destinationBankAccountNumber: options.accountNumber,
-                        reference: options.reference,
-                        title: TransactionShortDescription.TRANSFER_FUND,
-                        narration: TransactionShortDescription.TRANSFER_FUND,
-                        sessionId: generateId({ type: "sessionId" }),
-                        shortDescription:
-                            TransactionShortDescription.TRANSFER_FUND,
-                        paymentMethod: PaymentMethod.NOMBA,
-                    },
-                });
+            // Create payment record BEFORE calling Nomba so the webhook handler
+            // can find it.  Nomba's payout_success webhook often arrives before
+            // the HTTP response from initiateBankTransfer, so the record must be
+            // committed and visible before the API call.
+            await this.prisma.payment.create({
+                data: {
+                    amount: options.amount,
+                    flow: TransactionFlow.OUT,
+                    status: TransactionStatus.PENDING,
+                    paymentStatus: TransactionStatus.SUCCESS,
+                    totalAmount: totalAmount,
+                    type: TransactionType.TRANSFER_FUND,
+                    userId: options.userId,
+                    transactionId: transactionId,
+                    orderId: options.orderId,
+                    chargeFee: options.serviceCharge,
+                    destinationBankAccountName: options.accountName,
+                    destinationBankName: options.bankName,
+                    destinationBankAccountNumber: options.accountNumber,
+                    reference: options.reference,
+                    title: TransactionShortDescription.TRANSFER_FUND,
+                    narration: TransactionShortDescription.TRANSFER_FUND,
+                    sessionId: generateId({ type: "sessionId" }),
+                    shortDescription:
+                        TransactionShortDescription.TRANSFER_FUND,
+                    paymentMethod: PaymentMethod.NOMBA,
+                },
+            });
 
+            try {
                 // Initiate bank transfer via Nomba
                 await this.nomba.initiateBankTransfer({
                     amount: options.amount,
@@ -462,7 +465,17 @@ export class NombaBank implements TNomba.INombaBank {
                     narration: options.narration || "Wallet withdrawal",
                     senderName: options.senderName,
                 });
-            });
+            } catch (transferError) {
+                // Nomba call failed — mark the already-committed payment as FAILED
+                await this.prisma.payment.updateMany({
+                    where: { reference: options.reference },
+                    data: {
+                        status: TransactionStatus.FAILED,
+                        paymentStatus: TransactionStatus.FAILED,
+                    },
+                });
+                throw transferError;
+            }
         } catch (error) {
             logger.error(error, "****INITIALIZE TRANSFER****** NOMBA");
             if (error instanceof e.NOMBABankException) {
