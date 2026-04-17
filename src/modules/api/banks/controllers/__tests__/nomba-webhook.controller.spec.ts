@@ -350,6 +350,41 @@ describe('NombaWebhookController', () => {
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
 
+        it('should resolve accountRef-only payment_success webhooks via providerAccountReference fallback', async () => {
+            const providerAccountRef = 'fallback-va-ref';
+            const internalReference = 'local-buy-ref';
+            const payment = {
+                id: 52,
+                orderId: 502,
+                totalAmount: 1500,
+                reference: internalReference,
+                providerAccountReference: providerAccountRef,
+                userId: 11,
+            };
+            prisma.payment.findFirst
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce(payment);
+            buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
+
+            await controller.handleWebhook(paymentSuccessViaTransaction(providerAccountRef, 1500), sigHeaders);
+
+            expect(prisma.payment.findFirst).toHaveBeenNthCalledWith(1, {
+                where: { reference: providerAccountRef },
+            });
+            expect(prisma.payment.findFirst).toHaveBeenNthCalledWith(2, {
+                where: {
+                    providerAccountReference: providerAccountRef,
+                    paymentMethod: 'NOMBA',
+                    type: 'P2P_PAYMENT',
+                    orderId: { not: null },
+                    status: { in: [TransactionStatus.PENDING, TransactionStatus.APPROVED] },
+                    totalAmount: 1500,
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(internalReference);
+        });
+
         it('should extract transaction.reference when accountRef is absent', async () => {
             const ref = 'txn-ref-fallback';
             const body = {
@@ -613,6 +648,44 @@ describe('NombaWebhookController', () => {
             await controller.handleWebhook(vaCredit(ref, 995), sigHeaders);
 
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
+        });
+
+        it('should store providerReference on buy-order payment before fulfillment', async () => {
+            const ref = 'buy-prov-ref';
+            const payment = { id: 36, orderId: 360, totalAmount: 1000, reference: ref, userId: 9 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+            prisma.payment.update.mockResolvedValue(payment);
+            buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
+
+            // vaPaymentSuccess includes a transactionId as the provider reference
+            await controller.handleWebhook(vaPaymentSuccess(ref, 1000), sigHeaders);
+
+            expect(prisma.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 36 },
+                    data: { externalReference: expect.any(String) },
+                }),
+            );
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
+        });
+
+        it('should resolve provider accountRef to internal payment reference', async () => {
+            const providerRef = 'provider-account-ref';
+            const internalRef = 'internal-payment-ref';
+            const payment = { id: 37, orderId: null, totalAmount: 500, reference: internalRef, userId: 10 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+
+            await controller.handleWebhook(vaCredit(providerRef, 500), sigHeaders);
+
+            // Should use the internal reference (payment.reference), not the provider ref
+            expect(prisma.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 37 },
+                    data: expect.objectContaining({
+                        status: TransactionStatus.SUCCESS,
+                    }),
+                }),
+            );
         });
 
         it('should warn but not throw when no payment found for reference', async () => {

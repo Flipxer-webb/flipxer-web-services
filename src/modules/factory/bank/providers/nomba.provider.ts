@@ -174,7 +174,9 @@ export class NombaBank implements TNomba.INombaBank {
     }
 
     /**
-     * Delete a virtual account by its accountRef (= payment reference).
+     * Delete a virtual account by its provider-side accountRef.
+     * In the normal VA path this matches the payment reference; fallback VA reuse
+     * persists the provider accountRef separately on the Payment row.
      * Best-effort: logs errors but does not throw.
      * Returns true if deleted, false if already gone or on error.
      */
@@ -321,6 +323,7 @@ export class NombaBank implements TNomba.INombaBank {
         try {
             const reference =
                 referenceOverride || generateId({ type: "reference" });
+            const vaLogToken = reference.slice(-8);
 
             const expiryDateObj = new Date(
                 Date.now() + expiryMinutes * 60 * 1000
@@ -331,7 +334,7 @@ export class NombaBank implements TNomba.INombaBank {
             const expiryAtISO = expiryDateObj.toISOString();
 
             logger.info(
-                { userId: user.id, amount, reference, expiryDate },
+                { vaLogToken, userId: user.id, amount, reference, expiryDate },
                 "****INITIALIZE VA PAYMENT REQUEST****** NOMBA"
             );
 
@@ -355,7 +358,7 @@ export class NombaBank implements TNomba.INombaBank {
                     errMsg.toLowerCase().includes("sandbox virtual accounts")
                 ) {
                     logger.warn(
-                        { fallbackRef, reference, originalError: errMsg },
+                        { vaLogToken, fallbackRef, reference, originalError: errMsg },
                         "****SANDBOX VA QUOTA HIT — REUSING EXISTING VA****** NOMBA"
                     );
 
@@ -375,7 +378,7 @@ export class NombaBank implements TNomba.INombaBank {
             }
 
             logger.info(
-                { result: JSON.stringify(result) },
+                { vaLogToken, result: JSON.stringify(result) },
                 "****INITIALIZE VA PAYMENT RESPONSE****** NOMBA"
             );
 
@@ -392,6 +395,8 @@ export class NombaBank implements TNomba.INombaBank {
                 message: "Payment virtual account created successfully",
                 data: {
                     reference,
+                    providerAccountReference:
+                        result.data.accountRef || reference,
                     accountNumber: result.data.bankAccountNumber,
                     accountName: result.data.bankAccountName || result.data.accountName,
                     bankName: result.data.bankName,

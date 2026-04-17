@@ -11,7 +11,7 @@ import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
 import { AuthController } from "./controllers/v1";
 import { AdminAuthController } from "./controllers/v1/admin";
 
-import { AuthGuard, TwoFactorGuard } from "./guard";
+import { AuthGuard, SocketAuthGuard, TwoFactorGuard } from "./guard";
 import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 import { TradingModule } from "../trade";
 import { PrismaModule } from "@/modules/core/prisma";
@@ -41,8 +41,8 @@ export * from "./errors";
         forwardRef(() => SettingModule),
     ],
     controllers: [AuthController, AdminAuthController],
-    providers: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService],
-    exports: [AuthService, AuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService],
+    providers: [AuthService, AuthGuard, SocketAuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService],
+    exports: [AuthService, AuthGuard, SocketAuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService],
 })
 export class AuthModule { }
 

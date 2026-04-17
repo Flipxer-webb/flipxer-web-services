@@ -436,55 +436,87 @@ export class CountryBlockGuard implements CanActivate {
 export class SocketAuthGuard implements CanActivate {
     constructor(
         private readonly jwtService: JwtService,
-        private readonly prisma: PrismaService
+        private readonly prisma: PrismaService,
+        private readonly sessionService: SessionService
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const client: Socket = context.switchToWs().getClient<Socket>();
+        await this.authenticateClient(client);
+        return true;
+    }
+
+    async authenticateClient(client: Socket): Promise<void> {
         const token = this.extractTokenFromHandshake(client);
 
         if (!token) {
             throw new WsMissingAuthorizationToken(
-                "Your Session is unauthorized"
+                "Your session is unauthorized"
             );
         }
 
         try {
             const payload: DataStoredInToken =
                 await this.jwtService.verifyAsync(token, {
-                    secret: process.env.JWT_SECRET,
+                    secret: jwtSecret,
                 });
 
             const user = await this.prisma.user.findUnique({
                 where: { id: +payload.sub },
+                include: { role: { select: { name: true, slug: true } } },
             });
 
-            if (!user) {
+            if (!user || user.isDeleted) {
                 throw new WsUserNotFoundException(
                     "Your session is unauthorized"
                 );
             }
 
-            client.data.user = user;
-        } catch (error) {
-            if (error instanceof WsUserNotFoundException) {
-                throw error;
-            } else if (error.name === "PrismaClientKnownRequestError") {
-                throw new WsPrismaNetworkException(
-                    "Unable to process request. Please try again"
+            if (payload.sessionId) {
+                const isSessionValid = await this.sessionService.validateSession(
+                    payload.sessionId
                 );
-            } else {
-                throw new WsAuthTokenValidationException(
-                    "Your session is unauthorized"
-                );
+
+                if (!isSessionValid) {
+                    throw new WsAuthTokenValidationException(
+                        "Your session is unauthorized or expired"
+                    );
+                }
+
+                await this.sessionService.touchSessionActivity(payload.sessionId);
             }
+
+            client.data.user = user;
+            client.data.sessionId = payload.sessionId;
+        } catch (error) {
+            this.handleSocketAuthError(error);
         }
-        return true;
     }
 
     private extractTokenFromHandshake(client: Socket): string | undefined {
         const token = client.handshake.query.token as string;
         return token;
+    }
+
+    private handleSocketAuthError(error: any): never {
+        if (
+            error instanceof WsMissingAuthorizationToken ||
+            error instanceof WsAuthTokenValidationException ||
+            error instanceof WsUserNotFoundException ||
+            error instanceof WsPrismaNetworkException
+        ) {
+            throw error;
+        }
+
+        if (error.name === "PrismaClientKnownRequestError") {
+            throw new WsPrismaNetworkException(
+                "Unable to process request. Please try again"
+            );
+        }
+
+        throw new WsAuthTokenValidationException(
+            "Your session is unauthorized"
+        );
     }
 }
 

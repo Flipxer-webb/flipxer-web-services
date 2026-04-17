@@ -7,6 +7,8 @@ import {
     OrderCategory,
     OrderStatus,
     OrderStreamlinedStatus,
+    PaymentMethod,
+    TransactionType,
 } from "@prisma/client";
 import * as Config from "@/config";
 import * as crypto from "node:crypto";
@@ -281,6 +283,96 @@ export class NombaWebhookController {
         }
     }
 
+    private async findIncomingPayment(event: NormalizedPaymentEvent) {
+        const payment = await this.prisma.payment.findFirst({
+            where: { reference: event.reference },
+        });
+
+        if (payment || !event.metadata?.accountRef) {
+            return payment;
+        }
+
+        const fallbackWhere: Record<string, any> = {
+            providerAccountReference: event.metadata.accountRef,
+            paymentMethod: PaymentMethod.NOMBA,
+            type: TransactionType.P2P_PAYMENT,
+            orderId: { not: null },
+            status: { in: [TransactionStatus.PENDING, TransactionStatus.APPROVED] },
+        };
+
+        if (
+            typeof event.amount === "number"
+            && Number.isFinite(event.amount)
+            && event.amount > 0
+        ) {
+            fallbackWhere.totalAmount = event.amount;
+        }
+
+        return this.prisma.payment.findFirst({
+            where: fallbackWhere,
+            orderBy: { createdAt: "desc" },
+        });
+    }
+
+    /**
+     * Handle buy-order payment: validate amount and trigger fulfillment.
+     */
+    private async handleBuyOrderPayment(
+        payment: { id: number; orderId: number; userId: number; totalAmount: unknown; reference: string },
+        event: NormalizedPaymentEvent,
+        resolvedReference: string,
+    ) {
+        const { amount } = event;
+        const expectedAmount = Number(payment.totalAmount);
+
+        if (expectedAmount > 0 && amount < expectedAmount * 0.99) {
+            this.logger.error(
+                `Underpayment detected | Ref: ${resolvedReference} | Expected: ${expectedAmount} | Received: ${amount}`
+            );
+
+            await this.prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                    receivedAmount: amount,
+                    senderAccountNumber: event.senderAccountNumber || null,
+                    senderAccountName: event.senderAccountName || null,
+                    senderBankName: event.senderBankName || null,
+                    narration: `Underpayment: received ₦${amount} of expected ₦${expectedAmount}`,
+                },
+            });
+
+            await this.slackWebhookService.sendWebhookFailureAlert(
+                'nomba',
+                resolvedReference,
+                `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. ` +
+                `Sender: ${event.senderAccountName || 'N/A'} (${event.senderAccountNumber || 'N/A'}) @ ${event.senderBankName || 'N/A'}. ` +
+                `Auto-cancel will run after 2 hours. Ops must process refund.`,
+                {
+                    orderId: payment.orderId,
+                    userId: payment.userId,
+                    expectedAmount,
+                    receivedAmount: amount,
+                    shortfall: expectedAmount - amount,
+                    senderAccountNumber: event.senderAccountNumber,
+                    senderAccountName: event.senderAccountName,
+                    senderBankName: event.senderBankName,
+                }
+            );
+            return;
+        }
+
+        if (event.providerReference) {
+            await this.prisma.payment.update({
+                where: { id: payment.id },
+                data: { externalReference: event.providerReference },
+            });
+        }
+
+        this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
+        await this.buyOrderService.fulfillBuyOrder(resolvedReference);
+        this.logger.log(`Buy order fulfillment completed for payment ${payment.id}`);
+    }
+
     /**
      * Handle incoming payment (Normalized)
      */
@@ -295,76 +387,27 @@ export class NombaWebhookController {
                 `Keys in data: ${Object.keys(event.raw?.data || {}).join(', ')}. ` +
                 `Provider ref: ${event.providerReference || 'none'}`
             );
-            // Return 200 so Nomba stops retrying — this event has no Payment match possible
             return;
         }
 
-        this.logger.log(`Processing incoming payment: ${amount} | Ref: ${reference}`);
+        const payment = await this.findIncomingPayment(event);
 
-        // Find the payment by reference
-        const payment = await this.prisma.payment.findFirst({
-            where: { reference },
-        });
+        if (payment && payment.reference !== reference) {
+            this.logger.log(
+                `Resolved provider accountRef ${reference} to internal payment reference ${payment.reference}`
+            );
+        }
+
+        const resolvedReference = payment?.reference || reference;
+
+        this.logger.log(`Processing incoming payment: ${amount} | Ref: ${resolvedReference}`);
 
         if (payment) {
-            // Check if this payment is linked to a Buy Order
             if (payment.orderId) {
-                // Validate incoming amount against expected amount (1% tolerance for bank fees/rounding)
-                const expectedAmount = Number(payment.totalAmount);
-                if (expectedAmount > 0 && amount < expectedAmount * 0.99) {
-                    this.logger.error(
-                        `Underpayment detected | Ref: ${reference} | Expected: ${expectedAmount} | Received: ${amount}`
-                    );
-
-                    // Capture sender details and received amount for ops refund processing
-                    await this.prisma.payment.update({
-                        where: { id: payment.id },
-                        data: {
-                            receivedAmount: amount,
-                            senderAccountNumber: event.senderAccountNumber || null,
-                            senderAccountName: event.senderAccountName || null,
-                            senderBankName: event.senderBankName || null,
-                            narration: `Underpayment: received ₦${amount} of expected ₦${expectedAmount}`,
-                        },
-                    });
-
-                    await this.slackWebhookService.sendWebhookFailureAlert(
-                        'nomba',
-                        reference,
-                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. ` +
-                        `Sender: ${event.senderAccountName || 'N/A'} (${event.senderAccountNumber || 'N/A'}) @ ${event.senderBankName || 'N/A'}. ` +
-                        `Auto-cancel will run after 2 hours. Ops must process refund.`,
-                        {
-                            orderId: payment.orderId,
-                            userId: payment.userId,
-                            expectedAmount,
-                            receivedAmount: amount,
-                            shortfall: expectedAmount - amount,
-                            senderAccountNumber: event.senderAccountNumber,
-                            senderAccountName: event.senderAccountName,
-                            senderBankName: event.senderBankName,
-                        }
-                    );
-                    // Don't fulfill — underpaid order will be auto-cancelled by cron after 2 hours
-                    return;
-                }
-
-                // Store provider reference for reconciliation audit trail
-                if (event.providerReference) {
-                    await this.prisma.payment.update({
-                        where: { id: payment.id },
-                        data: { externalReference: event.providerReference },
-                    });
-                }
-
-                this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
-                // Let errors propagate so webhook returns 5xx and Nomba retries
-                await this.buyOrderService.fulfillBuyOrder(reference);
-                this.logger.log(`Buy order fulfillment completed for payment ${payment.id}`);
+                await this.handleBuyOrderPayment(payment as any, event, resolvedReference);
                 return;
             }
 
-            // Update existing payment status (Generic) + store provider ref
             await this.prisma.payment.update({
                 where: { id: payment.id },
                 data: {
@@ -449,17 +492,17 @@ export class NombaWebhookController {
             this.emitSellOrderUpdate(order.user.id, completedOrder);
             this.wsGateway.notifyWalletUpdate(order.user.id);
 
-            const payoutDestination = this.formatPayoutDestination(
-                order.destinationBankName,
-                order.destinationBankAccountNumber,
-            );
+            const bankLabel = order.destinationBankName || "your bank";
+            const accountSuffix = order.destinationBankAccountNumber
+                ? " (" + order.destinationBankAccountNumber + ")"
+                : "";
 
             await this.notificationDispatcher.notify({
                 userId: order.user.id,
                 title: "Sell order completed",
                 body:
                     `Your sell order of ${order.amount} ${order.currency.toUpperCase()} has been completed. ` +
-                    `₦${order.totalToReceiveInFiat} was sent to ${payoutDestination}. ` +
+                    `₦${order.totalToReceiveInFiat} was sent to ${bankLabel}${accountSuffix}. ` +
                     `Transaction ID: ${order.transactionId}.`,
                 category: "transaction",
                 currency: order.currency,
@@ -624,18 +667,5 @@ export class NombaWebhookController {
                 updatedAt: order.updatedAt,
             },
         });
-    }
-
-    private formatPayoutDestination(
-        bankName?: string | null,
-        bankAccountNumber?: string | null,
-    ): string {
-        const bankLabel = bankName || "your bank";
-
-        if (!bankAccountNumber) {
-            return bankLabel;
-        }
-
-        return `${bankLabel} (${bankAccountNumber})`;
     }
 }

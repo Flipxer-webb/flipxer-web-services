@@ -806,6 +806,7 @@ model Payment {
   narration                    String
   reference                    String            @unique
   externalReference            String?
+  providerAccountReference     String?
   destinationBankAccountName   String?
   destinationBankName          String?
   destinationBankAccountNumber String?
@@ -828,6 +829,7 @@ model Payment {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([providerAccountReference])
   // Composite indexes for common query patterns
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, status])

@@ -35,6 +35,7 @@ import {
 } from "../constants";
 import { generateUssdCode } from "@/libs/nomba/ussd-codes";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { TransactionService } from "@/modules/api/auth/services/transaction.service";
 
 /**
  * Buy Order Service
@@ -60,8 +61,31 @@ export class BuyOrderService {
         private readonly ledgerService: LedgerService,
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
-        private readonly distributedLockService: DistributedLockService
+        private readonly distributedLockService: DistributedLockService,
+        private readonly transactionService: TransactionService
     ) { }
+
+    private async releaseReservedBuyLimit(payment: {
+        userId: number;
+        createdAt: Date;
+        order?: {
+            orderCategory?: OrderCategory;
+            currency?: string | null;
+            amount?: number | null;
+        } | null;
+    }): Promise<void> {
+        if (!payment.order?.currency || !payment.order?.amount) {
+            return;
+        }
+
+        await this.transactionService.releaseDailyLimitReservationForOrder({
+            userId: payment.userId,
+            orderCategory: payment.order.orderCategory ?? OrderCategory.BUY,
+            currency: payment.order.currency,
+            amount: Number(payment.order.amount),
+            createdAt: payment.createdAt,
+        });
+    }
 
     private isNombaSandboxVirtualAccountLimitError(error: unknown): boolean {
         return error instanceof Error
@@ -344,6 +368,7 @@ export class BuyOrderService {
             | {
                 mode: "virtual_account";
                 reference: string;
+                providerAccountReference: string;
                 amount: number;
                 expiryAt: string;
                 accountNumber: string;
@@ -369,6 +394,8 @@ export class BuyOrderService {
             paymentGatewayData = {
                 mode: "virtual_account",
                 reference: vaData.reference,
+                providerAccountReference:
+                    vaData.providerAccountReference || vaData.reference,
                 amount,
                 expiryAt: vaData.expiryAt,
                 accountNumber: vaData.accountNumber,
@@ -456,6 +483,10 @@ export class BuyOrderService {
                         externalReference:
                             paymentGatewayData.mode === "checkout"
                                 ? paymentGatewayData.authorizationUrl
+                                : null,
+                        providerAccountReference:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.providerAccountReference
                                 : null,
                         destinationBankAccountNumber:
                             paymentGatewayData.mode === "virtual_account"
@@ -943,10 +974,12 @@ export class BuyOrderService {
             });
         }
 
+        await this.releaseReservedBuyLimit(payment);
+
         // Emit updates
         if (payment.order) {
             const updatedOrder = await this.prisma.order.findUnique({
-                where: { id: payment.orderId! },
+                where: { id: payment.orderId },
             });
             if (updatedOrder) {
                 this.emitTransactionUpdate(userId, updatedOrder);
@@ -980,7 +1013,11 @@ export class BuyOrderService {
         }
 
         // Best-effort: free the Nomba sandbox VA slot (no-op on production errors)
-        void this.nombaService.deleteVirtualAccount(payment.reference).catch(() => {});
+        void this.nombaService
+            .deleteVirtualAccount(
+                payment.providerAccountReference || payment.reference
+            )
+            .catch(() => {});
 
         this.logger.log(
             `Buy order cancelled by user ${userId} | Payment ref: ${reference}`
@@ -1204,6 +1241,8 @@ export class BuyOrderService {
 
                 if (!didCancel) continue;
 
+                await this.releaseReservedBuyLimit(payment);
+
                 // Emit updates
                 if (payment.order) {
                     this.emitTransactionUpdate(payment.userId, {
@@ -1242,7 +1281,11 @@ export class BuyOrderService {
                 }
 
                 // Best-effort: free the Nomba VA slot
-                void this.nombaService.deleteVirtualAccount(payment.reference).catch(() => {});
+                void this.nombaService
+                    .deleteVirtualAccount(
+                        payment.providerAccountReference || payment.reference
+                    )
+                    .catch(() => {});
 
                 this.logger.log(
                     `Cancelled expired buy order | Payment: ${payment.id} | Ref: ${payment.reference}`
@@ -1323,6 +1366,8 @@ export class BuyOrderService {
 
                 if (!didCancel) continue;
 
+                await this.releaseReservedBuyLimit(payment);
+
                 if (payment.order) {
                     this.emitTransactionUpdate(payment.userId, {
                         ...payment.order,
@@ -1380,7 +1425,11 @@ export class BuyOrderService {
                 );
 
                 // Best-effort: free the Nomba VA slot
-                void this.nombaService.deleteVirtualAccount(payment.reference).catch(() => {});
+                void this.nombaService
+                    .deleteVirtualAccount(
+                        payment.providerAccountReference || payment.reference
+                    )
+                    .catch(() => {});
 
                 this.logger.log(
                     `Cancelled underpaid buy order | Payment: ${payment.id} | Ref: ${payment.reference} | Received: ₦${Number(payment.receivedAmount)} of ₦${Number(payment.totalAmount)}`,

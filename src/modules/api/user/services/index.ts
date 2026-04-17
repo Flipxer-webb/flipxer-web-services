@@ -250,13 +250,51 @@ export class UserService {
     }
 
     /**
+     * Get active (non-expired) limit override for a user.
+     * Returns null if no override exists, it has expired, or the table is unavailable.
+     */
+    private async getActiveLimitOverride(userId: number) {
+        try {
+            const override = await this.prisma.limitOverride.findUnique({
+                where: { userId },
+            });
+
+            if (!override) return null;
+
+            if (override.expiresAt && override.expiresAt < new Date()) {
+                this.logger.debug(
+                    `Limit override for user ${userId} has expired (${override.expiresAt.toISOString()})`,
+                );
+                return null;
+            }
+
+            return override;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : JSON.stringify(error);
+            this.logger.warn(
+                `Failed to fetch limit override for user ${userId}, proceeding with tier defaults: ${message}`,
+            );
+            return null;
+        }
+    }
+
+    /**
      * Get the user's daily usage per operation type for the frontend.
      * Returns per-operation (buy/sell/swap/send) used today and daily limits.
      */
     async getWithdrawalUsage(user: User) {
         // Use DB-stored tier as single source of truth
         const userTier = (user as any).tier ?? 0;
-        const dailyLimits = this.tierService.getDailyLimits(userTier, user.userType);
+        const defaultDailyLimits = this.tierService.getDailyLimits(userTier, user.userType);
+        const override = await this.getActiveLimitOverride(user.id);
+        const dailyLimits = override?.dailyLimitUSD !== null && override?.dailyLimitUSD !== undefined
+            ? {
+                buy: override.dailyLimitUSD,
+                sell: override.dailyLimitUSD,
+                swap: override.dailyLimitUSD,
+                send: override.dailyLimitUSD,
+            }
+            : defaultDailyLimits;
 
         // Calculate daily totals from start of today (calendar-day, UTC)
         const now = new Date();

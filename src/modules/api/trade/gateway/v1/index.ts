@@ -1,11 +1,12 @@
 import {
-    MessageBody,
     SubscribeMessage,
     WebSocketGateway,
     WebSocketServer,
     OnGatewayConnection,
     OnGatewayDisconnect,
+    OnGatewayInit,
     ConnectedSocket,
+    WsException,
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { UseGuards, UsePipes } from "@nestjs/common";
@@ -15,7 +16,6 @@ import { WsService } from "../../services/websocket.service";
 import { WsValidatorPipeInstance } from "@/core/exception/ws/pipe";
 import { SocketAuthGuard } from "@/modules/api/auth/guard";
 import { IWsNewNotification, IWsTransactionUpdate } from "../../interfaces/trade";
-import { GetUserAssetsDto } from "@/modules/api/user/dtos";
 
 @UseGuards(SocketAuthGuard)
 @UsePipes(WsValidatorPipeInstance())
@@ -27,11 +27,35 @@ import { GetUserAssetsDto } from "@/modules/api/user/dtos";
     transports: ["websocket", "polling"],
     connectionStateRecovery: {},
 })
-export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
-    constructor(private readonly wsService: WsService) {}
+export class WsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+    constructor(
+        private readonly wsService: WsService,
+        private readonly socketAuthGuard: SocketAuthGuard
+    ) {}
 
     @WebSocketServer()
     server: Server;
+
+    afterInit(server: Server) {
+        server.use(async (client, next) => {
+            try {
+                await this.socketAuthGuard.authenticateClient(client);
+                next();
+            } catch (error) {
+                const message = this.getHandshakeErrorMessage(error);
+                const authError = new Error(message) as Error & {
+                    data?: { status: string; message: string };
+                };
+
+                authError.data = {
+                    status: "error",
+                    message,
+                };
+
+                next(authError);
+            }
+        });
+    }
 
     handleConnection(client: Socket) {
         this.wsService.handleConnection(client);
@@ -120,20 +144,44 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.wsService.broadcastWalletUpdates(this.server);
     }
 
-    @SubscribeMessage("getNotifications")
-    async handleGetNotifications(@ConnectedSocket() client: Socket) {
-        return await this.wsService.getNotifications(client);
-    }
-
-    @SubscribeMessage("getUserWallets")
-    async handleGetUserWallets(
-        @ConnectedSocket() client: Socket,
-        @MessageBody() [data, userId]: [GetUserAssetsDto, string]
-    ) {
-        return await this.wsService.getUserWallets(client, data);
+    /**
+     * Broadcast price updates to all connected clients
+     */
+    broadcastPriceUpdate(prices: Record<string, { price: number; change24h?: number } | null>) {
+        if (this.server) {
+            this.server.emit("priceUpdate", {
+                prices,
+                timestamp: new Date().toISOString(),
+            });
+        }
     }
 
     handleDisconnect(client: Socket) {
         this.wsService.handleDisconnect(client);
+    }
+
+    private getHandshakeErrorMessage(error: unknown): string {
+        if (error instanceof WsException) {
+            const wsError = error.getError();
+
+            if (typeof wsError === "string") {
+                return wsError;
+            }
+
+            if (
+                typeof wsError === "object" &&
+                wsError !== null &&
+                "message" in wsError &&
+                typeof (wsError as { message?: unknown }).message === "string"
+            ) {
+                return (wsError as { message: string }).message;
+            }
+        }
+
+        if (error instanceof Error && error.message) {
+            return error.message;
+        }
+
+        return "Your session is unauthorized";
     }
 }

@@ -25,6 +25,7 @@ import { LedgerService } from "../ledger/ledger.service";
 import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { TransactionService } from "@/modules/api/auth/services/transaction.service";
 import { IncompleteAccountSetupException } from "../../errors";
 import { OrderStatus, TransactionStatus } from "@prisma/client";
 
@@ -136,6 +137,7 @@ describe("BuyOrderService", () => {
                 { provide: RateService, useValue: mockRateService },
                 { provide: NotificationDispatcher, useValue: { notify: jest.fn() } },
                 { provide: DistributedLockService, useValue: { withLock: jest.fn((key, fn) => fn()) } },
+                { provide: TransactionService, useValue: { releaseDailyLimitReservationForOrder: jest.fn().mockResolvedValue(undefined) } },
             ],
         }).compile();
 
@@ -309,6 +311,7 @@ describe("BuyOrderService", () => {
                 .mockResolvedValue({
                     data: {
                         reference: "va-ref-1",
+                        providerAccountReference: "va-account-ref-1",
                         accountNumber: "0099009900",
                         accountName: "Flipxer User",
                         bankName: "Nomba",
@@ -354,6 +357,68 @@ describe("BuyOrderService", () => {
                 expect.objectContaining({
                     userId: mockUser.id,
                     title: "Buy order initiated",
+                }),
+            );
+        });
+
+        it("persists the provider VA accountRef when virtual-account fallback reuse returns a different accountRef", async () => {
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                depositAddress: "bc1qfallbackaddress",
+                defaultNetwork: "btc",
+            });
+
+            (service as any).nombaService.initializePaymentViaVirtualAccount = jest
+                .fn()
+                .mockResolvedValue({
+                    data: {
+                        reference: "local-buy-ref-1",
+                        providerAccountReference: "fallback-va-ref-1",
+                        accountNumber: "6826635284",
+                        accountName: "ZED/Testing Testing123",
+                        bankName: "Nombank MFB",
+                        bankCode: "",
+                        expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                    },
+                });
+
+            const paymentCreate = jest.fn().mockResolvedValue({ id: 405 });
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    order: {
+                        create: jest.fn().mockResolvedValue({
+                            id: 305,
+                            amount: 0.01,
+                            currency: "BTC",
+                            status: OrderStatus.pending,
+                            streamlinedStatus: "pending",
+                            orderCategory: OrderStatus.pending,
+                            transactionId: "tx-305",
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                        }),
+                    },
+                    payment: {
+                        create: paymentCreate,
+                    },
+                }),
+            );
+
+            await service.buyCryptoOrder(mockUser as any, {
+                ...orderDto,
+                idempotencyKey: "fallback-va-idem-1",
+            });
+
+            expect(paymentCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        reference: "local-buy-ref-1",
+                        providerAccountReference: "fallback-va-ref-1",
+                        destinationBankAccountNumber: "6826635284",
+                    }),
                 }),
             );
         });
@@ -701,11 +766,14 @@ describe("BuyOrderService", () => {
         it("cancelBuyOrder cancels and notifies when payment is still pending", async () => {
             const notify = (service as any).notificationDispatcher.notify as jest.Mock;
             const ws = (service as any).wsGateway;
+            const transactionService = (service as any).transactionService;
 
             prismaService.payment.findFirst.mockResolvedValue({
                 id: 11,
                 orderId: 101,
-                order: { id: 101, amount: 0.2, currency: "BTC", transactionId: "tx-101" },
+                userId: 1,
+                createdAt: new Date(),
+                order: { id: 101, amount: 0.2, currency: "BTC", orderCategory: "BUY", transactionId: "tx-101" },
                 status: TransactionStatus.PENDING,
             });
             prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
@@ -728,6 +796,14 @@ describe("BuyOrderService", () => {
 
             const response = await service.cancelBuyOrder("ref-1", 1);
             expect(response.data.cancelled).toBe(true);
+            expect(transactionService.releaseDailyLimitReservationForOrder).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 1,
+                    orderCategory: "BUY",
+                    currency: "BTC",
+                    amount: 0.2,
+                }),
+            );
             expect(ws.notifyWalletUpdate).toHaveBeenCalledWith(1);
             expect(notify).toHaveBeenCalled();
         });
@@ -885,6 +961,7 @@ describe("BuyOrderService", () => {
         it("cancelExpiredBuyOrders atomically cancels and notifies", async () => {
             const notify = (service as any).notificationDispatcher.notify as jest.Mock;
             const ws = (service as any).wsGateway;
+            const transactionService = (service as any).transactionService;
 
             prismaService.payment.findMany.mockResolvedValue([
                 {
@@ -900,6 +977,7 @@ describe("BuyOrderService", () => {
                         id: 801,
                         amount: 0.3,
                         currency: "BTC",
+                        orderCategory: "BUY",
                         status: OrderStatus.pending,
                         transactionId: "tx-801",
                     },
@@ -915,6 +993,14 @@ describe("BuyOrderService", () => {
             );
 
             await expect(service.cancelExpiredBuyOrders()).resolves.toBe(1);
+            expect(transactionService.releaseDailyLimitReservationForOrder).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 77,
+                    orderCategory: "BUY",
+                    currency: "BTC",
+                    amount: 0.3,
+                }),
+            );
             expect(ws.notifyWalletUpdate).toHaveBeenCalledWith(77);
             expect(notify).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1472,9 +1558,9 @@ describe("BuyOrderService", () => {
                 expect(call.body).toMatch(/TX-CANCEL-001/);
                 expect(call.body).toMatch(/cancelled/i);
 
-                // Push only — no email (user-initiated cancel, user is in-app)
-                expect(call.enableEmail).toBeFalsy();
-                expect(call.emailPayload).toBeUndefined();
+                // Push + email (user-initiated cancel now also sends email)
+                expect(call.enableEmail).toBe(true);
+                expect(call.emailPayload).toBeDefined();
             });
 
             it("does NOT send notification when cancel races with a webhook (cancelled=false)", async () => {
@@ -1695,9 +1781,19 @@ describe("BuyOrderService", () => {
             it("sends Slack ops alert with sender details for manual refund", async () => {
                 const slack = (service as any).slackWebhookService
                     .sendWebhookFailureAlert as jest.Mock;
+                const transactionService = (service as any).transactionService;
                 slack.mockClear();
 
                 await service.cancelUnderpaidBuyOrders();
+
+                expect(transactionService.releaseDailyLimitReservationForOrder).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        userId: 88,
+                        orderCategory: "BUY",
+                        currency: "BTC",
+                        amount: 0.08,
+                    }),
+                );
 
                 expect(slack).toHaveBeenCalledWith(
                     "nomba",
@@ -1836,8 +1932,8 @@ describe("BuyOrderService", () => {
 
                 const call = notify.mock.calls[0][0];
                 expect(call.enablePush).toBe(true);
-                expect(call.enableEmail).toBeFalsy();
-                expect(call.emailPayload).toBeUndefined();
+                expect(call.enableEmail).toBe(true);
+                expect(call.emailPayload).toBeDefined();
             });
 
             it("cron expiry cancel uses push + email", async () => {

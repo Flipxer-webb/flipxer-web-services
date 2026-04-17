@@ -1128,16 +1128,22 @@ describe("SocketAuthGuard", () => {
     let guard: SocketAuthGuard;
     let jwtService: any;
     let prisma: any;
+    let sessionService: any;
 
     beforeEach(async () => {
         jwtService = { verifyAsync: jest.fn() };
         prisma = { user: { findUnique: jest.fn() } };
+        sessionService = {
+            validateSession: jest.fn().mockResolvedValue(true),
+            touchSessionActivity: jest.fn().mockResolvedValue(undefined),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 SocketAuthGuard,
                 { provide: JwtService, useValue: jwtService },
                 { provide: PrismaService, useValue: prisma },
+                { provide: SessionService, useValue: sessionService },
             ],
         }).compile();
 
@@ -1158,12 +1164,18 @@ describe("SocketAuthGuard", () => {
     });
 
     it("should return true for valid token and user", async () => {
-        jwtService.verifyAsync.mockResolvedValue({ sub: "1" });
-        prisma.user.findUnique.mockResolvedValue({ id: 1 });
+        jwtService.verifyAsync.mockResolvedValue({ sub: "1", sessionId: "sess-1" });
+        prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: false });
 
         const ctx = mockContext({ query: { token: "valid-token" } });
         const result = await guard.canActivate(ctx);
+
+        const client = ctx.switchToWs().getClient();
         expect(result).toBe(true);
+        expect(client.data.user).toEqual({ id: 1, isDeleted: false });
+        expect(client.data.sessionId).toBe("sess-1");
+        expect(sessionService.validateSession).toHaveBeenCalledWith("sess-1");
+        expect(sessionService.touchSessionActivity).toHaveBeenCalledWith("sess-1");
     });
 
     it("should handle Prisma errors", async () => {
@@ -1181,5 +1193,15 @@ describe("SocketAuthGuard", () => {
 
         const ctx = mockContext({ query: { token: "expired-token" } });
         await expect(guard.canActivate(ctx)).rejects.toThrow("unauthorized");
+    });
+
+    it("should reject revoked socket sessions", async () => {
+        jwtService.verifyAsync.mockResolvedValue({ sub: "1", sessionId: "sess-2" });
+        prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: false });
+        sessionService.validateSession.mockResolvedValue(false);
+
+        const ctx = mockContext({ query: { token: "valid-token" } });
+        await expect(guard.canActivate(ctx)).rejects.toThrow("unauthorized or expired");
+        expect(sessionService.touchSessionActivity).not.toHaveBeenCalled();
     });
 });

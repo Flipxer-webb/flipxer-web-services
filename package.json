@@ -117,6 +117,7 @@
         "db:backup:list": "node scripts/backup-utils.js list",
         "db:backup:restore": "node scripts/backup-utils.js restore",
         "db:backup:help": "node scripts/backup-utils.js help",
+        "nomba:replay:local": "node scripts/replay-local-nomba-webhook.js",
         "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts",
         "db:staging:up": "docker compose -f docker-compose.staging.yml up -d",
         "db:staging:down": "docker compose -f docker-compose.staging.yml down",
