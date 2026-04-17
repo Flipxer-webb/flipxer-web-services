@@ -575,6 +575,19 @@ describe("WithdrawalWebhookHandler", () => {
         await expect(handler.retryFiatPayout(22)).rejects.toThrow("Transaction already completed");
     });
 
+    it("retryFiatPayout throws when payout is already in progress", async () => {
+        prisma.order.findUnique.mockResolvedValue(
+            makeTransaction({
+                orderCategory: OrderCategory.SELL,
+                status: OrderStatus.processing,
+                streamlinedStatus: OrderStreamlinedStatus.pending,
+                paymentStatus: TransactionStatus.PENDING,
+            })
+        );
+
+        await expect(handler.retryFiatPayout(22)).rejects.toThrow("Payout already in progress");
+    });
+
     it("retryFiatPayout throws when order is not a SELL", async () => {
         prisma.order.findUnique.mockResolvedValue(
             makeTransaction({ orderCategory: OrderCategory.SEND, status: OrderStatus.pending })

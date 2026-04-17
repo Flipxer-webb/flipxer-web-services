@@ -74,9 +74,13 @@ export class WithdrawalWebhookHandler {
             throw new TransactionNotFoundException("Transaction not found", HttpStatus.NOT_FOUND);
         }
 
-        // Strict concurrency/status check
+        // Strict concurrency/status check — block retries for completed OR in-flight orders
         if (transaction.status === OrderStatus.done || transaction.streamlinedStatus === OrderStreamlinedStatus.completed) {
             throw new TransactionCompletedException("Transaction already completed", HttpStatus.CONFLICT);
+        }
+
+        if (transaction.status === OrderStatus.processing && transaction.paymentStatus === TransactionStatus.PENDING) {
+            throw new TransactionCompletedException("Payout already in progress — awaiting provider confirmation", HttpStatus.CONFLICT);
         }
 
         if (transaction.orderCategory !== OrderCategory.SELL) {
