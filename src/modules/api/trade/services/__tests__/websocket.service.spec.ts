@@ -65,18 +65,21 @@ describe("WsService", () => {
         expect(Logger.log).toHaveBeenCalledWith("Client connected: socket-1");
     });
 
-    it("registers socket mapping and joins user/admin rooms", async () => {
-        const adminClient = makeClient({
-            id: "socket-admin",
-            data: { user: { id: 99, userType: UserType.ADMIN } },
-        });
+    it.each([UserType.ADMIN, UserType.SUPER_ADMIN])(
+        "registers socket mapping and joins the admin room for %s users",
+        async (userType) => {
+            const adminClient = makeClient({
+                id: "socket-admin",
+                data: { user: { id: 99, userType } },
+            });
 
-        const result = await service.handlePostConnection(adminClient as any);
+            const result = await service.handlePostConnection(adminClient as any);
 
-        expect(adminClient.join).toHaveBeenCalledWith("user:99");
-        expect(adminClient.join).toHaveBeenCalledWith("admin");
-        expect(result.message).toBe("post connection successful");
-    });
+            expect(adminClient.join).toHaveBeenCalledWith("user:99");
+            expect(adminClient.join).toHaveBeenCalledWith("admin");
+            expect(result.message).toBe("post connection successful");
+        }
+    );
 
     it("emits events to admins room", () => {
         const server = makeServer();

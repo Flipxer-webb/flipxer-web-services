@@ -27,7 +27,7 @@ import { SolvencyService } from "../../services/ledger/solvency.service";
 import { LedgerService } from "../../services/ledger/ledger.service";
 import { RateService } from "../../services/rate.service";
 import { AdminSwapService } from "../../services/admin-swap.service";
-import { AdminSwapQuoteDto, AdminSwapConfirmDto, AdminAdjustmentDto } from "../../dtos";
+import { AdminSwapQuoteDto, AdminSwapConfirmDto, AdminAdjustmentDto, AdminAdjustmentDirection } from "../../dtos";
 import { User } from "@/modules/api/user/decorators";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
@@ -796,7 +796,14 @@ export class AdminAccountingController {
         @Body() dto: AdminAdjustmentDto,
         @User() admin: UserEntity,
     ) {
-        const { userId, currency, amount, reason, orderId } = dto;
+        const {
+            userId,
+            currency,
+            amount,
+            reason,
+            orderId,
+            direction = AdminAdjustmentDirection.CREDIT,
+        } = dto;
 
         // Verify user exists
         const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -804,36 +811,47 @@ export class AdminAccountingController {
             throw new NotFoundException(`User ${userId} not found`);
         }
 
-        const reference = `admin-adj:${admin.id}:${Date.now()}`;
+        if (direction === AdminAdjustmentDirection.DEBIT && orderId) {
+            throw new BadRequestException("orderId is only supported for credit adjustments");
+        }
+
+        const reference = `admin-adj:${direction}:${admin.id}:${Date.now()}`;
+        const normalizedCurrency = currency.toUpperCase();
+        const operationVerb = direction === AdminAdjustmentDirection.DEBIT ? "debiting" : "crediting";
 
         this.logger.warn(
-            `[ADMIN ADJUSTMENT] Admin ${admin.id} (${admin.email}) crediting ${amount} ${currency} to user ${userId} (${user.email}) | Reason: ${reason} | OrderId: ${orderId ?? "none"}`,
+            `[ADMIN ADJUSTMENT] Admin ${admin.id} (${admin.email}) ${operationVerb} ${amount} ${normalizedCurrency} ${direction === AdminAdjustmentDirection.DEBIT ? "from" : "to"} user ${userId} (${user.email}) | Reason: ${reason} | OrderId: ${orderId ?? "none"}`,
         );
 
-        const result = await this.ledgerService.pairedCredit({
+        const ledgerOptions = {
             userId,
-            currency: currency.toUpperCase(),
+            currency: normalizedCurrency,
             type: LedgerType.ADJUSTMENT,
             amount,
             reference,
-            description: `Admin adjustment: ${reason}`,
+            description: `Admin ${direction} adjustment: ${reason}`,
             metadata: {
                 adminId: admin.id,
                 adminEmail: admin.email,
                 reason,
+                direction,
                 ...(orderId ? { orderId } : {}),
             },
             sweepStatus: undefined,
             createPlatformEntry: true,
-        });
+        };
+
+        const result = direction === AdminAdjustmentDirection.DEBIT
+            ? await this.ledgerService.pairedDebit(ledgerOptions)
+            : await this.ledgerService.pairedCredit(ledgerOptions);
 
         if (!result.success) {
             this.logger.error(`[ADMIN ADJUSTMENT] Failed: ${result.error}`);
             throw new BadRequestException(`Adjustment failed: ${result.error}`);
         }
 
-        // If an orderId was provided, link the ledger entry to the order
-        if (orderId && result.userEntry) {
+        // If an orderId was provided, link the credit entry to the order
+        if (direction === AdminAdjustmentDirection.CREDIT && orderId && result.userEntry) {
             await this.prisma.order.update({
                 where: { id: orderId },
                 data: { ledgerEntryId: result.userEntry.id, fulfilled: true },
@@ -850,7 +868,7 @@ export class AdminAccountingController {
             action: "CREATE_ADJUSTMENT",
             resource: "ledger",
             resourceId: result.userEntry?.id,
-            details: { userId, currency, amount, reason, orderId, reference },
+            details: { userId, currency: normalizedCurrency, amount, reason, orderId, reference, direction },
             adminId: admin.id,
         });
 
@@ -859,6 +877,7 @@ export class AdminAccountingController {
             data: {
                 ledgerEntryId: result.userEntry?.id,
                 balanceAfter: result.userBalanceAfter?.toString(),
+                direction,
                 reference,
             },
         });

@@ -14,7 +14,8 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { LedgerService } from "../ledger.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
-import { EntryStatus, LedgerType, QueueReason } from "@prisma/client";
+import { WsGateway } from "../../../gateway/v1";
+import { EntryStatus, LedgerType, OrderCategory, OrderStatus, QueueReason } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 
 function makePrisma() {
@@ -39,6 +40,7 @@ function makePrisma() {
         },
         order: {
             findMany: jest.fn(),
+            update: jest.fn(),
         },
     };
 }
@@ -47,6 +49,7 @@ describe("WithdrawalQueueService", () => {
     let service: WithdrawalQueueService;
     let prisma: ReturnType<typeof makePrisma>;
     let ledgerService: { releaseHold: jest.Mock };
+    let wsGateway: { notifyWithdrawalReleased: jest.Mock; notifyTransactionUpdate: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -54,6 +57,10 @@ describe("WithdrawalQueueService", () => {
         const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
         const mockNotificationMessage = {
             sendWithdrawalRefunded: jest.fn().mockReturnValue("Withdrawal refunded"),
+        };
+        const mockWsGateway = {
+            notifyWithdrawalReleased: jest.fn(),
+            notifyTransactionUpdate: jest.fn(),
         };
 
         const module: TestingModule = await Test.createTestingModule({
@@ -63,11 +70,13 @@ describe("WithdrawalQueueService", () => {
                 { provide: LedgerService, useValue: mockLedger },
                 { provide: NotificationDispatcher, useValue: mockNotification },
                 { provide: NotificationMessageService, useValue: mockNotificationMessage },
+                { provide: WsGateway, useValue: mockWsGateway },
             ],
         }).compile();
 
         service = module.get(WithdrawalQueueService);
         ledgerService = module.get(LedgerService);
+        wsGateway = module.get(WsGateway);
     });
 
     afterEach(() => jest.clearAllMocks());
@@ -263,12 +272,49 @@ describe("WithdrawalQueueService", () => {
             ];
             prisma.withdrawalQueue.findMany.mockResolvedValue(timedOut);
             prisma.withdrawalQueue.updateMany.mockResolvedValue({ count: 1 });
+            prisma.order.findMany.mockResolvedValue([
+                {
+                    id: 77,
+                    transactionId: "tx-77",
+                    status: OrderStatus.pending,
+                    streamlinedStatus: "pending",
+                    orderCategory: OrderCategory.SEND,
+                    amount: new Decimal("0.5"),
+                    currency: "BTC",
+                    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+                    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+                },
+            ]);
+            prisma.order.update.mockResolvedValue({
+                id: 77,
+                transactionId: "tx-77",
+                status: OrderStatus.failed,
+                streamlinedStatus: "failed",
+                orderCategory: OrderCategory.SEND,
+                amount: new Decimal("0.5"),
+                currency: "BTC",
+                createdAt: new Date("2026-01-01T00:00:00.000Z"),
+                updatedAt: new Date("2026-01-04T00:00:00.000Z"),
+            });
             ledgerService.releaseHold.mockResolvedValue({ success: true });
 
             const count = await service.processTimeouts();
 
             expect(count).toBe(1);
             expect(ledgerService.releaseHold).toHaveBeenCalledWith("hold-ref-1", false, expect.any(String));
+            expect(prisma.order.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 77 },
+                    data: expect.objectContaining({ status: OrderStatus.failed }),
+                }),
+            );
+            expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalledWith(
+                1,
+                expect.objectContaining({
+                    type: "transaction_update",
+                    transaction: expect.objectContaining({ id: 77, status: OrderStatus.failed }),
+                }),
+            );
         });
 
         it("should skip entries already claimed by another process", async () => {

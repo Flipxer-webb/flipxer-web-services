@@ -118,6 +118,26 @@ export class WsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayD
         this.wsService.emitWalletUpdateToUser(userId, this.server);
     }
 
+    /**
+     * Notify user/admin that a queued withdrawal has been released back to the user
+     */
+    notifyWithdrawalReleased(userId: number, payload: {
+        queueId: string;
+        currency: string;
+        amount: string;
+        reason: string;
+    }) {
+        this.server.to(`user:${userId}`).emit("withdrawalReleased", payload);
+        this.wsService.emitToAdmins("admin:withdrawalReleased", {
+            userId,
+            amount: Number(payload.amount),
+            currency: payload.currency,
+            reason: payload.reason,
+            releasedAt: new Date().toISOString(),
+        }, this.server);
+        this.wsService.emitWalletUpdateToUser(userId, this.server);
+    }
+
     notifyQueueHealthAlert(payload: {
         category: string;
         title: string;

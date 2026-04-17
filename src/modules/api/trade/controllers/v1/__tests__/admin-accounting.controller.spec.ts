@@ -62,6 +62,7 @@ describe("AdminAccountingController", () => {
     };
     let ledgerService: {
         pairedCredit: jest.Mock;
+        pairedDebit: jest.Mock;
     };
     let adminSwapService: {
         getSwapQuote: jest.Mock;
@@ -116,6 +117,7 @@ describe("AdminAccountingController", () => {
 
         ledgerService = {
             pairedCredit: jest.fn(),
+            pairedDebit: jest.fn(),
         };
 
         controller = new AdminAccountingController(
@@ -595,6 +597,51 @@ describe("AdminAccountingController", () => {
 
         const dto = { userId: 12, currency: "usdt", amount: 2, reason: "test" };
         await expect(controller.createAdjustment(dto, adminUser)).rejects.toThrow("Adjustment failed: Insufficient balance");
+    });
+
+    it("creates debit adjustment via pairedDebit", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedDebit.mockResolvedValue({
+            success: true,
+            userEntry: { id: "ledger-debit-123", balanceAfter: 3, reference: "adj-ref" },
+            userBalanceAfter: 3,
+        });
+
+        const dto = { userId: 12, currency: "usdt", amount: 2, direction: "debit", reason: "cleanup proof balance" };
+        const result = await controller.createAdjustment(dto as any, adminUser);
+
+        expect(result.message).toBe("Adjustment applied successfully");
+        expect(result.data.direction).toBe("debit");
+        expect(ledgerService.pairedDebit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                userId: 12,
+                currency: "USDT",
+                type: "ADJUSTMENT",
+                amount: 2,
+                metadata: expect.objectContaining({ direction: "debit" }),
+            }),
+        );
+        expect(ledgerService.pairedCredit).not.toHaveBeenCalled();
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects debit adjustment when orderId is provided", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+
+        const dto = {
+            userId: 12,
+            currency: "usdt",
+            amount: 2,
+            direction: "debit",
+            reason: "cleanup proof balance",
+            orderId: 2,
+        };
+
+        await expect(controller.createAdjustment(dto as any, adminUser)).rejects.toThrow(
+            "orderId is only supported for credit adjustments",
+        );
+        expect(ledgerService.pairedDebit).not.toHaveBeenCalled();
+        expect(ledgerService.pairedCredit).not.toHaveBeenCalled();
     });
 
     it("succeeds without orderId (no order link)", async () => {

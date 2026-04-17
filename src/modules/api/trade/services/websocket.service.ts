@@ -7,6 +7,8 @@ import { IWsNewNotification, IWsTransactionUpdate } from "../interfaces/trade";
 import { GetUserAssetsDto } from "../../user/dtos";
 import { UserService } from "../../user/services";
 
+const ADMIN_SOCKET_USER_TYPES = new Set<UserType>([UserType.ADMIN, UserType.SUPER_ADMIN]);
+
 @Injectable()
 export class WsService {
     private readonly userSocketMap: Map<string, Set<string>> = new Map(); // userId -> socketIds
@@ -40,7 +42,7 @@ export class WsService {
         this.socketUserMap.set(client.id, userId);
         client.join(`user:${user.id}`);
 
-        if (user.userType === UserType.ADMIN) {
+        if (ADMIN_SOCKET_USER_TYPES.has(user.userType)) {
             client.join("admin");
         }
 
