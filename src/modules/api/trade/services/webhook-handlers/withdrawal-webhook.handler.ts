@@ -314,51 +314,24 @@ export class WithdrawalWebhookHandler {
         try {
             await this.initiateFiatPayout(transaction);
 
-            const completedOrder = await this.prisma.order.update({
+            // Keep order in processing until Nomba confirms the payout outcome.
+            // The Nomba webhook controller will finalize the order to done/failed
+            // via handleTransferSuccess or handleTransferFailed respectively.
+            const processingOrder = await this.prisma.order.update({
                 where: { id: transaction.id },
                 data: {
-                    status: OrderStatus.done,
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                    fulfilled: true,
+                    status: OrderStatus.processing,
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    paymentStatus: TransactionStatus.PENDING,
+                    fulfilled: false,
                 },
             });
 
-            this.emitTransactionUpdate(transaction.user.id, completedOrder);
-            this.wsGateway.notifyWalletUpdate(transaction.user.id);
+            this.emitTransactionUpdate(transaction.user.id, processingOrder);
 
-            const sellMessage = this.notificationMessage.sellTransactionSuccess({
-                amount: transaction.amount,
-                currency: transaction.currency,
-                fiatAmount: transaction.totalToReceiveInFiat,
-                bankName: transaction.destinationBankName || 'your bank',
-                accountNumber: transaction.destinationBankAccountNumber || '',
-                transactionId: transaction.transactionId,
-            });
-
-            await this.notificationDispatcher.notify({
-                userId: transaction.user.id,
-                title: "Sell order completed",
-                body: sellMessage,
-                category: "transaction",
-                currency: transaction.currency,
-                transactionType: OrderCategory.SELL,
-                enableEmail: true,
-                emailPayload: {
-                    email: transaction.user.email,
-                    transactionType: 'sell',
-                    transactionId: transaction.transactionId,
-                    amount: String(transaction.amount),
-                    currency: transaction.currency.toUpperCase(),
-                    status: 'completed',
-                    date: new Date().toISOString(),
-                    fiatAmount: String(transaction.totalToReceiveInFiat || ''),
-                    bankName: transaction.destinationBankName || '',
-                    accountNumber: transaction.destinationBankAccountNumber || '',
-                },
-                enablePush: true,
-            });
-
-            this.logger.log(`Order ${transaction.id} marked COMPLETED after successful payout`);
+            this.logger.log(
+                `Order ${transaction.id} payout initiated; awaiting Nomba confirmation webhook`,
+            );
             return true;
         } catch (payoutError) {
             const failedOrder = await this.prisma.order.update({

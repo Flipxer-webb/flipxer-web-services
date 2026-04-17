@@ -337,20 +337,35 @@ describe("WithdrawalWebhookHandler", () => {
         expect(completeSpy).toHaveBeenCalledWith(77, sellTx);
     });
 
-    it("completes SELL payout path and sends notification", async () => {
+    it("keeps SELL payout in processing until Nomba confirms and sends no completion notification", async () => {
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });
         jest.spyOn(handler as any, "initiateFiatPayout").mockResolvedValue(undefined);
         prisma.order.update.mockResolvedValue(
-            makeTransaction({ status: OrderStatus.done, streamlinedStatus: OrderStreamlinedStatus.completed })
+            makeTransaction({
+                status: OrderStatus.processing,
+                streamlinedStatus: OrderStreamlinedStatus.pending,
+                paymentStatus: TransactionStatus.PENDING,
+                fulfilled: false,
+            })
         );
 
         const result = await (handler as any).handleSellOrderDone(sellTx);
 
         expect(result).toBe(true);
-        expect(notificationMessage.sellTransactionSuccess).toHaveBeenCalled();
-        expect(notificationDispatcher.notify).toHaveBeenCalledWith(
-            expect.objectContaining({ title: "Sell order completed" })
+        expect(prisma.order.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    status: OrderStatus.processing,
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    paymentStatus: TransactionStatus.PENDING,
+                    fulfilled: false,
+                }),
+            })
         );
+        // No completion notification — Nomba webhook will send it on success
+        expect(notificationMessage.sellTransactionSuccess).not.toHaveBeenCalled();
+        expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+        expect(wsGateway.notifyWalletUpdate).not.toHaveBeenCalled();
     });
 
     it("marks SELL payout path as failed and triggers compensating actions", async () => {
@@ -427,15 +442,17 @@ describe("WithdrawalWebhookHandler", () => {
 
     // â”€â”€ WebSocket state emission for SELL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    it("emits notifyTransactionUpdate with streamlinedStatus=completed when sell payout succeeds", async () => {
+    it("emits notifyTransactionUpdate with streamlinedStatus=pending when sell payout is initiated", async () => {
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });
         jest.spyOn(handler as any, "initiateFiatPayout").mockResolvedValue(undefined);
-        const completedOrder = {
+        const processingOrder = {
             ...sellTx,
-            status: OrderStatus.done,
-            streamlinedStatus: OrderStreamlinedStatus.completed,
+            status: OrderStatus.processing,
+            streamlinedStatus: OrderStreamlinedStatus.pending,
+            paymentStatus: TransactionStatus.PENDING,
+            fulfilled: false,
         };
-        prisma.order.update.mockResolvedValue(completedOrder);
+        prisma.order.update.mockResolvedValue(processingOrder);
 
         await (handler as any).handleSellOrderDone(sellTx);
 
@@ -446,8 +463,8 @@ describe("WithdrawalWebhookHandler", () => {
                 transaction: expect.objectContaining({
                     id: sellTx.id,
                     transactionId: sellTx.transactionId,
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                    status: OrderStatus.done,
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    status: OrderStatus.processing,
                 }),
             }),
         );
