@@ -1,8 +1,8 @@
 import { mailConfig } from "@/config";
-import { SendMailClient } from "zeptomail";
 import { Global, Module } from "@nestjs/common";
 import { EmailService } from "./services";
 import { SmtpMailClient } from "./clients/smtp-mail.client";
+import { ZeptoMailClient } from "./clients/zeptomail.client";
 
 @Global()
 @Module({
@@ -13,7 +13,7 @@ import { SmtpMailClient } from "./clients/smtp-mail.client";
                 if (process.env.MAIL_DRIVER === "smtp") {
                     return new EmailService(new SmtpMailClient());
                 }
-                const client: SendMailClient = new SendMailClient({
+                const client = new ZeptoMailClient({
                     url: mailConfig.url,
                     token: mailConfig.token,
                 });
