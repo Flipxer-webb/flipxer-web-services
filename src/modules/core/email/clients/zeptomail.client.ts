@@ -61,14 +61,15 @@ export class ZeptoMailClient implements ISendMailClient {
 
     private async post(path: string, body: unknown): Promise<any> {
         const url = `${this.baseUrl}${path}`;
+        const payload = this.normalizeTemplatePayload(path, body);
         const response = await fetch(url, {
             method: "POST",
             headers: {
                 Accept: "application/json",
                 "Content-Type": "application/json",
-                Authorization: `Zoho-enczapikey ${this.token}`,
+                Authorization: this.token,
             },
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const data = await this.readResponseBody(response);
@@ -80,6 +81,31 @@ export class ZeptoMailClient implements ISendMailClient {
         }
 
         return data ?? { ok: true, status: response.status };
+    }
+
+    private normalizeTemplatePayload(path: string, body: unknown): unknown {
+        const isTemplateEndpoint =
+            path === "/v1.1/email/template" ||
+            path === "/v1.1/email/template/batch";
+
+        if (!isTemplateEndpoint || !body || typeof body !== "object" || Array.isArray(body)) {
+            return body;
+        }
+
+        const payload = body as Record<string, unknown>;
+        const templateKey = typeof payload.template_key === "string" ? payload.template_key : undefined;
+        const mailTemplateKey = typeof payload.mail_template_key === "string" ? payload.mail_template_key : undefined;
+
+        if (!templateKey && !mailTemplateKey) {
+            return body;
+        }
+
+        const { mail_template_key, ...rest } = payload;
+
+        return {
+            ...rest,
+            ...(templateKey || mailTemplateKey ? { template_key: templateKey ?? mailTemplateKey } : {}),
+        };
     }
 
     private async readResponseBody(response: Response): Promise<unknown> {
