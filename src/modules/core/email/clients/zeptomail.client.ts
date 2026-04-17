@@ -71,15 +71,51 @@ export class ZeptoMailClient implements ISendMailClient {
             body: JSON.stringify(body),
         });
 
-        const data = await response.json();
+        const data = await this.readResponseBody(response);
 
         if (!response.ok) {
-            this.logger.error(
-                `ZeptoMail API error [${response.status}]: ${JSON.stringify(data)}`,
-            );
-            throw data;
+            const errorMessage = this.getErrorMessage(response, data);
+            this.logger.error(`ZeptoMail API error [${response.status}]: ${errorMessage}`);
+            throw new Error(errorMessage);
         }
 
-        return data;
+        return data ?? { ok: true, status: response.status };
+    }
+
+    private async readResponseBody(response: Response): Promise<unknown> {
+        const rawBody = await response.text();
+        const trimmedBody = rawBody.trim();
+
+        if (!trimmedBody) {
+            return null;
+        }
+
+        const contentType = response.headers.get("content-type") ?? "";
+        const looksLikeJson =
+            contentType.includes("application/json") ||
+            trimmedBody.startsWith("{") ||
+            trimmedBody.startsWith("[");
+
+        if (!looksLikeJson) {
+            return trimmedBody;
+        }
+
+        try {
+            return JSON.parse(trimmedBody);
+        } catch {
+            return trimmedBody;
+        }
+    }
+
+    private getErrorMessage(response: Response, data: unknown): string {
+        if (data && typeof data === "object" && "message" in data && typeof data.message === "string") {
+            return data.message;
+        }
+
+        if (typeof data === "string" && data.trim()) {
+            return data;
+        }
+
+        return response.statusText || `ZeptoMail request failed with status ${response.status}`;
     }
 }
