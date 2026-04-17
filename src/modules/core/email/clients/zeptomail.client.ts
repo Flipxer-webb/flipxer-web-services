@@ -16,12 +16,31 @@ export class ZeptoMailClient implements ISendMailClient {
     private readonly baseUrl: string;
     private readonly token: string;
 
-    constructor(options: { url: string; token: string }) {
+    constructor(options: { url?: string; token: string }) {
         // Use only the origin so env values like
         // https://api.zeptomail.com or https://api.zeptomail.com/v1.1/email
         // both normalize to the same base URL.
-        this.baseUrl = new URL(options.url).origin;
+        this.baseUrl = this.normalizeBaseUrl(options.url);
         this.token = options.token;
+    }
+
+    private normalizeBaseUrl(url?: string): string {
+        const trimmedUrl = url?.trim();
+
+        if (!trimmedUrl) {
+            throw new Error("ZEPTOMAIL_URL must not be empty");
+        }
+
+        const absoluteUrl =
+            trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")
+                ? trimmedUrl
+                : `https://${trimmedUrl}`;
+
+        try {
+            return new URL(absoluteUrl).origin;
+        } catch {
+            throw new Error(`Invalid ZEPTOMAIL_URL: ${trimmedUrl}`);
+        }
     }
 
     async sendMail(options: SendMailOptions): Promise<any> {

@@ -1,19 +1,19 @@
 import { ZeptoMailClient } from "../zeptomail.client";
 
 describe("ZeptoMailClient", () => {
-    const originalFetch = global.fetch;
+    const originalFetch = globalThis.fetch;
 
     beforeEach(() => {
-        global.fetch = jest.fn();
+        globalThis.fetch = jest.fn();
     });
 
     afterEach(() => {
-        global.fetch = originalFetch;
+        globalThis.fetch = originalFetch;
         jest.restoreAllMocks();
     });
 
     it("normalizes a URL with path segments to the API origin", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
+        (globalThis.fetch as jest.Mock).mockResolvedValue({
             ok: true,
             json: jest.fn().mockResolvedValue({ request_id: "req-1" }),
         });
@@ -33,7 +33,7 @@ describe("ZeptoMailClient", () => {
             }),
         ).resolves.toEqual({ request_id: "req-1" });
 
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect(globalThis.fetch).toHaveBeenCalledWith(
             "https://api.zeptomail.com/v1.1/email",
             expect.objectContaining({
                 method: "POST",
@@ -46,8 +46,35 @@ describe("ZeptoMailClient", () => {
         );
     });
 
+    it("normalizes a bare host by assuming https", async () => {
+        (globalThis.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockResolvedValue({ request_id: "req-bare" }),
+        });
+
+        const client = new ZeptoMailClient({
+            url: "api.zeptomail.com",
+            token: "secret-token",
+        });
+
+        await expect(
+            client.sendMail({
+                from: { address: "noreply@test.com" },
+                to: [{ email_address: { address: "user@test.com" } }],
+                subject: "Subject",
+                textbody: "Text",
+                htmlbody: "<p>HTML</p>",
+            }),
+        ).resolves.toEqual({ request_id: "req-bare" });
+
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            "https://api.zeptomail.com/v1.1/email",
+            expect.any(Object),
+        );
+    });
+
     it("posts template emails to the template endpoint", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
+        (globalThis.fetch as jest.Mock).mockResolvedValue({
             ok: true,
             json: jest.fn().mockResolvedValue({ request_id: "req-2" }),
         });
@@ -65,14 +92,14 @@ describe("ZeptoMailClient", () => {
             }),
         ).resolves.toEqual({ request_id: "req-2" });
 
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect(globalThis.fetch).toHaveBeenCalledWith(
             "https://api.zeptomail.com/v1.1/email/template",
             expect.any(Object),
         );
     });
 
     it("posts template batches to the batch endpoint", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
+        (globalThis.fetch as jest.Mock).mockResolvedValue({
             ok: true,
             json: jest.fn().mockResolvedValue({ request_id: "req-3" }),
         });
@@ -90,14 +117,14 @@ describe("ZeptoMailClient", () => {
             }),
         ).resolves.toEqual({ request_id: "req-3" });
 
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect(globalThis.fetch).toHaveBeenCalledWith(
             "https://api.zeptomail.com/v1.1/email/template/batch",
             expect.any(Object),
         );
     });
 
     it("logs and throws parsed API errors", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
+        (globalThis.fetch as jest.Mock).mockResolvedValue({
             ok: false,
             status: 400,
             json: jest.fn().mockResolvedValue({ message: "bad request" }),
@@ -122,5 +149,15 @@ describe("ZeptoMailClient", () => {
         expect(errorSpy).toHaveBeenCalledWith(
             'ZeptoMail API error [400]: {"message":"bad request"}',
         );
+    });
+
+    it("throws a clear config error for invalid ZeptoMail URLs", () => {
+        expect(
+            () =>
+                new ZeptoMailClient({
+                    url: "http://",
+                    token: "secret-token",
+                }),
+        ).toThrow("Invalid ZEPTOMAIL_URL: http://");
     });
 });
