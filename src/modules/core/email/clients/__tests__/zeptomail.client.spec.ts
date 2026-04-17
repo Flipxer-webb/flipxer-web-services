@@ -61,7 +61,7 @@ describe("ZeptoMailClient", () => {
                 headers: expect.objectContaining({
                     Accept: "application/json",
                     "Content-Type": "application/json",
-                    Authorization: "Zoho-enczapikey secret-token",
+                    Authorization: "secret-token",
                 }),
             }),
         );
@@ -149,13 +149,49 @@ describe("ZeptoMailClient", () => {
             client.sendMailWithTemplate({
                 from: { address: "noreply@test.com" },
                 to: [{ email_address: { address: "user@test.com" } }],
-                template_alias: "verify-account",
+                template_key: "verify-account",
             }),
         ).resolves.toEqual({ request_id: "req-2" });
 
         expect(globalThis.fetch).toHaveBeenCalledWith(
             "https://api.zeptomail.com/v1.1/email/template",
-            expect.any(Object),
+            expect.objectContaining({
+                body: JSON.stringify({
+                    from: { address: "noreply@test.com" },
+                    to: [{ email_address: { address: "user@test.com" } }],
+                    template_key: "verify-account",
+                }),
+            }),
+        );
+    });
+
+    it("normalizes legacy mail_template_key inputs to template_key", async () => {
+        (globalThis.fetch as jest.Mock).mockResolvedValue(
+            makeResponse({ body: '{"request_id":"req-legacy"}' }),
+        );
+
+        const client = new ZeptoMailClient({
+            url: "https://api.zeptomail.com",
+            token: "secret-token",
+        });
+
+        await expect(
+            client.sendMailWithTemplate({
+                from: { address: "noreply@test.com" },
+                to: [{ email_address: { address: "user@test.com" } }],
+                mail_template_key: "legacy-template",
+            } as never),
+        ).resolves.toEqual({ request_id: "req-legacy" });
+
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            "https://api.zeptomail.com/v1.1/email/template",
+            expect.objectContaining({
+                body: JSON.stringify({
+                    from: { address: "noreply@test.com" },
+                    to: [{ email_address: { address: "user@test.com" } }],
+                    template_key: "legacy-template",
+                }),
+            }),
         );
     });
 
