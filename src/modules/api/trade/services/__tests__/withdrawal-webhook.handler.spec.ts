@@ -425,7 +425,7 @@ describe("WithdrawalWebhookHandler", () => {
         expect(notificationDispatcher.notify).toHaveBeenCalledTimes(2);
     });
 
-    // ── WebSocket state emission for SELL ────────────────────────────────────
+    // â”€â”€ WebSocket state emission for SELL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("emits notifyTransactionUpdate with streamlinedStatus=completed when sell payout succeeds", async () => {
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });
@@ -538,7 +538,7 @@ describe("WithdrawalWebhookHandler", () => {
         );
     });
 
-    // ── retryFiatPayout guard clauses ────────────────────────────────────
+    // â”€â”€ retryFiatPayout guard clauses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("retryFiatPayout throws when transaction is not found", async () => {
         prisma.order.findUnique.mockResolvedValue(null);
@@ -566,7 +566,7 @@ describe("WithdrawalWebhookHandler", () => {
         await expect(handler.retryFiatPayout(22)).rejects.toThrow("Only SELL orders can be retried");
     });
 
-    // ── refundSellOrderByOrderId ─────────────────────────────────────────
+    // â”€â”€ refundSellOrderByOrderId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("refundSellOrderByOrderId returns silently when order is not found", async () => {
         prisma.order.findUnique.mockResolvedValue(null);
@@ -586,7 +586,7 @@ describe("WithdrawalWebhookHandler", () => {
         expect(spy).toHaveBeenCalledWith(order);
     });
 
-    // ── refundSellOrder ──────────────────────────────────────────────────
+    // â”€â”€ refundSellOrder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("refundSellOrder credits the user via pairedCredit on success", async () => {
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, total: 0.5 });
@@ -636,7 +636,7 @@ describe("WithdrawalWebhookHandler", () => {
         );
     });
 
-    // ── sendPayoutAlert ──────────────────────────────────────────────────
+    // â”€â”€ sendPayoutAlert â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("sendPayoutAlert sends a Slack message when webhook URL is configured", async () => {
         const config = require("@/config");
@@ -705,7 +705,7 @@ describe("WithdrawalWebhookHandler", () => {
         Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: original, writable: true });
     });
 
-    // ── settleOrReleaseSendHold error paths ──────────────────────────────
+    // â”€â”€ settleOrReleaseSendHold error paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("settleOrReleaseSendHold logs error when settle fails", async () => {
         ledgerService.releaseHoldWithPlatformEntry.mockResolvedValue({ success: false, error: "hold not found" });
@@ -731,7 +731,7 @@ describe("WithdrawalWebhookHandler", () => {
         ).resolves.toBeUndefined();
     });
 
-    // ── completeBuyOrder / failBuyOrder not-found paths ──────────────────
+    // â”€â”€ completeBuyOrder / failBuyOrder not-found paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("completeBuyOrder returns early when buy order is not found", async () => {
         prisma.order.findUnique.mockResolvedValue(null);
@@ -749,7 +749,7 @@ describe("WithdrawalWebhookHandler", () => {
         expect(prisma.order.update).not.toHaveBeenCalled();
     });
 
-    // ── processWithdrawerTransaction early returns ───────────────────────
+    // â”€â”€ processWithdrawerTransaction early returns â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("returns early when current status matches incoming status", async () => {
         jest.spyOn(handler as any, "findTransactionOrSkip").mockResolvedValue(
@@ -764,7 +764,7 @@ describe("WithdrawalWebhookHandler", () => {
         expect(prisma.order.update).not.toHaveBeenCalled();
     });
 
-    // ── handleCancelledStatus releases SEND holds ────────────────────────
+    // â”€â”€ handleCancelledStatus releases SEND holds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("handleCancelledStatus releases SEND hold and notifies failure", async () => {
         const sendTx = makeTransaction({ orderCategory: OrderCategory.SEND });
@@ -777,7 +777,7 @@ describe("WithdrawalWebhookHandler", () => {
         expect((handler as any).handleWithdrawalFailed).toHaveBeenCalledWith(sendTx);
     });
 
-    // ── Nomba payout failure throws with alert ───────────────────────────
+    // â”€â”€ Nomba payout failure throws with alert â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     it("initiateFiatPayout throws and sends Slack alert on Nomba failure", async () => {
         nombaService.initializeTransfer.mockRejectedValue(new Error("gateway timeout"));
