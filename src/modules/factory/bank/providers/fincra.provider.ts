@@ -122,13 +122,13 @@ export class FincraBank implements TFincra.IFincraBank {
         }
     }
 
-    async initializePayment(user: UserRecord, amount: number) {
+    async initializePayment(user: UserRecord, amount: number, callbackUrl?: string) {
         try {
             const payload: FincraPayInPayload = {
                 amount,
                 currency: "NGN",
                 reference: generateId({ type: "reference" }),
-                redirectUrl: Config.fincraOptions.redirectUrl,
+                redirectUrl: callbackUrl || Config.fincraOptions.redirectUrl,
                 feeBearer: "customer",
                 paymentMethods: ["card", "bank_transfer"],
                 customer: {

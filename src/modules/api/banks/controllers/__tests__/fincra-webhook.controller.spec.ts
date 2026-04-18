@@ -13,6 +13,7 @@ jest.mock("../../services", () => ({
 import { FincraWebhookController } from "../fincra-webhook.controller";
 import { BankService } from "../../services";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { PaymentWebhookAdapterService } from "@/modules/factory/bank/services/payment-webhook-adapter.service";
 
 function makePrisma() {
     return {
@@ -21,7 +22,7 @@ function makePrisma() {
     };
 }
 
-describe("FincraWebhookController", () => {
+describe("PaymentGatewayWebhookController", () => {
     let controller: FincraWebhookController;
     let prisma: ReturnType<typeof makePrisma>;
     let bankService: {
@@ -43,6 +44,7 @@ describe("FincraWebhookController", () => {
             providers: [
                 { provide: BankService, useValue: bankService },
                 { provide: PrismaService, useValue: prisma },
+                PaymentWebhookAdapterService,
             ],
         }).compile();
 

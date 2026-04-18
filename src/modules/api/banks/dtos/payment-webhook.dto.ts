@@ -1,14 +1,14 @@
-import { IsString, IsNumber, IsOptional, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
+import { IsNumber, IsObject, IsOptional, IsString, ValidateNested } from "class-validator";
 
-export enum NombaWebhookEventType {
+export enum PaymentWebhookSourceEventName {
     TRANSACTION_COMPLETED = "transaction.completed",
     TRANSFER_SUCCESSFUL = "transfer.successful",
     TRANSFER_FAILED = "transfer.failed",
     VIRTUAL_ACCOUNT_CREDITED = "virtual_account.credited",
 }
 
-export class NombaWebhookTransactionData {
+export class PaymentWebhookEventDataDto {
     @IsString()
     id: string;
 
@@ -47,15 +47,38 @@ export class NombaWebhookTransactionData {
     createdAt?: string;
 }
 
-export class NombaWebhookPayload {
+export class PaymentWebhookEventEnvelopeDto {
     @IsString()
     event: string;
 
     @ValidateNested()
-    @Type(() => NombaWebhookTransactionData)
-    data: NombaWebhookTransactionData;
+    @Type(() => PaymentWebhookEventDataDto)
+    data: PaymentWebhookEventDataDto;
 
     @IsOptional()
     @IsString()
     timestamp?: string;
+}
+
+export class PaymentGatewayWebhookPayloadDto {
+    @IsString()
+    event: string;
+
+    @IsObject()
+    data: {
+        reference: string;
+        merchantReference?: string;
+        customerReference?: string;
+        status: string;
+        amount: number;
+        amountReceived?: number;
+        fee?: number;
+        currency: string;
+        customer?: {
+            name: string;
+            email: string;
+            phoneNumber?: string;
+        };
+        metadata?: Record<string, unknown>;
+    };
 }

@@ -1,7 +1,11 @@
+import type { BankProvider } from "@/modules/factory/bank/types";
+
 export interface NormalizedPaymentEvent {
-    provider: 'nomba' | 'fincra';
-    type: 'payment_success' | 'payout_success' | 'payment_failed' | 'payout_failed' | 'other';
-    reference: string;      // Best-match reference extracted from the provider payload
+    provider: BankProvider;
+    eventName: string;
+    kind: "incoming_payment" | "payout" | "other";
+    status: "successful" | "failed" | "pending" | "other";
+    reference?: string; // Best-match reference extracted from the provider payload
     providerReference?: string; // The provider's internal transaction ID
     amount?: number;
     currency?: string;

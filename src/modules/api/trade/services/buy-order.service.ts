@@ -1,10 +1,15 @@
-import { BadRequestException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
+import {
+    getBankProviderForPaymentMethod,
+    getPaymentMethodForBankProvider,
+    InboundPaymentInitializationResult,
+    InboundPaymentProvider,
+} from "@/modules/factory/bank/types";
+import { InboundFiatPaymentService } from "@/modules/factory/bank/services/inbound-fiat-payment.service";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
-import { COMPANY_NAME, frontendUrl } from "@/config";
+import { COMPANY_NAME, buyPaymentProvider, frontendUrl } from "@/config";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
@@ -52,8 +57,7 @@ export class BuyOrderService {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(BankInjectionToken.NOMBA)
-        private readonly nombaService: NombaBank,
+        private readonly inboundFiatPaymentService: InboundFiatPaymentService,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
@@ -87,11 +91,18 @@ export class BuyOrderService {
         });
     }
 
-    private isNombaSandboxVirtualAccountLimitError(error: unknown): boolean {
-        return error instanceof Error
-            && error.message.includes(
-                "Only 2 sandbox virtual accounts are allowed per account holder"
-            );
+    private getSupportedBuyPaymentMethods(): PaymentMethod[] {
+        return [PaymentMethod.NOMBA, PaymentMethod.FINCRA];
+    }
+
+    private getBuyPaymentProvider(paymentMethod?: PaymentMethod | null): InboundPaymentProvider {
+        return getBankProviderForPaymentMethod(paymentMethod) || buyPaymentProvider;
+    }
+
+    private getBuyPaymentProviderLabel(paymentMethod?: PaymentMethod | null): string {
+        return this.getBuyPaymentProvider(paymentMethod) === "fincra"
+            ? "Fincra"
+            : "Nomba";
     }
 
     /**
@@ -268,7 +279,7 @@ export class BuyOrderService {
             totalToChargeInCrypto,
             totalToChargeViaPaymentGateway,
             currency: "NGN",
-            paymentGateway: PaymentMethod.NOMBA,
+            paymentGateway: getPaymentMethodForBankProvider(buyPaymentProvider),
             depositAddress: assetExist.depositAddress,
             destinationTag: assetExist.destinationTag,
         };
@@ -276,9 +287,8 @@ export class BuyOrderService {
 
     /**
      * Places a buy order for crypto
-     * Creates a temporary Nomba virtual account for the user to transfer to.
-     * Returns payment instructions (account details, USSD code, expiry) instead
-     * of a checkout redirect URL.
+     * Creates provider-specific payment instructions for the user to complete.
+     * Returns either temporary virtual account details or a hosted checkout URL.
      */
     async buyCryptoOrder(user: User, dto: BuyCryptoOrderDto) {
         return this.distributedLockService.withLock(
@@ -320,7 +330,7 @@ export class BuyOrderService {
             where: {
                 userId: user.id,
                 status: TransactionStatus.PENDING,
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 type: TransactionType.P2P_PAYMENT,
                 orderId: { not: null },
                 order: {
@@ -364,68 +374,15 @@ export class BuyOrderService {
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
 
-        let paymentGatewayData:
-            | {
-                mode: "virtual_account";
-                reference: string;
-                providerAccountReference: string;
-                amount: number;
-                expiryAt: string;
-                accountNumber: string;
-                accountName: string;
-                bankName: string;
-                bankCode: string;
-            }
-            | {
-                mode: "checkout";
-                reference: string;
-                amount: number;
-                expiryAt: string;
-                authorizationUrl: string;
-            };
-
-        try {
-            const { data: vaData } =
-                await this.nombaService.initializePaymentViaVirtualAccount(
-                    userData,
-                    amount
-                );
-
-            paymentGatewayData = {
-                mode: "virtual_account",
-                reference: vaData.reference,
-                providerAccountReference:
-                    vaData.providerAccountReference || vaData.reference,
+        const paymentGatewayData: InboundPaymentInitializationResult =
+            await this.inboundFiatPaymentService.initializePayment({
+                provider: buyPaymentProvider,
+                user: userData,
                 amount,
-                expiryAt: vaData.expiryAt,
-                accountNumber: vaData.accountNumber,
-                accountName: vaData.accountName,
-                bankName: vaData.bankName,
-                bankCode: vaData.bankCode,
-            };
-        } catch (error) {
-            if (!this.isNombaSandboxVirtualAccountLimitError(error)) {
-                throw error;
-            }
-
-            this.logger.warn(
-                `Nomba sandbox virtual account cap reached for user ${user.id}; falling back to hosted checkout`
-            );
-
-            const { data: checkoutData } = await this.nombaService.initializePayment(
-                userData,
-                amount,
-                frontendUrl
-            );
-
-            paymentGatewayData = {
-                mode: "checkout",
-                reference: checkoutData.reference,
-                amount: Number(checkoutData.amount ?? amount),
-                expiryAt: new Date(Date.now() + 35 * 60 * 1000).toISOString(),
-                authorizationUrl: checkoutData.link,
-            };
-        }
+                callbackUrl: frontendUrl,
+                modePreference: "virtual_account",
+                allowCheckoutFallback: true,
+            });
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -471,7 +428,9 @@ export class BuyOrderService {
                         type: TransactionType.P2P_PAYMENT,
                         status: TransactionStatus.PENDING,
                         paymentStatus: TransactionStatus.PENDING,
-                        paymentMethod: PaymentMethod.NOMBA,
+                        paymentMethod: getPaymentMethodForBankProvider(
+                            paymentGatewayData.provider
+                        ),
                         sessionId: generateId({ type: "sessionId" }),
                         transactionId: generateId({ type: "transaction" }),
                         title: `${COMPANY_NAME} p2p buy order payment`,
@@ -1012,11 +971,12 @@ export class BuyOrderService {
             });
         }
 
-        // Best-effort: free the Nomba sandbox VA slot (no-op on production errors)
-        void this.nombaService
-            .deleteVirtualAccount(
-                payment.providerAccountReference || payment.reference
-            )
+        // Best-effort: release provider-side pending payment artifacts when applicable.
+        await this.inboundFiatPaymentService
+            .cleanupPendingPayment({
+                provider: this.getBuyPaymentProvider(payment.paymentMethod),
+                reference: payment.providerAccountReference || payment.reference,
+            })
             .catch(() => {});
 
         this.logger.log(
@@ -1115,7 +1075,7 @@ export class BuyOrderService {
         const stuckPayments = await this.prisma.payment.findMany({
             where: {
                 status: TransactionStatus.PENDING,
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 type: TransactionType.P2P_PAYMENT,
                 orderId: { not: null },
                 // Only alert payments we haven't already alerted
@@ -1140,10 +1100,13 @@ export class BuyOrderService {
 
         for (const payment of stuckPayments) {
             try {
+                const provider = this.getBuyPaymentProvider(payment.paymentMethod);
+                const providerLabel = this.getBuyPaymentProviderLabel(payment.paymentMethod);
+
                 await this.slackWebhookService.sendWebhookFailureAlert(
-                    "nomba",
+                    provider,
                     payment.reference,
-                    "User confirmed payment sent but Nomba webhook never arrived. Manual verification required.",
+                    `User confirmed payment sent but ${providerLabel} webhook never arrived. Manual verification required.`,
                     {
                         orderId: payment.orderId,
                         transactionId: payment.order?.transactionId,
@@ -1187,7 +1150,7 @@ export class BuyOrderService {
         const expiredPayments = await this.prisma.payment.findMany({
             where: {
                 status: TransactionStatus.PENDING,
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 type: TransactionType.P2P_PAYMENT,
                 orderId: { not: null },
                 // Don't auto-cancel orders where user confirmed payment — admin must review
@@ -1280,11 +1243,12 @@ export class BuyOrderService {
                     });
                 }
 
-                // Best-effort: free the Nomba VA slot
-                void this.nombaService
-                    .deleteVirtualAccount(
-                        payment.providerAccountReference || payment.reference
-                    )
+                // Best-effort: release provider-side pending payment artifacts when applicable.
+                await this.inboundFiatPaymentService
+                    .cleanupPendingPayment({
+                        provider: this.getBuyPaymentProvider(payment.paymentMethod),
+                        reference: payment.providerAccountReference || payment.reference,
+                    })
                     .catch(() => {});
 
                 this.logger.log(
@@ -1309,7 +1273,7 @@ export class BuyOrderService {
     async cancelUnderpaidBuyOrders() {
         const underpaidPayments = await this.prisma.payment.findMany({
             where: {
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 orderId: { not: null },
                 receivedAmount: { not: null },
                 status: TransactionStatus.PENDING,
@@ -1337,6 +1301,9 @@ export class BuyOrderService {
 
         for (const payment of toCancel) {
             try {
+                const provider = this.getBuyPaymentProvider(payment.paymentMethod);
+                const providerLabel = this.getBuyPaymentProviderLabel(payment.paymentMethod);
+
                 const didCancel = await this.prisma.$transaction(async (tx) => {
                     const updated = await tx.payment.updateMany({
                         where: { id: payment.id, status: TransactionStatus.PENDING },
@@ -1408,11 +1375,12 @@ export class BuyOrderService {
 
                 // Slack alert with sender details for ops refund
                 await this.slackWebhookService.sendWebhookFailureAlert(
-                    'nomba',
+                    provider,
                     payment.reference,
                     `Underpaid buy order auto-cancelled after 2h grace period. ` +
                     `Expected ₦${Number(payment.totalAmount)}, received ₦${Number(payment.receivedAmount)}. ` +
                     `Sender: ${payment.senderAccountName || 'N/A'} (${payment.senderAccountNumber || 'N/A'}) @ ${payment.senderBankName || 'N/A'}. ` +
+                    `${providerLabel} refund/manual review required. ` +
                     `Ops must process refund of ₦${Number(payment.receivedAmount)}.`,
                     {
                         orderId: payment.orderId,
@@ -1424,11 +1392,12 @@ export class BuyOrderService {
                     },
                 );
 
-                // Best-effort: free the Nomba VA slot
-                void this.nombaService
-                    .deleteVirtualAccount(
-                        payment.providerAccountReference || payment.reference
-                    )
+                // Best-effort: release provider-side pending payment artifacts when applicable.
+                await this.inboundFiatPaymentService
+                    .cleanupPendingPayment({
+                        provider: provider,
+                        reference: payment.providerAccountReference || payment.reference,
+                    })
                     .catch(() => {});
 
                 this.logger.log(

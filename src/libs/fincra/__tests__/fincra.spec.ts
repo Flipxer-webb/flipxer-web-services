@@ -115,6 +115,13 @@ describe("FincraLib", () => {
         );
     });
 
+    it("should reject invalid reference path segments before verifying payment", async () => {
+        const lib = new FincraLib(baseOptions);
+
+        await expect(lib.verifyPayment("../bad-ref")).rejects.toThrow("Invalid reference");
+        expect(mockAxiosInstance).not.toHaveBeenCalled();
+    });
+
     it("should fetch banks with default and custom country mapping", async () => {
         mockAxiosInstance.mockResolvedValue({ data: { success: true, message: "ok", data: [] } });
 

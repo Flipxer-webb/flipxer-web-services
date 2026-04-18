@@ -24,6 +24,15 @@ jest.mock("@/utils", () => ({
     __esModule: true,
 }));
 
+jest.mock("@/config", () => {
+    const actual = jest.requireActual("@/config");
+    return {
+        ...actual,
+        sellPayoutProvider: "fincra",
+        slackPayoutAlertWebhookUrl: "",
+    };
+});
+
 import { WithdrawalWebhookHandler } from "../webhook-handlers/withdrawal-webhook.handler";
 
 const makeTransaction = (overrides: Record<string, any> = {}) => ({
@@ -64,6 +73,7 @@ describe("WithdrawalWebhookHandler", () => {
             update: jest.Mock;
         };
     };
+    let fincraService: { initializeTransfer: jest.Mock };
     let nombaService: { initializeTransfer: jest.Mock };
     let notificationMessage: {
         sellTransactionSuccess: jest.Mock;
@@ -87,6 +97,9 @@ describe("WithdrawalWebhookHandler", () => {
                 findUnique: jest.fn(),
                 update: jest.fn(),
             },
+        };
+        fincraService = {
+            initializeTransfer: jest.fn().mockResolvedValue(undefined),
         };
         nombaService = {
             initializeTransfer: jest.fn().mockResolvedValue(undefined),
@@ -118,6 +131,7 @@ describe("WithdrawalWebhookHandler", () => {
 
         handler = new WithdrawalWebhookHandler(
             prisma as any,
+            fincraService as any,
             nombaService as any,
             notificationMessage as any,
             wsGateway as any,
@@ -253,7 +267,7 @@ describe("WithdrawalWebhookHandler", () => {
         );
     });
 
-    it("keeps retry payout in processing until Nomba confirms the transfer", async () => {
+    it("keeps retry payout in processing until the configured provider confirms the transfer", async () => {
         const sellTx = makeTransaction({
             orderCategory: OrderCategory.SELL,
             status: OrderStatus.pending,
@@ -337,7 +351,7 @@ describe("WithdrawalWebhookHandler", () => {
         expect(completeSpy).toHaveBeenCalledWith(77, sellTx);
     });
 
-    it("keeps SELL payout in processing until Nomba confirms and sends no completion notification", async () => {
+    it("keeps SELL payout in processing until the configured provider confirms and sends no completion notification", async () => {
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });
         jest.spyOn(handler as any, "initiateFiatPayout").mockResolvedValue(undefined);
         prisma.order.update.mockResolvedValue(
@@ -415,7 +429,25 @@ describe("WithdrawalWebhookHandler", () => {
         expect(wsGateway.notifyWalletUpdate).toHaveBeenCalledWith(buyOrder.user.id);
     });
 
-    it("initiates payout through Nomba", async () => {
+    it("initiates payout through Fincra", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL });
+
+        await (handler as any).initiateFiatPayout(sellTx);
+
+        expect(fincraService.initializeTransfer).toHaveBeenCalledWith(
+            expect.objectContaining({
+                orderId: sellTx.id,
+                userId: sellTx.userId,
+                reference: "payout-ref-123",
+            })
+        );
+        expect(nombaService.initializeTransfer).not.toHaveBeenCalled();
+    });
+
+    it("initiates payout through Nomba when SELL_PAYOUT_PROVIDER=nomba", async () => {
+        const config = require("@/config");
+        const original = config.sellPayoutProvider;
+        Object.defineProperty(config, "sellPayoutProvider", { value: "nomba", writable: true });
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL });
 
         await (handler as any).initiateFiatPayout(sellTx);
@@ -427,6 +459,9 @@ describe("WithdrawalWebhookHandler", () => {
                 reference: "payout-ref-123",
             })
         );
+        expect(fincraService.initializeTransfer).not.toHaveBeenCalled();
+
+        Object.defineProperty(config, "sellPayoutProvider", { value: original, writable: true });
     });
 
     it("handles withdrawal done and failed notification paths", async () => {
@@ -496,7 +531,7 @@ describe("WithdrawalWebhookHandler", () => {
         );
     });
 
-    it("retryFiatPayout emits processing status WebSocket while awaiting Nomba confirmation", async () => {
+    it("retryFiatPayout emits processing status WebSocket while awaiting provider confirmation", async () => {
         const sellTx = makeTransaction({
             orderCategory: OrderCategory.SELL,
             status: OrderStatus.pending,
@@ -672,7 +707,9 @@ describe("WithdrawalWebhookHandler", () => {
         const config = require("@/config");
         const original = config.slackPayoutAlertWebhookUrl;
         Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: "https://hooks.slack.com/test", writable: true });
-        const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({ ok: true } as Response);
+        const originalFetch = globalThis.fetch;
+        const fetchMock = jest.fn().mockResolvedValue({ ok: true } as Response);
+        Object.defineProperty(globalThis, "fetch", { value: fetchMock, writable: true });
 
         await (handler as any).sendPayoutAlert({
             orderId: 1,
@@ -685,11 +722,11 @@ describe("WithdrawalWebhookHandler", () => {
             isCritical: true,
         });
 
-        expect(fetchSpy).toHaveBeenCalledWith(
+        expect(fetchMock).toHaveBeenCalledWith(
             "https://hooks.slack.com/test",
             expect.objectContaining({ method: "POST" })
         );
-        fetchSpy.mockRestore();
+        Object.defineProperty(globalThis, "fetch", { value: originalFetch, writable: true });
         Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: original, writable: true });
     });
 
@@ -697,7 +734,9 @@ describe("WithdrawalWebhookHandler", () => {
         const config = require("@/config");
         const original = config.slackPayoutAlertWebhookUrl;
         Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: "", writable: true });
-        const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({ ok: true } as Response);
+        const originalFetch = globalThis.fetch;
+        const fetchMock = jest.fn().mockResolvedValue({ ok: true } as Response);
+        Object.defineProperty(globalThis, "fetch", { value: fetchMock, writable: true });
 
         await (handler as any).sendPayoutAlert({
             orderId: 1,
@@ -709,8 +748,8 @@ describe("WithdrawalWebhookHandler", () => {
             error: "timeout",
         });
 
-        expect(fetchSpy).not.toHaveBeenCalled();
-        fetchSpy.mockRestore();
+        expect(fetchMock).not.toHaveBeenCalled();
+        Object.defineProperty(globalThis, "fetch", { value: originalFetch, writable: true });
         Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: original, writable: true });
     });
 
@@ -718,7 +757,9 @@ describe("WithdrawalWebhookHandler", () => {
         const config = require("@/config");
         const original = config.slackPayoutAlertWebhookUrl;
         Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: "https://hooks.slack.com/test", writable: true });
-        const fetchSpy = jest.spyOn(global, "fetch").mockRejectedValue(new Error("network"));
+        const originalFetch = globalThis.fetch;
+        const fetchMock = jest.fn().mockRejectedValue(new Error("network"));
+        Object.defineProperty(globalThis, "fetch", { value: fetchMock, writable: true });
 
         await expect(
             (handler as any).sendPayoutAlert({
@@ -731,7 +772,7 @@ describe("WithdrawalWebhookHandler", () => {
                 error: "timeout",
             })
         ).resolves.toBeUndefined();
-        fetchSpy.mockRestore();
+        Object.defineProperty(globalThis, "fetch", { value: originalFetch, writable: true });
         Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: original, writable: true });
     });
 
@@ -807,21 +848,21 @@ describe("WithdrawalWebhookHandler", () => {
         expect((handler as any).handleWithdrawalFailed).toHaveBeenCalledWith(sendTx);
     });
 
-    // â”€â”€ Nomba payout failure throws with alert â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â€" Fincra payout failure throws with alert â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"
 
-    it("initiateFiatPayout throws and sends Slack alert on Nomba failure", async () => {
-        nombaService.initializeTransfer.mockRejectedValue(new Error("gateway timeout"));
+    it("initiateFiatPayout throws and sends Slack alert on Fincra failure", async () => {
+        fincraService.initializeTransfer.mockRejectedValue(new Error("gateway timeout"));
         const alertSpy = jest.spyOn(handler as any, "sendPayoutAlert").mockResolvedValue(undefined);
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL });
 
         await expect(
             (handler as any).initiateFiatPayout(sellTx)
-        ).rejects.toThrow("Nomba payout failed");
+        ).rejects.toThrow("Fincra payout failed");
 
         expect(alertSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 orderId: sellTx.id,
-                provider: "Nomba",
+                provider: "Fincra",
                 isCritical: true,
             })
         );

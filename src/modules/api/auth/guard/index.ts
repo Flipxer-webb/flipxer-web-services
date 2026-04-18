@@ -55,6 +55,9 @@ import {
     quidaxConfig,
 } from "@/config";
 import { SessionService } from "@/modules/api/session/services";
+import { PaymentWebhookVerifier } from "@/modules/factory/bank/services/payment-webhook-verifier";
+
+type GuardActivationResult = boolean | Promise<boolean> | Observable<boolean>;
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -181,7 +184,7 @@ export class QuidaxWebhookGuard implements CanActivate {
 
     canActivate(
         context: ExecutionContext
-    ): boolean | Promise<boolean> | Observable<boolean> {
+    ): GuardActivationResult {
         const request = context.switchToHttp().getRequest<RequestFromQuidax>();
 
         if (!quidaxConfig.webhook_key) {
@@ -284,66 +287,39 @@ export class FincraWebhookGuard implements CanActivate {
 
     canActivate(
         context: ExecutionContext
-    ): boolean | Promise<boolean> | Observable<boolean> {
+    ): GuardActivationResult {
         const request = context
             .switchToHttp()
             .getRequest<Request>();
-        // Fincra uses "signature" header (per their documentation), not "x-fincra-signature"
-        const signatureHeader = request.headers["signature"] ?? request.headers["x-fincra-signature"];
-        const signature = Array.isArray(signatureHeader)
-            ? signatureHeader[0]
-            : signatureHeader;
-        const secret = process.env.FINCRA_WEBHOOK_SECRET;
         const webhookEvent = getWebhookEventName(request.body);
 
         this.logger.log(`Received Fincra webhook request`);
         this.logger.debug(`Event: ${webhookEvent ?? "unknown"}`);
 
-        // Require signature for security
-        if (!signature) {
-            this.logger.error('SECURITY: Fincra webhook rejected - no signature header');
-            return false;
-        }
+        return PaymentWebhookVerifier.verifyFincraRequest(request, this.logger);
+    }
+}
 
-        // Require secret to be configured
-        if (!secret) {
-            this.logger.error('SECURITY: FINCRA_WEBHOOK_SECRET not configured - rejecting webhook');
-            return false;
-        }
+@Injectable()
+export class NombaWebhookGuard implements CanActivate {
+    private readonly logger = new Logger("NombaWebhookGuard");
 
-        const rawBody = (request as any).rawBody;
-        let bodyBuffer: Buffer;
-        if (rawBody) {
-            bodyBuffer = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody);
-        } else {
-            bodyBuffer = Buffer.from(JSON.stringify(request.body));
-        }
+    canActivate(
+        context: ExecutionContext,
+    ): GuardActivationResult {
+        const request = context
+            .switchToHttp()
+            .getRequest<Request>();
+        const webhookEvent = getWebhookEventName(request.body);
 
-        const computed = createHmac("sha512", secret)
-            .update(bodyBuffer)
-            .digest("hex");
+        this.logger.log("Received Nomba webhook request");
+        this.logger.debug(`Event: ${webhookEvent ?? "unknown"}`);
 
-        // Use timing-safe comparison to prevent timing attacks
-        let isValid = false;
-        try {
-            // Both strings must be same length for timingSafeEqual
-            if (computed.length === signature.length) {
-                isValid = timingSafeEqual(
-                    Buffer.from(computed, 'utf8'),
-                    Buffer.from(signature, 'utf8')
-                );
-            }
-        } catch {
-            isValid = false;
-        }
-
-        if (isValid) {
-            this.logger.log(`Signature verified for event: ${webhookEvent ?? "unknown"}`);
-        } else {
-            this.logger.error(`SECURITY: Fincra webhook rejected - invalid signature`);
-        }
-
-        return isValid;
+        return PaymentWebhookVerifier.verifyNombaRequest(
+            request.body,
+            request.headers,
+            this.logger,
+        );
     }
 }
 
@@ -354,8 +330,13 @@ const GEOIP_MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in memory
 const GEOIP_MEMORY_CACHE_MAX_SIZE = 500;
 
 const getWebhookEventName = (body: unknown): string | undefined => {
-    if (!body || typeof body !== "object" || !('event' in body)) {
+    if (!body || typeof body !== "object") {
         return undefined;
+    }
+
+    const eventType = (body as { event_type?: unknown }).event_type;
+    if (typeof eventType === "string") {
+        return eventType;
     }
 
     const event = (body as { event?: unknown }).event;

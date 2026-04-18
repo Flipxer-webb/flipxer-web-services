@@ -81,6 +81,13 @@ function makeBankCache() {
 function makeNotificationDispatcher() {
     return { notify: jest.fn().mockResolvedValue(undefined) };
 }
+function makeInboundFiatPayments() {
+    return {
+        initializePayment: jest.fn(),
+        verifyCheckout: jest.fn(),
+        resolveBankAccount: jest.fn(),
+    };
+}
 
 describe("BankService", () => {
     let prisma: ReturnType<typeof makePrisma>;
@@ -91,6 +98,7 @@ describe("BankService", () => {
     let ws: ReturnType<typeof makeWsGateway>;
     let bankCache: ReturnType<typeof makeBankCache>;
     let notifDispatcher: ReturnType<typeof makeNotificationDispatcher>;
+    let inboundFiatPayments: ReturnType<typeof makeInboundFiatPayments>;
     let service: BankService;
 
     beforeEach(() => {
@@ -102,6 +110,7 @@ describe("BankService", () => {
         ws = makeWsGateway();
         bankCache = makeBankCache();
         notifDispatcher = makeNotificationDispatcher();
+        inboundFiatPayments = makeInboundFiatPayments();
 
         service = new BankService(
             prisma as any,
@@ -112,6 +121,7 @@ describe("BankService", () => {
             ws as any,
             bankCache as any,
             notifDispatcher as any,
+            inboundFiatPayments as any,
         );
     });
 
@@ -175,24 +185,83 @@ describe("BankService", () => {
                 firstName: "A",
                 lastName: "B",
             });
-            nomba.initializePayment.mockResolvedValue({ data: { checkoutLink: "https://nomba/pay" } });
+            inboundFiatPayments.initializePayment.mockResolvedValue({
+                provider: "nomba",
+                mode: "checkout",
+                reference: "ORD-1",
+                amount: 5000,
+                expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                authorizationUrl: "https://nomba/pay",
+            });
 
             const res = await service.initializeNombaCheckout(1, 5000);
 
+            expect(inboundFiatPayments.initializePayment).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: "nomba",
+                    amount: 5000,
+                }),
+            );
             expect((res.data as any).checkoutLink).toBe("https://nomba/pay");
+        });
+
+        it("supports generic checkout with explicit fincra provider", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                id: 2,
+                email: "f@b.com",
+                firstName: "Fin",
+                lastName: "Cra",
+            });
+            inboundFiatPayments.initializePayment.mockResolvedValue({
+                provider: "fincra",
+                mode: "checkout",
+                reference: "FIN-1",
+                amount: 7500,
+                expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                authorizationUrl: "https://fincra/pay",
+            });
+
+            const res = await service.initializeCheckout(2, 7500, undefined, "fincra");
+
+            expect(inboundFiatPayments.initializePayment).toHaveBeenCalledWith(
+                expect.objectContaining({ provider: "fincra" }),
+            );
+            expect((res.data as any).provider).toBe("fincra");
+            expect((res.data as any).checkoutLink).toBe("https://fincra/pay");
+        });
+
+        it("rejects unsupported providers before initializing checkout", async () => {
+            await expect(
+                service.initializeCheckout(2, 7500, undefined, "stripe" as any),
+            ).rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prisma.user.findUnique).not.toHaveBeenCalled();
+            expect(inboundFiatPayments.initializePayment).not.toHaveBeenCalled();
         });
     });
 
     describe("verifyNombaCheckout", () => {
         it("returns mapped checkout status", async () => {
-            nomba.verifyTransaction.mockResolvedValue({
+            inboundFiatPayments.verifyCheckout.mockResolvedValue({
+                provider: "nomba",
                 data: { status: "success", orderReference: "ORD-1" },
             });
 
             const result = await service.verifyNombaCheckout("ORD-1");
 
-            expect(nomba.verifyTransaction).toHaveBeenCalledWith("ORD-1");
+            expect(inboundFiatPayments.verifyCheckout).toHaveBeenCalledWith({
+                provider: "nomba",
+                reference: "ORD-1",
+            });
             expect(result.data).toEqual({ status: "success", orderReference: "ORD-1" });
+        });
+
+        it("rejects unsupported providers before verifying checkout", async () => {
+            await expect(service.verifyCheckout("ORD-1", "stripe" as any)).rejects.toBeInstanceOf(
+                BadRequestException,
+            );
+
+            expect(inboundFiatPayments.verifyCheckout).not.toHaveBeenCalled();
         });
     });
 
@@ -211,13 +280,15 @@ describe("BankService", () => {
             } as any);
 
             expect((res.data as any).fromCache).toBe(true);
-            expect(nomba.resolveBankAccount).not.toHaveBeenCalled();
+            expect(inboundFiatPayments.resolveBankAccount).not.toHaveBeenCalled();
         });
 
         it("calls Nomba when cache misses and caches result", async () => {
             bankCache.getCachedVerification.mockResolvedValue(null);
-            nomba.resolveBankAccount.mockResolvedValue({
-                data: { accountName: "Jane Doe", accountNumber: "9876543210" },
+            inboundFiatPayments.resolveBankAccount.mockResolvedValue({
+                provider: "nomba",
+                accountName: "Jane Doe",
+                accountNumber: "9876543210",
             });
 
             const res = await service.verifyBankAccount({
@@ -226,6 +297,11 @@ describe("BankService", () => {
             } as any);
 
             expect(res.data.accountName).toBe("Jane Doe");
+            expect(inboundFiatPayments.resolveBankAccount).toHaveBeenCalledWith({
+                provider: "nomba",
+                bankCode: "058",
+                accountNumber: "9876543210",
+            });
             expect(bankCache.cacheVerification).toHaveBeenCalledWith(
                 "058",
                 "9876543210",
@@ -235,11 +311,27 @@ describe("BankService", () => {
 
         it("throws when Nomba returns no data", async () => {
             bankCache.getCachedVerification.mockResolvedValue(null);
-            nomba.resolveBankAccount.mockResolvedValue({ data: null });
+            inboundFiatPayments.resolveBankAccount.mockResolvedValue({
+                provider: "nomba",
+                accountName: "",
+                accountNumber: "",
+            });
 
             await expect(
                 service.verifyBankAccount({ bankCode: "044", accountNumber: "000" } as any),
             ).rejects.toBeInstanceOf(BadRequestException);
+        });
+
+        it("rejects unsupported providers before bank verification", async () => {
+            await expect(
+                service.verifyBankAccount(
+                    { bankCode: "044", accountNumber: "0123456789" } as any,
+                    "stripe" as any,
+                ),
+            ).rejects.toBeInstanceOf(BadRequestException);
+
+            expect(bankCache.getCachedVerification).not.toHaveBeenCalled();
+            expect(inboundFiatPayments.resolveBankAccount).not.toHaveBeenCalled();
         });
     });
 

@@ -23,6 +23,7 @@ jest.mock("@/modules/api/authorize/decorator", () => ({
 
 import { OrderCategory } from "@prisma/client";
 import { AdminAccountingController } from "../admin-accounting.controller";
+import { FiatGatewayRegistryService } from "@/modules/factory/bank/services/fiat-gateway-registry.service";
 
 describe("AdminAccountingController", () => {
     let controller: AdminAccountingController;
@@ -68,6 +69,7 @@ describe("AdminAccountingController", () => {
         getSwapQuote: jest.Mock;
         confirmSwap: jest.Mock;
     };
+    let fiatGatewayRegistryService: FiatGatewayRegistryService;
     const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     beforeEach(() => {
@@ -115,6 +117,11 @@ describe("AdminAccountingController", () => {
             getAccountBalance: jest.fn(),
         };
 
+        fiatGatewayRegistryService = new FiatGatewayRegistryService(
+            fincraService as any,
+            nombaService as any,
+        );
+
         ledgerService = {
             pairedCredit: jest.fn(),
             pairedDebit: jest.fn(),
@@ -126,8 +133,7 @@ describe("AdminAccountingController", () => {
             ledgerService as any,
             rateService as any,
             adminSwapService as any,
-            fincraService as any,
-            nombaService as any,
+            fiatGatewayRegistryService as any,
             mockAuditLogService as any,
         );
 
@@ -376,10 +382,10 @@ describe("AdminAccountingController", () => {
         expect(result.message).toBe("Fiat gateway summary retrieved");
         expect(result.data.gateways).toHaveLength(3);
         expect(result.data.gateways[0]).toEqual(
-            expect.objectContaining({ provider: "Fincra", status: "connected", currency: "NGN" }),
+            expect.objectContaining({ provider: "Fincra", providerKey: "fincra", status: "connected", currency: "NGN" }),
         );
         expect(result.data.gateways[2]).toEqual(
-            expect.objectContaining({ provider: "Nomba", status: "connected", currency: "NGN" }),
+            expect.objectContaining({ provider: "Nomba", providerKey: "nomba", status: "connected", currency: "NGN" }),
         );
         expect(result.data.totals.totalAvailable).toBe(801000);
         expect(result.data.totals.connectedGateways).toBe(3);
@@ -476,10 +482,10 @@ describe("AdminAccountingController", () => {
         expect(result.message).toBe("Fiat gateway summary retrieved");
         expect(result.data.gateways).toHaveLength(2);
         expect(result.data.gateways[0]).toEqual(
-            expect.objectContaining({ provider: "Fincra", status: "error", error: "Unable to connect to Fincra" }),
+            expect.objectContaining({ provider: "Fincra", providerKey: "fincra", status: "error", error: "Unable to connect to Fincra" }),
         );
         expect(result.data.gateways[1]).toEqual(
-            expect.objectContaining({ provider: "Nomba", status: "error", error: "Unable to connect to Nomba" }),
+            expect.objectContaining({ provider: "Nomba", providerKey: "nomba", status: "error", error: "Unable to connect to Nomba" }),
         );
         expect(result.data.totals.totalAvailable).toBe(0);
         expect(result.data.totals.connectedGateways).toBe(0);
@@ -512,6 +518,7 @@ describe("AdminAccountingController", () => {
         expect(result.data.records[0]).toEqual(
             expect.objectContaining({
                 provider: "Fincra",
+                providerKey: "fincra",
                 type: "collection",
                 amount: 50000,
                 currency: "NGN",

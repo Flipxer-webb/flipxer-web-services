@@ -16,7 +16,7 @@ jest.mock("@/modules/api/user", () => {
 
 import { BuyOrderService } from "../buy-order.service";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { BankInjectionToken } from "@/modules/factory/bank/types";
+import { InboundFiatPaymentService } from "@/modules/factory/bank/services/inbound-fiat-payment.service";
 import { WalletAddressService } from "../wallet-address.service";
 import { WsGateway } from "../../gateway/v1";
 import { TradeHelpersService } from "../trade-helpers.service";
@@ -27,7 +27,7 @@ import { NotificationDispatcher } from "@/modules/api/notification/services/noti
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { TransactionService } from "@/modules/api/auth/services/transaction.service";
 import { IncompleteAccountSetupException } from "../../errors";
-import { OrderStatus, TransactionStatus } from "@prisma/client";
+import { OrderStatus, PaymentMethod, TransactionStatus } from "@prisma/client";
 
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
@@ -121,14 +121,16 @@ describe("BuyOrderService", () => {
             getAssetRate: jest.fn().mockResolvedValue({ buyRate: 70000000, sellRate: 69000000 }),
         };
 
+        const mockInboundFiatPaymentService = {
+            initializePayment: jest.fn(),
+            cleanupPendingPayment: jest.fn().mockResolvedValue(true),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 BuyOrderService,
                 { provide: PrismaService, useValue: mockPrismaService },
-                { provide: BankInjectionToken.NOMBA, useValue: {
-                    initializePaymentViaVirtualAccount: jest.fn(),
-                    deleteVirtualAccount: jest.fn().mockResolvedValue(true),
-                } },
+                { provide: InboundFiatPaymentService, useValue: mockInboundFiatPaymentService },
                 { provide: WalletAddressService, useValue: mockWalletAddressService },
                 { provide: WsGateway, useValue: mockWsGateway },
                 { provide: TradeHelpersService, useValue: { calculateFee: jest.fn() } },
@@ -306,18 +308,19 @@ describe("BuyOrderService", () => {
                 defaultNetwork: "btc",
             });
 
-            (service as any).nombaService.initializePaymentViaVirtualAccount = jest
+            (service as any).inboundFiatPaymentService.initializePayment = jest
                 .fn()
                 .mockResolvedValue({
-                    data: {
-                        reference: "va-ref-1",
-                        providerAccountReference: "va-account-ref-1",
-                        accountNumber: "0099009900",
-                        accountName: "Flipxer User",
-                        bankName: "Nomba",
-                        bankCode: "0900",
-                        expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-                    },
+                    provider: "nomba",
+                    mode: "virtual_account",
+                    reference: "va-ref-1",
+                    providerAccountReference: "va-account-ref-1",
+                    amount: 100,
+                    accountNumber: "0099009900",
+                    accountName: "Flipxer User",
+                    bankName: "Nomba",
+                    bankCode: "0900",
+                    expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
                 });
 
             prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
@@ -370,18 +373,19 @@ describe("BuyOrderService", () => {
                 defaultNetwork: "btc",
             });
 
-            (service as any).nombaService.initializePaymentViaVirtualAccount = jest
+            (service as any).inboundFiatPaymentService.initializePayment = jest
                 .fn()
                 .mockResolvedValue({
-                    data: {
-                        reference: "local-buy-ref-1",
-                        providerAccountReference: "fallback-va-ref-1",
-                        accountNumber: "6826635284",
-                        accountName: "ZED/Testing Testing123",
-                        bankName: "Nombank MFB",
-                        bankCode: "",
-                        expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-                    },
+                    provider: "nomba",
+                    mode: "virtual_account",
+                    reference: "local-buy-ref-1",
+                    providerAccountReference: "fallback-va-ref-1",
+                    amount: 100,
+                    accountNumber: "6826635284",
+                    accountName: "ZED/Testing Testing123",
+                    bankName: "Nombank MFB",
+                    bankCode: "",
+                    expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
                 });
 
             const paymentCreate = jest.fn().mockResolvedValue({ id: 405 });
@@ -432,19 +436,15 @@ describe("BuyOrderService", () => {
                 defaultNetwork: "btc",
             });
 
-            (service as any).nombaService.initializePaymentViaVirtualAccount = jest
-                .fn()
-                .mockRejectedValue(
-                    new Error("Only 2 sandbox virtual accounts are allowed per account holder")
-                );
-            (service as any).nombaService.initializePayment = jest
+            (service as any).inboundFiatPaymentService.initializePayment = jest
                 .fn()
                 .mockResolvedValue({
-                    data: {
-                        reference: "checkout-ref-1",
-                        link: "https://checkout.nomba.test/session-1",
-                        amount: 100,
-                    },
+                    provider: "nomba",
+                    mode: "checkout",
+                    reference: "checkout-ref-1",
+                    amount: 100,
+                    expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                    authorizationUrl: "https://checkout.nomba.test/session-1",
                 });
 
             const paymentCreate = jest.fn().mockResolvedValue({ id: 505 });
@@ -475,7 +475,7 @@ describe("BuyOrderService", () => {
                 idempotencyKey: "checkout-idem-1",
             });
 
-            expect((service as any).nombaService.initializePayment).toHaveBeenCalledTimes(1);
+            expect((service as any).inboundFiatPaymentService.initializePayment).toHaveBeenCalledTimes(1);
             expect(paymentCreate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -489,6 +489,76 @@ describe("BuyOrderService", () => {
                 "https://checkout.nomba.test/session-1"
             );
             expect(result.data.paymentInfo.reference).toBe("checkout-ref-1");
+        });
+
+        it("uses FINCRA payment method when BUY_PAYMENT_PROVIDER=fincra", async () => {
+            const config = require("@/config");
+            const originalProvider = config.buyPaymentProvider;
+            Object.defineProperty(config, "buyPaymentProvider", { value: "fincra", writable: true });
+
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                depositAddress: "bc1qfincraaddress",
+                defaultNetwork: "btc",
+            });
+
+            (service as any).inboundFiatPaymentService.initializePayment = jest
+                .fn()
+                .mockResolvedValue({
+                    provider: "fincra",
+                    mode: "checkout",
+                    reference: "fincra-checkout-ref-1",
+                    amount: 100,
+                    expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                    authorizationUrl: "https://checkout.fincra.test/session-1",
+                });
+
+            const paymentCreate = jest.fn().mockResolvedValue({ id: 506 });
+
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    order: {
+                        create: jest.fn().mockResolvedValue({
+                            id: 306,
+                            amount: 0.01,
+                            currency: "BTC",
+                            status: OrderStatus.pending,
+                            streamlinedStatus: "pending",
+                            orderCategory: OrderStatus.pending,
+                            transactionId: "tx-306",
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                        }),
+                    },
+                    payment: {
+                        create: paymentCreate,
+                    },
+                }),
+            );
+
+            const result = await service.buyCryptoOrder(mockUser as any, {
+                ...orderDto,
+                idempotencyKey: "fincra-checkout-idem-1",
+            });
+
+            expect((service as any).inboundFiatPaymentService.initializePayment).toHaveBeenCalledWith(
+                expect.objectContaining({ provider: "fincra" }),
+            );
+            expect(paymentCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        paymentMethod: PaymentMethod.FINCRA,
+                        externalReference: "https://checkout.fincra.test/session-1",
+                    }),
+                }),
+            );
+            expect(result.data.paymentInfo.authorization_url).toBe(
+                "https://checkout.fincra.test/session-1"
+            );
+
+            Object.defineProperty(config, "buyPaymentProvider", { value: originalProvider, writable: true });
         });
     });
 
@@ -1264,17 +1334,19 @@ describe("BuyOrderService", () => {
                     depositAddress: "bc1q-notify-test",
                     defaultNetwork: "btc",
                 });
-                (service as any).nombaService.initializePaymentViaVirtualAccount = jest
+                (service as any).inboundFiatPaymentService.initializePayment = jest
                     .fn()
                     .mockResolvedValue({
-                        data: {
-                            reference: "va-notify-ref",
-                            accountNumber: "0001112222",
-                            accountName: "Flipxer User",
-                            bankName: "Nomba MFB",
-                            bankCode: "0900",
-                            expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-                        },
+                        provider: "nomba",
+                        mode: "virtual_account",
+                        reference: "va-notify-ref",
+                        providerAccountReference: "va-notify-ref",
+                        amount: 100,
+                        accountNumber: "0001112222",
+                        accountName: "Flipxer User",
+                        bankName: "Nomba MFB",
+                        bankCode: "0900",
+                        expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
                     });
                 prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
                     cb({
@@ -1330,17 +1402,19 @@ describe("BuyOrderService", () => {
                     depositAddress: "bc1q-ws-test",
                     defaultNetwork: "btc",
                 });
-                (service as any).nombaService.initializePaymentViaVirtualAccount = jest
+                (service as any).inboundFiatPaymentService.initializePayment = jest
                     .fn()
                     .mockResolvedValue({
-                        data: {
-                            reference: "va-ws-ref",
-                            accountNumber: "0002223333",
-                            accountName: "Flipxer User",
-                            bankName: "Nomba MFB",
-                            bankCode: "0900",
-                            expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-                        },
+                        provider: "nomba",
+                        mode: "virtual_account",
+                        reference: "va-ws-ref",
+                        providerAccountReference: "va-ws-ref",
+                        amount: 100,
+                        accountNumber: "0002223333",
+                        accountName: "Flipxer User",
+                        bankName: "Nomba MFB",
+                        bankCode: "0900",
+                        expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
                     });
                 prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
                     cb({

@@ -2,6 +2,8 @@ import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { BankInjectionToken } from "@/modules/factory/bank/types";
+import { sellPayoutProvider, SellPayoutProvider, slackPayoutAlertWebhookUrl } from "@/config";
+import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import {
     TransactionCompletedException,
@@ -26,11 +28,23 @@ import { WsGateway } from "../../gateway/v1";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { WalletAddressService } from "../wallet-address.service";
 import { LedgerService } from "../ledger/ledger.service";
-import { slackPayoutAlertWebhookUrl } from "@/config";
 import {
     DEFAULT_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
 } from "../../constants";
+
+type SellPayoutTransferOptions = {
+    accountName: string;
+    accountNumber: string;
+    amount: number;
+    bankCode: string;
+    bankName: string;
+    serviceCharge: number;
+    userId: number;
+    orderId: number;
+    reference: string;
+    senderName: string;
+};
 
 /**
  * Withdrawal Webhook Handler
@@ -38,7 +52,7 @@ import {
  * Handles withdrawal transaction webhooks from Quidax.
  * Processes status updates for outgoing crypto withdrawals.
  * 
- * For sell orders, triggers Nomba payout when withdrawal completes.
+ * For sell orders, triggers the configured payout provider when withdrawal completes.
  */
 @Injectable()
 export class WithdrawalWebhookHandler {
@@ -46,6 +60,8 @@ export class WithdrawalWebhookHandler {
 
     constructor(
         private readonly prisma: PrismaService,
+        @Inject(BankInjectionToken.FINCRA)
+        private readonly fincraService: FincraBank,
         @Inject(BankInjectionToken.NOMBA)
         private readonly nombaService: NombaBank,
         private readonly notificationMessage: NotificationMessageService,
@@ -91,7 +107,7 @@ export class WithdrawalWebhookHandler {
         try {
             await this.initiateFiatPayout(transaction);
 
-            // Keep SELL orders in processing until Nomba confirms the payout outcome.
+            // Keep SELL orders in processing until the configured payout provider confirms the outcome.
             const processingOrder = await this.prisma.order.update({
                 where: { id: transaction.id },
                 data: {
@@ -105,7 +121,7 @@ export class WithdrawalWebhookHandler {
 
             this.emitTransactionUpdate(transaction.user.id, processingOrder);
             this.logger.log(
-                `Retry payout initiated for order ${transaction.id}; awaiting Nomba confirmation webhook`
+                `Retry payout initiated for order ${transaction.id}; awaiting ${this.getProviderLabel(sellPayoutProvider)} confirmation webhook`
             );
             return { success: true };
 
@@ -318,9 +334,9 @@ export class WithdrawalWebhookHandler {
         try {
             await this.initiateFiatPayout(transaction);
 
-            // Keep order in processing until Nomba confirms the payout outcome.
-            // The Nomba webhook controller will finalize the order to done/failed
-            // via handleTransferSuccess or handleTransferFailed respectively.
+            // Keep order in processing until the configured payout provider confirms the outcome.
+            // The provider webhook handler will finalize the order to done/failed
+            // via processPayoutEvent.
             const processingOrder = await this.prisma.order.update({
                 where: { id: transaction.id },
                 data: {
@@ -334,7 +350,7 @@ export class WithdrawalWebhookHandler {
             this.emitTransactionUpdate(transaction.user.id, processingOrder);
 
             this.logger.log(
-                `Order ${transaction.id} payout initiated; awaiting Nomba confirmation webhook`,
+                `Order ${transaction.id} payout initiated; awaiting ${this.getProviderLabel(sellPayoutProvider)} confirmation webhook`,
             );
             return true;
         } catch (payoutError) {
@@ -609,9 +625,10 @@ export class WithdrawalWebhookHandler {
 
 
     /**
-     * Initiate fiat payout to seller - Nomba only
+     * Initiate fiat payout to seller via the configured provider.
      */
     public async initiateFiatPayout(transaction: any) {
+        const payoutExecutor = this.getSellPayoutExecutor();
         const payoutReference = generateId({ type: "reference" });
         const payoutData = {
             accountName: transaction.destinationBankAccountName,
@@ -623,11 +640,11 @@ export class WithdrawalWebhookHandler {
             userId: transaction.userId,
             orderId: transaction.id,
             reference: payoutReference,
-            senderName: "Resolve", // Platform name - required by Nomba v2
+            senderName: "Flipxer",
         };
 
         this.logger.log(
-            `Initiating payout via Nomba | ${JSON.stringify({
+            `Initiating payout via ${payoutExecutor.providerLabel} | ${JSON.stringify({
                 orderId: transaction.id,
                 userId: transaction.userId,
                 amount: transaction.totalToReceiveInFiat,
@@ -637,14 +654,14 @@ export class WithdrawalWebhookHandler {
         );
 
         try {
-            await this.nombaService.initializeTransfer(payoutData);
-            this.logger.log(`✅ Nomba payout SUCCESS for order ${transaction.id}, ref: ${payoutReference}`);
-        } catch (nombaError) {
+            await payoutExecutor.initializeTransfer(payoutData);
+            this.logger.log(`✅ ${payoutExecutor.providerLabel} payout SUCCESS for order ${transaction.id}, ref: ${payoutReference}`);
+        } catch (providerError) {
             this.logger.error(
-                `❌ Nomba payout FAILED | ${JSON.stringify({
+                `❌ ${payoutExecutor.providerLabel} payout FAILED | ${JSON.stringify({
                     orderId: transaction.id,
                     userId: transaction.userId,
-                    error: nombaError.message,
+                    error: providerError.message,
                 })}`
             );
 
@@ -655,14 +672,39 @@ export class WithdrawalWebhookHandler {
                 amount: transaction.totalToReceiveInFiat,
                 accountNumber: transaction.destinationBankAccountNumber,
                 bankName: transaction.destinationBankName,
-                provider: "Nomba",
-                error: nombaError.message,
-                willRetryWithFincra: false,
+                provider: payoutExecutor.providerLabel,
+                error: providerError.message,
                 isCritical: true,
             });
 
-            throw new Error(`Nomba payout failed for order ${transaction.id}: ${nombaError.message}`);
+            throw new Error(`${payoutExecutor.providerLabel} payout failed for order ${transaction.id}: ${providerError.message}`);
         }
+    }
+
+    private getSellPayoutExecutor(): {
+        provider: SellPayoutProvider;
+        providerLabel: string;
+        initializeTransfer: (options: SellPayoutTransferOptions) => Promise<void>;
+    } {
+        switch (sellPayoutProvider) {
+            case "nomba":
+                return {
+                    provider: "nomba",
+                    providerLabel: this.getProviderLabel("nomba"),
+                    initializeTransfer: (options) => this.nombaService.initializeTransfer(options),
+                };
+            case "fincra":
+            default:
+                return {
+                    provider: "fincra",
+                    providerLabel: this.getProviderLabel("fincra"),
+                    initializeTransfer: (options) => this.fincraService.initializeTransfer(options),
+                };
+        }
+    }
+
+    private getProviderLabel(provider: SellPayoutProvider) {
+        return provider.charAt(0).toUpperCase() + provider.slice(1);
     }
 
     /**
@@ -690,7 +732,7 @@ export class WithdrawalWebhookHandler {
             if (data.isCritical) {
                 status = "CRITICAL: ALL PAYOUT PROVIDERS FAILED";
             } else if (data.willRetryWithFincra) {
-                status = "Nomba failed, trying Fincra...";
+                status = "Primary payout failed, retrying...";
             }
 
             const message = {

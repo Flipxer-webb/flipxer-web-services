@@ -26,6 +26,8 @@ jest.mock("@/modules/api/trade/gateway/v1", () => ({
 jest.mock("@/config", () => ({
     jwtSecret: "test-jwt-value",
     quidaxConfig: { webhook_key: "test-hmac-value" },
+    fincraOptions: { webhookSecret: ["test", "value"].join("-") },
+    nombaOptions: { webhookSecret: ["nomba", "secret"].join("-") },
     blockedCountries: ["KP", "IR"],
     isProduction: false,
     isProdEnvironment: false,
@@ -43,6 +45,7 @@ import {
     EnabledAccountGuard,
     QuidaxWebhookGuard,
     FincraWebhookGuard,
+    NombaWebhookGuard,
     CountryBlockGuard,
     SocketAuthGuard,
     TransactionAmountGuard,
@@ -278,11 +281,14 @@ describe("QuidaxWebhookGuard", () => {
 
 describe("FincraWebhookGuard", () => {
     let guard: FincraWebhookGuard;
-    const FINCRA_SECRET = process.env.FINCRA_WEBHOOK_SECRET || "test-value";
+    let fincraSecret: string;
 
     beforeEach(() => {
         guard = new FincraWebhookGuard();
-        process.env.FINCRA_WEBHOOK_SECRET = FINCRA_SECRET;
+        fincraSecret = `fincra-${Math.random().toString(36).slice(2)}`;
+        process.env.FINCRA_WEBHOOK_SECRET = fincraSecret;
+        const configModule = require("@/config");
+        configModule.fincraOptions.webhookSecret = fincraSecret;
     });
 
     afterEach(() => {
@@ -303,7 +309,7 @@ describe("FincraWebhookGuard", () => {
     it("should accept valid sha512 HMAC signature", () => {
         const body = { event: "payment.success" };
         const bodyStr = JSON.stringify(body);
-        const sig = createHmac("sha512", FINCRA_SECRET).update(Buffer.from(bodyStr)).digest("hex");
+        const sig = createHmac("sha512", fincraSecret).update(Buffer.from(bodyStr)).digest("hex");
 
         const ctx = mockContext({ headers: { signature: sig }, body });
         expect(guard.canActivate(ctx)).toBe(true);
@@ -316,7 +322,7 @@ describe("FincraWebhookGuard", () => {
 
     it("should validate signature using rawBody when provided", () => {
         const rawBody = '{"event":"payment.success"}';
-        const sig = createHmac("sha512", FINCRA_SECRET).update(Buffer.from(rawBody)).digest("hex");
+        const sig = createHmac("sha512", fincraSecret).update(Buffer.from(rawBody)).digest("hex");
         const ctx = mockContext({ headers: { signature: sig }, body: { ignored: true } });
         (ctx.switchToHttp().getRequest() as any).rawBody = rawBody;
 
@@ -333,6 +339,84 @@ describe("FincraWebhookGuard", () => {
         const ctx = mockContext({ headers: { signature: badSignature as unknown as string }, body });
 
         expect(guard.canActivate(ctx)).toBe(false);
+    });
+});
+
+// ==================== NombaWebhookGuard ====================
+
+describe("NombaWebhookGuard", () => {
+    let guard: NombaWebhookGuard;
+    let nombaSecret: string;
+
+    beforeEach(() => {
+        guard = new NombaWebhookGuard();
+        nombaSecret = `nomba-${Math.random().toString(36).slice(2)}`;
+        const configModule = require("@/config");
+        configModule.nombaOptions.webhookSecret = nombaSecret;
+    });
+
+    it("should allow webhook verification probes without signature", () => {
+        const ctx = mockContext({ headers: {}, body: {} });
+
+        expect(guard.canActivate(ctx)).toBe(true);
+    });
+
+    it("should reject signed webhook events without signature header", () => {
+        const ctx = mockContext({
+            headers: {},
+            body: { event_type: "payment_success", data: {} },
+        });
+
+        expect(guard.canActivate(ctx)).toBe(false);
+    });
+
+    it("should reject when Nomba webhook secret is not configured", () => {
+        const configModule = require("@/config");
+        configModule.nombaOptions.webhookSecret = "";
+        const ctx = mockContext({
+            headers: { "nomba-signature": "sig", "nomba-timestamp": "123" },
+            body: { event_type: "payment_success", data: {} },
+        });
+
+        expect(guard.canActivate(ctx)).toBe(false);
+    });
+
+    it("should accept valid Nomba signatures", () => {
+        const timestamp = "1234567890";
+        const body = {
+            event_type: "payment_success",
+            requestId: "req-1",
+            data: {
+                merchant: { userId: "merchant-user", walletId: "wallet-1" },
+                transaction: {
+                    transactionId: "txn-1",
+                    type: "vact_transfer",
+                    time: "2026-04-18T10:00:00Z",
+                    responseCode: "00",
+                },
+            },
+        };
+        const hashingPayload = [
+            body.event_type,
+            body.requestId,
+            body.data.merchant.userId,
+            body.data.merchant.walletId,
+            body.data.transaction.transactionId,
+            body.data.transaction.type,
+            body.data.transaction.time,
+            body.data.transaction.responseCode,
+            timestamp,
+        ].join(":");
+        const signature = createHmac("sha256", nombaSecret)
+            .update(hashingPayload)
+            .digest("base64");
+
+        const ctx = mockContext({
+            headers: { "nomba-signature": signature, "nomba-timestamp": timestamp },
+            body,
+        });
+
+        expect(guard.canActivate(ctx)).toBe(true);
     });
 });
 
@@ -599,8 +683,8 @@ describe("TwoFactorGuard", () => {
         };
 
         guard = new TwoFactorGuard(
-            prisma as any,
-            jwtService as any,
+            prisma,
+            jwtService,
             rateLimitService,
             settingService,
         );
@@ -935,8 +1019,8 @@ describe("TwoFactorGuard", () => {
         };
 
         guard = new TwoFactorGuard(
-            prisma as any,
-            jwtService as any,
+            prisma,
+            jwtService,
             rateLimitService,
             settingService,
         );

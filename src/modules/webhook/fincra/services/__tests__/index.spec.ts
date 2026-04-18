@@ -1,4 +1,5 @@
 import { FincraWebhookService } from "..";
+import { PaymentWebhookAdapterService } from "@/modules/factory/bank/services/payment-webhook-adapter.service";
 
 /* ------------------------------------------------------------------ */
 /*  Stub heavy transitive deps                                        */
@@ -40,21 +41,38 @@ jest.mock("@/modules/api/operations/services/slack-webhook.service", () => ({
     },
 }));
 
+jest.mock("@/modules/api/trade/services/sell-payout-reconciliation.service", () => ({
+    SellPayoutReconciliationService: class {
+        isStub() {
+            return true;
+        }
+    },
+}));
+
 /* ------------------------------------------------------------------ */
 /*  Mock factories                                                    */
 /* ------------------------------------------------------------------ */
 function createMockPrisma() {
-    return {
+    const prisma = {
         payment: {
             findUnique: jest.fn().mockResolvedValue(null),
+            update: jest.fn().mockResolvedValue({}),
         },
-        $transaction: jest.fn().mockImplementation((cb: (tx: any) => Promise<void>) =>
-            cb({
-                payment: { update: jest.fn().mockResolvedValue({}) },
-                order: { update: jest.fn().mockResolvedValue({}) },
-            }),
-        ),
+        order: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            update: jest.fn().mockResolvedValue({}),
+        },
+        $transaction: jest.fn(),
     };
+
+    prisma.$transaction.mockImplementation(async (callback: (tx: any) => Promise<unknown>) => (
+        callback({
+            payment: prisma.payment,
+            order: prisma.order,
+        })
+    ));
+
+    return prisma;
 }
 
 function createMockBankService() {
@@ -68,6 +86,13 @@ function createMockBankService() {
 function createMockSlackService() {
     return {
         sendWebhookFailureAlert: jest.fn().mockResolvedValue(undefined),
+    };
+}
+
+function createMockSellPayoutReconciliationService() {
+    return {
+        reconcileSellPayoutState: jest.fn().mockResolvedValue(null),
+        executeSellPayoutSideEffects: jest.fn().mockResolvedValue(undefined),
     };
 }
 
@@ -122,20 +147,26 @@ function buildPayment(overrides: Record<string, unknown> = {}) {
 /* ------------------------------------------------------------------ */
 /*  Tests                                                             */
 /* ------------------------------------------------------------------ */
-describe("FincraWebhookService", () => {
+describe("PaymentWebhookService", () => {
     let service: FincraWebhookService;
     let prisma: ReturnType<typeof createMockPrisma>;
     let bankService: ReturnType<typeof createMockBankService>;
     let slackService: ReturnType<typeof createMockSlackService>;
+    let sellPayoutReconciliationService: ReturnType<typeof createMockSellPayoutReconciliationService>;
+    let paymentWebhookAdapterService: PaymentWebhookAdapterService;
 
     beforeEach(() => {
         prisma = createMockPrisma();
         bankService = createMockBankService();
         slackService = createMockSlackService();
+        sellPayoutReconciliationService = createMockSellPayoutReconciliationService();
+        paymentWebhookAdapterService = new PaymentWebhookAdapterService();
         service = new FincraWebhookService(
             prisma as any,
             bankService as any,
             slackService as any,
+            paymentWebhookAdapterService,
+            sellPayoutReconciliationService as any,
         );
     });
 
@@ -218,14 +249,16 @@ describe("FincraWebhookService", () => {
     // ==================== Payout Events ====================
 
     describe("processWebhookEvent – payout events", () => {
-        it("processes successful payout: updates DB + triggers transfer handler", async () => {
-            prisma.payment.findUnique.mockResolvedValue(buildPayment());
+        it("processes successful payout for non-sell order: updates payment + triggers transfer handler", async () => {
+            prisma.payment.findUnique.mockResolvedValue(buildPayment({ orderId: null, order: null }));
 
             await service.processWebhookEvent(
                 payoutPayload("payout.successful") as any,
             );
 
+            expect(prisma.payment.update).toHaveBeenCalled();
             expect(prisma.$transaction).toHaveBeenCalled();
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).not.toHaveBeenCalled();
             expect(bankService.processAssetValueTransferToBankHandler).toHaveBeenCalledWith(
                 expect.objectContaining({
                     paymentReference: "cref-1",
@@ -234,19 +267,85 @@ describe("FincraWebhookService", () => {
             );
         });
 
-        it("processes failed payout: updates DB + sends Slack alert", async () => {
-            prisma.payment.findUnique.mockResolvedValue(buildPayment());
+        it("processes failed payout for non-sell order: updates payment + sends Slack alert", async () => {
+            prisma.payment.findUnique.mockResolvedValue(buildPayment({ orderId: null, order: null }));
 
             await service.processWebhookEvent(
                 payoutPayload("payout.failed", { status: "failed" }) as any,
             );
 
+            expect(prisma.payment.update).toHaveBeenCalled();
             expect(prisma.$transaction).toHaveBeenCalled();
             expect(slackService.sendWebhookFailureAlert).toHaveBeenCalledWith(
                 "fincra",
                 "cref-1",
                 expect.stringContaining("PAYOUT FAILED"),
                 expect.any(Object),
+            );
+        });
+
+        it("processes successful payout for SELL order via the shared reconciler", async () => {
+            prisma.payment.findUnique.mockResolvedValue(buildPayment());
+            sellPayoutReconciliationService.reconcileSellPayoutState.mockResolvedValue({
+                order: { id: 100 },
+                provider: "fincra",
+                reference: "cref-1",
+                status: "SUCCESS",
+            });
+
+            await service.processWebhookEvent(
+                payoutPayload("payout.successful") as any,
+            );
+
+            expect(prisma.$transaction).toHaveBeenCalled();
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).toHaveBeenCalledWith(
+                expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
+                expect.objectContaining({
+                    orderId: 100,
+                    provider: "fincra",
+                    reference: "cref-1",
+                    status: "SUCCESS",
+                }),
+            );
+            expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: "fincra",
+                    reference: "cref-1",
+                    status: "SUCCESS",
+                }),
+            );
+            expect(bankService.processAssetValueTransferToBankHandler).not.toHaveBeenCalled();
+        });
+
+        it("processes failed payout for SELL order via the shared reconciler", async () => {
+            prisma.payment.findUnique.mockResolvedValue(buildPayment());
+            sellPayoutReconciliationService.reconcileSellPayoutState.mockResolvedValue({
+                order: { id: 100 },
+                provider: "fincra",
+                reference: "cref-1",
+                status: "FAILED",
+            });
+
+            await service.processWebhookEvent(
+                payoutPayload("payout.failed", { status: "failed" }) as any,
+            );
+
+            expect(prisma.$transaction).toHaveBeenCalled();
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).toHaveBeenCalledWith(
+                expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
+                expect.objectContaining({
+                    orderId: 100,
+                    provider: "fincra",
+                    reference: "cref-1",
+                    status: "FAILED",
+                }),
+            );
+            expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: "fincra",
+                    reference: "cref-1",
+                    status: "FAILED",
+                }),
             );
         });
 
@@ -257,7 +356,7 @@ describe("FincraWebhookService", () => {
                 payoutPayload("payout.processing", { status: "processing" }) as any,
             );
 
-            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(prisma.payment.update).not.toHaveBeenCalled();
         });
 
         it("skips update for 'pending' payout status", async () => {
@@ -267,7 +366,7 @@ describe("FincraWebhookService", () => {
                 payoutPayload("payout.pending", { status: "pending" }) as any,
             );
 
-            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(prisma.payment.update).not.toHaveBeenCalled();
         });
 
         it("skips update for unknown payout status (default)", async () => {
@@ -277,7 +376,7 @@ describe("FincraWebhookService", () => {
                 payoutPayload("payout.unknown", { status: "some_new_status" }) as any,
             );
 
-            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(prisma.payment.update).not.toHaveBeenCalled();
         });
 
         it("returns early when payout has no reference", async () => {
@@ -298,41 +397,30 @@ describe("FincraWebhookService", () => {
                 payoutPayload("payout.successful") as any,
             );
 
-            expect(prisma.$transaction).not.toHaveBeenCalled();
+            expect(prisma.payment.update).not.toHaveBeenCalled();
         });
 
         it("matches payout via 'disbursement' in event name", async () => {
-            prisma.payment.findUnique.mockResolvedValue(buildPayment());
+            prisma.payment.findUnique.mockResolvedValue(buildPayment({ orderId: null, order: null }));
 
             await service.processWebhookEvent(
                 payoutPayload("disbursement.successful") as any,
             );
 
-            expect(prisma.$transaction).toHaveBeenCalled();
+            expect(prisma.payment.update).toHaveBeenCalled();
         });
 
-        it("skips order update when payment has no orderId", async () => {
+        it("skips sell order handling when payment has no orderId", async () => {
             const paymentNoOrder = buildPayment({ orderId: null, order: null });
             prisma.payment.findUnique.mockResolvedValue(paymentNoOrder);
-
-            let orderUpdateCalled = false;
-            prisma.$transaction.mockImplementation((cb: (tx: any) => Promise<void>) =>
-                cb({
-                    payment: { update: jest.fn().mockResolvedValue({}) },
-                    order: {
-                        update: jest.fn().mockImplementation(() => {
-                            orderUpdateCalled = true;
-                            return Promise.resolve({});
-                        }),
-                    },
-                }),
-            );
 
             await service.processWebhookEvent(
                 payoutPayload("payout.successful") as any,
             );
 
-            expect(orderUpdateCalled).toBe(false);
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).not.toHaveBeenCalled();
+            expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).not.toHaveBeenCalled();
+            expect(bankService.processAssetValueTransferToBankHandler).toHaveBeenCalled();
         });
     });
 

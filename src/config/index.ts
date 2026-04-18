@@ -374,6 +374,36 @@ export const fincraOptions: FincraOptions = {
     proxyUrl: process.env.FINCRA_PROXY_URL || "", // e.g., http://user:pass@proxy.quotaguard.com:9293
 };
 
+export const sellPayoutProviders = ["fincra", "nomba"] as const;
+export type SellPayoutProvider = (typeof sellPayoutProviders)[number];
+
+const rawSellPayoutProvider = (process.env.SELL_PAYOUT_PROVIDER || "fincra")
+    .trim()
+    .toLowerCase();
+
+if (!sellPayoutProviders.includes(rawSellPayoutProvider as SellPayoutProvider)) {
+    throw new Error(
+        `Invalid SELL_PAYOUT_PROVIDER: ${rawSellPayoutProvider}. Expected one of: ${sellPayoutProviders.join(", ")}`
+    );
+}
+
+export const sellPayoutProvider = rawSellPayoutProvider as SellPayoutProvider;
+
+export const buyPaymentProviders = ["nomba", "fincra"] as const;
+export type BuyPaymentProvider = (typeof buyPaymentProviders)[number];
+
+const rawBuyPaymentProvider = (process.env.BUY_PAYMENT_PROVIDER || "nomba")
+    .trim()
+    .toLowerCase();
+
+if (!buyPaymentProviders.includes(rawBuyPaymentProvider as BuyPaymentProvider)) {
+    throw new Error(
+        `Invalid BUY_PAYMENT_PROVIDER: ${rawBuyPaymentProvider}. Expected one of: ${buyPaymentProviders.join(", ")}`
+    );
+}
+
+export const buyPaymentProvider = rawBuyPaymentProvider as BuyPaymentProvider;
+
 export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
     ? process.env.BLOCKED_COUNTRIES.split(",").map((c) =>
         c.trim().toUpperCase()
@@ -419,6 +449,8 @@ export interface Configuration {
     mailConfig: EMailConfig;
     emailTemplateConfig: EMailTemplateConfig;
     fincraConfig: FincraOptions;
+    sellPayoutProvider: SellPayoutProvider;
+    buyPaymentProvider: BuyPaymentProvider;
 }
 
 // Nomba (optional - alternative fiat gateway alongside Fincra)

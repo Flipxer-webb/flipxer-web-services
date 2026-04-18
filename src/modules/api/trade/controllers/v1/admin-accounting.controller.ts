@@ -8,7 +8,6 @@ import {
     Logger,
     ParseIntPipe,
     DefaultValuePipe,
-    Inject,
     NotFoundException,
     BadRequestException,
 } from "@nestjs/common";
@@ -19,7 +18,7 @@ import {
 } from "@/modules/api/auth/guard";
 import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
-import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma, PaymentMethod } from "@prisma/client";
+import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -31,9 +30,7 @@ import { AdminSwapQuoteDto, AdminSwapConfirmDto, AdminAdjustmentDto, AdminAdjust
 import { User } from "@/modules/api/user/decorators";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
-import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
-import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
+import { FiatGatewayRegistryService } from "@/modules/factory/bank/services/fiat-gateway-registry.service";
 import { AuditLogService } from "@/modules/api/audit-log";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -52,10 +49,7 @@ export class AdminAccountingController {
         private readonly ledgerService: LedgerService,
         private readonly rateService: RateService,
         private readonly adminSwapService: AdminSwapService,
-        @Inject(BankInjectionToken.FINCRA)
-        private readonly fincraService: FincraBank,
-        @Inject(BankInjectionToken.NOMBA)
-        private readonly nombaService: NombaBank,
+        private readonly fiatGatewayRegistryService: FiatGatewayRegistryService,
         private readonly auditLogService: AuditLogService,
     ) {}
 
@@ -586,81 +580,13 @@ export class AdminAccountingController {
     // FIAT GATEWAY ENDPOINTS
     // =========================================================================
 
-    @ApiOperation({ summary: "Get fiat gateway balances from all configured providers (Fincra, Nomba)" })
+    @ApiOperation({ summary: "Get fiat gateway balances from all configured providers" })
     @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("fiat-gateway-summary")
     async getFiatGatewaySummary() {
         this.logger.log("Admin fetching fiat gateway summary");
 
-        const gateways: Array<{
-            provider: string;
-            status: "connected" | "error";
-            currency: string;
-            availableBalance: number;
-            lockedBalance: number;
-            ledgerBalance: number;
-            error?: string;
-        }> = [];
-
-        // Fetch Fincra wallets
-        try {
-            const fincraWallets = await this.fincraService.getWallets();
-            this.logger.debug(`Fincra wallets raw keys: ${fincraWallets?.data?.length ? Object.keys(fincraWallets.data[0]).join(", ") : "no data"}`);
-            if (fincraWallets?.data?.length) {
-                for (const wallet of fincraWallets.data) {
-                    // Fincra API may return snake_case or camelCase fields
-                    const w = wallet as any;
-                    gateways.push({
-                        provider: "Fincra",
-                        status: "connected",
-                        currency: w.currency || "NGN",
-                        availableBalance: Number(w.availableBalance ?? w.available_balance ?? 0),
-                        lockedBalance: Number(w.lockedBalance ?? w.locked_balance ?? 0),
-                        ledgerBalance: Number(w.ledgerBalance ?? w.ledger_balance ?? 0),
-                    });
-                }
-            }
-        } catch (error) {
-            this.logger.error(`Failed to fetch Fincra wallets: ${(error as Error).message}`);
-            gateways.push({
-                provider: "Fincra",
-                status: "error",
-                currency: "NGN",
-                availableBalance: 0,
-                lockedBalance: 0,
-                ledgerBalance: 0,
-                error: "Unable to connect to Fincra",
-            });
-        }
-
-        // Fetch Nomba balance
-        try {
-            const nombaBalance = await this.nombaService.getAccountBalance();
-            if (nombaBalance?.data) {
-                // Nomba /v1/accounts/balance returns { amount, currency, timeCreated }
-                const nb = nombaBalance.data as any;
-                const balance = Number(nb.amount ?? 0);
-                gateways.push({
-                    provider: "Nomba",
-                    status: "connected",
-                    currency: nb.currency || "NGN",
-                    availableBalance: balance,
-                    lockedBalance: 0,
-                    ledgerBalance: balance,
-                });
-            }
-        } catch (error) {
-            this.logger.error(`Failed to fetch Nomba balance: ${(error as Error).message}`);
-            gateways.push({
-                provider: "Nomba",
-                status: "error",
-                currency: "NGN",
-                availableBalance: 0,
-                lockedBalance: 0,
-                ledgerBalance: 0,
-                error: "Unable to connect to Nomba",
-            });
-        }
+        const gateways = await this.fiatGatewayRegistryService.getGatewaySummaries();
 
         const totalAvailable = gateways
             .filter((g) => g.status === "connected")
@@ -689,7 +615,7 @@ export class AdminAccountingController {
     @ApiOperation({ summary: "Get recent fiat gateway activity (buy/sell orders involving NGN)" })
     @ApiQuery({ name: "page", required: false, type: Number })
     @ApiQuery({ name: "limit", required: false, type: Number })
-    @ApiQuery({ name: "provider", required: false, description: "Filter by gateway provider: fincra, nomba, or all" })
+    @ApiQuery({ name: "provider", required: false, description: "Filter by configured gateway provider key" })
     @ApiQuery({ name: "type", required: false, description: "Filter by type: collection, payout, or all" })
     @ApiQuery({ name: "startDate", required: false, description: "Filter from date (ISO 8601)" })
     @ApiQuery({ name: "endDate", required: false, description: "Filter to date (ISO 8601)" })
@@ -711,13 +637,9 @@ export class AdminAccountingController {
         const where: any = {};
 
         // Filter by payment method (maps to provider)
-        if (provider === "fincra") {
-            where.paymentMethod = PaymentMethod.FINCRA;
-        } else if (provider === "nomba") {
-            where.paymentMethod = PaymentMethod.NOMBA;
-        } else {
-            where.paymentMethod = { in: [PaymentMethod.FINCRA, PaymentMethod.NOMBA] };
-        }
+        where.paymentMethod = {
+            in: this.fiatGatewayRegistryService.getPaymentMethodsForFilter(provider),
+        };
 
         // Filter by flow type
         if (type === "collection") {
@@ -757,11 +679,15 @@ export class AdminAccountingController {
             this.prisma.payment.count({ where }),
         ]);
 
-        const records = payments.map((p) => ({
+        const records = payments.map((p) => {
+            const providerKey = this.fiatGatewayRegistryService.getProviderKeyForPaymentMethod(p.paymentMethod);
+
+            return {
             id: p.id,
             reference: p.reference,
             transactionId: p.transactionId,
-            provider: p.paymentMethod === PaymentMethod.FINCRA ? "Fincra" : "Nomba",
+            provider: this.fiatGatewayRegistryService.getDisplayNameForPaymentMethod(p.paymentMethod),
+            providerKey: providerKey ?? "unknown",
             type: p.flow === "OUT" ? "payout" : "collection",
             amount: Number(p.amount),
             currency: p.expectedCurrency || "NGN",
@@ -774,7 +700,8 @@ export class AdminAccountingController {
             narration: p.narration,
             createdAt: p.createdAt,
             updatedAt: p.updatedAt,
-        }));
+            };
+        });
 
         return buildResponse({
             message: "Fiat gateway activity retrieved",
