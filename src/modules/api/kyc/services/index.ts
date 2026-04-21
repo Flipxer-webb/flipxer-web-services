@@ -361,7 +361,7 @@ export class KycService {
 
         if (action === "REJECT") {
             const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
-                DOCUMENT: { documentVerificationStatus: "DECLINED" },
+                DOCUMENT: { isDocumentVerified: false, documentVerificationStatus: "DECLINED" },
                 ADDRESS: { addressVerificationStatus: "DECLINED", addressDocumentUrl: null },
                 INCOME: { incomeVerificationStatus: "DECLINED", incomeDocumentUrl: null },
                 BUSINESS_DOCUMENT: { businessDocumentVerificationStatus: "DECLINED", businessDocumentsUploaded: false },

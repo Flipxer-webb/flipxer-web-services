@@ -255,7 +255,7 @@ describe("KycService", () => {
             );
         });
 
-        it("should recalculate tier on REJECT (may downgrade)", async () => {
+        it("should clear document verification and downgrade tier on DOCUMENT reject", async () => {
             const verifiedUser = {
                 ...pendingUser,
                 tier: 2,
@@ -265,15 +265,14 @@ describe("KycService", () => {
 
             const rejectedUser = {
                 ...updatedUserAfterApproval,
-                isDocumentVerified: true, // flag not cleared on rejection, only status
+                isDocumentVerified: false,
                 documentVerificationStatus: "DECLINED",
                 tier: 2,
             };
 
             mockPrismaService.user.findUnique.mockResolvedValue(verifiedUser);
             mockPrismaService.user.update.mockResolvedValue(rejectedUser);
-            // After rejection, syncTierAndCache recalculates — tier stays based on flags
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...rejectedUser, tier: 2 });
+            mockTierService.syncTierAndCache.mockResolvedValue({ ...rejectedUser, tier: 1 });
             mockPrismaService.kycVerification.create.mockResolvedValue({});
             mockAuditLogService.log.mockResolvedValue(undefined);
 
@@ -287,7 +286,25 @@ describe("KycService", () => {
                 99
             );
 
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 2 },
+                    data: expect.objectContaining({
+                        isDocumentVerified: false,
+                        documentVerificationStatus: "DECLINED",
+                    }),
+                })
+            );
             expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(2);
+            expect(mockAuditLogService.log).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    details: expect.objectContaining({
+                        previousTier: 2,
+                        newTier: 1,
+                        verificationType: "DOCUMENT",
+                    }),
+                })
+            );
         });
 
         it("should not accept newTier field (removed from DTO type)", () => {
