@@ -5,6 +5,7 @@ import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
+    CryptoWalletStatus,
     LedgerType,
     OrderCategory,
     OrderStatus,
@@ -142,7 +143,30 @@ export class SellOrderService {
             );
         }
 
-        const { depositAddress, defaultNetwork } = assetWallet;
+        const fallbackWalletAddress =
+            !assetWallet.depositAddress || !assetWallet.defaultNetwork
+                ? await this.prisma.cryptoWalletAddress.findFirst({
+                    where: {
+                        userId: user.id,
+                        assetSymbol: currency,
+                        status: CryptoWalletStatus.ACTIVE,
+                        address: { not: null },
+                        ...(assetWallet.defaultNetwork && {
+                            network: assetWallet.defaultNetwork,
+                        }),
+                    },
+                    select: {
+                        address: true,
+                        network: true,
+                    },
+                    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+                })
+                : null;
+
+        const depositAddress =
+            assetWallet.depositAddress ?? fallbackWalletAddress?.address ?? null;
+        const defaultNetwork =
+            assetWallet.defaultNetwork ?? fallbackWalletAddress?.network ?? null;
 
         if ((!depositAddress || !defaultNetwork) && !internal) {
             // Internal sells might not need deposit address if just balance deduction? 
