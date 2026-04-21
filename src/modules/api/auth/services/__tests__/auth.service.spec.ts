@@ -1922,6 +1922,57 @@ describe("AuthService", () => {
             );
         });
 
+        it("documentVerificationBase64 keeps valid but mismatched documents pending review", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-3" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-3" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: false,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: "Kehinde",
+                    lastName: "Onileola",
+                    documentNumber: "P77777",
+                    expiryDate: "2030-01-01",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 13 }) },
+                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                { id: 1, isDocumentVerified: false } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document verification is pending review");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                1,
+                "DOCUMENT",
+                "PENDING",
+                expect.objectContaining({
+                    reviewNote: "Manual review needed: valid=true, nameMatches=false",
+                }),
+            );
+            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 1,
+                    title: "Document Submitted",
+                }),
+            );
+        });
+
         it("submitBusinessDocumentsFromUrls validates required CAC image", async () => {
             await expect(
                 service.submitBusinessDocumentsFromUrls(

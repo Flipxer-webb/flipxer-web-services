@@ -2401,9 +2401,8 @@ export class AuthService {
 
         isDocumentValid = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
 
-        // Auto-approve if document is valid; otherwise save as PENDING for manual review
-        // Name matching is informational only, logged for review if needed
-        const shouldAutoApprove = isDocumentValid;
+        // Auto-approve only when the document is valid and the extracted name matches.
+        const shouldAutoApprove = isDocumentValid && nameMatches;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
             : DocumentVerificationStatus.PENDING;
