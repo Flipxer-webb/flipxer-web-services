@@ -861,6 +861,36 @@ describe("TradingService (index)", () => {
             );
         });
 
+        it("walletUpdatedHandler clears stale parent flags when provider and child addresses are missing", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.assetWallet.findUnique.mockResolvedValue({
+                id: 9,
+                userId: 10,
+                assetCurrency: "TRX",
+                defaultNetwork: "trc20",
+            });
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
+
+            await service.walletUpdatedHandler({
+                walletId: "wallet-1",
+                updatedAt: "2026-03-28T10:00:00Z",
+                depositAddress: null,
+                destinationTag: null,
+                referenceCurrency: "ngn",
+            } as any);
+
+            expect(prisma.assetWallet.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 9 },
+                    data: expect.objectContaining({
+                        depositAddress: null,
+                        addressSynced: false,
+                        isActive: false,
+                    }),
+                }),
+            );
+        });
+
         it("walletAddressCreatedSuccessHandler exits safely when wallet address record is missing", async () => {
             const { service, prisma } = makeDeps();
             prisma.cryptoWalletAddress.findUnique.mockResolvedValue(null);
