@@ -27,6 +27,7 @@ function makePrisma() {
     return {
         bankDetail: { findFirst: jest.fn() },
         assetWallet: { findFirst: jest.fn() },
+        cryptoWalletAddress: { findFirst: jest.fn() },
         order: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     };
 }
@@ -150,6 +151,29 @@ describe("SellOrderService", () => {
             await expect(
                 service.calculateSellQuote(mockUser, { asset: "xyz", amount: 1 } as any),
             ).rejects.toThrow("not found");
+        });
+
+        it("should use the active child address when the parent deposit address is null", async () => {
+            prisma.bankDetail.findFirst.mockResolvedValue({
+                accountName: "Test User",
+                accountNumber: "1234567890",
+                bankName: "GTBank",
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: null,
+                defaultNetwork: "btc",
+            });
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "bc1childaddress",
+                network: "btc",
+            });
+
+            await expect(
+                service.calculateSellQuote(mockUser, { asset: "btc", amount: 0.1 } as any),
+            ).resolves.toMatchObject({
+                sellRate: 70000000,
+                cryptoSellAmount: 0.1,
+            });
         });
 
         it("should throw when no bank detail for non-internal call", async () => {

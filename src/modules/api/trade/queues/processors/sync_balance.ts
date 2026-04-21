@@ -4,11 +4,58 @@ import { Inject, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { CryptoWalletStatus, NetworkTypes } from "@prisma/client";
 import {
     QuidaxTradingJobOptions,
     QuidaxTradingQueue,
     TradingQueue,
 } from "../interfaces";
+import {
+    NETWORK_ALIAS_MAP,
+    NETWORK_SEGMENT_SPLITTER,
+} from "../../constants";
+
+const supportedNetworkSet = new Set<string>(Object.values(NetworkTypes));
+
+function normalizeNetwork(network?: string | null): NetworkTypes | null {
+    if (!network) {
+        return null;
+    }
+
+    const trimmed = network.trim().toLowerCase();
+
+    if (!trimmed) {
+        return null;
+    }
+
+    const directMatch =
+        NETWORK_ALIAS_MAP[trimmed] ||
+        (supportedNetworkSet.has(trimmed) ? (trimmed as NetworkTypes) : null);
+
+    if (directMatch) {
+        return directMatch;
+    }
+
+    const segments = trimmed.split(NETWORK_SEGMENT_SPLITTER).reverse();
+
+    for (const segment of segments) {
+        if (!segment) {
+            continue;
+        }
+
+        const alias =
+            NETWORK_ALIAS_MAP[segment] ||
+            (supportedNetworkSet.has(segment)
+                ? (segment as NetworkTypes)
+                : null);
+
+        if (alias) {
+            return alias;
+        }
+    }
+
+    return null;
+}
 
 /**
  * Balance Sync Processor
@@ -31,6 +78,54 @@ export class QuidaxTradingBalanceSyncProcessor {
         private readonly quidaxService: QuidaxService
     ) { }
 
+    private resolveProviderWallet(
+        wallet: any,
+        walletMapById: Map<string, any>,
+        walletMapByCurrency: Map<string, any>
+    ) {
+        let updated = walletMapById.get(wallet.quidaxWalletId);
+
+        if (!updated) {
+            updated = walletMapByCurrency.get(wallet.assetCurrency.toUpperCase());
+
+            if (updated) {
+                this.logger.warn(
+                    `[WALLET SYNC] Repairing stale quidaxWalletId for ${wallet.assetCurrency}: ` +
+                        `${wallet.quidaxWalletId} → ${updated.id}`
+                );
+            }
+        }
+
+        return updated;
+    }
+
+    private resolveAddressMetadata(
+        wallet: any,
+        updated: any,
+        activeAddressMap: Map<string, any>
+    ) {
+        const normalizedDefaultNetwork = normalizeNetwork(
+            updated.default_network || wallet.defaultNetwork
+        );
+        const activeDefaultNetworkAddress = normalizedDefaultNetwork
+            ? activeAddressMap.get(
+                `${wallet.assetCurrency.toUpperCase()}:${normalizedDefaultNetwork}`
+            )
+            : undefined;
+        const depositAddress =
+            updated.deposit_address ?? activeDefaultNetworkAddress?.address ?? null;
+
+        return {
+            depositAddress,
+            destinationTag:
+                updated.destination_tag ??
+                activeDefaultNetworkAddress?.destination_tag ??
+                null,
+            addressSynced: Boolean(depositAddress),
+            isActive: Boolean(depositAddress),
+        };
+    }
+
     @Process(QuidaxTradingQueue.SYNC_CRYPTO_BALANCE)
     async handleSyncBalance(job: Job<QuidaxTradingJobOptions>) {
         const { user_id } = job.data;
@@ -45,12 +140,27 @@ export class QuidaxTradingBalanceSyncProcessor {
 
         if (!user?.cryptoSubAccountId) return;
 
-        const [wallets, quidaxWallets] = await Promise.all([
+        const [wallets, quidaxWallets, activeWalletAddresses] = await Promise.all([
             this.prisma.assetWallet.findMany({
                 where: { userId: user.id },
             }),
             this.quidaxService.getUserWalletList({
                 user_id: user.cryptoSubAccountId,
+            }),
+            this.prisma.cryptoWalletAddress.findMany({
+                where: {
+                    userId: user.id,
+                    status: CryptoWalletStatus.ACTIVE,
+                    address: { not: null },
+                },
+                select: {
+                    id: true,
+                    assetSymbol: true,
+                    network: true,
+                    address: true,
+                    destination_tag: true,
+                    updatedAt: true,
+                },
             }),
         ]);
 
@@ -62,22 +172,32 @@ export class QuidaxTradingBalanceSyncProcessor {
         const walletMapByCurrency = new Map(
             quidaxWalletList.map((w) => [w.currency.toUpperCase(), w])
         );
+        const activeAddressMap = new Map<string, (typeof activeWalletAddresses)[number]>();
+
+        for (const walletAddress of activeWalletAddresses) {
+            if (!walletAddress.network) {
+                continue;
+            }
+
+            const key = `${walletAddress.assetSymbol}:${walletAddress.network}`;
+            const existing = activeAddressMap.get(key);
+
+            if (
+                !existing ||
+                walletAddress.updatedAt > existing.updatedAt ||
+                (walletAddress.updatedAt.getTime() === existing.updatedAt.getTime() &&
+                    walletAddress.id > existing.id)
+            ) {
+                activeAddressMap.set(key, walletAddress);
+            }
+        }
 
         for (const wallet of wallets) {
-            let updated = walletMapById.get(wallet.quidaxWalletId);
-
-            // Fallback: match by currency if quidaxWalletId is stale/synthetic
-            if (!updated) {
-                updated = walletMapByCurrency.get(
-                    wallet.assetCurrency.toUpperCase()
-                );
-                if (updated) {
-                    this.logger.warn(
-                        `[WALLET SYNC] Repairing stale quidaxWalletId for ${wallet.assetCurrency}: ` +
-                            `${wallet.quidaxWalletId} → ${updated.id}`
-                    );
-                }
-            }
+            const updated = this.resolveProviderWallet(
+                wallet,
+                walletMapById,
+                walletMapByCurrency
+            );
 
             if (!updated) {
                 this.logger.debug(
@@ -85,6 +205,11 @@ export class QuidaxTradingBalanceSyncProcessor {
                 );
                 continue;
             }
+            const addressMetadata = this.resolveAddressMetadata(
+                wallet,
+                updated,
+                activeAddressMap
+            );
 
             // VIRTUAL BALANCE SYSTEM:
             // We sync only wallet METADATA (addresses, networks, etc.)
@@ -101,10 +226,10 @@ export class QuidaxTradingBalanceSyncProcessor {
                     isCrypto: updated.is_crypto,
                     networks: updated.networks,
                     referenceCurrency: updated.reference_currency,
-                    depositAddress: updated.deposit_address,
-                    destinationTag: updated.destination_tag,
-                    ...(updated.deposit_address && { addressSynced: true }),
-                    ...(updated.deposit_address && { isActive: true }),
+                    depositAddress: addressMetadata.depositAddress,
+                    destinationTag: addressMetadata.destinationTag,
+                    addressSynced: addressMetadata.addressSynced,
+                    isActive: addressMetadata.isActive,
                 },
             });
         }

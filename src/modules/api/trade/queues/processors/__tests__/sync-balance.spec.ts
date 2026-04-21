@@ -11,6 +11,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
     let prisma: {
         user: { findUnique: jest.Mock };
         assetWallet: { findMany: jest.Mock; update: jest.Mock };
+        cryptoWalletAddress: { findMany: jest.Mock };
     };
 
     let quidaxService: { getUserWalletList: jest.Mock };
@@ -20,6 +21,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
         prisma = {
             user: { findUnique: jest.fn() },
             assetWallet: { findMany: jest.fn(), update: jest.fn() },
+            cryptoWalletAddress: { findMany: jest.fn() },
         };
 
         quidaxService = {
@@ -52,6 +54,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
             { id: 1, userId: 20, quidaxWalletId: "w1", assetCurrency: "USDT" },
             { id: 2, userId: 20, quidaxWalletId: "w2", assetCurrency: "USDC" },
         ]);
+        prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
 
         quidaxService.getUserWalletList.mockResolvedValue({
             data: [
@@ -98,12 +101,183 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
             data: expect.objectContaining({
                 depositAddress: null,
                 destinationTag: "100",
+                addressSynced: false,
+                isActive: false,
             }),
         });
+    });
 
-        const secondUpdate = prisma.assetWallet.update.mock.calls[1][0].data;
-        expect(secondUpdate.addressSynced).toBeUndefined();
-        expect(secondUpdate.isActive).toBeUndefined();
+    it("falls back to the active default-network child address when provider wallet address is null", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 21, cryptoSubAccountId: "sub-21" });
+        prisma.assetWallet.findMany.mockResolvedValue([
+            {
+                id: 5,
+                userId: 21,
+                quidaxWalletId: "w5",
+                assetCurrency: "TRX",
+                defaultNetwork: "trc20",
+            },
+        ]);
+        prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+            {
+                id: 99,
+                assetSymbol: "TRX",
+                network: "trc20",
+                address: "TChild123",
+                destination_tag: null,
+                updatedAt: new Date("2026-03-28T10:00:00Z"),
+            },
+        ]);
+        quidaxService.getUserWalletList.mockResolvedValue({
+            data: [
+                {
+                    id: "w5",
+                    currency: "trx",
+                    blockchain_enabled: true,
+                    default_network: "TRON",
+                    is_crypto: true,
+                    networks: ["TRON"],
+                    reference_currency: "USDT",
+                    deposit_address: null,
+                    destination_tag: null,
+                },
+            ],
+        });
+
+        await expect(
+            processor.handleSyncBalance({ data: { user_id: 21 } } as never),
+        ).resolves.toBeUndefined();
+
+        expect(prisma.assetWallet.update).toHaveBeenCalledWith({
+            where: { id: 5 },
+            data: expect.objectContaining({
+                depositAddress: "TChild123",
+                addressSynced: true,
+                isActive: true,
+            }),
+        });
+    });
+
+    it("repairs stale quidaxWalletId by currency and uses the newest normalized child address", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 22, cryptoSubAccountId: "sub-22" });
+        prisma.assetWallet.findMany.mockResolvedValue([
+            {
+                id: 6,
+                userId: 22,
+                quidaxWalletId: "stale-wallet-id",
+                assetCurrency: "USDT",
+                defaultNetwork: null,
+            },
+        ]);
+        prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+            {
+                id: 10,
+                assetSymbol: "USDT",
+                network: "trc20",
+                address: "TOldChild",
+                destination_tag: "old-tag",
+                updatedAt: new Date("2026-03-28T10:00:00Z"),
+            },
+            {
+                id: 11,
+                assetSymbol: "USDT",
+                network: "trc20",
+                address: "TNewChild",
+                destination_tag: "new-tag",
+                updatedAt: new Date("2026-03-28T10:00:00Z"),
+            },
+        ]);
+        quidaxService.getUserWalletList.mockResolvedValue({
+            data: [
+                {
+                    id: "wallet-usdt-1",
+                    currency: "usdt",
+                    blockchain_enabled: true,
+                    default_network: "USDT-TRON",
+                    is_crypto: true,
+                    networks: ["TRON"],
+                    reference_currency: "USDT",
+                    deposit_address: null,
+                    destination_tag: null,
+                },
+            ],
+        });
+
+        await expect(
+            processor.handleSyncBalance({ data: { user_id: 22 } } as never),
+        ).resolves.toBeUndefined();
+
+        expect((processor as any).logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining("Repairing stale quidaxWalletId for USDT"),
+        );
+        expect(prisma.assetWallet.update).toHaveBeenCalledWith({
+            where: { id: 6 },
+            data: expect.objectContaining({
+                quidaxWalletId: "wallet-usdt-1",
+                depositAddress: "TNewChild",
+                destinationTag: "new-tag",
+                addressSynced: true,
+                isActive: true,
+            }),
+        });
+    });
+
+    it("marks wallets unsynced when provider network is blank and no child fallback exists", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 23, cryptoSubAccountId: "sub-23" });
+        prisma.assetWallet.findMany.mockResolvedValue([
+            {
+                id: 7,
+                userId: 23,
+                quidaxWalletId: "wallet-usdc-1",
+                assetCurrency: "USDC",
+                defaultNetwork: null,
+            },
+        ]);
+        prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
+        quidaxService.getUserWalletList.mockResolvedValue({
+            data: [
+                {
+                    id: "wallet-usdc-1",
+                    currency: "usdc",
+                    blockchain_enabled: true,
+                    default_network: "   ",
+                    is_crypto: true,
+                    networks: ["ERC20"],
+                    reference_currency: "USDC",
+                    deposit_address: null,
+                    destination_tag: "memo-7",
+                },
+            ],
+        });
+
+        await expect(
+            processor.handleSyncBalance({ data: { user_id: 23 } } as never),
+        ).resolves.toBeUndefined();
+
+        expect(prisma.assetWallet.update).toHaveBeenCalledWith({
+            where: { id: 7 },
+            data: expect.objectContaining({
+                depositAddress: null,
+                destinationTag: "memo-7",
+                addressSynced: false,
+                isActive: false,
+            }),
+        });
+    });
+
+    it("returns unsynced metadata when neither provider nor wallet supplies a network", () => {
+        const metadata = (processor as any).resolveAddressMetadata(
+            { assetCurrency: "BTC", defaultNetwork: null },
+            { default_network: null, deposit_address: null, destination_tag: "memo-8" },
+            new Map(),
+        );
+
+        expect(metadata).toEqual({
+            depositAddress: null,
+            destinationTag: "memo-8",
+            addressSynced: false,
+            isActive: false,
+        });
     });
 
     it("warns when no update payload is found for an existing wallet", async () => {
@@ -111,6 +285,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
         prisma.assetWallet.findMany.mockResolvedValue([
             { id: 3, userId: 30, quidaxWalletId: "wallet-missing", assetCurrency: "BTC" },
         ]);
+        prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
         quidaxService.getUserWalletList.mockResolvedValue({ data: [] });
 
         await expect(
@@ -126,6 +301,7 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
         prisma.assetWallet.findMany.mockResolvedValue([
             { id: 4, userId: 31, quidaxWalletId: "w4", assetCurrency: "ETH" },
         ]);
+        prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
         quidaxService.getUserWalletList.mockResolvedValue({});
 
         await expect(
