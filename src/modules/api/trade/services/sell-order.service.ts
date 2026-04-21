@@ -143,16 +143,20 @@ export class SellOrderService {
             );
         }
 
+        const normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+            assetWallet.defaultNetwork
+        );
+
         const fallbackWalletAddress =
-            !assetWallet.depositAddress || !assetWallet.defaultNetwork
+            !assetWallet.depositAddress || !normalizedDefaultNetwork
                 ? await this.prisma.cryptoWalletAddress.findFirst({
                     where: {
                         userId: user.id,
                         assetSymbol: currency,
                         status: CryptoWalletStatus.ACTIVE,
                         address: { not: null },
-                        ...(assetWallet.defaultNetwork && {
-                            network: assetWallet.defaultNetwork,
+                        ...(normalizedDefaultNetwork && {
+                            network: normalizedDefaultNetwork,
                         }),
                     },
                     select: {
@@ -166,7 +170,7 @@ export class SellOrderService {
         const depositAddress =
             assetWallet.depositAddress ?? fallbackWalletAddress?.address ?? null;
         const defaultNetwork =
-            assetWallet.defaultNetwork ?? fallbackWalletAddress?.network ?? null;
+            normalizedDefaultNetwork ?? fallbackWalletAddress?.network ?? null;
 
         if ((!depositAddress || !defaultNetwork) && !internal) {
             // Internal sells might not need deposit address if just balance deduction? 

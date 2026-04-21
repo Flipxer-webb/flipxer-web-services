@@ -61,7 +61,12 @@ describe("SellOrderService", () => {
             notifyTransactionUpdate: jest.fn(),
             notifyWalletUpdate: jest.fn(),
         };
-        const mockTradeHelpers = { calculateFee: jest.fn() };
+        const mockTradeHelpers = {
+            calculateFee: jest.fn(),
+            normalizeNetworkInput: jest.fn((network?: string | null) =>
+                network?.trim().toLowerCase() ?? null,
+            ),
+        };
         const mockWallet = { syncWallet: jest.fn().mockResolvedValue(undefined) };
         const mockWalletMgmt = { invalidateWalletCache: jest.fn() };
         const mockWithdrawalHandler = {

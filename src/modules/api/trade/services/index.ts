@@ -1118,9 +1118,7 @@ export class TradingService {
             },
             select: {
                 id: true,
-                quidaxWalletId: true,
                 defaultNetwork: true,
-                user: { select: { cryptoSubAccountId: true } },
             },
         });
 
