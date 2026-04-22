@@ -13,6 +13,7 @@ import { COMPANY_NAME, buyPaymentProvider, frontendUrl } from "@/config";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
+    CryptoWalletStatus,
     LedgerType,
     OrderCategory,
     OrderStatus,
@@ -190,6 +191,65 @@ export class BuyOrderService {
         }
     }
 
+    private async getFallbackBuyWalletAddress(options: {
+        userId: number;
+        assetSymbol: string;
+        normalizedDefaultNetwork: string | null;
+    }): Promise<{
+        address: string | null;
+        network: string | null;
+        destination_tag: string | null;
+    } | null> {
+        const { userId, assetSymbol, normalizedDefaultNetwork } = options;
+
+        if (normalizedDefaultNetwork) {
+            return this.prisma.cryptoWalletAddress.findFirst({
+                where: {
+                    userId,
+                    assetSymbol,
+                    status: CryptoWalletStatus.ACTIVE,
+                    address: { not: null },
+                    network: normalizedDefaultNetwork as any,
+                },
+                select: {
+                    address: true,
+                    network: true,
+                    destination_tag: true,
+                },
+                orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            });
+        }
+
+        const fallbackWalletAddresses = await this.prisma.cryptoWalletAddress.findMany({
+            where: {
+                userId,
+                assetSymbol,
+                status: CryptoWalletStatus.ACTIVE,
+                address: { not: null },
+                network: { not: null },
+            },
+            select: {
+                address: true,
+                network: true,
+                destination_tag: true,
+            },
+            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        });
+
+        if (fallbackWalletAddresses.length <= 1) {
+            return fallbackWalletAddresses[0] ?? null;
+        }
+
+        this.logger.warn(
+            `Ambiguous buy wallet fallback for user ${userId} asset ${assetSymbol}; refusing to choose between ${fallbackWalletAddresses.length} active network addresses`
+        );
+
+        throw new WalletAddressNotFoundException(
+            `Unable to determine a safe wallet address for asset ${assetSymbol}. Please try again shortly.`,
+            HttpStatus.CONFLICT
+        );
+    }
+
     private isSameCryptoAmount(requestedAmount: number, existingAmount?: number | null): boolean {
         if (typeof existingAmount !== "number") return false;
         return (
@@ -242,6 +302,12 @@ export class BuyOrderService {
         user: User,
         dto: InitiateBuyOrderDto
     ): Promise<BuyQuoteResponse> {
+        const currency = dto.asset.toUpperCase();
+        const assetWalletWhere = {
+            userId: user.id,
+            assetCurrency: currency,
+        };
+
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
                 "Please complete your account setup or contact admin for support",
@@ -249,25 +315,74 @@ export class BuyOrderService {
             );
         }
 
-        const assetExist = await this.prisma.assetWallet.findFirst({
-            where: { userId: user.id, assetCurrency: dto.asset.toUpperCase() },
+        let assetWallet = await this.prisma.assetWallet.findFirst({
+            where: assetWalletWhere,
         });
 
-        if (!assetExist) {
+        if (!assetWallet) {
             throw new AssetNotFoundException(
                 `Asset ${dto.asset} not found for the user`,
                 HttpStatus.NOT_FOUND
             );
         }
 
-        if (!assetExist.depositAddress || !assetExist.defaultNetwork) {
+        let normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+            assetWallet.defaultNetwork
+        );
+
+        if (!normalizedDefaultNetwork) {
+            await this.walletAddressService.syncWallet(user.id, currency);
+
+            assetWallet =
+                (await this.prisma.assetWallet.findFirst({
+                    where: assetWalletWhere,
+                })) ?? assetWallet;
+
+            normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+                assetWallet.defaultNetwork
+            );
+        }
+
+        const fallbackWalletAddress =
+            !assetWallet.depositAddress || !normalizedDefaultNetwork
+                ? await this.getFallbackBuyWalletAddress({
+                    userId: user.id,
+                    assetSymbol: currency,
+                    normalizedDefaultNetwork,
+                })
+                : null;
+
+        let resolvedWalletAddress: {
+            address: string;
+            network: string | null;
+            destinationTag: string | null;
+        } | null = null;
+
+        if (assetWallet.depositAddress && normalizedDefaultNetwork) {
+            resolvedWalletAddress = {
+                address: assetWallet.depositAddress,
+                network: normalizedDefaultNetwork,
+                destinationTag: assetWallet.destinationTag ?? null,
+            };
+        } else if (fallbackWalletAddress) {
+            resolvedWalletAddress = {
+                address: fallbackWalletAddress.address,
+                network: fallbackWalletAddress.network,
+                destinationTag: fallbackWalletAddress.destination_tag ?? null,
+            };
+        }
+
+        const depositAddress = resolvedWalletAddress?.address ?? null;
+        const defaultNetwork = resolvedWalletAddress?.network ?? null;
+        const destinationTag = resolvedWalletAddress?.destinationTag ?? null;
+
+        if (!depositAddress || !defaultNetwork) {
             throw new WalletAddressNotFoundException(
                 `No wallet address found for asset ${dto.asset}`,
                 HttpStatus.NOT_FOUND
             );
         }
 
-        const currency = dto.asset.toUpperCase();
         // sell rate is used when user is buying.
         const rate = await this.rateService.getAssetRate(currency);
 
@@ -293,8 +408,8 @@ export class BuyOrderService {
             totalToChargeViaPaymentGateway,
             currency: "NGN",
             paymentGateway: getPaymentMethodForBankProvider(buyPaymentProvider),
-            depositAddress: assetExist.depositAddress,
-            destinationTag: assetExist.destinationTag,
+            depositAddress,
+            destinationTag,
         };
     }
 

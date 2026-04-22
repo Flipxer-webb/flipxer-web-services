@@ -32,6 +32,7 @@ import { OrderStatus, PaymentMethod, TransactionStatus } from "@prisma/client";
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
     let prismaService: any;
+    let walletAddressService: any;
 
     const mockUser = {
         id: 1,
@@ -77,6 +78,7 @@ describe("BuyOrderService", () => {
             },
             cryptoWalletAddress: {
                 findFirst: jest.fn(),
+                findMany: jest.fn(),
             },
             cryptoRate: {
                 findFirst: jest.fn(),
@@ -138,6 +140,11 @@ describe("BuyOrderService", () => {
                     useValue: {
                         calculateFee: jest.fn(),
                         validateMinimumAmountInUSDT: jest.fn(),
+                        normalizeNetworkInput: jest.fn((value) =>
+                            typeof value === "string" && value.trim()
+                                ? value.trim().toLowerCase()
+                                : null
+                        ),
                     },
                 },
                 { provide: SlackWebhookService, useValue: { sendWebhookFailureAlert: jest.fn() } },
@@ -151,6 +158,7 @@ describe("BuyOrderService", () => {
 
         service = module.get<BuyOrderService>(BuyOrderService);
         prismaService = module.get(PrismaService);
+        walletAddressService = module.get(WalletAddressService);
     });
 
     it("should be defined", () => {
@@ -221,10 +229,144 @@ describe("BuyOrderService", () => {
                 depositAddress: null,
                 defaultNetwork: null,
             });
+            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([]);
 
             await expect(
                 service.calculateBuyQuote(mockUser as any, { asset: "BTC", amount: 0.2 } as any),
             ).rejects.toThrow("No wallet address found for asset BTC");
+        });
+
+        it("uses the active child wallet address when the parent wallet metadata is stale", async () => {
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                assetCurrency: "USDC",
+                depositAddress: null,
+                destinationTag: null,
+                defaultNetwork: null,
+            });
+            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([
+                {
+                    address: "0xusdcchildaddress",
+                    network: "erc20",
+                    destination_tag: "memo-123",
+                },
+            ]);
+            prismaService.cryptoRate.findFirst.mockResolvedValue({
+                ...mockCryptoRate,
+                symbol: "USDC",
+            });
+            prismaService.transactionFee.findFirst.mockResolvedValue({
+                ...mockTransactionFee,
+                asset: "USDC",
+            });
+
+            await expect(
+                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
+            ).resolves.toMatchObject({
+                depositAddress: "0xusdcchildaddress",
+                destinationTag: "memo-123",
+            });
+            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
+            expect(prismaService.cryptoWalletAddress.findMany).toHaveBeenCalled();
+        });
+
+        it("uses the active child wallet tuple when the parent network is stale", async () => {
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                assetCurrency: "USDC",
+                depositAddress: "0xstaleparentaddress",
+                destinationTag: "parent-memo",
+                defaultNetwork: "   ",
+            });
+            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([
+                {
+                    address: "0xfreshchildaddress",
+                    network: "erc20",
+                    destination_tag: "child-memo",
+                },
+            ]);
+            prismaService.cryptoRate.findFirst.mockResolvedValue({
+                ...mockCryptoRate,
+                symbol: "USDC",
+            });
+            prismaService.transactionFee.findFirst.mockResolvedValue({
+                ...mockTransactionFee,
+                asset: "USDC",
+            });
+
+            await expect(
+                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
+            ).resolves.toMatchObject({
+                depositAddress: "0xfreshchildaddress",
+                destinationTag: "child-memo",
+            });
+            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
+            expect(prismaService.cryptoWalletAddress.findMany).toHaveBeenCalled();
+        });
+
+        it("uses refreshed parent wallet metadata before falling back to child wallets", async () => {
+            prismaService.assetWallet.findFirst
+                .mockResolvedValueOnce({
+                    ...mockAssetWallet,
+                    assetCurrency: "USDC",
+                    depositAddress: null,
+                    destinationTag: null,
+                    defaultNetwork: "   ",
+                })
+                .mockResolvedValueOnce({
+                    ...mockAssetWallet,
+                    assetCurrency: "USDC",
+                    depositAddress: "0xrefreshedparentaddress",
+                    destinationTag: "refreshed-memo",
+                    defaultNetwork: "erc20",
+                });
+            prismaService.cryptoRate.findFirst.mockResolvedValue({
+                ...mockCryptoRate,
+                symbol: "USDC",
+            });
+            prismaService.transactionFee.findFirst.mockResolvedValue({
+                ...mockTransactionFee,
+                asset: "USDC",
+            });
+
+            await expect(
+                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
+            ).resolves.toMatchObject({
+                depositAddress: "0xrefreshedparentaddress",
+                destinationTag: "refreshed-memo",
+            });
+            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
+            expect(prismaService.cryptoWalletAddress.findMany).not.toHaveBeenCalled();
+        });
+
+        it("rejects ambiguous multi-network child wallet fallbacks when parent metadata stays stale", async () => {
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                assetCurrency: "USDC",
+                depositAddress: "0xstaleparentaddress",
+                destinationTag: null,
+                defaultNetwork: "   ",
+            });
+            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([
+                {
+                    address: "0xerc20address",
+                    network: "erc20",
+                    destination_tag: null,
+                },
+                {
+                    address: "TTrc20Address",
+                    network: "trc20",
+                    destination_tag: null,
+                },
+            ]);
+
+            await expect(
+                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
+            ).rejects.toThrow(
+                "Unable to determine a safe wallet address for asset USDC. Please try again shortly."
+            );
+            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
+            expect(prismaService.cryptoWalletAddress.findMany).toHaveBeenCalled();
         });
     });
 
