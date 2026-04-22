@@ -42,7 +42,10 @@ describe('UserService', () => {
         },
         assetWallet: {
             findFirst: jest.fn(),
-        }
+        },
+        kycVerification: {
+            findFirst: jest.fn(),
+        },
     };
 
     const mockRedisCacheService = {
@@ -180,6 +183,149 @@ describe('UserService', () => {
             // For individual, it should fall back to standard flow (e.g. GOVERNMENT_ID)
             expect(result.data.verificationRequirements.nextStep).not.toBe('BUSINESS_RECORD');
             expect(result.data.verificationRequirements.nextStep).toBe('GOVERNMENT_ID');
+        });
+
+        it('should return WAIT_FOR_VERIFICATION for INDIVIDUAL user when BVN/NIN review is pending', async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                ...baseUser,
+                userType: UserType.INDIVIDUAL,
+                isBvnVerified: false,
+                isNinVerified: false,
+                kycVerifications: [{ verificationType: 'BVN', status: 'PENDING' }],
+            });
+
+            const result = await service.getProfile({ ...baseUser, userType: UserType.INDIVIDUAL } as any);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('WAIT_FOR_VERIFICATION');
+        });
+
+        it('should return GOVERNMENT_ID with decline details for INDIVIDUAL user when BVN/NIN was rejected', async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                ...baseUser,
+                userType: UserType.INDIVIDUAL,
+                isBvnVerified: false,
+                isNinVerified: false,
+                kycVerifications: [{ verificationType: 'BVN', status: 'REJECTED' }],
+            });
+
+            const result = await service.getProfile({ ...baseUser, userType: UserType.INDIVIDUAL } as any);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('GOVERNMENT_ID');
+            expect(result.data.verificationRequirements.details).toBe('BVN verification was declined');
+        });
+
+        it('should return WAIT_FOR_VERIFICATION for INDIVIDUAL user when address is PENDING', async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                ...baseUser,
+                userType: UserType.INDIVIDUAL,
+                isBvnVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: false,
+                addressVerificationStatus: DocumentVerificationStatus.PENDING,
+                kycVerifications: [],
+            });
+
+            const result = await service.getProfile({ ...baseUser, userType: UserType.INDIVIDUAL } as any);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('WAIT_FOR_VERIFICATION');
+        });
+
+        it('should return ADDRESS_VERIFICATION with declined details for INDIVIDUAL user when address is DECLINED', async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                ...baseUser,
+                userType: UserType.INDIVIDUAL,
+                isBvnVerified: true,
+                isDocumentVerified: true,
+                isAddressVerified: false,
+                addressVerificationStatus: DocumentVerificationStatus.DECLINED,
+                kycVerifications: [],
+            });
+
+            const result = await service.getProfile({ ...baseUser, userType: UserType.INDIVIDUAL } as any);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('ADDRESS_VERIFICATION');
+            expect(result.data.verificationRequirements.details).toBe('Address verification was declined');
+        });
+    });
+
+    describe('getProfile - Stale cache guard', () => {
+        const individualUser = {
+            id: 50,
+            email: 'cache-test@individual.com',
+            userType: UserType.INDIVIDUAL,
+        } as any;
+
+        beforeEach(() => {
+            jest.clearAllMocks();
+            mockPrismaService.kycVerification.findFirst.mockResolvedValue(null);
+        });
+
+        it('should patch cached profile to WAIT_FOR_VERIFICATION when DB has pending BVN review', async () => {
+            const cachedResponse = {
+                data: {
+                    isBvnVerified: false,
+                    isNinVerified: false,
+                    verificationRequirements: { nextStep: 'GOVERNMENT_ID', details: null },
+                },
+            };
+            mockRedisCacheService.get.mockResolvedValue(cachedResponse);
+            mockPrismaService.kycVerification.findFirst.mockResolvedValue({ id: 1 });
+
+            const result = await service.getProfile(individualUser);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('WAIT_FOR_VERIFICATION');
+            expect(mockPrismaService.kycVerification.findFirst).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        userId: 50,
+                        isActive: true,
+                        status: 'PENDING',
+                        verificationType: { in: ['BVN', 'NIN'] },
+                    }),
+                }),
+            );
+            // Patched profile should be written back to Redis
+            expect(mockRedisCacheService.set).toHaveBeenCalledWith(
+                'user:profile:50',
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        verificationRequirements: { nextStep: 'WAIT_FOR_VERIFICATION', details: null },
+                    }),
+                }),
+                300,
+            );
+        });
+
+        it('should not patch cached profile when cache already shows WAIT_FOR_VERIFICATION', async () => {
+            const cachedResponse = {
+                data: {
+                    isBvnVerified: false,
+                    isNinVerified: false,
+                    verificationRequirements: { nextStep: 'WAIT_FOR_VERIFICATION', details: null },
+                },
+            };
+            mockRedisCacheService.get.mockResolvedValue(cachedResponse);
+
+            const result = await service.getProfile(individualUser);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('WAIT_FOR_VERIFICATION');
+            expect(mockPrismaService.kycVerification.findFirst).not.toHaveBeenCalled();
+        });
+
+        it('should not patch cached profile when BVN is already verified', async () => {
+            const cachedResponse = {
+                data: {
+                    isBvnVerified: true,
+                    isNinVerified: false,
+                    verificationRequirements: { nextStep: 'IDENTITY_DOCUMENT', details: null },
+                },
+            };
+            mockRedisCacheService.get.mockResolvedValue(cachedResponse);
+
+            const result = await service.getProfile(individualUser);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('IDENTITY_DOCUMENT');
+            expect(mockPrismaService.kycVerification.findFirst).not.toHaveBeenCalled();
         });
     });
 

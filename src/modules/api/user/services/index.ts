@@ -78,6 +78,8 @@ export class UserService {
         const cachedProfile = await this.redisCacheService.get<any>(cacheKey);
 
         if (cachedProfile) {
+            await this.patchStalePendingGovernmentId(cachedProfile, user.id, cacheKey);
+
             this.logger.debug(`[PERF] Profile cache HIT for user ${user.id} in ${Date.now() - startTime}ms`);
             return cachedProfile;
         }
@@ -147,6 +149,22 @@ export class UserService {
                             updatedAt: true,
                         },
                     },
+                    kycVerifications: {
+                        where: {
+                            isActive: true,
+                            verificationType: {
+                                in: ["BVN", "NIN"],
+                            },
+                            status: {
+                                in: ["PENDING", "REJECTED"],
+                            },
+                        },
+                        select: {
+                            verificationType: true,
+                            status: true,
+                        },
+                        take: 2,
+                    },
                 },
             }),
             this.prisma.assetWallet.findFirst({
@@ -207,6 +225,39 @@ export class UserService {
         return this.getIndividualVerificationRequirements(profile);
     }
 
+    /**
+     * Guard against stale profile cache: if the user has unverified BVN/NIN
+     * and the cache doesn't reflect a pending review, check the DB and patch.
+     */
+    private async patchStalePendingGovernmentId(cachedProfile: any, userId: number, cacheKey: string): Promise<void> {
+        const cachedNextStep = cachedProfile?.data?.verificationRequirements?.nextStep;
+        const needsGovernmentVerification =
+            !cachedProfile?.data?.isBvnVerified &&
+            !cachedProfile?.data?.isNinVerified;
+
+        if (!needsGovernmentVerification || cachedNextStep === "WAIT_FOR_VERIFICATION") {
+            return;
+        }
+
+        const hasPendingGovernmentIdReview = await this.prisma.kycVerification.findFirst({
+            where: {
+                userId,
+                isActive: true,
+                status: "PENDING",
+                verificationType: { in: ["BVN", "NIN"] },
+            },
+            select: { id: true },
+        });
+
+        if (hasPendingGovernmentIdReview) {
+            cachedProfile.data.verificationRequirements = {
+                nextStep: "WAIT_FOR_VERIFICATION",
+                details: null,
+            };
+            await this.redisCacheService.set(cacheKey, cachedProfile, this.PROFILE_CACHE_TTL);
+        }
+    }
+
     private getBusinessVerificationRequirements(profile: any) {
         const requirements = { nextStep: "COMPLETE", details: null as string | null };
         if (!profile.businessRecordCompleted) {
@@ -229,24 +280,48 @@ export class UserService {
         if (!profile.isEmailVerified) {
             requirements.nextStep = "EMAIL_VERIFICATION";
         } else if (!profile.isBvnVerified && !profile.isNinVerified) {
-            requirements.nextStep = "GOVERNMENT_ID";
+            const governmentIdStatuses = Array.isArray(profile.kycVerifications)
+                ? profile.kycVerifications
+                : [];
+            const hasPendingGovernmentIdReview = governmentIdStatuses.some(
+                (record: { status?: string | null }) => record.status === "PENDING",
+            );
+            const rejectedGovernmentIdRecord = governmentIdStatuses.find(
+                (record: { status?: string | null }) => record.status === "REJECTED",
+            );
+
+            if (hasPendingGovernmentIdReview) {
+                requirements.nextStep = "WAIT_FOR_VERIFICATION";
+            } else {
+                requirements.nextStep = "GOVERNMENT_ID";
+                if (rejectedGovernmentIdRecord?.verificationType) {
+                    requirements.details = `${rejectedGovernmentIdRecord.verificationType} verification was declined`;
+                }
+            }
         } else if (!profile.isDocumentVerified) {
-            requirements.nextStep = "IDENTITY_DOCUMENT";
-            if (profile.documentVerificationStatus === DocumentVerificationStatus.DECLINED) {
-                requirements.details = "Document verification was declined";
-            }
+            this.applyDocumentStepRequirement(requirements, profile.documentVerificationStatus, "IDENTITY_DOCUMENT", "Document verification was declined");
         } else if (!profile.isAddressVerified) {
-            requirements.nextStep = "ADDRESS_VERIFICATION";
-            if (profile.addressVerificationStatus === DocumentVerificationStatus.DECLINED) {
-                requirements.details = "Address verification was declined";
-            }
+            this.applyDocumentStepRequirement(requirements, profile.addressVerificationStatus, "ADDRESS_VERIFICATION", "Address verification was declined");
         } else if (!profile.isIncomeVerified) {
-            requirements.nextStep = "INCOME_VERIFICATION";
-            if (profile.incomeVerificationStatus === DocumentVerificationStatus.DECLINED) {
-                requirements.details = "Income verification was declined";
-            }
+            this.applyDocumentStepRequirement(requirements, profile.incomeVerificationStatus, "INCOME_VERIFICATION", "Income verification was declined");
         }
         return requirements;
+    }
+
+    private applyDocumentStepRequirement(
+        requirements: { nextStep: string; details: string | null },
+        status: DocumentVerificationStatus | null,
+        stepName: string,
+        declinedMessage: string,
+    ): void {
+        if (status === DocumentVerificationStatus.PENDING) {
+            requirements.nextStep = "WAIT_FOR_VERIFICATION";
+        } else {
+            requirements.nextStep = stepName;
+            if (status === DocumentVerificationStatus.DECLINED) {
+                requirements.details = declinedMessage;
+            }
+        }
     }
 
     /**

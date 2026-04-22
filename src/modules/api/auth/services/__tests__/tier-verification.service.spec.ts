@@ -151,6 +151,17 @@ describe("TierVerificationService", () => {
             await expect(service.verifyAddress(mockUser, mockFile)).rejects.toThrow(HttpException);
         });
 
+        it("should throw if address verification is already pending", async () => {
+            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+
+            await expect(
+                service.verifyAddress(
+                    { ...mockUser, addressVerificationStatus: "PENDING" } as any,
+                    mockFile,
+                ),
+            ).rejects.toThrow("Address verification is pending review");
+        });
+
         it("should flag for manual review when OCR requires it", async () => {
             (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
@@ -166,6 +177,7 @@ describe("TierVerificationService", () => {
             const result = await service.verifyAddress(mockUser, mockFile);
             expect(result.message).toContain("reviewed by our team");
             expect(result.data.status).toBe("PENDING");
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "tpl-pending-review",
@@ -177,7 +189,7 @@ describe("TierVerificationService", () => {
             );
         });
 
-        it("should auto-approve when OCR passes", async () => {
+        it("should still queue address for manual review when OCR passes", async () => {
             (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.95,
@@ -189,9 +201,24 @@ describe("TierVerificationService", () => {
             prisma.kycVerification.create.mockResolvedValue({});
 
             const result = await service.verifyAddress(mockUser, mockFile);
-            expect(result.message).toBe("Address verified successfully");
-            expect(result.data.status).toBe("VERIFIED");
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(1);
+            expect(result.message).toContain("reviewed by our team");
+            expect(result.data.status).toBe("PENDING");
+            expect(prisma.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        addressVerificationStatus: "PENDING",
+                    }),
+                }),
+            );
+            expect(prisma.kycVerification.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        verificationType: "ADDRESS",
+                        status: "PENDING",
+                    }),
+                }),
+            );
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
         });
     });
 

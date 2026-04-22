@@ -1111,6 +1111,7 @@ describe("AuthService", () => {
                 "PENDING",
                 expect.objectContaining({ providerRef: "bvn-ref-manual-review" }),
             );
+            expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:70");
             expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
         });
@@ -1195,6 +1196,7 @@ describe("AuthService", () => {
                 "PENDING",
                 expect.objectContaining({ providerRef: "nin-ref-manual-review" }),
             );
+            expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:72");
             expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
         });

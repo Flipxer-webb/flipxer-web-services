@@ -1352,6 +1352,7 @@ export class AuthService {
                 providerRawResponse: result?.data,
                 reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
             });
+            await this.redisCacheService.del(this.getProfileCacheKey(user.id));
 
             // Notify user of rejection (fire-and-forget)
             this.notificationDispatcher.notify({
@@ -1397,6 +1398,7 @@ export class AuthService {
                 // If an active REJECTED record exists, reopen via RESUBMITTED -> PENDING.
                 await this.kycStateMachine.transition(user.id, identityType, "RESUBMITTED", transitionMeta);
             }
+            await this.redisCacheService.del(this.getProfileCacheKey(user.id));
 
             // Notify user of pending review (fire-and-forget)
             this.notificationDispatcher.notify({
