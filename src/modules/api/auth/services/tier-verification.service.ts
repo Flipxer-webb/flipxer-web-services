@@ -14,9 +14,11 @@ import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from 
 import { generateRandomNum } from "@/utils";
 import { EmailService } from "@/modules/core/email/services";
 import {
+    isPdfFile,
     validateDocumentFile,
 } from "@/core/validators/file-validator";
 import {
+    OcrDocumentPreparationError,
     validateAddressDocument,
     validateIncomeDocument,
 } from "@/libs/ocr";
@@ -49,6 +51,45 @@ export class TierVerificationService {
         });
     }
 
+    private ensureAddressVerificationPrerequisites(user: User): void {
+        if (user.isDocumentVerified) {
+            return;
+        }
+
+        if (
+            (user as any).documentVerificationStatus ===
+            DocumentVerificationStatus.PENDING
+        ) {
+            throw new HttpException(
+                "Document verification is pending review",
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        throw new HttpException(
+            "Complete identity document verification before submitting address verification.",
+            HttpStatus.FORBIDDEN,
+        );
+    }
+
+    private ensureIncomeVerificationPrerequisites(user: User): void {
+        if (user.isAddressVerified) {
+            return;
+        }
+
+        if ((user as any).addressVerificationStatus === DocumentVerificationStatus.PENDING) {
+            throw new HttpException(
+                "Address verification is pending review",
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        throw new HttpException(
+            "Complete address verification before submitting income verification.",
+            HttpStatus.FORBIDDEN,
+        );
+    }
+
     /**
      * Upload and validate address document for Tier 2 verification
      */
@@ -62,6 +103,9 @@ export class TierVerificationService {
                 message: "Address is already verified",
             });
         }
+
+        this.ensureAddressVerificationPrerequisites(user);
+
         // Block re-submission while a review is already in progress
         if ((user as any).addressVerificationStatus === DocumentVerificationStatus.PENDING) {
             throw new HttpException(
@@ -95,7 +139,8 @@ export class TierVerificationService {
             user.firstName || "",
             user.lastName || "",
             user.residentialAddress || null,
-        );
+            file.mimetype,
+        ).catch((error: unknown) => this.handleDocumentProcessingError(error));
 
         this.logger.log(
             `Address OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, matchedAddress=${ocrResult.matchedAddress}, matchedResidentialAddress=${ocrResult.matchedResidentialAddress}`
@@ -176,6 +221,8 @@ export class TierVerificationService {
             });
         }
 
+        this.ensureIncomeVerificationPrerequisites(user);
+
         // Validate file
         const fileValidation = validateDocumentFile({
             buffer: file.buffer,
@@ -199,8 +246,9 @@ export class TierVerificationService {
         const ocrResult = await validateIncomeDocument(
             file.buffer,
             user.firstName || "",
-            user.lastName || ""
-        );
+            user.lastName || "",
+            file.mimetype,
+        ).catch((error: unknown) => this.handleDocumentProcessingError(error));
 
         this.logger.log(
             `Income OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}`
@@ -410,16 +458,52 @@ export class TierVerificationService {
         type: "address" | "income"
     ) {
         const date = Date.now();
-        const result = await this.uploadService.uploadCompressedImage({
-            dir: `${storageDirConfig.document}/${type}`,
-            name: `${type}-doc-${date}-${generateRandomNum(5)}`,
-            format: "webp",
-            body: file.buffer,
-            quality: 100,
-            width: 1200,
-        });
+        const documentDir = `${storageDirConfig.document}/${type}`;
+        const documentName = `${type}-doc-${date}-${generateRandomNum(5)}`;
 
-        return result;
+        try {
+            if (isPdfFile(file.mimetype)) {
+                if (this.uploadService instanceof CloudinaryService) {
+                    throw new HttpException(
+                        "PDF document uploads are not supported by the active storage provider",
+                        HttpStatus.BAD_REQUEST,
+                    );
+                }
+
+                return await this.uploadService.uploadImage({
+                    dir: documentDir,
+                    name: `${documentName}.pdf`,
+                    body: file.buffer,
+                    format: "png",
+                });
+            }
+
+            return await this.uploadService.uploadCompressedImage({
+                dir: documentDir,
+                name: `${documentName}.webp`,
+                format: "webp",
+                body: file.buffer,
+                quality: 100,
+                width: 1200,
+            });
+        } catch (error) {
+            if (error instanceof Error && error.name === "ImageCompressionError") {
+                throw new HttpException(
+                    "Unsupported document format. Please upload a JPEG, PNG, or PDF file.",
+                    HttpStatus.BAD_REQUEST,
+                );
+            }
+
+            throw error;
+        }
+    }
+
+    private handleDocumentProcessingError(error: unknown): never {
+        if (error instanceof OcrDocumentPreparationError) {
+            throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+        }
+
+        throw error;
     }
 
     /**

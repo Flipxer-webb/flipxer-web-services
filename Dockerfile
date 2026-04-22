@@ -1,7 +1,10 @@
 # ---- Development Stage ----
 FROM node:18.18.2 AS dev
 WORKDIR /usr/src/app
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends poppler-utils && \
+    rm -rf /var/lib/apt/lists/* && \
+    corepack enable && corepack prepare pnpm@9.15.9 --activate
 COPY ./package.json ./pnpm-lock.yaml ./.npmrc ./.pnpmfile.cjs ./
 RUN --mount=type=cache,id=pnpm-web-services,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts
@@ -34,7 +37,10 @@ RUN NODE_OPTIONS=--experimental-global-webcrypto pnpm build
 FROM node:18.18.2 AS production
 ENV TZ=Africa/Lagos
 WORKDIR /usr/src/app
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends poppler-utils && \
+    rm -rf /var/lib/apt/lists/* && \
+    corepack enable && corepack prepare pnpm@9.15.9 --activate && \
     groupadd --system --gid 1001 nodejs && \
     useradd --system --uid 1001 --gid nodejs nestjs
 COPY ./package.json ./pnpm-lock.yaml ./.npmrc ./.pnpmfile.cjs ./

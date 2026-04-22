@@ -344,6 +344,45 @@ export class AuthService {
         }
     }
 
+    private async callDojahUrlDocumentVerification(
+        imageFrontSide: string,
+        imageBackSide: string | undefined,
+        user: User,
+        logger: Logger,
+    ) {
+        try {
+            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
+                {
+                    inputType: "url",
+                    imageFrontSide,
+                    ...(imageBackSide && { imageBackSide }),
+                },
+                user.firstName,
+                user.lastName,
+            );
+
+            return {
+                success: true,
+                isValid: verificationResult.isValid,
+                nameMatches: verificationResult.nameMatches,
+                parsed: verificationResult.parsed,
+                raw: JSON.stringify(verificationResult),
+            };
+        } catch (error) {
+            logger.warn(
+                `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error instanceof Error ? error.message : String(error)}`,
+            );
+
+            return {
+                success: false,
+                isValid: false,
+                nameMatches: false,
+                parsed: null,
+                raw: null,
+            };
+        }
+    }
+
     /**
      * Check if a document is expired based on expiry date string
      * Returns true if expired, false if valid or no expiry date
@@ -1730,7 +1769,13 @@ export class AuthService {
         });
     }
 
-    private async assertDocumentVerificationAllowed(user: User): Promise<void> {
+    async documentVerification(
+        user: User,
+        files: DocumentVerificationFileInterface,
+        dto: DocumentVerificationDto
+    ) {
+        const logger = new Logger("DocumentVerification");
+
         if (user.isDocumentVerified) {
             throw new VerificationGenericException(
                 "Document has already been verified",
@@ -1738,6 +1783,7 @@ export class AuthService {
             );
         }
 
+        // Check if document is already pending review
         const existingDocument = await this.prisma.userDocument.findUnique({
             where: { userId: user.id },
             select: { verificationStatus: true },
@@ -1748,16 +1794,6 @@ export class AuthService {
                 HttpStatus.BAD_REQUEST
             );
         }
-    }
-
-    async documentVerification(
-        user: User,
-        files: DocumentVerificationFileInterface,
-        dto: DocumentVerificationDto
-    ) {
-        const logger = new Logger("DocumentVerification");
-
-        await this.assertDocumentVerificationAllowed(user);
 
         // Upload document images
         const documentImage1Promise = this.uploadAsFile(files.documentImage1);
@@ -1770,61 +1806,27 @@ export class AuthService {
             documentImage2Promise,
         ]);
 
-        // Attempt to verify document with Dojah
-        let isDocumentValid = false;
-        let nameMatches = false;
-        let dojahParsed: any = null;
-        let dojahRawResponse: string | null = null;
+        const dojahResult = await this.callDojahUrlDocumentVerification(
+            documentImage1.url,
+            documentImage2?.url,
+            user,
+            logger,
+        );
+        let {
+            isValid: isDocumentValid,
+            nameMatches,
+            parsed: dojahParsed,
+            raw: dojahRawResponse,
+        } = dojahResult;
 
-        try {
-            // Use the new verifyDocumentWithNameMatch method
-            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
-                {
-                    inputType: "url",
-                    imageFrontSide: documentImage1.url,
-                    ...(documentImage2 && { imageBackSide: documentImage2.url }),
-                },
-                user.firstName,
-                user.lastName
-            );
+        isDocumentValid = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
 
-            isDocumentValid = verificationResult.isValid;
-            nameMatches = verificationResult.nameMatches;
-            dojahParsed = verificationResult.parsed;
-            dojahRawResponse = JSON.stringify(verificationResult);
-
-            // Check if document is expired
-            if (isDocumentValid && this.isDocumentExpired(dojahParsed?.expiryDate)) {
-                logger.warn(`Document for user ${user.id} is expired: ${dojahParsed?.expiryDate}`);
-                isDocumentValid = false;
-                dojahParsed.reason = "Document has expired";
-            }
-
-            logger.log(
-                `Document analysis for user ${user.id}: ` +
-                `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
-                `docType=${dojahParsed?.documentType || "unknown"}, ` +
-                `expiryDate=${dojahParsed?.expiryDate || "unknown"}`
-            );
-
-            // Document must be valid AND name must match for auto-approval
-            if (!isDocumentValid) {
-                logger.warn(`Document for user ${user.id} failed validation: ${dojahParsed?.reason}`);
-            }
-            if (!nameMatches) {
-                logger.warn(
-                    `Name mismatch for user ${user.id}: ` +
-                    `expected "${user.firstName} ${user.lastName}", ` +
-                    `got "${dojahParsed?.firstName || ""} ${dojahParsed?.lastName || ""}"`
-                );
-            }
-        } catch (error) {
-            // If Dojah fails (API error, low balance, timeout, etc.), fall back to pending review
+        if (dojahResult.success && !nameMatches) {
             logger.warn(
-                `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error.message}`
+                `Name mismatch for user ${user.id}: ` +
+                `expected "${user.firstName} ${user.lastName}", ` +
+                `got "${dojahParsed?.firstName || ""} ${dojahParsed?.lastName || ""}"`
             );
-            isDocumentValid = false;
-            nameMatches = false;
         }
 
         const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);

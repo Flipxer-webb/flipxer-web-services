@@ -2,12 +2,40 @@ import {
     checkNameInText,
     extractTextFromDocument,
     extractDocumentDate,
+    OcrDocumentPreparationError,
     isDocumentRecent,
     validateAddressDocument,
     validateIncomeDocument,
 } from "../index";
+import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 
 const mockRecognize = jest.fn();
+const mockSpawn = spawn as unknown as jest.Mock;
+
+type MockPdftoppmProcess = EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    stdin: { end: jest.Mock; once: jest.Mock };
+    kill: jest.Mock;
+};
+
+function createMockPdftoppmProcess(): MockPdftoppmProcess {
+    return Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        stdin: {
+            end: jest.fn(),
+            once: jest.fn(),
+        },
+        kill: jest.fn(),
+    });
+}
+
+jest.mock("node:child_process", () => ({
+    spawn: jest.fn(),
+}));
 
 jest.mock("tesseract.js", () => ({
     __esModule: true,
@@ -189,6 +217,7 @@ describe("Document Recency (isDocumentRecent)", () => {
 describe("OCR Extraction (extractTextFromDocument)", () => {
     beforeEach(() => {
         mockRecognize.mockReset();
+        mockSpawn.mockReset();
     });
 
     it("should return extracted text and confidence on success", async () => {
@@ -213,6 +242,83 @@ describe("OCR Extraction (extractTextFromDocument)", () => {
         const result = await extractTextFromDocument(Buffer.from("image"));
 
         expect(result).toEqual({ text: "", confidence: 0 });
+    });
+
+    it("should rasterize PDF pages before OCR", async () => {
+        mockSpawn.mockImplementation((_file: unknown, args: unknown) => {
+            const outputPrefix = (args as string[])[6];
+            const child = createMockPdftoppmProcess();
+
+            child.stdin = {
+                end: jest.fn(() => {
+                    writeFileSync(`${outputPrefix}-1.png`, Buffer.from("page-1-image"));
+                    writeFileSync(`${outputPrefix}-2.png`, Buffer.from("page-2-image"));
+                    setImmediate(() => child.emit("close", 0));
+                }),
+                once: jest.fn(),
+            };
+
+            return child;
+        });
+        mockRecognize
+            .mockResolvedValueOnce({
+                data: {
+                    text: "Page 1 text",
+                    confidence: 80,
+                },
+            })
+            .mockResolvedValueOnce({
+                data: {
+                    text: "Page 2 text",
+                    confidence: 60,
+                },
+            });
+
+        const result = await extractTextFromDocument(Buffer.from("%PDF-1.7"), "application/pdf");
+
+        expect(mockSpawn).toHaveBeenCalledTimes(1);
+        expect(mockSpawn.mock.calls[0][0]).toBe("/usr/bin/pdftoppm");
+        expect(mockSpawn.mock.calls[0][1]).toEqual(
+            expect.arrayContaining(["-png", "-f", "1", "-l", "3", "-"]),
+        );
+        expect(mockRecognize).toHaveBeenNthCalledWith(
+            1,
+            Buffer.from("page-1-image"),
+            "eng",
+            expect.any(Object),
+        );
+        expect(mockRecognize).toHaveBeenNthCalledWith(
+            2,
+            Buffer.from("page-2-image"),
+            "eng",
+            expect.any(Object),
+        );
+        expect(result).toEqual({
+            text: "Page 1 text\n\nPage 2 text",
+            confidence: 70,
+        });
+    });
+
+    it("should throw a controlled error when PDF rasterization fails", async () => {
+        mockSpawn.mockImplementation(() => {
+            const child = createMockPdftoppmProcess();
+
+            child.stdin = {
+                end: jest.fn(() => {
+                    child.stderr.emit("data", "pdftoppm failed");
+                    setImmediate(() => child.emit("close", 1));
+                }),
+                once: jest.fn(),
+            };
+
+            return child;
+        });
+
+        await expect(
+            extractTextFromDocument(Buffer.from("%PDF-1.7"), "application/pdf"),
+        ).rejects.toThrow(OcrDocumentPreparationError);
+
+        expect(mockRecognize).not.toHaveBeenCalled();
     });
 });
 
