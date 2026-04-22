@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { GoneException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -904,6 +904,7 @@ export class AuthService {
         const signupData = {
             ...options,
             email, // Store normalized email
+            residentialAddress: options.residentialAddress?.trim() || null,
             ipAddress: ip,
             roleId: role.id
         };
@@ -1077,6 +1078,7 @@ export class AuthService {
                 lastName: cachedSignup.lastName,
                 businessName: cachedSignup.businessName?.trim() || null,
                 dateOfBirth: new Date(cachedSignup.dateOfBirth),
+                residentialAddress: cachedSignup.residentialAddress?.trim() || null,
                 isEmailVerified: true,
                 securityMethods: {
                     sms: false,
@@ -1306,6 +1308,29 @@ export class AuthService {
                 HttpStatus.BAD_REQUEST
             );
         }
+    }
+
+    private getUserDateOfBirth(user: Pick<User, "dateOfBirth">): string | null {
+        return user.dateOfBirth ? user.dateOfBirth.toISOString().split("T")[0] : null;
+    }
+
+    private evaluateDocumentProfileMatch(
+        user: Pick<User, "firstName" | "lastName" | "dateOfBirth">,
+        parsedDocument: { dateOfBirth?: string | null } | null | undefined,
+        nameMatches: boolean,
+    ): { nameMatches: boolean; dobMatches: boolean; profileMatches: boolean } {
+        const profileDateOfBirth = this.getUserDateOfBirth(user);
+        const dobMatches = Boolean(
+            profileDateOfBirth &&
+            parsedDocument?.dateOfBirth &&
+            matchDateOfBirth(profileDateOfBirth, parsedDocument.dateOfBirth),
+        );
+
+        return {
+            nameMatches,
+            dobMatches,
+            profileMatches: nameMatches && dobMatches,
+        };
     }
 
     private async updateIdentityWithConflictGuard(
@@ -1538,10 +1563,14 @@ export class AuthService {
         }
 
         this.ensureIdentityProfilePresent(user, "BVN");
+        const profileDateOfBirth = this.getUserDateOfBirth(user);
 
         this.logger.debug(`[KYC][BVN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyBvn({
             bvn: dto.bvn,
+            first_name: user.firstName || undefined,
+            last_name: user.lastName || undefined,
+            dob: profileDateOfBirth || undefined,
         });
         this.logger.log(`[KYC][BVN] Dojah verification response received for user ${user.id}`);
 
@@ -1615,10 +1644,14 @@ export class AuthService {
         }
 
         this.ensureIdentityProfilePresent(user, "NIN");
+        const profileDateOfBirth = this.getUserDateOfBirth(user);
 
         this.logger.debug(`[KYC][NIN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyNin({
             nin: dto.nin,
+            first_name: user.firstName || undefined,
+            last_name: user.lastName || undefined,
+            dob: profileDateOfBirth || undefined,
         });
         this.logger.log(`[KYC][NIN] Dojah verification response received for user ${user.id}`);
 
@@ -1682,6 +1715,7 @@ export class AuthService {
                 firstName: dto.firstName,
                 lastName: dto.lastName,
                 dateOfBirth: new Date(dto.dateOfBirth),
+                residentialAddress: dto.residentialAddress.trim(),
             },
         });
 
@@ -1696,13 +1730,7 @@ export class AuthService {
         });
     }
 
-    async documentVerification(
-        user: User,
-        files: DocumentVerificationFileInterface,
-        dto: DocumentVerificationDto
-    ) {
-        const logger = new Logger("DocumentVerification");
-
+    private async assertDocumentVerificationAllowed(user: User): Promise<void> {
         if (user.isDocumentVerified) {
             throw new VerificationGenericException(
                 "Document has already been verified",
@@ -1710,7 +1738,6 @@ export class AuthService {
             );
         }
 
-        // Check if document is already pending review
         const existingDocument = await this.prisma.userDocument.findUnique({
             where: { userId: user.id },
             select: { verificationStatus: true },
@@ -1721,6 +1748,16 @@ export class AuthService {
                 HttpStatus.BAD_REQUEST
             );
         }
+    }
+
+    async documentVerification(
+        user: User,
+        files: DocumentVerificationFileInterface,
+        dto: DocumentVerificationDto
+    ) {
+        const logger = new Logger("DocumentVerification");
+
+        await this.assertDocumentVerificationAllowed(user);
 
         // Upload document images
         const documentImage1Promise = this.uploadAsFile(files.documentImage1);
@@ -1790,10 +1827,18 @@ export class AuthService {
             nameMatches = false;
         }
 
+        const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);
+
+        if (isDocumentValid && !documentProfileMatch.dobMatches) {
+            logger.warn(
+                `Document DOB mismatch for user ${user.id}: expected=${this.getUserDateOfBirth(user) || "missing"}, got=${dojahParsed?.dateOfBirth || "missing"}`,
+            );
+        }
+
         // Determine verification status:
-        // - VERIFIED: Document is valid AND name matches
-        // - PENDING: Document is invalid, name doesn't match, or Dojah call failed
-        const shouldAutoApprove = isDocumentValid && nameMatches;
+        // - VERIFIED: Document is valid and the extracted profile matches the stored profile
+        // - PENDING: Document is invalid, profile data does not match, or Dojah call failed
+        const shouldAutoApprove = isDocumentValid && documentProfileMatch.profileMatches;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
             : DocumentVerificationStatus.PENDING;
@@ -1822,7 +1867,7 @@ export class AuthService {
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
                         dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: nameMatches,
+                        dojahNameMatches: documentProfileMatch.nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                         updatedAt: new Date(),
@@ -1848,7 +1893,7 @@ export class AuthService {
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
                         dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: nameMatches,
+                        dojahNameMatches: documentProfileMatch.nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                     },
@@ -1874,8 +1919,8 @@ export class AuthService {
                 providerRef: dojahParsed?.documentNumber || null,
                 providerRawResponse: dojahParsed,
                 reviewNote: shouldAutoApprove
-                    ? "Auto-approved: document valid and name matches"
-                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${nameMatches}`,
+                    ? "Auto-approved: document valid, name matched, and DOB matched"
+                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${documentProfileMatch.nameMatches}, dobMatches=${documentProfileMatch.dobMatches}`,
             }
         );
 
@@ -2274,67 +2319,9 @@ export class AuthService {
      * Submit Dojah Widget verification result
      * Receives verification data from Dojah Widget and saves to database
      */
-    async submitDojahWidgetVerification(user: User, dto: DojahWidgetVerificationDto) {
-        const logger = new Logger("DojahWidgetVerification");
-
-        logger.log(`Dojah widget verification submission for user ${user.id}`, {
-            verificationId: dto.verificationId,
-            referenceId: dto.referenceId,
-            verificationType: dto.verificationType,
-            hasIdData: !!dto.idData,
-            hasLiveness: !!dto.liveness,
-            hasSelfie: !!dto.selfie,
-            hasFaceMatch: !!dto.faceMatch,
-        });
-
-        try {
-            // Check if already verified
-            if (user.isDocumentVerified) {
-                return buildResponse({
-                    message: "Document has already been verified",
-                    data: { verified: true },
-                });
-            }
-
-            // Map Dojah document type to internal document type
-            const documentType = this.mapDojahToDocumentType(
-                dto.idData?.document_type,
-                dto.documentType,
-            );
-
-            // SECURITY: Server-side verification of widget result
-            // Do NOT trust the client-submitted verification data alone
-            const { serverVerified, serverVerificationData } =
-                await this.verifyDojahServerSide(dto.verificationId, user.id, logger);
-
-            const finalStatus = serverVerified
-                ? DocumentVerificationStatus.VERIFIED
-                : DocumentVerificationStatus.PENDING;
-
-            // Persist widget verification data and update user status
-            await this.persistWidgetVerification(
-                user.id, documentType, dto, serverVerified, finalStatus, serverVerificationData,
-            );
-
-            // Sync tier & flush cache for both branches — flags were written above
-            const updatedUser = await this.tierService.syncTierAndCache(user.id);
-
-            if (serverVerified) {
-                this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
-            }
-
-            return this.buildWidgetVerificationResponse(
-                serverVerified, user.id, documentType, dto, updatedUser, logger,
-            );
-        } catch (error) {
-            logger.error(`Dojah widget verification failed for user ${user.id}`, {
-                error: error.message,
-                stack: error.stack,
-            });
-
-            // Re-throw so the controller returns proper HTTP error code
-            throw error;
-        }
+    async submitDojahWidgetVerification(user: User, _dto: DojahWidgetVerificationDto) {
+        this.logger.warn(`[KYC][DOCUMENT] Retired Dojah widget endpoint hit for user ${user.id}`);
+        throw new GoneException("Dojah widget verification has been retired. Use the document upload flow instead.");
     }
 
     /**
@@ -2402,9 +2389,16 @@ export class AuthService {
         }
 
         isDocumentValid = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
+        const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);
 
-        // Auto-approve only when the document is valid and the extracted name matches.
-        const shouldAutoApprove = isDocumentValid && nameMatches;
+        if (isDocumentValid && !documentProfileMatch.dobMatches) {
+            logger.warn(
+                `Document DOB mismatch for user ${user.id}: expected=${this.getUserDateOfBirth(user) || "missing"}, got=${dojahParsed?.dateOfBirth || "missing"}`,
+            );
+        }
+
+        // Auto-approve only when the document is valid and the extracted profile matches the stored profile.
+        const shouldAutoApprove = isDocumentValid && documentProfileMatch.profileMatches;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
             : DocumentVerificationStatus.PENDING;
@@ -2485,8 +2479,8 @@ export class AuthService {
                 providerRef: dojahParsed?.documentNumber || null,
                 providerRawResponse: dojahParsed,
                 reviewNote: shouldAutoApprove
-                    ? "Auto-approved: document valid via base64 upload"
-                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${nameMatches}`,
+                    ? "Auto-approved: document valid, name matched, and DOB matched"
+                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${documentProfileMatch.nameMatches}, dobMatches=${documentProfileMatch.dobMatches}`,
             }
         );
 

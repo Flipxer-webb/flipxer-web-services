@@ -9,6 +9,11 @@ import {
     SellPayoutReconciliationService,
 } from "@/modules/api/trade/services/sell-payout-reconciliation.service";
 import { NormalizedPaymentEvent } from "@/modules/api/banks/types/payment-event.interface";
+import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
+import {
+    BuyOrderWebhookPayment,
+    handleBuyOrderWebhookPayment,
+} from "@/modules/api/banks/services/buy-order-webhook-payment.util";
 
 @Injectable()
 export class FincraWebhookService {
@@ -20,6 +25,7 @@ export class FincraWebhookService {
         private readonly slackService: SlackWebhookService,
         private readonly paymentWebhookAdapterService: PaymentWebhookAdapterService,
         private readonly sellPayoutReconciliationService: SellPayoutReconciliationService,
+        private readonly buyOrderService: BuyOrderService,
     ) { }
 
     async processWebhookEvent(payload: FincraWebhookPayload) {
@@ -71,9 +77,27 @@ export class FincraWebhookService {
         if (!reference) return;
 
         switch (status) {
-            case "successful":
+            case "successful": {
+                const payment = await this.prisma.payment.findUnique({
+                    where: { reference },
+                });
+
+                if (payment?.orderId) {
+                    await handleBuyOrderWebhookPayment({
+                        payment: payment as BuyOrderWebhookPayment,
+                        event,
+                        reference,
+                        provider: "fincra",
+                        prisma: this.prisma,
+                        buyOrderService: this.buyOrderService,
+                        slackWebhookService: this.slackService,
+                    });
+                    break;
+                }
+
                 await this.bankService.paymentSuccessHandler(reference);
                 break;
+            }
             case "failed":
                 await this.bankService.paymentFailedHandler(reference);
                 break;

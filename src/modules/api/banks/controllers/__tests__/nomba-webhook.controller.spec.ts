@@ -384,7 +384,13 @@ describe('NormalizedPaymentWebhookController', () => {
                     paymentMethod: 'NOMBA',
                     type: 'P2P_PAYMENT',
                     orderId: { not: null },
-                    status: { in: [TransactionStatus.PENDING, TransactionStatus.APPROVED] },
+                    status: {
+                        in: [
+                            TransactionStatus.PENDING,
+                            TransactionStatus.APPROVED,
+                            TransactionStatus.FAILED,
+                        ],
+                    },
                     totalAmount: 1500,
                 },
                 orderBy: { createdAt: 'desc' },
@@ -581,7 +587,9 @@ describe('NormalizedPaymentWebhookController', () => {
             expect(prisma.payment.update).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { id: 36 },
-                    data: { externalReference: expect.any(String) },
+                    data: expect.objectContaining({
+                        externalReference: expect.any(String),
+                    }),
                 }),
             );
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);

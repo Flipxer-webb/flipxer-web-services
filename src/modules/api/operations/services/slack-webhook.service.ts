@@ -329,7 +329,7 @@ export class SlackWebhookService {
      * Uses SLACK_WEBHOOK_URL environment variable directly for simplicity
      */
     async sendWebhookFailureAlert(
-        provider: 'fincra' | 'quidax' | 'nomba',
+        provider: 'fincra' | 'quidax' | 'nomba' | 'sell',
         reference: string,
         error: string,
         details: Record<string, any> = {}
@@ -340,6 +340,8 @@ export class SlackWebhookService {
             this.logger.debug('SLACK_WEBHOOK_URL not configured, skipping alert');
             return { sent: false, error: 'SLACK_WEBHOOK_URL not configured' };
         }
+
+        const detailText = this.formatWebhookFailureDetails(details);
 
         const message: SlackMessage = {
             text: `🔴 ${provider.toUpperCase()} Webhook Failed`,
@@ -366,6 +368,17 @@ export class SlackWebhookService {
                         text: `*Time:* ${new Date().toISOString()}`,
                     },
                 },
+                ...(detailText
+                    ? [
+                        {
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: `*Details:*\n${detailText}`,
+                            },
+                        },
+                    ]
+                    : []),
                 {
                     type: "section",
                     text: {
@@ -383,6 +396,44 @@ export class SlackWebhookService {
         } catch (err) {
             this.logger.error(`Failed to send Slack alert: ${err.message}`);
             return { sent: false, error: err.message };
+        }
+    }
+
+    private formatWebhookFailureDetails(details: Record<string, any>): string | null {
+        const lines = Object.entries(details)
+            .filter(([, value]) => value !== undefined && value !== null && value !== "")
+            .map(([key, value]) => `• *${this.humanizeDetailKey(key)}:* ${this.stringifyWebhookFailureDetail(value)}`);
+
+        return lines.length > 0 ? lines.join("\n") : null;
+    }
+
+    private humanizeDetailKey(key: string): string {
+        return key
+            .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
+            .replaceAll("_", " ")
+            .replace(/^./, (character) => character.toUpperCase());
+    }
+
+    private stringifyWebhookFailureDetail(value: any): string {
+        if (typeof value === "string") {
+            return value;
+        }
+
+        if (typeof value === "number" || typeof value === "boolean") {
+            return String(value);
+        }
+
+        try {
+            const serialized = JSON.stringify(value);
+            if (!serialized) {
+                return String(value);
+            }
+
+            return serialized.length > 500
+                ? `${serialized.slice(0, 497)}...`
+                : serialized;
+        } catch {
+            return String(value);
         }
     }
 

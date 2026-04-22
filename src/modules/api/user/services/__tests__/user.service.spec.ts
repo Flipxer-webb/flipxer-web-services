@@ -185,6 +185,20 @@ describe('UserService', () => {
             expect(result.data.verificationRequirements.nextStep).toBe('GOVERNMENT_ID');
         });
 
+        it('should return EMAIL_VERIFICATION for INDIVIDUAL user when email is not verified', async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                ...baseUser,
+                userType: UserType.INDIVIDUAL,
+                isEmailVerified: false,
+                kycVerifications: [],
+            });
+
+            const result = await service.getProfile({ ...baseUser, userType: UserType.INDIVIDUAL } as any);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('EMAIL_VERIFICATION');
+            expect(result.data.verificationRequirements.details).toBeNull();
+        });
+
         it('should return WAIT_FOR_VERIFICATION for INDIVIDUAL user when BVN/NIN review is pending', async () => {
             mockPrismaService.user.findUnique.mockResolvedValue({
                 ...baseUser,
@@ -245,6 +259,102 @@ describe('UserService', () => {
 
             expect(result.data.verificationRequirements.nextStep).toBe('ADDRESS_VERIFICATION');
             expect(result.data.verificationRequirements.details).toBe('Address verification was declined');
+        });
+
+        it.each([
+            {
+                name: 'document pending',
+                profile: {
+                    userType: UserType.INDIVIDUAL,
+                    isBvnVerified: true,
+                    isDocumentVerified: false,
+                    documentVerificationStatus: DocumentVerificationStatus.PENDING,
+                    kycVerifications: [],
+                },
+                expectedStep: 'WAIT_FOR_VERIFICATION',
+                expectedDetails: null,
+            },
+            {
+                name: 'document declined',
+                profile: {
+                    userType: UserType.INDIVIDUAL,
+                    isBvnVerified: true,
+                    isDocumentVerified: false,
+                    documentVerificationStatus: DocumentVerificationStatus.DECLINED,
+                    kycVerifications: [],
+                },
+                expectedStep: 'IDENTITY_DOCUMENT',
+                expectedDetails: 'Document verification was declined',
+            },
+            {
+                name: 'income pending',
+                profile: {
+                    userType: UserType.INDIVIDUAL,
+                    isBvnVerified: true,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    isIncomeVerified: false,
+                    incomeVerificationStatus: DocumentVerificationStatus.PENDING,
+                    kycVerifications: [],
+                },
+                expectedStep: 'WAIT_FOR_VERIFICATION',
+                expectedDetails: null,
+            },
+            {
+                name: 'income declined',
+                profile: {
+                    userType: UserType.INDIVIDUAL,
+                    isBvnVerified: true,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    isIncomeVerified: false,
+                    incomeVerificationStatus: DocumentVerificationStatus.DECLINED,
+                    kycVerifications: [],
+                },
+                expectedStep: 'INCOME_VERIFICATION',
+                expectedDetails: 'Income verification was declined',
+            },
+            {
+                name: 'all KYC stages complete',
+                profile: {
+                    userType: UserType.INDIVIDUAL,
+                    isBvnVerified: true,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    isIncomeVerified: true,
+                    documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                    addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                    incomeVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                    kycVerifications: [],
+                },
+                expectedStep: 'COMPLETE',
+                expectedDetails: null,
+            },
+        ])('should derive %s verification requirement for INDIVIDUAL users', async ({ profile, expectedStep, expectedDetails }) => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                ...baseUser,
+                ...profile,
+            });
+
+            const result = await service.getProfile({ ...baseUser, userType: UserType.INDIVIDUAL } as any);
+
+            expect(result.data.verificationRequirements.nextStep).toBe(expectedStep);
+            expect(result.data.verificationRequirements.details).toBe(expectedDetails);
+        });
+
+        it('should return COMPLETE for BUSINESS user when documents are verified', async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                ...baseUser,
+                businessRecordCompleted: true,
+                businessDocumentsUploaded: true,
+                businessDocumentVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                isDocumentVerified: true,
+            });
+
+            const result = await service.getProfile(baseUser as any);
+
+            expect(result.data.verificationRequirements.nextStep).toBe('COMPLETE');
+            expect(result.data.verificationRequirements.details).toBeNull();
         });
     });
 

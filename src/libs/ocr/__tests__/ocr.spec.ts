@@ -233,13 +233,15 @@ describe("Document Validators", () => {
         const result = await validateAddressDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
+            "10 Main Street Lagos"
         );
 
         expect(result.isValid).toBe(true);
         expect(result.requiresManualReview).toBe(false);
         expect(result.matchedName).toBe(true);
         expect(result.matchedAddress).toBe(true);
+        expect(result.matchedResidentialAddress).toBe(true);
         expect(result.isRecent).toBe(true);
     });
 
@@ -254,7 +256,8 @@ describe("Document Validators", () => {
         const result = await validateAddressDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
+            "10 Main Street Lagos"
         );
 
         expect(result.isValid).toBe(false);
@@ -277,7 +280,8 @@ describe("Document Validators", () => {
         const result = await validateAddressDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
+            "Doe Close Abuja"
         );
 
         expect(result.isValid).toBe(false);
@@ -286,6 +290,27 @@ describe("Document Validators", () => {
         expect(result.reason).toContain("Name not clearly visible");
         expect(result.reason).toContain("Address not clearly visible");
         expect(result.reason).toContain("older than 3 months");
+    });
+
+    it("should flag address document when OCR text does not match the stored residential address", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe 99 Broad Street Abuja Nigeria Utility Bill Date ${todayIso}`,
+                confidence: 94,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            "10 Main Street Lagos",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.matchedResidentialAddress).toBe(false);
+        expect(result.reason).toContain("Residential address does not match the profile address");
     });
 
     it("should auto-approve a strong income document", async () => {

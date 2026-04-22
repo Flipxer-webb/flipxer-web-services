@@ -61,25 +61,6 @@ export class SellOrderService {
 
 
     /**
-     * Gets the amount converted to Naira for sell orders
-     */
-    private async getAmountInNaira(
-        currency: string,
-        amount: number
-    ): Promise<{ amount: number; rate: number } | null> {
-        try {
-            const rate = await this.rateService.getAssetRate(currency.toUpperCase());
-            // Use buy rate for sell orders (what we pay the user)
-            return {
-                amount: amount * rate.buyRate,
-                rate: rate.buyRate,
-            };
-        } catch {
-            return null;
-        }
-    }
-
-    /**
      * Gets a quote request for selling crypto
      */
     async sellCryptoQuoteRequest(user: User, dto: InitiateSellOrderDto) {
@@ -216,41 +197,13 @@ export class SellOrderService {
         };
     }
 
-    /**
-     * Places a sell order for crypto
-     */
-    async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {
-        return this.distributedLockService.withLock(
-            `trade:sell:${user.id}`,
-            async () => {
-        const responseData = await this.calculateSellQuote(user, dto, true);
-
-        // IDEMPOTENCY CHECK (TASK-008)
-        // Check if an order with this idempotency key already exists to prevent double debits
-        const existingOrder = await this.prisma.order.findFirst({
-            where: { orderReference: dto.idempotencyKey }
-        });
-
-        if (existingOrder) {
-            this.logger.warn(`Duplicate sell request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`);
-            return buildResponse({
-                message: "Order placed successfully (Duplicate request processed)",
-                data: existingOrder,
-            });
-        }
-
-        const sendAmountToSeller = +responseData.totalToReceiveInFiat;
-        const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
-
-        // Virtual Balance: HOLD the crypto amount on user's ledger before proceeding
-        const currency = dto.asset.toUpperCase();
-        const holdAmount = totalCryptoToAdmin;
-
-        // Use idempotencyKey for deterministic hold reference
-        // This physically prevents a second hold for the same request at the DB level
-        const holdReference = `sell-hold:${dto.idempotencyKey}`;
-
-        // Phase 2: Real-time monitoring for high-value transactions
+    private async reserveSellOrderFunds(
+        user: User,
+        dto: SellCryptoOrderDto,
+        currency: string,
+        holdAmount: number,
+        holdReference: string,
+    ): Promise<void> {
         const monitorResult = await this.transactionMonitorService.validateBeforeExecution({
             userId: user.id,
             currency,
@@ -279,9 +232,6 @@ export class SellOrderService {
         });
 
         if (!holdResult.success) {
-            // If hold fails because it already exists (race condition not caught by findFirst), 
-            // we should technically check if it's the SAME hold and proceed, or just fail.
-            // For safety, we fail and let the client retry (which will hit the findFirst check next time if it succeeded).
             this.logger.error(
                 `Failed to hold funds for sell order: ${holdResult.error}`
             );
@@ -290,9 +240,48 @@ export class SellOrderService {
                 { currency, requiredAmount: holdAmount, error: holdResult.error }
             );
         }
+    }
+
+    /**
+     * Places a sell order for crypto
+     */
+    async sellCryptoOrder(user: User, dto: SellCryptoOrderDto) {
+        return this.distributedLockService.withLock(
+            `trade:sell:${user.id}`,
+            async () => {
+        const responseData = await this.calculateSellQuote(user, dto, true);
+
+        // IDEMPOTENCY CHECK (TASK-008)
+        // Check if an order with this idempotency key already exists to prevent double debits
+        // userId is included so keys generated independently by different users cannot collide.
+        const existingOrder = await this.prisma.order.findFirst({
+            where: { orderReference: dto.idempotencyKey, userId: user.id }
+        });
+
+        if (existingOrder) {
+            this.logger.warn(`Duplicate sell request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`);
+            return buildResponse({
+                message: "Order placed successfully (Duplicate request processed)",
+                data: existingOrder,
+            });
+        }
+
+        const sendAmountToSeller = +responseData.totalToReceiveInFiat;
+        const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
+
+        // Virtual Balance: HOLD the crypto amount on user's ledger before proceeding
+        const currency = dto.asset.toUpperCase();
+        const holdAmount = totalCryptoToAdmin;
+
+        // Use idempotencyKey for deterministic hold reference
+        // This physically prevents a second hold for the same request at the DB level
+        const holdReference = `sell-hold:${dto.idempotencyKey}`;
+
+        await this.reserveSellOrderFunds(user, dto, currency, holdAmount, holdReference);
 
         // Wrap post-hold logic in try/catch to release hold if any step fails
         // This prevents funds from being stuck in HOLD status indefinitely
+        let holdSettled = false;
         try {
             // Use idempotencyKey as the official Order Reference
             const reference = dto.idempotencyKey;
@@ -324,10 +313,12 @@ export class SellOrderService {
                 );
             }
 
-            const amtFiat = await this.getAmountInNaira(
-                dto.asset,
-                responseData.cryptoSellAmount
-            );
+            holdSettled = true;
+
+            // Reuse the rate already computed in calculateSellQuote to avoid drift between
+            // the quoted amount and the persisted amountInFiat / rateAtConversion.
+            const quotedRate = responseData.sellRate;
+            const amountInFiat = +responseData.cryptoSellAmount * quotedRate;
 
             const order = await this.prisma.order.create({
                 data: {
@@ -349,8 +340,8 @@ export class SellOrderService {
                     destinationBankAccountNumber: dto.bankDetail.accountNumber,
                     destinationBankAccountName: dto.bankDetail.accountName,
                     destinationBankCode: dto.bankDetail.bankCode,
-                    amountInFiat: amtFiat?.amount,
-                    rateAtConversion: amtFiat?.rate,
+                    amountInFiat: amountInFiat,
+                    rateAtConversion: quotedRate,
                     sender: `${user.lastName} ${user.firstName}`,
                     ledgerEntryId: settleResult.userEntry?.id, // Link to ledger entry (from settled hold)
                 },
@@ -441,7 +432,7 @@ export class SellOrderService {
                         this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
 
                         // Sync wallet to reflect refund in cache
-                        this.walletAddressService?.syncWallet?.(user.id, dto.asset.toUpperCase());
+                        this.walletAddressService.syncWallet(user.id, dto.asset.toUpperCase());
                     } else {
                         // This is a catastrophic failure - payout failed AND refund failed
                         throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
@@ -451,16 +442,21 @@ export class SellOrderService {
                         `CRITICAL: Failed to REFUND user after payout failure: ${refundError.message}`,
                         refundError.stack
                     );
-                    // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed)
-                    await this.slackWebhookService?.sendAlert?.('SELL_ORDER_REFUND_FAILED', {
-                        text: `🚨 CRITICAL: Sell order payout failed AND refund failed!\n` +
-                            `Order: ${order.id}\n` +
-                            `User: ${user.id}\n` +
-                            `Hold Reference: ${holdReference}\n` +
-                            `Payout Error: ${payoutError.message}\n` +
-                            `Refund Error: ${refundError.message}\n` +
-                            `⚠️ MANUAL INTERVENTION REQUIRED`,
-                    });
+                    // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed).
+                    // sendWebhookFailureAlert uses the system-level Slack URL directly and does not
+                    // depend on a webhook subscription record, so it is guaranteed to reach ops.
+                    await this.slackWebhookService.sendWebhookFailureAlert(
+                        'sell',
+                        holdReference,
+                        `🚨 CRITICAL: Sell order payout failed AND refund failed! MANUAL INTERVENTION REQUIRED.`,
+                        {
+                            orderId: order.id,
+                            userId: user.id,
+                            holdReference,
+                            payoutError: payoutError.message,
+                            refundError: refundError.message,
+                        },
+                    );
                 }
 
                 // Update order to failed status
@@ -517,14 +513,17 @@ export class SellOrderService {
                 );
             }
         } catch (error) {
-            // Release the hold if any step after hold fails (before settlement succeeds)
-            // Note: If releaseHold(settle=true) already succeeded, this is a no-op (hold already released)
-            this.logger.error(`Sell order failed after hold, attempting to release funds: ${error.message}`);
-            try {
-                await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${error.message}`);
-                this.logger.log(`Successfully released hold for failed sell order | Reference: ${holdReference}`);
-            } catch (releaseError) {
-                this.logger.error(`Failed to release hold after sell order failure: ${releaseError.message}`);
+            // Only attempt to release the hold if settlement never completed.
+            // Once releaseHoldWithPlatformEntry(settle:true) succeeds the hold no longer exists,
+            // and the payout-failure branch already runs pairedCredit to reverse the debit.
+            if (!holdSettled) {
+                this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${error.message}`);
+                try {
+                    await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${error.message}`);
+                    this.logger.log(`Cancelled hold for failed sell order | Reference: ${holdReference}`);
+                } catch (releaseError) {
+                    this.logger.error(`Failed to cancel hold after sell order failure: ${releaseError.message}`);
+                }
             }
             throw error;
         }
@@ -590,6 +589,12 @@ export class SellOrderService {
             this.logger.error(
                 `Failed to settle hold for swap sell leg: ${settleResult.error}`
             );
+            // Settlement failed — the hold is still active. Cancel it so funds are not stuck.
+            try {
+                await this.ledgerService.releaseHold(holdReference, false, `Swap sell settle failed: ${settleResult.error}`);
+            } catch (releaseError) {
+                this.logger.error(`Failed to cancel hold after swap sell settle failure: ${releaseError.message}`);
+            }
             throw new Error(`Ledger settle failed: ${settleResult.error}`);
         }
 

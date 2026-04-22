@@ -1,5 +1,6 @@
 import { FincraWebhookService } from "..";
 import { PaymentWebhookAdapterService } from "@/modules/factory/bank/services/payment-webhook-adapter.service";
+import { TransactionStatus } from "@prisma/client";
 
 /* ------------------------------------------------------------------ */
 /*  Stub heavy transitive deps                                        */
@@ -49,6 +50,14 @@ jest.mock("@/modules/api/trade/services/sell-payout-reconciliation.service", () 
     },
 }));
 
+jest.mock("@/modules/api/trade/services/buy-order.service", () => ({
+    BuyOrderService: class {
+        isStub() {
+            return true;
+        }
+    },
+}));
+
 /* ------------------------------------------------------------------ */
 /*  Mock factories                                                    */
 /* ------------------------------------------------------------------ */
@@ -80,6 +89,12 @@ function createMockBankService() {
         paymentSuccessHandler: jest.fn().mockResolvedValue(undefined),
         paymentFailedHandler: jest.fn().mockResolvedValue(undefined),
         processAssetValueTransferToBankHandler: jest.fn().mockResolvedValue(undefined),
+    };
+}
+
+function createMockBuyOrderService() {
+    return {
+        fulfillBuyOrder: jest.fn().mockResolvedValue(undefined),
     };
 }
 
@@ -151,6 +166,7 @@ describe("PaymentWebhookService", () => {
     let service: FincraWebhookService;
     let prisma: ReturnType<typeof createMockPrisma>;
     let bankService: ReturnType<typeof createMockBankService>;
+    let buyOrderService: ReturnType<typeof createMockBuyOrderService>;
     let slackService: ReturnType<typeof createMockSlackService>;
     let sellPayoutReconciliationService: ReturnType<typeof createMockSellPayoutReconciliationService>;
     let paymentWebhookAdapterService: PaymentWebhookAdapterService;
@@ -158,6 +174,7 @@ describe("PaymentWebhookService", () => {
     beforeEach(() => {
         prisma = createMockPrisma();
         bankService = createMockBankService();
+        buyOrderService = createMockBuyOrderService();
         slackService = createMockSlackService();
         sellPayoutReconciliationService = createMockSellPayoutReconciliationService();
         paymentWebhookAdapterService = new PaymentWebhookAdapterService();
@@ -167,12 +184,74 @@ describe("PaymentWebhookService", () => {
             slackService as any,
             paymentWebhookAdapterService,
             sellPayoutReconciliationService as any,
+            buyOrderService as any,
         );
     });
 
     // ==================== Charge Events ====================
 
     describe("processWebhookEvent – charge events", () => {
+        it("routes successful buy-order charge events through BuyOrderService", async () => {
+            prisma.payment.findUnique.mockResolvedValue({
+                id: 41,
+                orderId: 42,
+                userId: 43,
+                totalAmount: 1000,
+                reference: "mref-1",
+                status: TransactionStatus.PENDING,
+            });
+
+            await service.processWebhookEvent(
+                chargePayload("charge.successful", { amountReceived: 1000 }) as any,
+            );
+
+            expect(prisma.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 41 },
+                    data: expect.objectContaining({ receivedAmount: 1000 }),
+                }),
+            );
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith("mref-1");
+            expect(bankService.paymentSuccessHandler).not.toHaveBeenCalled();
+        });
+
+        it("persists underpaid buy-order charge events and alerts ops", async () => {
+            prisma.payment.findUnique.mockResolvedValue({
+                id: 51,
+                orderId: 52,
+                userId: 53,
+                totalAmount: 1000,
+                reference: "mref-1",
+                status: TransactionStatus.PENDING,
+            });
+
+            await service.processWebhookEvent(
+                chargePayload("charge.successful", { amountReceived: 800 }) as any,
+            );
+
+            expect(prisma.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 51 },
+                    data: expect.objectContaining({
+                        receivedAmount: 800,
+                        narration: expect.stringContaining("Underpayment"),
+                    }),
+                }),
+            );
+            expect(slackService.sendWebhookFailureAlert).toHaveBeenCalledWith(
+                "fincra",
+                "mref-1",
+                expect.stringContaining("Underpayment"),
+                expect.objectContaining({
+                    orderId: 52,
+                    userId: 53,
+                    expectedAmount: 1000,
+                    receivedAmount: 800,
+                }),
+            );
+            expect(buyOrderService.fulfillBuyOrder).not.toHaveBeenCalled();
+        });
+
         it("calls paymentSuccessHandler for 'success' status", async () => {
             await service.processWebhookEvent(
                 chargePayload("charge.successful") as any,

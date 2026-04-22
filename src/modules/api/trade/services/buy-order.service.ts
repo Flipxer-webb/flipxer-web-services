@@ -37,6 +37,7 @@ import { LedgerService, PairedLedgerResult } from "./ledger/ledger.service";
 import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
+    MIN_BUY_AMOUNT_USDT,
 } from "../constants";
 import { generateUssdCode } from "@/libs/nomba/ussd-codes";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
@@ -103,6 +104,18 @@ export class BuyOrderService {
         return this.getBuyPaymentProvider(paymentMethod) === "fincra"
             ? "Fincra"
             : "Nomba";
+    }
+
+    private buildManualRefundAlertAmount(payment: {
+        receivedAmount?: unknown;
+        totalAmount?: unknown;
+    }): number {
+        const receivedAmount = Number(payment.receivedAmount);
+        if (Number.isFinite(receivedAmount) && receivedAmount > 0) {
+            return receivedAmount;
+        }
+
+        return Number(payment.totalAmount);
     }
 
     /**
@@ -322,6 +335,10 @@ export class BuyOrderService {
                 return this.buildExistingOrderResponse(existingPayment);
             }
         }
+
+        // Minimum amount validation
+        this.tradeHelpers.validateMinimumAmountInUSDT(dto.amount, dto.asset, MIN_BUY_AMOUNT_USDT, "buy");
+
 
         // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset + amount
         // Catches cases where frontend generates a new idempotencyKey (e.g. modal re-opened)
@@ -575,20 +592,29 @@ export class BuyOrderService {
                 // Another webhook instance is currently processing - let that one finish
                 this.logger.log(`Payment ${reference} currently being processed by another instance`);
             } else if (existing.status === TransactionStatus.FAILED) {
-                // Payment was cancelled but Nomba still sent money — needs manual refund
+                const provider = this.getBuyPaymentProvider(existing.paymentMethod);
+                const receivedAmount = this.buildManualRefundAlertAmount(existing);
+
+                // Payment was cancelled but funds still arrived — needs manual refund
                 this.logger.error(
                     `Payment ${reference} was cancelled/failed but received funds — manual refund required`
                 );
                 await this.slackWebhookService.sendWebhookFailureAlert(
-                    'nomba',
+                    provider,
                     reference,
                     'Payment received for a cancelled/failed order. Manual refund required.',
                     {
                         paymentId: existing.id,
                         orderId: existing.orderId,
                         userId: existing.userId,
-                        amount: Number(existing.totalAmount),
+                        amount: receivedAmount,
+                        expectedAmount: Number(existing.totalAmount),
+                        receivedAmount,
                         status: existing.status,
+                        senderAccountNumber: existing.senderAccountNumber,
+                        senderAccountName: existing.senderAccountName,
+                        senderBankName: existing.senderBankName,
+                        externalReference: existing.externalReference,
                     }
                 );
             } else {
@@ -1143,8 +1169,9 @@ export class BuyOrderService {
      * Cancel expired buy orders.
      * Called by a scheduled job to clean up orders whose virtual account expired
      * without receiving payment.
-     * NOTE: Excludes orders where user confirmed they sent payment — those are
-     * routed to the stuck-order detector for admin review instead.
+     * NOTE: Excludes orders where user confirmed they sent payment or where
+     * partial funds were already received — those are routed to manual review
+     * and the underpayment refund flow instead.
      */
     async cancelExpiredBuyOrders() {
         const expiredPayments = await this.prisma.payment.findMany({
@@ -1155,6 +1182,8 @@ export class BuyOrderService {
                 orderId: { not: null },
                 // Don't auto-cancel orders where user confirmed payment — admin must review
                 paymentConfirmedByUser: null,
+                // Don't auto-cancel underpaid orders that already need the 2-hour refund path
+                receivedAmount: null,
                 // Orders older than 35 minutes (5 min buffer beyond 30 min VA expiry)
                 createdAt: {
                     lt: new Date(Date.now() - 35 * 60 * 1000),

@@ -27,6 +27,7 @@ model User {
   photo                              String?
   gender                             Gender?
   dateOfBirth                        DateTime?
+  residentialAddress                 String?
   status                             Status                            @default(ACTIVE)
   roleId                             Int
   ipAddress                          String?

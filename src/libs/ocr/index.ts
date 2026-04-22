@@ -32,6 +32,7 @@ export interface DocumentValidationResult {
     extractedText: string;
     matchedName: boolean;
     matchedAddress?: boolean;
+    matchedResidentialAddress?: boolean | null;
     requiresManualReview: boolean;
     reason?: string;
     /** Most recent date found in document (ISO format), if any */
@@ -215,6 +216,32 @@ export function checkAddressIndicators(extractedText: string): boolean {
     return matchedKeywords.length >= 2;
 }
 
+function checkResidentialAddressMatch(
+    extractedText: string,
+    residentialAddress?: string | null,
+): boolean | null {
+    const normalizedAddress = normalizeString(residentialAddress || "");
+    if (!normalizedAddress) {
+        return null;
+    }
+
+    const normalizedText = normalizeString(extractedText);
+    if (normalizedText.includes(normalizedAddress)) {
+        return true;
+    }
+
+    const addressTokens = normalizedAddress
+        .split(" ")
+        .filter((token) => token.length >= 3);
+
+    if (addressTokens.length === 0) {
+        return false;
+    }
+
+    const matchedTokens = addressTokens.filter((token) => normalizedText.includes(token));
+    return matchedTokens.length >= Math.max(2, Math.ceil(addressTokens.length * 0.6));
+}
+
 // ───────────────────── Document Recency ─────────────────────
 
 const MONTH_MAP: Record<string, number> = {
@@ -330,7 +357,8 @@ export function isDocumentRecent(documentDate: Date | null): boolean {
 export async function validateAddressDocument(
     imageBuffer: Buffer,
     firstName: string,
-    lastName: string
+    lastName: string,
+    residentialAddress?: string | null,
 ): Promise<DocumentValidationResult> {
     const ocrResult = await extractTextFromDocument(imageBuffer);
 
@@ -341,6 +369,7 @@ export async function validateAddressDocument(
             extractedText: ocrResult.text,
             matchedName: false,
             matchedAddress: false,
+            matchedResidentialAddress: null,
             requiresManualReview: true,
             reason: "Could not extract text from document. Please upload a clearer image.",
         };
@@ -348,6 +377,7 @@ export async function validateAddressDocument(
 
     const matchedName = checkNameInText(ocrResult.text, firstName, lastName);
     const matchedAddress = checkAddressIndicators(ocrResult.text);
+    const matchedResidentialAddress = checkResidentialAddressMatch(ocrResult.text, residentialAddress);
     const docDate = extractDocumentDate(ocrResult.text);
     const recent = isDocumentRecent(docDate);
 
@@ -356,6 +386,7 @@ export async function validateAddressDocument(
         ocrResult.confidence < MIN_CONFIDENCE_THRESHOLD ||
         !matchedName ||
         !matchedAddress ||
+        matchedResidentialAddress === false ||
         !recent;
 
     let reason: string | undefined;
@@ -369,6 +400,9 @@ export async function validateAddressDocument(
         }
         if (!matchedAddress) {
             issues.push("Address not clearly visible");
+        }
+        if (matchedResidentialAddress === false) {
+            issues.push("Residential address does not match the profile address");
         }
         if (!recent) {
             issues.push(
@@ -386,6 +420,7 @@ export async function validateAddressDocument(
         extractedText: ocrResult.text,
         matchedName,
         matchedAddress,
+        matchedResidentialAddress,
         requiresManualReview,
         reason,
         documentDate: docDate?.toISOString(),

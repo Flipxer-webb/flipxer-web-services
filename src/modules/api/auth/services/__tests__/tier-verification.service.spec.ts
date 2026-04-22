@@ -91,6 +91,7 @@ describe("TierVerificationService", () => {
         email: "test@test.com",
         firstName: "John",
         lastName: "Doe",
+        residentialAddress: "10 Main Street Lagos",
         isAddressVerified: false,
         isIncomeVerified: false,
         isBvnVerified: false,
@@ -168,6 +169,7 @@ describe("TierVerificationService", () => {
                 confidence: 0.4,
                 matchedName: false,
                 matchedAddress: true,
+                matchedResidentialAddress: false,
                 requiresManualReview: true,
                 reason: "Low confidence",
             });
@@ -178,6 +180,16 @@ describe("TierVerificationService", () => {
             expect(result.message).toContain("reviewed by our team");
             expect(result.data.status).toBe("PENDING");
             expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
+            expect(prisma.kycVerification.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        providerRawResponse: expect.objectContaining({
+                            matchedResidentialAddress: false,
+                            residentialAddressPresent: true,
+                        }),
+                    }),
+                }),
+            );
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "tpl-pending-review",
@@ -195,6 +207,7 @@ describe("TierVerificationService", () => {
                 confidence: 0.95,
                 matchedName: true,
                 matchedAddress: true,
+                matchedResidentialAddress: true,
                 requiresManualReview: false,
             });
             prisma.user.update.mockResolvedValue({});

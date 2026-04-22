@@ -133,7 +133,13 @@ describe("BuyOrderService", () => {
                 { provide: InboundFiatPaymentService, useValue: mockInboundFiatPaymentService },
                 { provide: WalletAddressService, useValue: mockWalletAddressService },
                 { provide: WsGateway, useValue: mockWsGateway },
-                { provide: TradeHelpersService, useValue: { calculateFee: jest.fn() } },
+                {
+                    provide: TradeHelpersService,
+                    useValue: {
+                        calculateFee: jest.fn(),
+                        validateMinimumAmountInUSDT: jest.fn(),
+                    },
+                },
                 { provide: SlackWebhookService, useValue: { sendWebhookFailureAlert: jest.fn() } },
                 { provide: LedgerService, useValue: { pairedCredit: jest.fn() } },
                 { provide: RateService, useValue: mockRateService },
@@ -933,6 +939,12 @@ describe("BuyOrderService", () => {
                 orderId: 600,
                 userId: 700,
                 totalAmount: "150000",
+                receivedAmount: "145000",
+                senderAccountNumber: "0123456789",
+                senderAccountName: "Late Sender",
+                senderBankName: "Refund Bank",
+                paymentMethod: "NOMBA",
+                externalReference: "provider-ref-500",
                 status: TransactionStatus.FAILED,
             });
 
@@ -941,7 +953,17 @@ describe("BuyOrderService", () => {
                 "nomba",
                 "failed-ref-1",
                 expect.stringContaining("Manual refund required"),
-                expect.objectContaining({ orderId: 600, userId: 700 }),
+                expect.objectContaining({
+                    orderId: 600,
+                    userId: 700,
+                    amount: 145000,
+                    expectedAmount: 150000,
+                    receivedAmount: 145000,
+                    senderAccountNumber: "0123456789",
+                    senderAccountName: "Late Sender",
+                    senderBankName: "Refund Bank",
+                    externalReference: "provider-ref-500",
+                }),
             );
         });
 
@@ -981,6 +1003,7 @@ describe("BuyOrderService", () => {
                     reference: "pay-501",
                     orderId: 701,
                     userId: 44,
+                    paymentMethod: PaymentMethod.NOMBA,
                     paymentConfirmedByUser: new Date(Date.now() - 10 * 60 * 1000),
                     createdAt: new Date(Date.now() - 20 * 60 * 1000),
                     order: { transactionId: "tx-701", amount: 0.5, currency: "BTC" },
@@ -1014,6 +1037,7 @@ describe("BuyOrderService", () => {
                     reference: "pay-502",
                     orderId: 702,
                     userId: 55,
+                    paymentMethod: PaymentMethod.NOMBA,
                     paymentConfirmedByUser: new Date(Date.now() - 10 * 60 * 1000),
                     createdAt: new Date(Date.now() - 20 * 60 * 1000),
                     order: { transactionId: "tx-702", amount: 0.7, currency: "ETH" },
@@ -1144,6 +1168,21 @@ describe("BuyOrderService", () => {
             await expect(service.cancelExpiredBuyOrders()).resolves.toBe(1);
         });
 
+        it("cancelExpiredBuyOrders excludes underpaid payments from the expiry query", async () => {
+            prismaService.payment.findMany.mockResolvedValue([]);
+
+            await expect(service.cancelExpiredBuyOrders()).resolves.toBe(0);
+
+            expect(prismaService.payment.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        receivedAmount: null,
+                        paymentConfirmedByUser: null,
+                    }),
+                }),
+            );
+        });
+
         it("cancelUnderpaidBuyOrders cancels underpaid orders and sends ops alert", async () => {
             const notify = (service as any).notificationDispatcher.notify as jest.Mock;
             const slack = (service as any).slackWebhookService.sendWebhookFailureAlert as jest.Mock;
@@ -1154,6 +1193,7 @@ describe("BuyOrderService", () => {
                     reference: "pay-701",
                     orderId: 901,
                     userId: 88,
+                    paymentMethod: PaymentMethod.NOMBA,
                     status: TransactionStatus.PENDING,
                     createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
                     totalAmount: "100000",
@@ -1175,6 +1215,7 @@ describe("BuyOrderService", () => {
                     reference: "pay-702",
                     orderId: 902,
                     userId: 89,
+                    paymentMethod: PaymentMethod.NOMBA,
                     status: TransactionStatus.PENDING,
                     createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
                     totalAmount: "100000",
@@ -1794,6 +1835,7 @@ describe("BuyOrderService", () => {
                 reference: "pay-700",
                 orderId: 900,
                 userId: 88,
+                paymentMethod: PaymentMethod.NOMBA,
                 status: TransactionStatus.PENDING,
                 createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
                 totalAmount: "100000",

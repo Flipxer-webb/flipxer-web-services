@@ -93,11 +93,12 @@ export class TierVerificationService {
         const ocrResult = await validateAddressDocument(
             file.buffer,
             user.firstName || "",
-            user.lastName || ""
+            user.lastName || "",
+            user.residentialAddress || null,
         );
 
         this.logger.log(
-            `Address OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, matchedAddress=${ocrResult.matchedAddress}`
+            `Address OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, matchedAddress=${ocrResult.matchedAddress}, matchedResidentialAddress=${ocrResult.matchedResidentialAddress}`
         );
 
         // Always route to manual review — address verification is never auto-approved
@@ -120,6 +121,8 @@ export class TierVerificationService {
                     confidence: ocrResult.confidence,
                     matchedName: ocrResult.matchedName,
                     matchedAddress: ocrResult.matchedAddress,
+                    matchedResidentialAddress: ocrResult.matchedResidentialAddress,
+                    residentialAddressPresent: Boolean(user.residentialAddress),
                     reason: ocrResult.reason,
                 },
             },

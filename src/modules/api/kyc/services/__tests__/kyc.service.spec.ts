@@ -307,6 +307,80 @@ describe("KycService", () => {
             );
         });
 
+        it.each([
+            {
+                verificationType: "BVN",
+                startingUser: {
+                    ...pendingUser,
+                    tier: 1,
+                    isBvnVerified: true,
+                },
+                expectedData: {
+                    isBvnVerified: false,
+                },
+                syncedTier: 0,
+            },
+            {
+                verificationType: "ADDRESS",
+                startingUser: {
+                    ...pendingUser,
+                    tier: 3,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    addressVerificationStatus: "VERIFIED",
+                    addressDocumentUrl: "https://cdn.test/address.pdf",
+                },
+                expectedData: {
+                    isAddressVerified: false,
+                    addressVerificationStatus: "DECLINED",
+                    addressDocumentUrl: null,
+                },
+                syncedTier: 2,
+            },
+            {
+                verificationType: "INCOME",
+                startingUser: {
+                    ...pendingUser,
+                    tier: 4,
+                    isDocumentVerified: true,
+                    isAddressVerified: true,
+                    isIncomeVerified: true,
+                    incomeVerificationStatus: "VERIFIED",
+                    incomeDocumentUrl: "https://cdn.test/income.pdf",
+                },
+                expectedData: {
+                    isIncomeVerified: false,
+                    incomeVerificationStatus: "DECLINED",
+                    incomeDocumentUrl: null,
+                },
+                syncedTier: 3,
+            },
+        ])("should clear dependent flags on %s reject", async ({ verificationType, startingUser, expectedData, syncedTier }) => {
+            mockPrismaService.user.findUnique.mockResolvedValue(startingUser);
+            mockPrismaService.user.update.mockResolvedValue({
+                ...startingUser,
+                ...expectedData,
+            });
+            mockTierService.syncTierAndCache.mockResolvedValue({ ...startingUser, ...expectedData, tier: syncedTier });
+
+            await service.processKycDecision(
+                {
+                    userId: startingUser.id,
+                    action: "REJECT",
+                    verificationType,
+                    note: "Rejected by admin",
+                },
+                99,
+            );
+
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining(expectedData),
+                }),
+            );
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(startingUser.id);
+        });
+
         it("should not accept newTier field (removed from DTO type)", () => {
             // TypeScript compile-time check: KycDecisionDto should not have newTier
             const dto = {
@@ -598,6 +672,7 @@ describe("KycService", () => {
         it("updates verification flags, audits changes, and syncs tier", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue({
                 id: 4,
+                userType: UserType.INDIVIDUAL,
                 bvn: "12345678901",
                 nin: "10987654321",
                 isBvnVerified: false,
@@ -634,9 +709,114 @@ describe("KycService", () => {
             expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(4);
         });
 
+        it("normalizes individual status fields when admin toggles verification booleans", async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                id: 12,
+                userType: UserType.INDIVIDUAL,
+                bvn: "12345678901",
+                nin: "10987654321",
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: true,
+                isIncomeVerified: false,
+                documentVerificationStatus: "DECLINED",
+                addressVerificationStatus: "VERIFIED",
+                incomeVerificationStatus: null,
+            });
+            mockPrismaService.user.update.mockResolvedValue({
+                id: 12,
+                email: "u@flipxer.com",
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: true,
+                isAddressVerified: false,
+                isIncomeVerified: true,
+                documentVerificationStatus: "VERIFIED",
+                addressVerificationStatus: null,
+                incomeVerificationStatus: "VERIFIED",
+                businessDocumentVerificationStatus: null,
+            });
+            mockTierService.syncTierAndCache.mockResolvedValue({ id: 12, tier: 3 });
+
+            await service.updateUserVerification(
+                12,
+                {
+                    isDocumentVerified: true,
+                    isAddressVerified: false,
+                    isIncomeVerified: true,
+                    reason: "normalized",
+                } as any,
+                99,
+            );
+
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 12 },
+                    data: expect.objectContaining({
+                        isDocumentVerified: true,
+                        isAddressVerified: false,
+                        isIncomeVerified: true,
+                        documentVerificationStatus: "VERIFIED",
+                        addressVerificationStatus: null,
+                        incomeVerificationStatus: "VERIFIED",
+                    }),
+                }),
+            );
+        });
+
+        it("normalizes business document status when admin toggles document verification", async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue({
+                id: 13,
+                userType: UserType.BUSINESS,
+                bvn: null,
+                nin: null,
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: false,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+                businessDocumentVerificationStatus: "DECLINED",
+            });
+            mockPrismaService.user.update.mockResolvedValue({
+                id: 13,
+                email: "biz@flipxer.com",
+                isBvnVerified: false,
+                isNinVerified: false,
+                isDocumentVerified: true,
+                isAddressVerified: false,
+                isIncomeVerified: false,
+                documentVerificationStatus: null,
+                addressVerificationStatus: null,
+                incomeVerificationStatus: null,
+                businessDocumentVerificationStatus: "VERIFIED",
+            });
+            mockTierService.syncTierAndCache.mockResolvedValue({ id: 13, tier: 1 });
+
+            await service.updateUserVerification(
+                13,
+                {
+                    isDocumentVerified: true,
+                    reason: "normalized",
+                } as any,
+                99,
+            );
+
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 13 },
+                    data: expect.objectContaining({
+                        isDocumentVerified: true,
+                        businessDocumentVerificationStatus: "VERIFIED",
+                    }),
+                }),
+            );
+        });
+
         it("throws when attempting to verify NIN for users without NIN", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue({
                 id: 10,
+                userType: UserType.INDIVIDUAL,
                 bvn: "12345678901",
                 nin: null,
                 isBvnVerified: false,
@@ -654,6 +834,7 @@ describe("KycService", () => {
         it("throws when attempting to verify BVN for users without BVN", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue({
                 id: 11,
+                userType: UserType.INDIVIDUAL,
                 bvn: null,
                 nin: "10987654321",
                 isBvnVerified: false,

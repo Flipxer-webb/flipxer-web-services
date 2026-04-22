@@ -728,6 +728,40 @@ describe("AuthService", () => {
         });
     });
 
+    describe("onboardIndividual", () => {
+        it("persists residential address during individual onboarding", async () => {
+            prisma.user.update.mockResolvedValue({ id: 77 });
+
+            const result = await service.onboardIndividual(
+                {
+                    id: 77,
+                    firstName: null,
+                    lastName: null,
+                    dateOfBirth: null,
+                } as any,
+                {
+                    firstName: "Jane",
+                    lastName: "Doe",
+                    dateOfBirth: "1990-01-01",
+                    residentialAddress: "10 Main Street, Ikeja, Lagos",
+                } as any,
+            );
+
+            expect(prisma.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 77 },
+                    data: expect.objectContaining({
+                        firstName: "Jane",
+                        lastName: "Doe",
+                        dateOfBirth: new Date("1990-01-01"),
+                        residentialAddress: "10 Main Street, Ikeja, Lagos",
+                    }),
+                }),
+            );
+            expect(result.message).toBe("Profile updated successfully");
+        });
+    });
+
     describe("bvn/nin verification changed-line coverage", () => {
         it("executes BVN dev bypass identity linking", async () => {
             const user = {
@@ -759,6 +793,14 @@ describe("AuthService", () => {
             const result = await service.bvnVerification(user, { bvn: "22222222222" } as any);
 
             expect(result.message).toBe("Bvn Verification successfully");
+            expect(dojahService.verifyBvn).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    bvn: "22222222222",
+                    first_name: "Jane",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "BVN",
                 expect.any(String),
@@ -791,6 +833,14 @@ describe("AuthService", () => {
 
             await service.bvnVerification(user, { bvn: "12345678901" } as any);
 
+            expect(dojahService.verifyBvn).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    bvn: "12345678901",
+                    first_name: "Jane",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "BVN",
                 "12345678901",
@@ -829,6 +879,14 @@ describe("AuthService", () => {
             const result = await service.ninVerification(user, { nin: "00000000001" } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
+            expect(dojahService.verifyNin).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    nin: "00000000001",
+                    first_name: "John",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "NIN",
                 expect.any(String),
@@ -861,6 +919,14 @@ describe("AuthService", () => {
 
             await service.ninVerification(user, { nin: "98765432100" } as any);
 
+            expect(dojahService.verifyNin).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    nin: "98765432100",
+                    first_name: "John",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "NIN",
                 "98765432100",
@@ -1870,7 +1936,13 @@ describe("AuthService", () => {
             );
 
             const result = await service.documentVerificationBase64(
-                { id: 1, isDocumentVerified: false } as any,
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
                 base64Dto as any,
             );
 
@@ -1911,7 +1983,13 @@ describe("AuthService", () => {
             );
 
             const result = await service.documentVerificationBase64(
-                { id: 1, isDocumentVerified: false } as any,
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
                 base64Dto as any,
             );
 
@@ -1954,7 +2032,13 @@ describe("AuthService", () => {
             );
 
             const result = await service.documentVerificationBase64(
-                { id: 1, isDocumentVerified: false } as any,
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
                 base64Dto as any,
             );
 
@@ -1964,13 +2048,66 @@ describe("AuthService", () => {
                 "DOCUMENT",
                 "PENDING",
                 expect.objectContaining({
-                    reviewNote: "Manual review needed: valid=true, nameMatches=false",
+                    reviewNote: "Manual review needed: valid=true, nameMatches=false, dobMatches=false",
                 }),
             );
             expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 1,
                     title: "Document Submitted",
+                }),
+            );
+        });
+
+        it("documentVerificationBase64 keeps name-matched but DOB-mismatched documents pending review", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-4" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-4" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: true,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: "1988-03-15",
+                    documentNumber: "P88888",
+                    expiryDate: "2030-01-01",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 14 }) },
+                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document verification is pending review");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                1,
+                "DOCUMENT",
+                "PENDING",
+                expect.objectContaining({
+                    reviewNote: "Manual review needed: valid=true, nameMatches=true, dobMatches=false",
                 }),
             );
         });

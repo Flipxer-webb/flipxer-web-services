@@ -14,6 +14,10 @@ import {
     SellPayoutStateTransition,
 } from "../../trade/services/sell-payout-reconciliation.service";
 import { NombaWebhookGuard } from "../../auth/guard";
+import {
+    BuyOrderWebhookPayment,
+    handleBuyOrderWebhookPayment,
+} from "../services/buy-order-webhook-payment.util";
 
 @Controller("webhooks")
 export class NombaWebhookController {
@@ -125,7 +129,13 @@ export class NombaWebhookController {
             paymentMethod: PaymentMethod.NOMBA,
             type: TransactionType.P2P_PAYMENT,
             orderId: { not: null },
-            status: { in: [TransactionStatus.PENDING, TransactionStatus.APPROVED] },
+            status: {
+                in: [
+                    TransactionStatus.PENDING,
+                    TransactionStatus.APPROVED,
+                    TransactionStatus.FAILED,
+                ],
+            },
         };
 
         if (
@@ -145,62 +155,6 @@ export class NombaWebhookController {
     /**
      * Handle buy-order payment: validate amount and trigger fulfillment.
      */
-    private async handleBuyOrderPayment(
-        payment: { id: number; orderId: number; userId: number; totalAmount: unknown; reference: string },
-        event: NormalizedPaymentEvent,
-        resolvedReference: string,
-    ) {
-        const { amount } = event;
-        const expectedAmount = Number(payment.totalAmount);
-
-        if (expectedAmount > 0 && amount < expectedAmount * 0.99) {
-            this.logger.error(
-                `Underpayment detected | Ref: ${resolvedReference} | Expected: ${expectedAmount} | Received: ${amount}`
-            );
-
-            await this.prisma.payment.update({
-                where: { id: payment.id },
-                data: {
-                    receivedAmount: amount,
-                    senderAccountNumber: event.senderAccountNumber || null,
-                    senderAccountName: event.senderAccountName || null,
-                    senderBankName: event.senderBankName || null,
-                    narration: `Underpayment: received ₦${amount} of expected ₦${expectedAmount}`,
-                },
-            });
-
-            await this.slackWebhookService.sendWebhookFailureAlert(
-                'nomba',
-                resolvedReference,
-                `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. ` +
-                `Sender: ${event.senderAccountName || 'N/A'} (${event.senderAccountNumber || 'N/A'}) @ ${event.senderBankName || 'N/A'}. ` +
-                `Auto-cancel will run after 2 hours. Ops must process refund.`,
-                {
-                    orderId: payment.orderId,
-                    userId: payment.userId,
-                    expectedAmount,
-                    receivedAmount: amount,
-                    shortfall: expectedAmount - amount,
-                    senderAccountNumber: event.senderAccountNumber,
-                    senderAccountName: event.senderAccountName,
-                    senderBankName: event.senderBankName,
-                }
-            );
-            return;
-        }
-
-        if (event.providerReference) {
-            await this.prisma.payment.update({
-                where: { id: payment.id },
-                data: { externalReference: event.providerReference },
-            });
-        }
-
-        this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
-        await this.buyOrderService.fulfillBuyOrder(resolvedReference);
-        this.logger.log(`Buy order fulfillment completed for payment ${payment.id}`);
-    }
-
     /**
      * Handle incoming payment (Normalized)
      */
@@ -232,7 +186,23 @@ export class NombaWebhookController {
 
         if (payment) {
             if (payment.orderId) {
-                await this.handleBuyOrderPayment(payment as any, event, resolvedReference);
+                await handleBuyOrderWebhookPayment({
+                    payment: payment as BuyOrderWebhookPayment,
+                    event,
+                    reference: resolvedReference,
+                    provider: 'nomba',
+                    prisma: this.prisma,
+                    buyOrderService: this.buyOrderService,
+                    slackWebhookService: this.slackWebhookService,
+                    logger: this.logger,
+                    buildUnderpaymentMessage: ({ amount, expectedAmount, event: webhookEvent }) => (
+                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. ` +
+                        `Sender: ${webhookEvent.senderAccountName || 'N/A'} (${webhookEvent.senderAccountNumber || 'N/A'}) @ ${webhookEvent.senderBankName || 'N/A'}. ` +
+                        `Auto-cancel will run after 2 hours. Ops must process refund.`
+                    ),
+                });
+                this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
+                this.logger.log(`Buy order fulfillment completed for payment ${payment.id}`);
                 return;
             }
 

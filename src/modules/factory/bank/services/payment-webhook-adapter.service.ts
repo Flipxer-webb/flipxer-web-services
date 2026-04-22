@@ -95,8 +95,22 @@ export class PaymentWebhookAdapterService {
             status,
             reference,
             providerReference: data.reference || data.id,
-            amount: typeof data.amount === "number" ? data.amount : Number(data.amount || 0) || undefined,
+            amount: (() => {
+                if (typeof data.amountReceived === "number") {
+                    return data.amountReceived;
+                }
+
+                if (typeof data.amount === "number") {
+                    return data.amount;
+                }
+
+                const normalizedAmount = Number(data.amountReceived || data.amount || 0);
+                return normalizedAmount || undefined;
+            })(),
             currency: data.currency || "NGN",
+            senderAccountNumber: data.accountNumber,
+            senderAccountName: data.accountName || data.accountHolderName,
+            senderBankName: data.bankName,
             raw: payload,
             metadata: {
                 fee: typeof data.fee === "number" ? data.fee : Number(data.fee || 0) || undefined,

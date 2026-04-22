@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
-import { IdentityIdType, Prisma, UserType } from "@prisma/client";
+import { DocumentVerificationStatus, IdentityIdType, Prisma, UserType } from "@prisma/client";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
 import {
     GetKycQueueDto,
@@ -361,15 +361,45 @@ export class KycService {
 
         if (action === "REJECT") {
             const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
+                BVN: { isBvnVerified: false },
+                NIN: { isNinVerified: false },
                 DOCUMENT: { isDocumentVerified: false, documentVerificationStatus: "DECLINED" },
-                ADDRESS: { addressVerificationStatus: "DECLINED", addressDocumentUrl: null },
-                INCOME: { incomeVerificationStatus: "DECLINED", incomeDocumentUrl: null },
-                BUSINESS_DOCUMENT: { businessDocumentVerificationStatus: "DECLINED", businessDocumentsUploaded: false },
+                ADDRESS: { isAddressVerified: false, addressVerificationStatus: "DECLINED", addressDocumentUrl: null },
+                INCOME: { isIncomeVerified: false, incomeVerificationStatus: "DECLINED", incomeDocumentUrl: null },
+                BUSINESS_DOCUMENT: { isDocumentVerified: false, businessDocumentVerificationStatus: "DECLINED", businessDocumentsUploaded: false },
             };
             return rejectionMap[verificationType] || {};
         }
 
         return {};
+    }
+
+    private normalizeManualVerificationStatuses(
+        userType: UserType,
+        updateData: Prisma.UserUpdateInput,
+        dto: UpdateUserVerificationDto,
+    ): void {
+        if (dto.isDocumentVerified !== undefined) {
+            const documentStatus = dto.isDocumentVerified ? DocumentVerificationStatus.VERIFIED : null;
+
+            if (userType === UserType.BUSINESS) {
+                updateData.businessDocumentVerificationStatus = documentStatus;
+            } else {
+                updateData.documentVerificationStatus = documentStatus;
+            }
+        }
+
+        if (dto.isAddressVerified !== undefined) {
+            updateData.addressVerificationStatus = dto.isAddressVerified
+                ? DocumentVerificationStatus.VERIFIED
+                : null;
+        }
+
+        if (dto.isIncomeVerified !== undefined) {
+            updateData.incomeVerificationStatus = dto.isIncomeVerified
+                ? DocumentVerificationStatus.VERIFIED
+                : null;
+        }
     }
 
     async processKycDecision(dto: KycDecisionDto, adminId?: number): Promise<ApiResponse> {
@@ -686,6 +716,8 @@ export class KycService {
             changes.income = { from: user.isIncomeVerified, to: dto.isIncomeVerified };
         }
 
+        this.normalizeManualVerificationStatuses(user.userType, updateData, dto);
+
         const updatedUser = await this.prisma.user.update({
             where: { id: userId },
             data: updateData,
@@ -697,6 +729,10 @@ export class KycService {
                 isDocumentVerified: true,
                 isAddressVerified: true,
                 isIncomeVerified: true,
+                documentVerificationStatus: true,
+                addressVerificationStatus: true,
+                incomeVerificationStatus: true,
+                businessDocumentVerificationStatus: true,
             },
         });
 
