@@ -11,6 +11,7 @@ const generateIdentifier = customAlphabet("abcdefghijklmnopqrstuvwxyzABCDEFGHIJK
 
 interface TestUser {
     email: string;
+    legacyEmail?: string;
     password: string;
     firstName: string;
     lastName: string;
@@ -29,7 +30,8 @@ interface TestUser {
 
 const testUsers: TestUser[] = [
     {
-        email: "tier0.test@flipxer.com",
+        email: "tier0.test@flipxer.local",
+        legacyEmail: "tier0.test@flipxer.com",
         password: "TierZero@2024!",
         firstName: "Tier0",
         lastName: "TestUser",
@@ -44,7 +46,8 @@ const testUsers: TestUser[] = [
         isAddressVerified: false,
     },
     {
-        email: "tier1.test@flipxer.com",
+        email: "tier1.test@flipxer.local",
+        legacyEmail: "tier1.test@flipxer.com",
         password: "TierOne@2024!",
         firstName: "Tier1",
         lastName: "TestUser",
@@ -60,7 +63,8 @@ const testUsers: TestUser[] = [
         bvn: "11111111111",
     },
     {
-        email: "tier2.test@flipxer.com",
+        email: "tier2.test@flipxer.local",
+        legacyEmail: "tier2.test@flipxer.com",
         password: "TierTwo@2024!",
         firstName: "Tier2",
         lastName: "TestUser",
@@ -77,6 +81,62 @@ const testUsers: TestUser[] = [
         nin: "33333333333",
     },
 ];
+
+const defaultAccountLimit = {
+    sellTokenFiat: 50000,
+    buyToken: "unlimited",
+    swapToken: "unlimited",
+    sendToken: 50000,
+    receiveToken: "unlimited",
+} as const;
+
+function buildUserPayload(user: TestUser, hashedPassword: string, roleId: number) {
+    return {
+        email: user.email,
+        phone: user.phone,
+        userType: UserType.INDIVIDUAL,
+        password: hashedPassword,
+        roleId,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        tier: user.tier,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+        isPasswordCreated: user.isPasswordCreated,
+        isBvnVerified: user.isBvnVerified,
+        isNinVerified: user.isNinVerified,
+        isDocumentVerified: user.isDocumentVerified,
+        isAddressVerified: user.isAddressVerified,
+        bvn: user.bvn,
+        nin: user.nin,
+    };
+}
+
+async function findExistingTierUser(user: TestUser) {
+    const currentUser = await prisma.user.findUnique({
+        where: { email: user.email },
+    });
+
+    if (currentUser) {
+        return currentUser;
+    }
+
+    const phoneUser = await prisma.user.findUnique({
+        where: { phone: user.phone },
+    });
+
+    if (phoneUser) {
+        return phoneUser;
+    }
+
+    if (!user.legacyEmail) {
+        return null;
+    }
+
+    return prisma.user.findUnique({
+        where: { email: user.legacyEmail },
+    });
+}
 
 async function main() {
     console.log("Creating test users with tiers 0, 1, 2...\n");
@@ -96,48 +156,27 @@ async function main() {
     for (const user of testUsers) {
         try {
             const hashedPassword = await bcrypt.hash(user.password, SALT_ROUNDS);
+            const userPayload = buildUserPayload(user, hashedPassword, individualRole.id);
+            const existingUser = await findExistingTierUser(user);
 
-            const created = await prisma.user.upsert({
-                where: { email: user.email },
-                update: {
-                    password: hashedPassword,
-                    tier: user.tier,
-                    isEmailVerified: user.isEmailVerified,
-                    isPhoneVerified: user.isPhoneVerified,
-                    isPasswordCreated: user.isPasswordCreated,
-                    isBvnVerified: user.isBvnVerified,
-                    isNinVerified: user.isNinVerified,
-                    isDocumentVerified: user.isDocumentVerified,
-                    isAddressVerified: user.isAddressVerified,
-                },
-                create: {
-                    email: user.email,
-                    phone: user.phone,
-                    userType: UserType.INDIVIDUAL,
-                    identifier: generateIdentifier(),
-                    password: hashedPassword,
-                    roleId: individualRole.id,
-                    firstName: user.firstName,
-                    lastName: user.lastName,
-                    tier: user.tier,
-                    isEmailVerified: user.isEmailVerified,
-                    isPhoneVerified: user.isPhoneVerified,
-                    isPasswordCreated: user.isPasswordCreated,
-                    isBvnVerified: user.isBvnVerified,
-                    isNinVerified: user.isNinVerified,
-                    isDocumentVerified: user.isDocumentVerified,
-                    isAddressVerified: user.isAddressVerified,
-                    bvn: user.bvn,
-                    nin: user.nin,
-                    accountLimit: {
-                        create: {
-                            sellTokenFiat: 50000,
-                            buyToken: "unlimited",
-                            swapToken: "unlimited",
-                            sendToken: 50000,
-                            receiveToken: "unlimited",
-                        },
+            const created = existingUser
+                ? await prisma.user.update({
+                    where: { id: existingUser.id },
+                    data: userPayload,
+                })
+                : await prisma.user.create({
+                    data: {
+                        ...userPayload,
+                        identifier: generateIdentifier(),
                     },
+                });
+
+            await prisma.accountLimit.upsert({
+                where: { userId: created.id },
+                update: defaultAccountLimit,
+                create: {
+                    userId: created.id,
+                    ...defaultAccountLimit,
                 },
             });
 

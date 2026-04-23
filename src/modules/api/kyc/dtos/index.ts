@@ -2,6 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsString, IsOptional, IsNumber, IsIn, IsNotEmpty } from "class-validator";
 import { Type } from "class-transformer";
 
+export const adminKycVerificationLookupTypes = ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"] as const;
+
+export type AdminKycVerificationLookupType = typeof adminKycVerificationLookupTypes[number];
+
 export class GetKycQueueDto {
     @ApiPropertyOptional({ description: "Page number", default: 1 })
     @IsOptional()
@@ -14,6 +18,14 @@ export class GetKycQueueDto {
     @Type(() => Number)
     @IsNumber()
     pageSize?: number;
+
+    @ApiPropertyOptional({
+        description: "Queue workspace view",
+        enum: ["ACTIONABLE", "AWAITING_USER", "RESOLVED", "all"],
+    })
+    @IsOptional()
+    @IsString()
+    queueView?: string;
 
     @ApiPropertyOptional({
         description: "KYC status filter",
@@ -53,18 +65,25 @@ export class KycDecisionDto {
     @IsNumber()
     userId: number;
 
-    @ApiProperty({
+    @ApiPropertyOptional({
         description: "Decision action",
         enum: ["APPROVE", "REJECT", "ESCALATE"],
     })
-    @IsString()
-    @IsIn(["APPROVE", "REJECT", "ESCALATE"])
-    action: "APPROVE" | "REJECT" | "ESCALATE";
-
-    @ApiPropertyOptional({ description: "Verification type to update" })
     @IsOptional()
     @IsString()
-    verificationType?: string;
+    @IsIn(["APPROVE", "REJECT", "ESCALATE"])
+    action?: "APPROVE" | "REJECT" | "ESCALATE";
+
+    @ApiProperty({ description: "Verification type to update" })
+    @IsString()
+    @IsNotEmpty()
+    verificationType: string;
+
+    @ApiPropertyOptional({ description: "Expected active verification version for optimistic locking" })
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    version?: number;
 
     @ApiPropertyOptional({ description: "Review note/reason" })
     @IsOptional()
@@ -146,6 +165,12 @@ export class ApproveDocumentDto {
     @IsString()
     @IsIn(["address", "income", "business"])
     documentType: "address" | "income" | "business";
+
+    @ApiPropertyOptional({ description: "Expected active verification version for optimistic locking" })
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    version?: number;
 }
 
 export class RejectDocumentDto {
@@ -166,4 +191,25 @@ export class RejectDocumentDto {
     @IsString()
     @IsNotEmpty()
     reason: string;
+
+    @ApiPropertyOptional({ description: "Expected active verification version for optimistic locking" })
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    version?: number;
+}
+
+export class RunKycVerificationLookupDto {
+    @ApiProperty({ description: "User ID" })
+    @IsNumber()
+    @Type(() => Number)
+    userId: number;
+
+    @ApiProperty({
+        description: "Verification artifact to recheck with the provider",
+        enum: adminKycVerificationLookupTypes,
+    })
+    @IsString()
+    @IsIn(adminKycVerificationLookupTypes)
+    verificationType: AdminKycVerificationLookupType;
 }

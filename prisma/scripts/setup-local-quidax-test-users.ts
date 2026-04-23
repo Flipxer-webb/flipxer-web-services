@@ -30,6 +30,7 @@ const LOCAL_TEST_QUIDAX_ELIGIBLE_EMAILS = [
     "tier1.test@flipxer.local",
     "tier2.test@flipxer.local",
     "tier3.test@flipxer.local",
+    "income-pending.test@flipxer.local",
     "blocked.test@flipxer.local",
     "locked.test@flipxer.local",
     "twofactor.test@flipxer.local",

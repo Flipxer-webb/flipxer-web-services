@@ -15,8 +15,10 @@ COPY ./tsconfig.json ./tsconfig.build.json ./nest-cli.json ./webpack.config.js .
 COPY ./email-templates ./email-templates
 COPY ./public ./public
 COPY ./scripts ./scripts
+COPY docker-entrypoint.dev.sh ./
+RUN sed -i 's/\r$//' docker-entrypoint.dev.sh && chmod +x docker-entrypoint.dev.sh
 EXPOSE 3500
-CMD ["sh", "-c", "NODE_OPTIONS=--experimental-global-webcrypto pnpm build && node dist/server"]
+CMD ["./docker-entrypoint.dev.sh"]
 
 # ---- Build Stage ----
 FROM node:18.18.2 AS build

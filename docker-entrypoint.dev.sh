@@ -110,6 +110,9 @@ run_local_bootstrap() {
   echo "=== Seeding local test users ==="
   npx ts-node prisma/scripts/create-tier-users.ts || echo "Test user seeding completed (or already seeded)"
 
+  echo "=== Setting up income review test user ==="
+  npx ts-node prisma/scripts/setup-income-review-test-user.ts || echo "Income review test user setup completed"
+
   echo "=== Setting up 2FA test user ==="
   npx ts-node prisma/scripts/setup-2fa-test-user.ts || echo "2FA test user setup completed"
 
