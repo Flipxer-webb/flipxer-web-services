@@ -1187,6 +1187,10 @@ export class KycService {
             throw new BadRequestException("Verification type is required for KYC decisions.");
         }
 
+        if (!action) {
+            throw new BadRequestException("Decision action is required for KYC decisions.");
+        }
+
         // Validate/record transition first so illegal transitions do not mutate user flags.
         const transitionResult = await this.transitionKycDecision({
             userId,

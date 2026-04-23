@@ -548,6 +548,27 @@ describe("KycService", () => {
             expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
         });
 
+        it("rejects KYC decisions that omit action before side effects run", async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue(pendingUser);
+
+            await expect(
+                service.processKycDecision(
+                    {
+                        userId: 2,
+                        verificationType: "DOCUMENT",
+                    } as any,
+                    99,
+                ),
+            ).rejects.toBeInstanceOf(BadRequestException);
+
+            expect(mockKycStateMachine.transition).not.toHaveBeenCalled();
+            expect(mockPrismaService.user.update).not.toHaveBeenCalled();
+            expect(mockTierService.syncTierAndCache).not.toHaveBeenCalled();
+            expect(mockAuditLogService.log).not.toHaveBeenCalled();
+            expect(mockNotificationDispatcher.notify).not.toHaveBeenCalled();
+            expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
+        });
+
         it("returns a not-found response before attempting a state transition", async () => {
             const transitionSpy = jest.spyOn(service as any, "transitionKycDecision");
 
