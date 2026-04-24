@@ -527,10 +527,7 @@ export class WalletAddressService {
             }
 
             // Guard: never persist a record with null network or null address
-            if (!providerAddress.address || !network) {
-                this.logger.warn(
-                    `[ProviderGuard] Skipping persist incomplete data from Quidax, User: ${userId}, Asset: ${assetSymbolUpper}, HasAddress: ${!!providerAddress.address}, HasNetwork: ${!!network}`
-                );
+            if (!this.validateBackfillData(providerAddress, network, userId, assetSymbolUpper)) {
                 continue;
             }
 
@@ -580,6 +577,20 @@ export class WalletAddressService {
         }
 
         return backfilledAddresses;
+    }
+    private validateBackfillData(
+        providerAddress: IPaymentAddress,
+        network: NetworkTypes,
+        userId: number,
+        assetSymbolUpper: string
+    ): boolean {
+        if (!providerAddress.address || !network) {
+            this.logger.warn(
+                `[ProviderGuard] Skipping persist incomplete data from Quidax, User: ${userId}, Asset: ${assetSymbolUpper}, HasAddress: ${!!providerAddress.address}, HasNetwork: ${!!network}`
+            );
+            return false;
+        }
+        return true;
     }
 
     /**
