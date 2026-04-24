@@ -106,6 +106,24 @@ describe("config module", () => {
         expect(cfg.sendchampConfig.baseUrl).toBe("https://api.sendchamp.com/api/v1");
         expect(cfg.sendchampConfig.senderId).toBe("Flipxer");
         expect(cfg.nombaOptions.baseUrl).toBe("https://api.nomba.com");
+        expect(cfg.sellPayoutProvider).toBe("fincra");
+        expect(cfg.buyPaymentProvider).toBe("nomba");
+    });
+
+    it("throws when SELL_PAYOUT_PROVIDER is invalid", () => {
+        expect(() =>
+            loadConfig({
+                SELL_PAYOUT_PROVIDER: "stripe",
+            })
+        ).toThrow("Invalid SELL_PAYOUT_PROVIDER");
+    });
+
+    it("throws when BUY_PAYMENT_PROVIDER is invalid", () => {
+        expect(() =>
+            loadConfig({
+                BUY_PAYMENT_PROVIDER: "flutterwave",
+            })
+        ).toThrow("Invalid BUY_PAYMENT_PROVIDER");
     });
 
     it("builds template and mail configs from env", () => {

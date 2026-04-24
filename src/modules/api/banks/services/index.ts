@@ -14,10 +14,12 @@ import {
     VerifyBankAccountDto,
 } from "../dtos";
 import { ApiResponse, buildResponse, generateId } from "@/utils";
-import { BankInjectionToken } from "@/modules/factory/bank/types";
+import { BankInjectionToken, BankProvider } from "@/modules/factory/bank/types";
 import { FincraBank } from "@/modules/factory/bank/providers/fincra.provider";
 import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
 import { BankCacheService } from "@/modules/core/redisCache/services/bank-cache.service";
+import { InboundFiatPaymentService } from "@/modules/factory/bank/services/inbound-fiat-payment.service";
+import { resolveInboundPaymentProvider } from "@/modules/factory/bank/types/inbound-payment";
 import {
     DuplicateTransactionException,
     TransactionRefNotFoundException,
@@ -56,8 +58,19 @@ export class BankService {
         private readonly wsGateway: WsGateway,
 
         private readonly bankCacheService: BankCacheService,
-        private readonly notificationDispatcher: NotificationDispatcher
+        private readonly notificationDispatcher: NotificationDispatcher,
+        private readonly inboundFiatPaymentService: InboundFiatPaymentService,
     ) { }
+
+    private resolveInboundProviderOrThrow(provider?: string | null): BankProvider {
+        const resolvedProvider = resolveInboundPaymentProvider(provider ?? "nomba");
+
+        if (!resolvedProvider) {
+            throw new BadRequestException(`Unsupported bank provider: ${String(provider)}`);
+        }
+
+        return resolvedProvider;
+    }
 
     async getListOfBanks() {
         this.logger.log("[getListOfBanks] Fetching bank list...");
@@ -119,7 +132,13 @@ export class BankService {
      * Initialize payment using Nomba Checkout
      * Returns a checkout link for the user to complete payment
      */
-    async initializeNombaCheckout(userId: number, amount: number, callbackUrl?: string) {
+    async initializeCheckout(
+        userId: number,
+        amount: number,
+        callbackUrl?: string,
+        provider: BankProvider = "nomba"
+    ) {
+        const resolvedProvider = this.resolveInboundProviderOrThrow(provider);
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
         });
@@ -128,28 +147,51 @@ export class BankService {
             throw new UserNotFoundException("User not found");
         }
 
-        const result = await this.nombaService.initializePayment(
-            {
+        const result = await this.inboundFiatPaymentService.initializePayment({
+            provider: resolvedProvider,
+            user: {
                 id: user.id,
                 email: user.email,
                 firstName: user.firstName,
                 lastName: user.lastName,
+                phoneNumber: user.phone,
             },
             amount,
-            callbackUrl
-        );
+            callbackUrl,
+            modePreference: "checkout",
+        });
+
+        if (result.mode !== "checkout") {
+            throw new BadRequestException(
+                `Provider ${resolvedProvider} does not support hosted checkout for this request`
+            );
+        }
 
         return buildResponse({
             message: "Checkout created successfully",
-            data: result.data,
+            data: {
+                provider: result.provider,
+                checkoutLink: result.authorizationUrl,
+                reference: result.reference,
+                amount: result.amount,
+                expiryAt: result.expiryAt,
+            },
         });
+    }
+
+    async initializeNombaCheckout(userId: number, amount: number, callbackUrl?: string) {
+        return this.initializeCheckout(userId, amount, callbackUrl, "nomba");
     }
 
     /**
      * Verify Nomba checkout/payment status
      */
-    async verifyNombaCheckout(orderReference: string) {
-        const result = await this.nombaService.verifyTransaction(orderReference);
+    async verifyCheckout(orderReference: string, provider: BankProvider = "nomba") {
+        const resolvedProvider = this.resolveInboundProviderOrThrow(provider);
+        const result = await this.inboundFiatPaymentService.verifyCheckout({
+            provider: resolvedProvider,
+            reference: orderReference,
+        });
 
         return buildResponse({
             message: "Checkout status retrieved",
@@ -157,7 +199,12 @@ export class BankService {
         });
     }
 
-    async verifyBankAccount(options: VerifyBankAccountDto) {
+    async verifyNombaCheckout(orderReference: string) {
+        return this.verifyCheckout(orderReference, "nomba");
+    }
+
+    async verifyBankAccount(options: VerifyBankAccountDto, provider: BankProvider = "nomba") {
+        const resolvedProvider = this.resolveInboundProviderOrThrow(provider);
         // Check cache first to avoid external API call
         const cached = await this.bankCacheService.getCachedVerification(
             options.bankCode,
@@ -175,13 +222,14 @@ export class BankService {
             });
         }
 
-        // Cache miss - call Nomba API
-        const account = await this.nombaService.resolveBankAccount({
-            account_number: options.accountNumber,
-            bank_code: options.bankCode,
+        // Cache miss - call selected provider API
+        const account = await this.inboundFiatPaymentService.resolveBankAccount({
+            provider: resolvedProvider,
+            accountNumber: options.accountNumber,
+            bankCode: options.bankCode,
         });
 
-        if (!account?.data) {
+        if (!account?.accountName || !account?.accountNumber) {
             throw new BadRequestException("Failed to verify bank account");
         }
 
@@ -189,14 +237,14 @@ export class BankService {
         await this.bankCacheService.cacheVerification(
             options.bankCode,
             options.accountNumber,
-            account.data.accountName
+            account.accountName
         );
 
         return buildResponse({
             message: "account successfully verified",
             data: {
-                accountName: account.data.accountName,
-                accountNumber: account.data.accountNumber,
+                accountName: account.accountName,
+                accountNumber: account.accountNumber,
             },
         });
     }

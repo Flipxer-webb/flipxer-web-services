@@ -92,12 +92,34 @@ describe("DojahService", () => {
         expect(result.parsed.isValid).toBe(true);
     });
 
-    it("verifyDocumentWithNameMatch should compute flexible name checks", async () => {
+    it("verifyDocumentWithNameMatch should reuse fuzzy matching for minor typos", async () => {
         jest.spyOn(service, "analyzeDocument").mockResolvedValue({
             response: { status: true, data: {} } as any,
             parsed: {
                 isValid: true,
-                firstName: "John",
+                firstName: "Emmnauel",
+                lastName: "Okafro",
+                givenNames: "Emmnauel Chinedu",
+            } as any,
+        });
+
+        const result = await service.verifyDocumentWithNameMatch(
+            { imageFrontSide: "base64-image" } as any,
+            "Emmanuel",
+            "Okafor",
+        );
+
+        expect(result.isValid).toBe(true);
+        expect(result.nameMatches).toBe(true);
+        expect(result.matchDetails.extractedFirst).toBe("Emmnauel");
+    });
+
+    it("verifyDocumentWithNameMatch should fall back to given name tokens", async () => {
+        jest.spyOn(service, "analyzeDocument").mockResolvedValue({
+            response: { status: true, data: {} } as any,
+            parsed: {
+                isValid: true,
+                firstName: undefined,
                 lastName: "Doe",
                 givenNames: "John Michael",
             } as any,
@@ -111,7 +133,7 @@ describe("DojahService", () => {
 
         expect(result.isValid).toBe(true);
         expect(result.nameMatches).toBe(true);
-        expect(result.matchDetails.extractedFirst).toBe("John");
+        expect(result.matchDetails.extractedGivenNames).toBe("John Michael");
     });
 
     it("getVerificationResult should return normalized statuses", async () => {

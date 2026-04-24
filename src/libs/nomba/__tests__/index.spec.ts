@@ -1,5 +1,6 @@
 const postMock = jest.fn();
 const getMock = jest.fn();
+const deleteMock = jest.fn();
 
 const requestUseMock = jest.fn();
 const responseUseMock = jest.fn();
@@ -7,6 +8,7 @@ const responseUseMock = jest.fn();
 const mockAxiosInstance = {
     post: postMock,
     get: getMock,
+    delete: deleteMock,
     interceptors: {
         request: {
             use: requestUseMock,
@@ -355,9 +357,12 @@ describe("NombaLib", () => {
 
         const lib = new NombaLib(baseOptions);
 
+        deleteMock.mockResolvedValue({ data: { code: "00", status: true } });
+
         await lib.lookupBankAccount({ accountNumber: "0123456789", bankCode: "058" });
         await lib.createVirtualAccount({ accountRef: "va-1", accountName: "Test User" });
         await lib.getVirtualAccount("va-1");
+        await lib.deleteVirtualAccount("va-1");
         await lib.initiateBankTransfer({
             amount: 500,
             accountNumber: "0123456789",
@@ -379,6 +384,7 @@ describe("NombaLib", () => {
             currency: "NGN",
         });
         expect(getMock).toHaveBeenCalledWith("/v1/accounts/virtual/va-1");
+        expect(deleteMock).toHaveBeenCalledWith("/v1/accounts/virtual/va-1");
         expect(postMock).toHaveBeenCalledWith("/v2/transfers/bank", {
             amount: 500,
             accountNumber: "0123456789",
@@ -421,7 +427,7 @@ describe("NombaLib", () => {
         getMock.mockResolvedValueOnce({
             data: {
                 code: "00",
-                data: { balance: 300000, currency: "NGN", availableBalance: 280000 },
+                data: { amount: "300000", currency: "NGN", timeCreated: "2026-01-01T00:00:00.000Z" },
             },
         });
 
@@ -429,8 +435,8 @@ describe("NombaLib", () => {
         const result = await lib.getAccountBalance();
 
         expect(result.code).toBe("00");
-        expect(result.data.balance).toBe(300000);
-        expect(getMock).toHaveBeenCalledWith(`/v1/accounts/${baseOptions.accountId}`);
+        expect(result.data.amount).toBe("300000");
+        expect(getMock).toHaveBeenCalledWith(`/v1/accounts/balance`);
     });
 
     it("getAccountBalance throws on network error", async () => {

@@ -29,10 +29,10 @@ export class QuidaxWebhookService implements QuidaxWebhook {
     private readonly logger = new Logger("QuidaxWebhookService");
 
     // Maximum age for webhook events (default: 5 minutes, configurable via env)
-    private readonly MAX_WEBHOOK_AGE_MS = parseInt(process.env.WEBHOOK_MAX_AGE_SECONDS || '300', 10) * 1000;
+    private readonly MAX_WEBHOOK_AGE_MS = Number.parseInt(process.env.WEBHOOK_MAX_AGE_SECONDS || '300', 10) * 1000;
 
     // Allowance for upstream clock skew (default: 1 hour to accommodate Quidax clock drift)
-    private readonly CLOCK_SKEW_ALLOWANCE_MS = parseInt(process.env.WEBHOOK_CLOCK_SKEW_SECONDS || '3700', 10) * 1000;
+    private readonly CLOCK_SKEW_ALLOWANCE_MS = Number.parseInt(process.env.WEBHOOK_CLOCK_SKEW_SECONDS || '3700', 10) * 1000;
 
     // Webhook metrics for monitoring
     private metrics: WebhookMetrics = {

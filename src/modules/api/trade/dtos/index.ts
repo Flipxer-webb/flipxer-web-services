@@ -1,4 +1,4 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
     IsEnum,
     IsNotEmpty,
@@ -546,6 +546,11 @@ export class AdminSwapConfirmDto {
     quotation_id: string;
 }
 
+export enum AdminAdjustmentDirection {
+    CREDIT = "credit",
+    DEBIT = "debit",
+}
+
 export class AdminAdjustmentDto {
     @ApiProperty({ example: 12, description: "User ID to credit" })
     @IsNotEmpty()
@@ -563,6 +568,16 @@ export class AdminAdjustmentDto {
     @IsNumber()
     @IsPositive()
     amount: number;
+
+    @ApiPropertyOptional({
+        enum: AdminAdjustmentDirection,
+        default: AdminAdjustmentDirection.CREDIT,
+        description: "Adjustment direction. Defaults to credit.",
+    })
+    @Transform(({ value }) => value?.toLowerCase())
+    @IsOptional()
+    @IsEnum(AdminAdjustmentDirection)
+    direction?: AdminAdjustmentDirection;
 
     @ApiProperty({ example: "Backfill for order 2 — legacy path did not create ledger entry" })
     @IsNotEmpty()

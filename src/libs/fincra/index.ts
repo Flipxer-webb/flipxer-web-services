@@ -180,6 +180,16 @@ export class FincraLib {
         this.axios = Axios.create(axiosConfig);
     }
 
+    private normalizeReferencePathSegment(value: string, fieldName: string): string {
+        const normalizedValue = value.trim();
+
+        if (!normalizedValue || !/^[A-Za-z0-9._:-]+$/.test(normalizedValue)) {
+            throw new Error(`Invalid ${fieldName}`);
+        }
+
+        return encodeURIComponent(normalizedValue);
+    }
+
     private handleError(error: AxiosError<any>) {
         if (!Axios.isAxiosError(error)) {
             throw error;
@@ -208,9 +218,10 @@ export class FincraLib {
 
     async verifyPayment(reference: string) {
         try {
+            const normalizedReference = this.normalizeReferencePathSegment(reference, "reference");
             const requestOptions: AxiosRequestConfig = {
                 method: "GET",
-                url: `/checkout/payments/merchant-reference/${reference}`,
+                url: `/checkout/payments/merchant-reference/${normalizedReference}`,
                 headers: this.options.businessId
                     ? { "x-business-id": this.options.businessId }
                     : undefined,
@@ -300,9 +311,10 @@ export class FincraLib {
      */
     async verifyPayoutByReference(reference: string) {
         try {
+            const normalizedReference = this.normalizeReferencePathSegment(reference, "reference");
             const requestOptions: AxiosRequestConfig = {
                 method: "GET",
-                url: `/disbursements/payouts/${reference}`,
+                url: `/disbursements/payouts/${normalizedReference}`,
             };
             const { data } = await this.axios<FincraPayoutStatusResponse>(
                 requestOptions
@@ -318,9 +330,13 @@ export class FincraLib {
      */
     async verifyPayoutByCustomerReference(customerReference: string) {
         try {
+            const normalizedCustomerReference = this.normalizeReferencePathSegment(
+                customerReference,
+                "customer reference",
+            );
             const requestOptions: AxiosRequestConfig = {
                 method: "GET",
-                url: `/disbursements/payouts/customer-reference/${customerReference}`,
+                url: `/disbursements/payouts/customer-reference/${normalizedCustomerReference}`,
             };
             const { data } = await this.axios<FincraPayoutStatusResponse>(
                 requestOptions

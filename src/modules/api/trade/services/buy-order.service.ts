@@ -1,13 +1,19 @@
-import { BadRequestException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { BankInjectionToken } from "@/modules/factory/bank/types";
-import { NombaBank } from "@/modules/factory/bank/providers/nomba.provider";
+import {
+    getBankProviderForPaymentMethod,
+    getPaymentMethodForBankProvider,
+    InboundPaymentInitializationResult,
+    InboundPaymentProvider,
+} from "@/modules/factory/bank/types";
+import { InboundFiatPaymentService } from "@/modules/factory/bank/services/inbound-fiat-payment.service";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
-import { COMPANY_NAME } from "@/config";
+import { COMPANY_NAME, buyPaymentProvider, frontendUrl } from "@/config";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
+    CryptoWalletStatus,
     LedgerType,
     OrderCategory,
     OrderStatus,
@@ -32,9 +38,11 @@ import { LedgerService, PairedLedgerResult } from "./ledger/ledger.service";
 import {
     EXTENDED_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
+    MIN_BUY_AMOUNT_USDT,
 } from "../constants";
 import { generateUssdCode } from "@/libs/nomba/ussd-codes";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { TransactionService } from "@/modules/api/auth/services/transaction.service";
 
 /**
  * Buy Order Service
@@ -51,8 +59,7 @@ export class BuyOrderService {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(BankInjectionToken.NOMBA)
-        private readonly nombaService: NombaBank,
+        private readonly inboundFiatPaymentService: InboundFiatPaymentService,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
@@ -60,8 +67,57 @@ export class BuyOrderService {
         private readonly ledgerService: LedgerService,
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
-        private readonly distributedLockService: DistributedLockService
+        private readonly distributedLockService: DistributedLockService,
+        private readonly transactionService: TransactionService
     ) { }
+
+    private async releaseReservedBuyLimit(payment: {
+        userId: number;
+        createdAt: Date;
+        order?: {
+            orderCategory?: OrderCategory;
+            currency?: string | null;
+            amount?: number | null;
+        } | null;
+    }): Promise<void> {
+        if (!payment.order?.currency || !payment.order?.amount) {
+            return;
+        }
+
+        await this.transactionService.releaseDailyLimitReservationForOrder({
+            userId: payment.userId,
+            orderCategory: payment.order.orderCategory ?? OrderCategory.BUY,
+            currency: payment.order.currency,
+            amount: Number(payment.order.amount),
+            createdAt: payment.createdAt,
+        });
+    }
+
+    private getSupportedBuyPaymentMethods(): PaymentMethod[] {
+        return [PaymentMethod.NOMBA, PaymentMethod.FINCRA];
+    }
+
+    private getBuyPaymentProvider(paymentMethod?: PaymentMethod | null): InboundPaymentProvider {
+        return getBankProviderForPaymentMethod(paymentMethod) || buyPaymentProvider;
+    }
+
+    private getBuyPaymentProviderLabel(paymentMethod?: PaymentMethod | null): string {
+        return this.getBuyPaymentProvider(paymentMethod) === "fincra"
+            ? "Fincra"
+            : "Nomba";
+    }
+
+    private buildManualRefundAlertAmount(payment: {
+        receivedAmount?: unknown;
+        totalAmount?: unknown;
+    }): number {
+        const receivedAmount = Number(payment.receivedAmount);
+        if (Number.isFinite(receivedAmount) && receivedAmount > 0) {
+            return receivedAmount;
+        }
+
+        return Number(payment.totalAmount);
+    }
 
     /**
      * Gets a fee based on amount and fee data structure
@@ -135,6 +191,65 @@ export class BuyOrderService {
         }
     }
 
+    private async getFallbackBuyWalletAddress(options: {
+        userId: number;
+        assetSymbol: string;
+        normalizedDefaultNetwork: string | null;
+    }): Promise<{
+        address: string | null;
+        network: string | null;
+        destination_tag: string | null;
+    } | null> {
+        const { userId, assetSymbol, normalizedDefaultNetwork } = options;
+
+        if (normalizedDefaultNetwork) {
+            return this.prisma.cryptoWalletAddress.findFirst({
+                where: {
+                    userId,
+                    assetSymbol,
+                    status: CryptoWalletStatus.ACTIVE,
+                    address: { not: null },
+                    network: normalizedDefaultNetwork as any,
+                },
+                select: {
+                    address: true,
+                    network: true,
+                    destination_tag: true,
+                },
+                orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            });
+        }
+
+        const fallbackWalletAddresses = await this.prisma.cryptoWalletAddress.findMany({
+            where: {
+                userId,
+                assetSymbol,
+                status: CryptoWalletStatus.ACTIVE,
+                address: { not: null },
+                network: { not: null },
+            },
+            select: {
+                address: true,
+                network: true,
+                destination_tag: true,
+            },
+            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        });
+
+        if (fallbackWalletAddresses.length <= 1) {
+            return fallbackWalletAddresses[0] ?? null;
+        }
+
+        this.logger.warn(
+            `Ambiguous buy wallet fallback for user ${userId} asset ${assetSymbol}; refusing to choose between ${fallbackWalletAddresses.length} active network addresses`
+        );
+
+        throw new WalletAddressNotFoundException(
+            `Unable to determine a safe wallet address for asset ${assetSymbol}. Please try again shortly.`,
+            HttpStatus.CONFLICT
+        );
+    }
+
     private isSameCryptoAmount(requestedAmount: number, existingAmount?: number | null): boolean {
         if (typeof existingAmount !== "number") return false;
         return (
@@ -187,6 +302,12 @@ export class BuyOrderService {
         user: User,
         dto: InitiateBuyOrderDto
     ): Promise<BuyQuoteResponse> {
+        const currency = dto.asset.toUpperCase();
+        const assetWalletWhere = {
+            userId: user.id,
+            assetCurrency: currency,
+        };
+
         if (!user.cryptoSubAccountId) {
             throw new IncompleteAccountSetupException(
                 "Please complete your account setup or contact admin for support",
@@ -194,25 +315,74 @@ export class BuyOrderService {
             );
         }
 
-        const assetExist = await this.prisma.assetWallet.findFirst({
-            where: { userId: user.id, assetCurrency: dto.asset.toUpperCase() },
+        let assetWallet = await this.prisma.assetWallet.findFirst({
+            where: assetWalletWhere,
         });
 
-        if (!assetExist) {
+        if (!assetWallet) {
             throw new AssetNotFoundException(
                 `Asset ${dto.asset} not found for the user`,
                 HttpStatus.NOT_FOUND
             );
         }
 
-        if (!assetExist.depositAddress || !assetExist.defaultNetwork) {
+        let normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+            assetWallet.defaultNetwork
+        );
+
+        if (!normalizedDefaultNetwork) {
+            await this.walletAddressService.syncWallet(user.id, currency);
+
+            assetWallet =
+                (await this.prisma.assetWallet.findFirst({
+                    where: assetWalletWhere,
+                })) ?? assetWallet;
+
+            normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+                assetWallet.defaultNetwork
+            );
+        }
+
+        const fallbackWalletAddress =
+            !assetWallet.depositAddress || !normalizedDefaultNetwork
+                ? await this.getFallbackBuyWalletAddress({
+                    userId: user.id,
+                    assetSymbol: currency,
+                    normalizedDefaultNetwork,
+                })
+                : null;
+
+        let resolvedWalletAddress: {
+            address: string;
+            network: string | null;
+            destinationTag: string | null;
+        } | null = null;
+
+        if (assetWallet.depositAddress && normalizedDefaultNetwork) {
+            resolvedWalletAddress = {
+                address: assetWallet.depositAddress,
+                network: normalizedDefaultNetwork,
+                destinationTag: assetWallet.destinationTag ?? null,
+            };
+        } else if (fallbackWalletAddress) {
+            resolvedWalletAddress = {
+                address: fallbackWalletAddress.address,
+                network: fallbackWalletAddress.network,
+                destinationTag: fallbackWalletAddress.destination_tag ?? null,
+            };
+        }
+
+        const depositAddress = resolvedWalletAddress?.address ?? null;
+        const defaultNetwork = resolvedWalletAddress?.network ?? null;
+        const destinationTag = resolvedWalletAddress?.destinationTag ?? null;
+
+        if (!depositAddress || !defaultNetwork) {
             throw new WalletAddressNotFoundException(
                 `No wallet address found for asset ${dto.asset}`,
                 HttpStatus.NOT_FOUND
             );
         }
 
-        const currency = dto.asset.toUpperCase();
         // sell rate is used when user is buying.
         const rate = await this.rateService.getAssetRate(currency);
 
@@ -237,17 +407,16 @@ export class BuyOrderService {
             totalToChargeInCrypto,
             totalToChargeViaPaymentGateway,
             currency: "NGN",
-            paymentGateway: PaymentMethod.NOMBA,
-            depositAddress: assetExist.depositAddress,
-            destinationTag: assetExist.destinationTag,
+            paymentGateway: getPaymentMethodForBankProvider(buyPaymentProvider),
+            depositAddress,
+            destinationTag,
         };
     }
 
     /**
      * Places a buy order for crypto
-     * Creates a temporary Nomba virtual account for the user to transfer to.
-     * Returns payment instructions (account details, USSD code, expiry) instead
-     * of a checkout redirect URL.
+     * Creates provider-specific payment instructions for the user to complete.
+     * Returns either temporary virtual account details or a hosted checkout URL.
      */
     async buyCryptoOrder(user: User, dto: BuyCryptoOrderDto) {
         return this.distributedLockService.withLock(
@@ -282,6 +451,10 @@ export class BuyOrderService {
             }
         }
 
+        // Minimum amount validation
+        this.tradeHelpers.validateMinimumAmountInUSDT(dto.amount, dto.asset, MIN_BUY_AMOUNT_USDT, "buy");
+
+
         // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset + amount
         // Catches cases where frontend generates a new idempotencyKey (e.g. modal re-opened)
         // but user already has a non-expired pending buy order for the same asset and amount.
@@ -289,7 +462,7 @@ export class BuyOrderService {
             where: {
                 userId: user.id,
                 status: TransactionStatus.PENDING,
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 type: TransactionType.P2P_PAYMENT,
                 orderId: { not: null },
                 order: {
@@ -333,12 +506,15 @@ export class BuyOrderService {
         const amount = +responseData.totalToChargeViaPaymentGateway;
         Logger.log(`amount: ${typeof amount}`);
 
-        // Create a dynamic virtual account instead of a hosted checkout
-        const { data: vaData } =
-            await this.nombaService.initializePaymentViaVirtualAccount(
-                userData,
-                amount
-            );
+        const paymentGatewayData: InboundPaymentInitializationResult =
+            await this.inboundFiatPaymentService.initializePayment({
+                provider: buyPaymentProvider,
+                user: userData,
+                amount,
+                callbackUrl: frontendUrl,
+                modePreference: "virtual_account",
+                allowCheckoutFallback: true,
+            });
 
         const amtFiat = await this.getAmountInNaira(
             dto.asset,
@@ -372,7 +548,7 @@ export class BuyOrderService {
                 });
                 await tx.payment.create({
                     data: {
-                        reference: vaData.reference,
+                        reference: paymentGatewayData.reference,
                         userId: user.id,
                         amount:
                             responseData.buyRate * responseData.cryptoBuyAmount,
@@ -384,7 +560,9 @@ export class BuyOrderService {
                         type: TransactionType.P2P_PAYMENT,
                         status: TransactionStatus.PENDING,
                         paymentStatus: TransactionStatus.PENDING,
-                        paymentMethod: PaymentMethod.NOMBA,
+                        paymentMethod: getPaymentMethodForBankProvider(
+                            paymentGatewayData.provider
+                        ),
                         sessionId: generateId({ type: "sessionId" }),
                         transactionId: generateId({ type: "transaction" }),
                         title: `${COMPANY_NAME} p2p buy order payment`,
@@ -393,9 +571,26 @@ export class BuyOrderService {
                         isDebit: false,
                         expectedCurrency: responseData.currency,
                         idempotencyKey: dto.idempotencyKey || null,
-                        destinationBankAccountNumber: vaData.accountNumber,
-                        destinationBankAccountName: vaData.accountName,
-                        destinationBankName: vaData.bankName,
+                        externalReference:
+                            paymentGatewayData.mode === "checkout"
+                                ? paymentGatewayData.authorizationUrl
+                                : null,
+                        providerAccountReference:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.providerAccountReference
+                                : null,
+                        destinationBankAccountNumber:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.accountNumber
+                                : null,
+                        destinationBankAccountName:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.accountName
+                                : null,
+                        destinationBankName:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? paymentGatewayData.bankName
+                                : null,
                     },
                 });
 
@@ -429,27 +624,40 @@ export class BuyOrderService {
         });
 
         // Generate USSD code if bank is supported
-        const ussdCode = generateUssdCode(
-            vaData.bankCode,
-            vaData.accountNumber,
-            amount
-        );
+        const ussdCode =
+            paymentGatewayData.mode === "virtual_account"
+                ? generateUssdCode(
+                    paymentGatewayData.bankCode,
+                    paymentGatewayData.accountNumber,
+                    amount
+                )
+                : null;
 
         return buildResponse({
             message:
                 "Order placed successfully, Please proceed to make payment",
             data: {
                 order: order,
-                paymentInfo: {
-                    reference: vaData.reference,
-                    accountNumber: vaData.accountNumber,
-                    accountName: vaData.accountName,
-                    bankName: vaData.bankName,
-                    bankCode: vaData.bankCode,
-                    amount,
-                    expiryAt: vaData.expiryAt,
-                    ussdCode,
-                },
+                paymentInfo:
+                    paymentGatewayData.mode === "virtual_account"
+                        ? {
+                            reference: paymentGatewayData.reference,
+                            accountNumber: paymentGatewayData.accountNumber,
+                            accountName: paymentGatewayData.accountName,
+                            bankName: paymentGatewayData.bankName,
+                            bankCode: paymentGatewayData.bankCode,
+                            amount,
+                            expiryAt: paymentGatewayData.expiryAt,
+                            ussdCode,
+                        }
+                        : {
+                            authorization_url:
+                                paymentGatewayData.authorizationUrl,
+                            reference: paymentGatewayData.reference,
+                            amount: paymentGatewayData.amount,
+                            expiryAt: paymentGatewayData.expiryAt,
+                            ussdCode: null,
+                        },
             },
         });
             },
@@ -499,20 +707,29 @@ export class BuyOrderService {
                 // Another webhook instance is currently processing - let that one finish
                 this.logger.log(`Payment ${reference} currently being processed by another instance`);
             } else if (existing.status === TransactionStatus.FAILED) {
-                // Payment was cancelled but Nomba still sent money — needs manual refund
+                const provider = this.getBuyPaymentProvider(existing.paymentMethod);
+                const receivedAmount = this.buildManualRefundAlertAmount(existing);
+
+                // Payment was cancelled but funds still arrived — needs manual refund
                 this.logger.error(
                     `Payment ${reference} was cancelled/failed but received funds — manual refund required`
                 );
                 await this.slackWebhookService.sendWebhookFailureAlert(
-                    'nomba',
+                    provider,
                     reference,
                     'Payment received for a cancelled/failed order. Manual refund required.',
                     {
                         paymentId: existing.id,
                         orderId: existing.orderId,
                         userId: existing.userId,
-                        amount: Number(existing.totalAmount),
+                        amount: receivedAmount,
+                        expectedAmount: Number(existing.totalAmount),
+                        receivedAmount,
                         status: existing.status,
+                        senderAccountNumber: existing.senderAccountNumber,
+                        senderAccountName: existing.senderAccountName,
+                        senderBankName: existing.senderBankName,
+                        externalReference: existing.externalReference,
                     }
                 );
             } else {
@@ -645,6 +862,7 @@ export class BuyOrderService {
                     currency: order.currency,
                     status: 'completed',
                     date: new Date().toISOString(),
+                    notice: message,
                 },
                 enablePush: true,
             });
@@ -705,20 +923,30 @@ export class BuyOrderService {
             );
         }
 
+        const paymentInfo = existingPayment.destinationBankAccountNumber
+            ? {
+                reference: existingPayment.reference,
+                accountNumber: existingPayment.destinationBankAccountNumber || "",
+                accountName: existingPayment.destinationBankAccountName || "",
+                bankName: existingPayment.destinationBankName || "",
+                bankCode: "",
+                amount: Number(existingPayment.totalAmount),
+                expiryAt,
+                ussdCode: null,
+            }
+            : {
+                authorization_url: existingPayment.externalReference || "",
+                reference: existingPayment.reference,
+                amount: Number(existingPayment.totalAmount),
+                expiryAt,
+                ussdCode: null,
+            };
+
         return buildResponse({
             message: "Order already exists for this request",
             data: {
                 order: existingPayment.order,
-                paymentInfo: {
-                    reference: existingPayment.reference,
-                    accountNumber: existingPayment.destinationBankAccountNumber || "",
-                    accountName: existingPayment.destinationBankAccountName || "",
-                    bankName: existingPayment.destinationBankName || "",
-                    bankCode: "",
-                    amount: Number(existingPayment.totalAmount),
-                    expiryAt,
-                    ussdCode: null,
-                },
+                paymentInfo,
             },
         });
     }
@@ -758,12 +986,21 @@ export class BuyOrderService {
         }
 
         const order = payment.order;
-        const statusMap: Record<string, string> = {
-            [TransactionStatus.SUCCESS]: "completed",
-            [TransactionStatus.FAILED]: "failed",
-            [TransactionStatus.APPROVED]: "processing",
-        };
-        const status = statusMap[payment.status] ?? "pending";
+
+        // Derive client-facing status from payment + order state.
+        // A cancelled order has payment.status = FAILED (set by cancelBuyOrder) and
+        // order.status = cancelled. Distinguish it from a genuine payment failure so
+        // the frontend can show the correct message to the user.
+        let status: string;
+        if (payment.status === TransactionStatus.SUCCESS) {
+            status = "completed";
+        } else if (payment.status === TransactionStatus.APPROVED) {
+            status = "processing";
+        } else if (payment.status === TransactionStatus.FAILED) {
+            status = order?.status === OrderStatus.cancelled ? "cancelled" : "failed";
+        } else {
+            status = "pending";
+        }
 
         return buildResponse({
             message: "Buy order status retrieved",
@@ -784,7 +1021,7 @@ export class BuyOrderService {
     async cancelBuyOrder(reference: string, userId: number) {
         const payment = await this.prisma.payment.findFirst({
             where: { reference, userId, status: TransactionStatus.PENDING },
-            include: { order: true },
+            include: { order: true, user: true },
         });
 
         if (!payment) {
@@ -837,10 +1074,12 @@ export class BuyOrderService {
             });
         }
 
+        await this.releaseReservedBuyLimit(payment);
+
         // Emit updates
         if (payment.order) {
             const updatedOrder = await this.prisma.order.findUnique({
-                where: { id: payment.orderId! },
+                where: { id: payment.orderId },
             });
             if (updatedOrder) {
                 this.emitTransactionUpdate(userId, updatedOrder);
@@ -848,18 +1087,38 @@ export class BuyOrderService {
         }
         this.wsGateway.notifyWalletUpdate(userId);
 
-        // Send cancellation notification (push only - user initiated this)
+        // Send cancellation notification (push + email)
         if (payment.order) {
+            const message = `Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled. Transaction ID: ${payment.order.transactionId}.`;
             await this.notificationDispatcher.notify({
                 userId: userId,
                 title: "Buy order cancelled",
-                body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled. Transaction ID: ${payment.order.transactionId}.`,
+                body: `\uD83D\uDEAB ${message}`,
                 category: "transaction",
                 currency: payment.order.currency,
                 transactionType: OrderCategory.BUY,
+                enableEmail: true,
+                emailPayload: {
+                    email: payment.user?.email || '',
+                    transactionType: 'buy',
+                    transactionId: payment.order.transactionId,
+                    amount: String(payment.order.amount),
+                    currency: payment.order.currency.toUpperCase(),
+                    status: 'cancelled',
+                    date: new Date().toISOString(),
+                    notice: message,
+                },
                 enablePush: true,
             });
         }
+
+        // Best-effort: release provider-side pending payment artifacts when applicable.
+        await this.inboundFiatPaymentService
+            .cleanupPendingPayment({
+                provider: this.getBuyPaymentProvider(payment.paymentMethod),
+                reference: payment.providerAccountReference || payment.reference,
+            })
+            .catch(() => {});
 
         this.logger.log(
             `Buy order cancelled by user ${userId} | Payment ref: ${reference}`
@@ -957,7 +1216,7 @@ export class BuyOrderService {
         const stuckPayments = await this.prisma.payment.findMany({
             where: {
                 status: TransactionStatus.PENDING,
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 type: TransactionType.P2P_PAYMENT,
                 orderId: { not: null },
                 // Only alert payments we haven't already alerted
@@ -982,10 +1241,13 @@ export class BuyOrderService {
 
         for (const payment of stuckPayments) {
             try {
+                const provider = this.getBuyPaymentProvider(payment.paymentMethod);
+                const providerLabel = this.getBuyPaymentProviderLabel(payment.paymentMethod);
+
                 await this.slackWebhookService.sendWebhookFailureAlert(
-                    "nomba",
+                    provider,
                     payment.reference,
-                    "User confirmed payment sent but Nomba webhook never arrived. Manual verification required.",
+                    `User confirmed payment sent but ${providerLabel} webhook never arrived. Manual verification required.`,
                     {
                         orderId: payment.orderId,
                         transactionId: payment.order?.transactionId,
@@ -1022,18 +1284,21 @@ export class BuyOrderService {
      * Cancel expired buy orders.
      * Called by a scheduled job to clean up orders whose virtual account expired
      * without receiving payment.
-     * NOTE: Excludes orders where user confirmed they sent payment — those are
-     * routed to the stuck-order detector for admin review instead.
+     * NOTE: Excludes orders where user confirmed they sent payment or where
+     * partial funds were already received — those are routed to manual review
+     * and the underpayment refund flow instead.
      */
     async cancelExpiredBuyOrders() {
         const expiredPayments = await this.prisma.payment.findMany({
             where: {
                 status: TransactionStatus.PENDING,
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 type: TransactionType.P2P_PAYMENT,
                 orderId: { not: null },
                 // Don't auto-cancel orders where user confirmed payment — admin must review
                 paymentConfirmedByUser: null,
+                // Don't auto-cancel underpaid orders that already need the 2-hour refund path
+                receivedAmount: null,
                 // Orders older than 35 minutes (5 min buffer beyond 30 min VA expiry)
                 createdAt: {
                     lt: new Date(Date.now() - 35 * 60 * 1000),
@@ -1083,6 +1348,8 @@ export class BuyOrderService {
 
                 if (!didCancel) continue;
 
+                await this.releaseReservedBuyLimit(payment);
+
                 // Emit updates
                 if (payment.order) {
                     this.emitTransactionUpdate(payment.userId, {
@@ -1097,10 +1364,11 @@ export class BuyOrderService {
 
                 // Send expired cancellation notification (push + email - user may not be in app)
                 if (payment.order) {
+                    const expiredMessage = `Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled because the payment window expired. Transaction ID: ${payment.order.transactionId}.`;
                     await this.notificationDispatcher.notify({
                         userId: payment.userId,
                         title: "Buy order expired",
-                        body: `\uD83D\uDEAB Your buy order of ${payment.order.amount} ${payment.order.currency.toUpperCase()} was cancelled because the payment window expired. Transaction ID: ${payment.order.transactionId}.`,
+                        body: `\uD83D\uDEAB ${expiredMessage}`,
                         category: "transaction",
                         currency: payment.order.currency,
                         transactionType: OrderCategory.BUY,
@@ -1113,10 +1381,19 @@ export class BuyOrderService {
                             currency: payment.order.currency.toUpperCase(),
                             status: 'cancelled',
                             date: new Date().toISOString(),
+                            notice: expiredMessage,
                         },
                         enablePush: true,
                     });
                 }
+
+                // Best-effort: release provider-side pending payment artifacts when applicable.
+                await this.inboundFiatPaymentService
+                    .cleanupPendingPayment({
+                        provider: this.getBuyPaymentProvider(payment.paymentMethod),
+                        reference: payment.providerAccountReference || payment.reference,
+                    })
+                    .catch(() => {});
 
                 this.logger.log(
                     `Cancelled expired buy order | Payment: ${payment.id} | Ref: ${payment.reference}`
@@ -1140,7 +1417,7 @@ export class BuyOrderService {
     async cancelUnderpaidBuyOrders() {
         const underpaidPayments = await this.prisma.payment.findMany({
             where: {
-                paymentMethod: PaymentMethod.NOMBA,
+                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
                 orderId: { not: null },
                 receivedAmount: { not: null },
                 status: TransactionStatus.PENDING,
@@ -1168,6 +1445,9 @@ export class BuyOrderService {
 
         for (const payment of toCancel) {
             try {
+                const provider = this.getBuyPaymentProvider(payment.paymentMethod);
+                const providerLabel = this.getBuyPaymentProviderLabel(payment.paymentMethod);
+
                 const didCancel = await this.prisma.$transaction(async (tx) => {
                     const updated = await tx.payment.updateMany({
                         where: { id: payment.id, status: TransactionStatus.PENDING },
@@ -1197,6 +1477,8 @@ export class BuyOrderService {
 
                 if (!didCancel) continue;
 
+                await this.releaseReservedBuyLimit(payment);
+
                 if (payment.order) {
                     this.emitTransactionUpdate(payment.userId, {
                         ...payment.order,
@@ -1212,10 +1494,11 @@ export class BuyOrderService {
                 if (payment.order) {
                     const expected = Number(payment.totalAmount);
                     const received = Number(payment.receivedAmount);
+                    const underpaidMessage = `Your payment of \u20a6${received} was less than the required \u20a6${expected}. Order #${payment.order.transactionId} has been cancelled. Our team will process your refund shortly.`;
                     await this.notificationDispatcher.notify({
                         userId: payment.userId,
                         title: "Buy order cancelled - underpayment",
-                        body: `⚠️ Your payment of ₦${received} was less than the required ₦${expected}. Order #${payment.order.transactionId} has been cancelled. Our team will process your refund shortly.`,
+                        body: `\u26a0\ufe0f ${underpaidMessage}`,
                         category: "transaction",
                         currency: payment.order.currency,
                         transactionType: OrderCategory.BUY,
@@ -1228,6 +1511,7 @@ export class BuyOrderService {
                             currency: payment.order.currency.toUpperCase(),
                             status: 'cancelled',
                             date: new Date().toISOString(),
+                            notice: underpaidMessage,
                         },
                         enablePush: true,
                     });
@@ -1235,11 +1519,12 @@ export class BuyOrderService {
 
                 // Slack alert with sender details for ops refund
                 await this.slackWebhookService.sendWebhookFailureAlert(
-                    'nomba',
+                    provider,
                     payment.reference,
                     `Underpaid buy order auto-cancelled after 2h grace period. ` +
                     `Expected ₦${Number(payment.totalAmount)}, received ₦${Number(payment.receivedAmount)}. ` +
                     `Sender: ${payment.senderAccountName || 'N/A'} (${payment.senderAccountNumber || 'N/A'}) @ ${payment.senderBankName || 'N/A'}. ` +
+                    `${providerLabel} refund/manual review required. ` +
                     `Ops must process refund of ₦${Number(payment.receivedAmount)}.`,
                     {
                         orderId: payment.orderId,
@@ -1250,6 +1535,14 @@ export class BuyOrderService {
                         senderBankName: payment.senderBankName,
                     },
                 );
+
+                // Best-effort: release provider-side pending payment artifacts when applicable.
+                await this.inboundFiatPaymentService
+                    .cleanupPendingPayment({
+                        provider: provider,
+                        reference: payment.providerAccountReference || payment.reference,
+                    })
+                    .catch(() => {});
 
                 this.logger.log(
                     `Cancelled underpaid buy order | Payment: ${payment.id} | Ref: ${payment.reference} | Received: ₦${Number(payment.receivedAmount)} of ₦${Number(payment.totalAmount)}`,

@@ -227,11 +227,20 @@ export default async function createServer(
 
     waitForRedis(redisConfig);
 
-    if (process.env.ENABLE_REDIS_SOCKET_ADAPTER === "true") {
+    // Enable Redis adapter for Socket.IO by default in production/staging,
+    // opt out explicitly with ENABLE_REDIS_SOCKET_ADAPTER=false.
+    // In development, opt in with ENABLE_REDIS_SOCKET_ADAPTER=true.
+    const enableRedisAdapter =
+        process.env.ENABLE_REDIS_SOCKET_ADAPTER === "true" ||
+        (isProdEnvironment && process.env.ENABLE_REDIS_SOCKET_ADAPTER !== "false");
+
+    if (enableRedisAdapter) {
         const redisIoAdapter = new RedisIoAdapter(app);
         await redisIoAdapter.connectToRedis();
         app.useWebSocketAdapter(redisIoAdapter);
         logger.log("Socket.IO Redis adapter enabled");
+    } else {
+        logger.warn("Socket.IO using in-memory adapter — multi-instance deployments will not share socket state");
     }
 
     app.listen(options.port);

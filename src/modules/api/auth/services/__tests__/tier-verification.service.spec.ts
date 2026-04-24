@@ -1,5 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { HttpException, ForbiddenException } from "@nestjs/common";
+import { HttpException } from "@nestjs/common";
 
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
@@ -31,10 +31,17 @@ jest.mock("@/config", () => ({
 }));
 
 jest.mock("@/core/validators/file-validator", () => ({
+    isPdfFile: jest.fn((mimetype?: string) => mimetype === "application/pdf"),
     validateDocumentFile: jest.fn(),
 }));
 
 jest.mock("@/libs/ocr", () => ({
+    OcrDocumentPreparationError: class OcrDocumentPreparationError extends Error {
+        constructor(message: string) {
+            super(message);
+            this.name = "OcrDocumentPreparationError";
+        }
+    },
     validateAddressDocument: jest.fn(),
     validateIncomeDocument: jest.fn(),
 }));
@@ -52,7 +59,11 @@ import { TierService } from "../tier.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { validateDocumentFile } from "@/core/validators/file-validator";
-import { validateAddressDocument, validateIncomeDocument } from "@/libs/ocr";
+import {
+    OcrDocumentPreparationError,
+    validateAddressDocument,
+    validateIncomeDocument,
+} from "@/libs/ocr";
 
 function makePrisma() {
     return {
@@ -91,6 +102,8 @@ describe("TierVerificationService", () => {
         email: "test@test.com",
         firstName: "John",
         lastName: "Doe",
+        residentialAddress: "10 Main Street Lagos",
+        isDocumentVerified: true,
         isAddressVerified: false,
         isIncomeVerified: false,
         isBvnVerified: false,
@@ -111,7 +124,12 @@ describe("TierVerificationService", () => {
         prisma.user.findFirst.mockResolvedValue(null);
         mockUploadService = {
             upload: jest.fn().mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
-            uploadCompressedImage: jest.fn().mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
+            uploadImage: jest
+                .fn()
+                .mockResolvedValue({ url: "https://cdn.test.com/doc.pdf" }),
+            uploadCompressedImage: jest
+                .fn()
+                .mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
         };
 
         const mockUploadFactory = {
@@ -148,7 +166,39 @@ describe("TierVerificationService", () => {
                 error: "File too large",
             });
 
-            await expect(service.verifyAddress(mockUser, mockFile)).rejects.toThrow(HttpException);
+            await expect(
+                service.verifyAddress(mockUser, mockFile),
+            ).rejects.toThrow(HttpException);
+        });
+
+        it("should throw if address verification is already pending", async () => {
+            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+
+            await expect(
+                service.verifyAddress(
+                    { ...mockUser, addressVerificationStatus: "PENDING" },
+                    mockFile,
+                ),
+            ).rejects.toThrow("Address verification is pending review");
+        });
+
+        it("should reject address verification until document verification is complete", async () => {
+            (validateDocumentFile as jest.Mock).mockClear();
+
+            await expect(
+                service.verifyAddress(
+                    {
+                        ...mockUser,
+                        isDocumentVerified: false,
+                        documentVerificationStatus: null,
+                    },
+                    mockFile,
+                ),
+            ).rejects.toThrow(
+                "Complete identity document verification before submitting address verification.",
+            );
+
+            expect(validateDocumentFile).not.toHaveBeenCalled();
         });
 
         it("should flag for manual review when OCR requires it", async () => {
@@ -157,6 +207,7 @@ describe("TierVerificationService", () => {
                 confidence: 0.4,
                 matchedName: false,
                 matchedAddress: true,
+                matchedResidentialAddress: false,
                 requiresManualReview: true,
                 reason: "Low confidence",
             });
@@ -166,6 +217,17 @@ describe("TierVerificationService", () => {
             const result = await service.verifyAddress(mockUser, mockFile);
             expect(result.message).toContain("reviewed by our team");
             expect(result.data.status).toBe("PENDING");
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
+            expect(prisma.kycVerification.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        providerRawResponse: expect.objectContaining({
+                            matchedResidentialAddress: false,
+                            residentialAddressPresent: true,
+                        }),
+                    }),
+                }),
+            );
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "tpl-pending-review",
@@ -177,29 +239,130 @@ describe("TierVerificationService", () => {
             );
         });
 
-        it("should auto-approve when OCR passes", async () => {
+        it("should still queue address for manual review when OCR passes", async () => {
             (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.95,
                 matchedName: true,
                 matchedAddress: true,
+                matchedResidentialAddress: true,
                 requiresManualReview: false,
             });
             prisma.user.update.mockResolvedValue({});
             prisma.kycVerification.create.mockResolvedValue({});
 
             const result = await service.verifyAddress(mockUser, mockFile);
-            expect(result.message).toBe("Address verified successfully");
-            expect(result.data.status).toBe("VERIFIED");
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(1);
+            expect(result.message).toContain("reviewed by our team");
+            expect(result.data.status).toBe("PENDING");
+            expect(prisma.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        addressVerificationStatus: "PENDING",
+                    }),
+                }),
+            );
+            expect(prisma.kycVerification.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        verificationType: "ADDRESS",
+                        status: "PENDING",
+                    }),
+                }),
+            );
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
+        });
+
+        it("uploads PDF address documents without image compression", async () => {
+            const pdfFile = {
+                ...mockFile,
+                mimetype: "application/pdf",
+                originalname: "utility-bill.pdf",
+            } as Express.Multer.File;
+
+            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateAddressDocument as jest.Mock).mockResolvedValue({
+                confidence: 0,
+                matchedName: false,
+                matchedAddress: false,
+                matchedResidentialAddress: null,
+                requiresManualReview: true,
+                reason: "Could not extract text from document. Please upload a clearer image.",
+            });
+            prisma.user.update.mockResolvedValue({});
+            prisma.kycVerification.create.mockResolvedValue({});
+
+            const result = await service.verifyAddress(mockUser, pdfFile);
+
+            expect(result.data.status).toBe("PENDING");
+            expect(mockUploadService.uploadImage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    dir: "/var/lib/flipxer/test-docs/address",
+                    name: expect.stringMatching(/^address-doc-\d+-\d+\.pdf$/),
+                }),
+            );
+            expect(
+                mockUploadService.uploadCompressedImage,
+            ).not.toHaveBeenCalled();
+        });
+
+        it("maps compression failures to a bad-request error", async () => {
+            const compressionError = Object.assign(
+                new Error("unsupported image format"),
+                {
+                    name: "ImageCompressionError",
+                },
+            );
+
+            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            mockUploadService.uploadCompressedImage.mockRejectedValue(
+                compressionError,
+            );
+
+            await expect(
+                service.verifyAddress(mockUser, mockFile),
+            ).rejects.toThrow(
+                "Unsupported document format. Please upload a JPEG, PNG, or PDF file.",
+            );
+
+            expect(prisma.user.update).not.toHaveBeenCalled();
+            expect(prisma.kycVerification.create).not.toHaveBeenCalled();
+        });
+
+        it("maps unreadable PDF OCR failures to a bad-request error", async () => {
+            const pdfFile = {
+                ...mockFile,
+                mimetype: "application/pdf",
+                originalname: "utility-bill.pdf",
+            } as Express.Multer.File;
+
+            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateAddressDocument as jest.Mock).mockRejectedValue(
+                new OcrDocumentPreparationError(
+                    "Unsupported or unreadable PDF document. Please upload a valid PDF or image file.",
+                ),
+            );
+
+            await expect(
+                service.verifyAddress(mockUser, pdfFile),
+            ).rejects.toThrow(
+                "Unsupported or unreadable PDF document. Please upload a valid PDF or image file.",
+            );
+
+            expect(prisma.user.update).not.toHaveBeenCalled();
+            expect(prisma.kycVerification.create).not.toHaveBeenCalled();
         });
     });
 
     // ==================== Income Verification (File Upload) ====================
 
     describe("verifyIncome", () => {
+        const eligibleIncomeUser = { ...mockUser, isAddressVerified: true };
+
         it("should return early if income is already verified", async () => {
-            const verifiedUser = { ...mockUser, isIncomeVerified: true };
+            const verifiedUser = {
+                ...eligibleIncomeUser,
+                isIncomeVerified: true,
+            };
             const result = await service.verifyIncome(verifiedUser, mockFile);
             expect(result.message).toBe("Income is already verified");
         });
@@ -210,7 +373,28 @@ describe("TierVerificationService", () => {
                 error: "Invalid mime type",
             });
 
-            await expect(service.verifyIncome(mockUser, mockFile)).rejects.toThrow(HttpException);
+            await expect(
+                service.verifyIncome(eligibleIncomeUser, mockFile),
+            ).rejects.toThrow(HttpException);
+        });
+
+        it("should reject income verification until address verification is complete", async () => {
+            (validateDocumentFile as jest.Mock).mockClear();
+
+            await expect(
+                service.verifyIncome(
+                    {
+                        ...mockUser,
+                        isAddressVerified: false,
+                        addressVerificationStatus: null,
+                    },
+                    mockFile,
+                ),
+            ).rejects.toThrow(
+                "Complete address verification before submitting income verification.",
+            );
+
+            expect(validateDocumentFile).not.toHaveBeenCalled();
         });
 
         it("should flag for manual review", async () => {
@@ -224,7 +408,10 @@ describe("TierVerificationService", () => {
             prisma.user.update.mockResolvedValue({});
             prisma.kycVerification.create.mockResolvedValue({});
 
-            const result = await service.verifyIncome(mockUser, mockFile);
+            const result = await service.verifyIncome(
+                eligibleIncomeUser,
+                mockFile,
+            );
             expect(result.data.status).toBe("PENDING");
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -247,7 +434,10 @@ describe("TierVerificationService", () => {
             prisma.user.update.mockResolvedValue({});
             prisma.kycVerification.create.mockResolvedValue({});
 
-            const result = await service.verifyIncome(mockUser, mockFile);
+            const result = await service.verifyIncome(
+                eligibleIncomeUser,
+                mockFile,
+            );
             expect(result.message).toBe("Income verified successfully");
             expect(result.data.status).toBe("VERIFIED");
         });
@@ -266,7 +456,7 @@ describe("TierVerificationService", () => {
                     tradingPassword,
                     confirmTradingPassword,
                     accountPassword,
-                } as any)
+                } as any),
             ).rejects.toThrow("Passwords do not match");
         });
 

@@ -14,6 +14,15 @@ jest.mock("bcryptjs", () => ({
 }));
 
 import {
+    AUTHENTICATOR_OR_BACKUP_CODE_REGEX,
+    BACKUP_CODE_GROUP_COUNT,
+    BACKUP_CODE_GROUP_LENGTH,
+    BACKUP_CODE_INPUT_MAX_LENGTH,
+    BACKUP_CODE_INPUT_PATTERN,
+    BACKUP_CODE_RAW_LENGTH,
+    DEFAULT_BACKUP_CODES_COUNT,
+} from "../backup-codes.constants";
+import {
     generateBackupCodes,
     hashBackupCodes,
     removeUsedBackupCode,
@@ -33,8 +42,8 @@ describe("auth utils", () => {
 
     it("generates unique formatted backup codes even when random output repeats", () => {
         const seq = [
-            ...Array(20).fill(0), // first two generated codes are duplicates (AAAAAAAAAA)
-            ...Array(10).fill(1), // third generated code is different (BBBBBBBBBB)
+            ...new Array(40).fill(0), // first two generated codes are duplicates (AAAA...)
+            ...new Array(20).fill(1), // third generated code is different (BBBB...)
         ];
         randomIntMock.mockImplementation(() => {
             if (!seq.length) return 2;
@@ -43,9 +52,9 @@ describe("auth utils", () => {
 
         const codes = generateBackupCodes(2);
 
-        expect(codes).toEqual(["AAAA-AAAA-AA", "BBBB-BBBB-BB"]);
+        expect(codes).toEqual(["AAAAA-AAAAA-AAAAA-AAAAA", "BBBBB-BBBBB-BBBBB-BBBBB"]);
         expect(codes).toHaveLength(2);
-        expect(codes.every((c) => /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{2}$/.test(c))).toBe(true);
+        expect(codes.every((c) => /^[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(c))).toBe(true);
     });
 
     it("uses default count when count is omitted", () => {
@@ -57,8 +66,26 @@ describe("auth utils", () => {
 
         const codes = generateBackupCodes();
 
-        expect(codes).toHaveLength(10);
-        expect(new Set(codes).size).toBe(10);
+        expect(codes).toHaveLength(5);
+        expect(new Set(codes).size).toBe(5);
+    });
+
+    it("exposes backup code constants and regex patterns", () => {
+        expect(BACKUP_CODE_GROUP_LENGTH).toBe(5);
+        expect(BACKUP_CODE_GROUP_COUNT).toBe(4);
+        expect(BACKUP_CODE_RAW_LENGTH).toBe(20);
+        expect(BACKUP_CODE_INPUT_MAX_LENGTH).toBe(23);
+        expect(DEFAULT_BACKUP_CODES_COUNT).toBe(5);
+
+        const backupCodeRegex = new RegExp(`^${BACKUP_CODE_INPUT_PATTERN}$`);
+
+        expect(backupCodeRegex.test("ABCDE-FGHIJ-KLMNO-PQRST")).toBe(true);
+        expect(backupCodeRegex.test("ABCDEFGHIJKLMNOPQRST")).toBe(true);
+        expect(AUTHENTICATOR_OR_BACKUP_CODE_REGEX.test("123456")).toBe(true);
+        expect(
+            AUTHENTICATOR_OR_BACKUP_CODE_REGEX.test("ABCDE FGHIJ KLMNO PQRST")
+        ).toBe(true);
+        expect(AUTHENTICATOR_OR_BACKUP_CODE_REGEX.test("12345")).toBe(false);
     });
 
     it("hashes backup codes", async () => {

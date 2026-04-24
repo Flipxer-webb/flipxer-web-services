@@ -5,6 +5,7 @@ import { AuthModule } from "@/modules/api/auth";
 import { PrismaModule } from "@/modules/core/prisma";
 import { TradingModule } from "@/modules/api/trade";
 import { SessionModule } from "@/modules/api/session";
+import { IdentityComplianceFactoryModule } from "@/modules/factory/identityCompliance";
 
 @Module({
     imports: [
@@ -12,6 +13,7 @@ import { SessionModule } from "@/modules/api/session";
         forwardRef(() => TradingModule),
         PrismaModule,
         SessionModule,
+        IdentityComplianceFactoryModule,
     ],
     controllers: [KycController],
     providers: [KycService],

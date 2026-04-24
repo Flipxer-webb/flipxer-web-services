@@ -12,12 +12,31 @@ export class AssetBalanceSchedulerService {
     private readonly logger = new Logger("ManageBalanceScheduler");
     private readonly mutex = new Mutex(); // Create a Mutex instance
     private readonly depositSyncMutex = new Mutex(); // Separate mutex for deposit sync
+    private readonly walletAddressPendingMaxAgeMs = 30 * 60 * 1000;
 
     constructor(
         private readonly prisma: PrismaService,
         private readonly cryptoAccountProducer: CryptoAccountQueueProducer,
         private readonly tradingService: TradingService
     ) {}
+
+    private isStalePendingWalletAddress(updatedAt: Date): boolean {
+        return Date.now() - updatedAt.getTime() >= this.walletAddressPendingMaxAgeMs;
+    }
+
+    private async markWalletAddressFailed(
+        id: number,
+        walletAddressId: string,
+        reason: string
+    ): Promise<void> {
+        this.logger.warn(
+            `[WALLET SYNC] Address ${walletAddressId} ${reason} — marking as FAILED`
+        );
+        await this.prisma.cryptoWalletAddress.update({
+            where: { id },
+            data: { status: CryptoWalletStatus.FAILED },
+        });
+    }
 
     //every 15 minute
     @Cron("*/15 * * * *", { timeZone: "Africa/Lagos" })
@@ -64,20 +83,17 @@ export class AssetBalanceSchedulerService {
         // Use the mutex to ensure only one execution at a time
         const release = await this.mutex.acquire();
         try {
-            const cutoffTime = new Date();
-            cutoffTime.setHours(cutoffTime.getHours() - 2); //2hrs
-
-            // Fetch all pending address
+            // Fetch all pending addresses so older records are retried until resolved
             const pendingAddresses =
                 await this.prisma.cryptoWalletAddress.findMany({
                     where: {
                         status: CryptoWalletStatus.PENDING,
-                        createdAt: { gte: cutoffTime },
                     },
                     select: {
                         id: true,
                         walletAddressId: true,
                         assetSymbol: true,
+                        updatedAt: true,
                         user: { select: { cryptoSubAccountId: true } },
                     },
                 });
@@ -94,7 +110,7 @@ export class AssetBalanceSchedulerService {
             // Process transactions in parallel
             await Promise.allSettled(
                 pendingAddresses.map(
-                    async ({ id, walletAddressId, assetSymbol, user }) => {
+                    async ({ id, walletAddressId, assetSymbol, updatedAt, user }) => {
                         try {
                             if (user.cryptoSubAccountId) {
                                 const response =
@@ -118,19 +134,25 @@ export class AssetBalanceSchedulerService {
                                                 response.data.destination_tag,
                                         }
                                     );
+                                } else if (
+                                    this.isStalePendingWalletAddress(updatedAt)
+                                ) {
+                                    await this.markWalletAddressFailed(
+                                        id,
+                                        walletAddressId,
+                                        "still has no generated address after 30 minutes"
+                                    );
                                 }
                             }
                         } catch (error) {
                             // If Quidax returns 404, the address doesn't exist on their side.
                             // Mark it FAILED to stop retrying every 15 minutes.
                             if (error instanceof QuidaxException && error.getStatus() === 404) {
-                                this.logger.warn(
-                                    `[WALLET SYNC] Address ${walletAddressId} not found on Quidax (404) — marking as FAILED`
+                                await this.markWalletAddressFailed(
+                                    id,
+                                    walletAddressId,
+                                    "not found on Quidax (404)"
                                 );
-                                await this.prisma.cryptoWalletAddress.update({
-                                    where: { id },
-                                    data: { status: CryptoWalletStatus.FAILED },
-                                });
                                 return;
                             }
                             this.logger.error(

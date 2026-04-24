@@ -5,6 +5,7 @@ import {
     LedgerType,
     WithdrawalQueue,
     OrderCategory,
+    OrderStatus,
     Prisma,
 } from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -12,6 +13,8 @@ import { LedgerService } from "./ledger.service";
 import { Decimal } from "@prisma/client/runtime/library";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
+import { WsGateway } from "../../gateway/v1";
+import { getStreamlinedStatus } from "../../interfaces/trade";
 
 /**
  * Result of a queue operation
@@ -109,6 +112,7 @@ export class WithdrawalQueueService {
         private readonly ledgerService: LedgerService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly notificationMessage: NotificationMessageService,
+        private readonly wsGateway: WsGateway,
     ) {}
 
     /**
@@ -288,6 +292,125 @@ export class WithdrawalQueueService {
         this.logger.log(`Queue entry released | queueId: ${queueId}`);
     }
 
+    private async markTimedOutOrders(queueEntry: {
+        holdEntryId: string;
+        userId: number;
+        id: string;
+    }): Promise<void> {
+        const relatedOrders = await this.prisma.order.findMany({
+            where: {
+                ledgerEntryId: queueEntry.holdEntryId,
+                orderCategory: OrderCategory.SEND,
+                status: {
+                    in: [
+                        OrderStatus.submitted,
+                        OrderStatus.pending,
+                        OrderStatus.processing,
+                        OrderStatus.accepted,
+                    ],
+                },
+            },
+        });
+
+        for (const order of relatedOrders) {
+            const updatedOrder = await this.prisma.order.update({
+                where: { id: order.id },
+                data: {
+                    status: OrderStatus.failed,
+                    streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
+                    reason: `Withdrawal timed out after ${this.QUEUE_TIMEOUT_HOURS}h in queue and funds were refunded`,
+                },
+            });
+
+            this.wsGateway.notifyTransactionUpdate(queueEntry.userId, {
+                type: "transaction_update",
+                transaction: {
+                    id: updatedOrder.id,
+                    transactionId: updatedOrder.transactionId,
+                    status: updatedOrder.status,
+                    streamlinedStatus: updatedOrder.streamlinedStatus,
+                    orderCategory: updatedOrder.orderCategory,
+                    amount: updatedOrder.amount,
+                    currency: updatedOrder.currency,
+                    createdAt: updatedOrder.createdAt,
+                    updatedAt: updatedOrder.updatedAt,
+                },
+            });
+        }
+    }
+
+    private async handleTimeoutReleaseSuccess(queueEntry: {
+        id: string;
+        holdEntryId: string;
+        userId: number;
+        currency: string;
+        amount: Decimal;
+        queuedAt: Date;
+        user?: { email: string } | null;
+    }): Promise<void> {
+        try {
+            await this.markTimedOutOrders(queueEntry);
+        } catch (orderError) {
+            this.logger.error(
+                `Failed to mark timed-out order for queue entry ${queueEntry.id}: ${orderError.message}`
+            );
+        }
+
+        this.logger.log(
+            `Timeout refund processed | ${JSON.stringify({
+                queueId: queueEntry.id,
+                userId: queueEntry.userId,
+                currency: queueEntry.currency,
+                amount: queueEntry.amount.toString(),
+                queuedAt: queueEntry.queuedAt,
+            })}`
+        );
+
+        try {
+            const message = this.notificationMessage.sendWithdrawalRefunded({
+                amount: queueEntry.amount.toString(),
+                currency: queueEntry.currency,
+                transactionId: queueEntry.id,
+            });
+            await this.notificationDispatcher.notify({
+                userId: queueEntry.userId,
+                title: "Withdrawal refunded",
+                body: message,
+                category: "transaction",
+                currency: queueEntry.currency,
+                transactionType: OrderCategory.SEND,
+                enableEmail: true,
+                emailPayload: {
+                    email: queueEntry.user?.email || '',
+                    transactionType: 'withdrawal',
+                    transactionId: queueEntry.id,
+                    amount: queueEntry.amount.toString(),
+                    currency: queueEntry.currency.toUpperCase(),
+                    status: 'refunded',
+                    date: new Date().toISOString(),
+                },
+                enablePush: true,
+            });
+        } catch (notifError) {
+            this.logger.error(
+                `Failed to send refund notification for queue entry ${queueEntry.id}: ${notifError.message}`
+            );
+        }
+
+        try {
+            this.wsGateway.notifyWithdrawalReleased(queueEntry.userId, {
+                queueId: queueEntry.id,
+                currency: queueEntry.currency,
+                amount: queueEntry.amount.toString(),
+                reason: `Timed out after ${this.QUEUE_TIMEOUT_HOURS}h`,
+            });
+        } catch (wsError) {
+            this.logger.error(
+                `Failed to emit timeout refund websocket event for queue entry ${queueEntry.id}: ${wsError.message}`
+            );
+        }
+    }
+
     /**
      * Finds and processes timed-out queue entries
      * Releases holds and refunds users for entries older than 72h
@@ -354,48 +477,7 @@ export class WithdrawalQueueService {
                 );
 
                 if (result.success) {
-                    this.logger.log(
-                        `Timeout refund processed | ${JSON.stringify({
-                            queueId: queueEntry.id,
-                            userId: queueEntry.userId,
-                            currency: queueEntry.currency,
-                            amount: queueEntry.amount.toString(),
-                            queuedAt: queueEntry.queuedAt,
-                        })}`
-                    );
-
-                    // Notify user that their queued withdrawal was refunded
-                    try {
-                        const message = this.notificationMessage.sendWithdrawalRefunded({
-                            amount: queueEntry.amount.toString(),
-                            currency: queueEntry.currency,
-                            transactionId: queueEntry.id,
-                        });
-                        await this.notificationDispatcher.notify({
-                            userId: queueEntry.userId,
-                            title: "Withdrawal refunded",
-                            body: message,
-                            category: "transaction",
-                            currency: queueEntry.currency,
-                            transactionType: OrderCategory.SEND,
-                            enableEmail: true,
-                            emailPayload: {
-                                email: queueEntry.user?.email || '',
-                                transactionType: 'withdrawal',
-                                transactionId: queueEntry.id,
-                                amount: queueEntry.amount.toString(),
-                                currency: queueEntry.currency.toUpperCase(),
-                                status: 'refunded',
-                                date: new Date().toISOString(),
-                            },
-                            enablePush: true,
-                        });
-                    } catch (notifError) {
-                        this.logger.error(
-                            `Failed to send refund notification for queue entry ${queueEntry.id}: ${notifError.message}`
-                        );
-                    }
-
+                    await this.handleTimeoutReleaseSuccess(queueEntry);
                     processed++;
                 } else {
                     // Rollback the optimistic claim so the entry can be

@@ -18,6 +18,8 @@ const HealthModule = function HealthModule() { return undefined; };
 const OperationsModule = function OperationsModule() { return undefined; };
 const ReportsModule = function ReportsModule() { return undefined; };
 const SystemConfigModule = function SystemConfigModule() { return undefined; };
+const AmlModule = function AmlModule() { return undefined; };
+const AuditLogModule = function AuditLogModule() { return undefined; };
 
 jest.mock("../auth", () => ({ AuthModule }));
 jest.mock("../authorize", () => ({ AuthorizeModule }));
@@ -36,6 +38,8 @@ jest.mock("../health", () => ({ HealthModule }));
 jest.mock("../operations", () => ({ OperationsModule }));
 jest.mock("../reports", () => ({ ReportsModule }));
 jest.mock("../system-config", () => ({ SystemConfigModule }));
+jest.mock("../aml", () => ({ AmlModule }));
+jest.mock("../audit-log", () => ({ AuditLogModule }));
 
 import { APIModule } from "../index";
 
@@ -44,9 +48,10 @@ describe("APIModule", () => {
         const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, APIModule) as Array<{ name?: string }>;
 
         expect(Array.isArray(imports)).toBe(true);
-        expect(imports).toHaveLength(17);
+        expect(imports).toHaveLength(19);
         expect(imports.map((m) => m?.name)).toEqual(
             expect.arrayContaining([
+                "AuditLogModule",
                 "WebExtension",
                 "UserModule",
                 "AuthModule",
@@ -64,6 +69,7 @@ describe("APIModule", () => {
                 "OperationsModule",
                 "ReportsModule",
                 "SystemConfigModule",
+                "AmlModule",
             ])
         );
     });

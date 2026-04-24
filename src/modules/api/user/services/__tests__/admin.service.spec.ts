@@ -17,6 +17,7 @@ jest.mock("@/modules/api/user", () => ({
 import { AdminUserService } from "../admin";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 function makePrisma() {
     const tx = {
@@ -65,6 +66,7 @@ describe("AdminUserService", () => {
                 AdminUserService,
                 { provide: PrismaService, useValue: prisma },
                 { provide: EmailService, useValue: { sendMail: jest.fn() } },
+                { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
             ],
         }).compile();
 
