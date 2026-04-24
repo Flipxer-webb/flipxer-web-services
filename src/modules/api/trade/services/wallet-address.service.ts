@@ -317,11 +317,7 @@ export class WalletAddressService {
                     userId,
                     assetSymbol: assetSymbolUpper,
                     status: CryptoWalletStatus.FAILED,
-                    OR: [
-                        { network: { in: networksToCreate } },
-                        { network: null },
-                        { address: null }, //remove if address is null
-                    ],
+                    network: { in: networksToCreate },
                 },
             });
         }
