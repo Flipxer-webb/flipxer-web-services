@@ -39,6 +39,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     private connectionRetries = 0;
     private readonly maxRetries = 5;
     private isConnected = false;
+    private shutdownHooksRegistered = false;
+    private shuttingDown = false;
 
     constructor() {
         super({
@@ -108,9 +110,26 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     }
 
     async enableShutdownHooks(app: INestApplication) {
-        (this as any).$on("beforeExit", async () => {
+        if (this.shutdownHooksRegistered) {
+            return;
+        }
+
+        this.shutdownHooksRegistered = true;
+
+        const shutdown = async () => {
+            if (this.shuttingDown) {
+                return;
+            }
+
+            this.shuttingDown = true;
             await app.close();
-        });
+        };
+
+        for (const event of ["beforeExit", "SIGINT", "SIGTERM", "SIGBREAK"] as const) {
+            process.once(event, () => {
+                void shutdown();
+            });
+        }
     }
 
     /**

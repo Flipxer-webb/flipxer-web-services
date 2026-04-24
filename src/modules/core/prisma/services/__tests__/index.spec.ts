@@ -3,6 +3,10 @@ import { PrismaService } from "../index";
 describe("PrismaService", () => {
     let service: PrismaService;
 
+    const flushAsyncWork = async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    };
+
     beforeEach(() => {
         jest.clearAllMocks();
         service = new PrismaService();
@@ -96,19 +100,57 @@ describe("PrismaService", () => {
             close: jest.fn().mockResolvedValue(undefined),
         };
 
-        let beforeExitHandler: (() => Promise<void>) | undefined;
+        let beforeExitHandler: ((code?: number) => void) | undefined;
 
-        (service as any).$on = jest.fn((event: string, handler: () => Promise<void>) => {
+        const onceSpy = jest.spyOn(process, "once").mockImplementation((event, handler) => {
             if (event === "beforeExit") {
                 beforeExitHandler = handler;
             }
+            return process;
         });
 
         await service.enableShutdownHooks(app as any);
+        expect(onceSpy).toHaveBeenCalledTimes(4);
+        expect(onceSpy).toHaveBeenCalledWith("beforeExit", expect.any(Function));
         expect(beforeExitHandler).toBeDefined();
 
-        await beforeExitHandler?.();
-        expect(app.close).toHaveBeenCalled();
+        beforeExitHandler?.();
+        await flushAsyncWork();
+        expect(app.close).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not re-register shutdown hooks or close app twice", async () => {
+        let resolveClose: (() => void) | undefined;
+        const closePromise = new Promise<void>((resolve) => {
+            resolveClose = resolve;
+        });
+
+        const app = {
+            close: jest.fn().mockReturnValue(closePromise),
+        };
+
+        let beforeExitHandler: ((code?: number) => void) | undefined;
+
+        const onceSpy = jest.spyOn(process, "once").mockImplementation((event, handler) => {
+            if (event === "beforeExit") {
+                beforeExitHandler = handler;
+            }
+            return process;
+        });
+
+        await service.enableShutdownHooks(app as any);
+        await service.enableShutdownHooks(app as any);
+
+        expect(onceSpy).toHaveBeenCalledTimes(4);
+        expect(beforeExitHandler).toBeDefined();
+
+        beforeExitHandler?.();
+        beforeExitHandler?.();
+
+        expect(app.close).toHaveBeenCalledTimes(1);
+
+        resolveClose?.();
+        await closePromise;
     });
 
     it("reports health status", async () => {
