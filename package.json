@@ -14,6 +14,7 @@
         }
     ],
     "overrides": {
+        "ajv": "8.18.0",
         "@babel/helpers": "^7.26.10",
         "@babel/runtime": "^7.26.10",
         "@messageformat/runtime": "^3.0.2",
@@ -53,6 +54,7 @@
     },
     "pnpm": {
         "overrides": {
+            "ajv": "8.18.0",
             "axios": "^1.13.5",
             "@tootallnate/once": "3.0.1",
             "form-data": ">=4.0.4",
@@ -174,7 +176,7 @@
         "otplib": "^12.0.1",
         "path-to-regexp": "3.3.0",
         "pg": "^8.16.3",
-        "prisma": "4.13.0",
+        "prisma": "6.2.1",
         "qrcode": "^1.5.4",
         "reflect-metadata": "^0.1.13",
         "request-ip": "^3.3.0",

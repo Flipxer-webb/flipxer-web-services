@@ -98,13 +98,15 @@ describe("PrismaService", () => {
 
         let beforeExitHandler: (() => Promise<void>) | undefined;
 
-        (service as any).$on = jest.fn((event: string, handler: () => Promise<void>) => {
+        const onceSpy = jest.spyOn(process, "once").mockImplementation(((event: string, handler: () => Promise<void>) => {
             if (event === "beforeExit") {
                 beforeExitHandler = handler;
             }
-        });
+            return process;
+        }) as any);
 
         await service.enableShutdownHooks(app as any);
+        expect(onceSpy).toHaveBeenCalledWith("beforeExit", expect.any(Function));
         expect(beforeExitHandler).toBeDefined();
 
         await beforeExitHandler?.();
