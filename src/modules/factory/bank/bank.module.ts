@@ -2,6 +2,9 @@ import { Global, Module, Provider } from "@nestjs/common";
 import { BankInjectionToken } from "./types";
 import { BankFactory } from "./factory/bank.factory";
 import { PrismaService } from "@/modules/core/prisma/services";
+import { FiatGatewayRegistryService } from "./services/fiat-gateway-registry.service";
+import { InboundFiatPaymentService } from "./services/inbound-fiat-payment.service";
+import { PaymentWebhookAdapterService } from "./services/payment-webhook-adapter.service";
 
 const fincraProvider: Provider = {
     provide: BankInjectionToken.FINCRA,
@@ -23,8 +26,20 @@ const nombaProvider: Provider = {
 
 @Global()
 @Module({
-    providers: [fincraProvider, nombaProvider],
-    exports: [fincraProvider, nombaProvider],
+    providers: [
+        fincraProvider,
+        nombaProvider,
+        InboundFiatPaymentService,
+        FiatGatewayRegistryService,
+        PaymentWebhookAdapterService,
+    ],
+    exports: [
+        fincraProvider,
+        nombaProvider,
+        InboundFiatPaymentService,
+        FiatGatewayRegistryService,
+        PaymentWebhookAdapterService,
+    ],
 })
 export class BankFactoryModule { }
 

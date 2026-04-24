@@ -1,0 +1,12 @@
+export const BACKUP_CODE_GROUP_LENGTH = 5;
+export const BACKUP_CODE_GROUP_COUNT = 4;
+export const BACKUP_CODE_RAW_LENGTH = BACKUP_CODE_GROUP_LENGTH * BACKUP_CODE_GROUP_COUNT;
+export const BACKUP_CODE_INPUT_MAX_LENGTH = BACKUP_CODE_RAW_LENGTH + BACKUP_CODE_GROUP_COUNT - 1;
+export const DEFAULT_BACKUP_CODES_COUNT = 5;
+
+export const BACKUP_CODE_INPUT_PATTERN =
+    String.raw`(?:[A-Za-z0-9]{20}|[A-Za-z0-9]{5}(?:[- ][A-Za-z0-9]{5}){3})`;
+
+export const AUTHENTICATOR_OR_BACKUP_CODE_REGEX = new RegExp(
+    String.raw`^(?:\d{6}|${BACKUP_CODE_INPUT_PATTERN})$`
+);

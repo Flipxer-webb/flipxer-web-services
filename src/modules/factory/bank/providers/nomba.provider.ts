@@ -1,5 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
-import { NombaLib, NombaBankListResponse } from "@/libs/nomba";
+import { NombaLib, NombaBankListResponse, NombaAccountBalanceResponse } from "@/libs/nomba";
 import { PrismaService } from "@/modules/core/prisma/services";
 import logger from "moment-logger";
 import { generateId } from "@/utils";
@@ -174,6 +174,34 @@ export class NombaBank implements TNomba.INombaBank {
     }
 
     /**
+     * Delete a virtual account by its provider-side accountRef.
+     * In the normal VA path this matches the payment reference; fallback VA reuse
+     * persists the provider accountRef separately on the Payment row.
+     * Best-effort: logs errors but does not throw.
+     * Returns true if deleted, false if already gone or on error.
+     */
+    async deleteVirtualAccount(accountRef: string): Promise<boolean> {
+        try {
+            logger.info(
+                { accountRef },
+                "****DELETE VIRTUAL ACCOUNT REQUEST****** NOMBA"
+            );
+            const deleted = await this.nomba.deleteVirtualAccount(accountRef);
+            logger.info(
+                { accountRef, deleted },
+                "****DELETE VIRTUAL ACCOUNT RESPONSE****** NOMBA"
+            );
+            return deleted;
+        } catch (error) {
+            logger.error(
+                { accountRef, error },
+                "****DELETE VIRTUAL ACCOUNT ERROR****** NOMBA"
+            );
+            return false;
+        }
+    }
+
+    /**
      * Initialize payment using Nomba Checkout (hosted redirect flow).
      * Returns a checkout link for the user to complete payment.
      *
@@ -281,6 +309,10 @@ export class NombaBank implements TNomba.INombaBank {
      * Initialize payment via a dynamic virtual account (no hosted checkout redirect).
      * Creates a temporary Nomba virtual account with an expiry.
      * Returns account details for the user to transfer to directly.
+     *
+     * Sandbox fallback: When the Nomba sandbox VA quota is exhausted (lifetime cap),
+     * reuses an existing VA by updating its expiry via PUT and fetching fresh details.
+     * Controlled by the NOMBA_SANDBOX_FALLBACK_VA_REF env var.
      */
     async initializePaymentViaVirtualAccount(
         user: NombaUserRecord,
@@ -291,6 +323,7 @@ export class NombaBank implements TNomba.INombaBank {
         try {
             const reference =
                 referenceOverride || generateId({ type: "reference" });
+            const vaLogToken = reference.slice(-8);
 
             const expiryDateObj = new Date(
                 Date.now() + expiryMinutes * 60 * 1000
@@ -301,21 +334,51 @@ export class NombaBank implements TNomba.INombaBank {
             const expiryAtISO = expiryDateObj.toISOString();
 
             logger.info(
-                { userId: user.id, amount, reference, expiryDate },
+                { vaLogToken, userId: user.id, amount, reference, expiryDate },
                 "****INITIALIZE VA PAYMENT REQUEST****** NOMBA"
             );
 
-            const result = await this.nomba.createVirtualAccount({
-                accountRef: reference,
-                accountName:
-                    `${user.firstName} ${user.lastName}`.trim() ||
-                    "Flipxer User",
-                currency: "NGN",
-                expiryDate,
-            });
+            let result;
+            try {
+                result = await this.nomba.createVirtualAccount({
+                    accountRef: reference,
+                    accountName:
+                        `${user.firstName} ${user.lastName}`.trim() ||
+                        "Flipxer User",
+                    currency: "NGN",
+                    expiryDate,
+                });
+            } catch (createError) {
+                const errMsg = createError instanceof Error ? createError.message : String(createError);
+                const fallbackRef = process.env.NOMBA_SANDBOX_FALLBACK_VA_REF;
+
+                if (
+                    this.nomba.isSandbox &&
+                    fallbackRef &&
+                    errMsg.toLowerCase().includes("sandbox virtual accounts")
+                ) {
+                    logger.warn(
+                        { vaLogToken, fallbackRef, reference, originalError: errMsg },
+                        "****SANDBOX VA QUOTA HIT — REUSING EXISTING VA****** NOMBA"
+                    );
+
+                    // Update the surviving VA's expiry
+                    await this.nomba.updateVirtualAccount(fallbackRef, {
+                        accountName:
+                            `${user.firstName} ${user.lastName}`.trim() ||
+                            "Flipxer User",
+                        expiryDate,
+                    });
+
+                    // Fetch updated VA details (bankAccountNumber, bankName, etc.)
+                    result = await this.nomba.getVirtualAccount(fallbackRef);
+                } else {
+                    throw createError;
+                }
+            }
 
             logger.info(
-                { result: JSON.stringify(result) },
+                { vaLogToken, result: JSON.stringify(result) },
                 "****INITIALIZE VA PAYMENT RESPONSE****** NOMBA"
             );
 
@@ -332,6 +395,8 @@ export class NombaBank implements TNomba.INombaBank {
                 message: "Payment virtual account created successfully",
                 data: {
                     reference,
+                    providerAccountReference:
+                        result.data.accountRef || reference,
                     accountNumber: result.data.bankAccountNumber,
                     accountName: result.data.bankAccountName || result.data.accountName,
                     bankName: result.data.bankName,
@@ -365,33 +430,36 @@ export class NombaBank implements TNomba.INombaBank {
             const transactionId = generateId({ type: "transaction" });
             const totalAmount = options.amount + options.serviceCharge;
 
-            await this.prisma.$transaction(async (tx) => {
-                // Create payment record
-                await tx.payment.create({
-                    data: {
-                        amount: options.amount,
-                        flow: TransactionFlow.OUT,
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.SUCCESS,
-                        totalAmount: totalAmount,
-                        type: TransactionType.TRANSFER_FUND,
-                        userId: options.userId,
-                        transactionId: transactionId,
-                        orderId: options.orderId,
-                        chargeFee: options.serviceCharge,
-                        destinationBankAccountName: options.accountName,
-                        destinationBankName: options.bankName,
-                        destinationBankAccountNumber: options.accountNumber,
-                        reference: options.reference,
-                        title: TransactionShortDescription.TRANSFER_FUND,
-                        narration: TransactionShortDescription.TRANSFER_FUND,
-                        sessionId: generateId({ type: "sessionId" }),
-                        shortDescription:
-                            TransactionShortDescription.TRANSFER_FUND,
-                        paymentMethod: PaymentMethod.NOMBA,
-                    },
-                });
+            // Create payment record BEFORE calling Nomba so the webhook handler
+            // can find it.  Nomba's payout_success webhook often arrives before
+            // the HTTP response from initiateBankTransfer, so the record must be
+            // committed and visible before the API call.
+            await this.prisma.payment.create({
+                data: {
+                    amount: options.amount,
+                    flow: TransactionFlow.OUT,
+                    status: TransactionStatus.PENDING,
+                    paymentStatus: TransactionStatus.SUCCESS,
+                    totalAmount: totalAmount,
+                    type: TransactionType.TRANSFER_FUND,
+                    userId: options.userId,
+                    transactionId: transactionId,
+                    orderId: options.orderId,
+                    chargeFee: options.serviceCharge,
+                    destinationBankAccountName: options.accountName,
+                    destinationBankName: options.bankName,
+                    destinationBankAccountNumber: options.accountNumber,
+                    reference: options.reference,
+                    title: TransactionShortDescription.TRANSFER_FUND,
+                    narration: TransactionShortDescription.TRANSFER_FUND,
+                    sessionId: generateId({ type: "sessionId" }),
+                    shortDescription:
+                        TransactionShortDescription.TRANSFER_FUND,
+                    paymentMethod: PaymentMethod.NOMBA,
+                },
+            });
 
+            try {
                 // Initiate bank transfer via Nomba
                 await this.nomba.initiateBankTransfer({
                     amount: options.amount,
@@ -402,7 +470,17 @@ export class NombaBank implements TNomba.INombaBank {
                     narration: options.narration || "Wallet withdrawal",
                     senderName: options.senderName,
                 });
-            });
+            } catch (transferError) {
+                // Nomba call failed — mark the already-committed payment as FAILED
+                await this.prisma.payment.updateMany({
+                    where: { reference: options.reference },
+                    data: {
+                        status: TransactionStatus.FAILED,
+                        paymentStatus: TransactionStatus.FAILED,
+                    },
+                });
+                throw transferError;
+            }
         } catch (error) {
             logger.error(error, "****INITIALIZE TRANSFER****** NOMBA");
             if (error instanceof e.NOMBABankException) {
@@ -492,5 +570,27 @@ export class NombaBank implements TNomba.INombaBank {
                 expectedCurrency: options.currency || "NGN",
             },
         });
+    }
+
+    async getAccountBalance(): Promise<NombaAccountBalanceResponse> {
+        try {
+            const response = await this.nomba.getAccountBalance();
+            if (response?.code !== "00") {
+                throw new e.NOMBABankException(
+                    "Failed to fetch Nomba account balance",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+            return response;
+        } catch (error) {
+            logger.error(error, "****GET ACCOUNT BALANCE****** NOMBA");
+            if (error instanceof e.NOMBABankException) {
+                throw error;
+            }
+            throw new e.NOMBABankException(
+                error instanceof Error ? error.message : "Failed to fetch account balance",
+                HttpStatus.BAD_REQUEST
+            );
+        }
     }
 }

@@ -8,7 +8,7 @@ import {
     InvalidSessionException,
 } from "../errors";
 import { REFRESH_TOKEN_EXPIRATION } from "@/config";
-import { getBotTrafficReason, isCloudProviderIP, isSuspiciousCombination } from "../utils/bot-detection";
+import { getBotTrafficReason, isCloudProviderIP, isLikelyBotTraffic, isSuspiciousCombination } from "../utils/bot-detection";
 
 // Server-side inactivity limit (30 minutes) - sessions inactive beyond this are considered invalid
 const SERVER_INACTIVITY_LIMIT_MS = 30 * 60 * 1000;
@@ -91,6 +91,7 @@ export class SessionService {
                 location: sessionInfo.location,
                 isActive: true,
                 isCurrent: true,
+                isBotSession: !!botReason,
                 expiresAt,
             },
         });
@@ -109,6 +110,7 @@ export class SessionService {
             where: {
                 userId: user.id,
                 isActive: true,
+                isBotSession: false,
                 expiresAt: { gt: new Date() },
             },
             orderBy: { lastActiveAt: "desc" },
@@ -127,8 +129,18 @@ export class SessionService {
             },
         });
 
+        // Filter out bot/automated sessions, but always keep the current session
+        const humanSessions = sessions.filter((session) => {
+            if (currentSessionId && session.id === currentSessionId) return true;
+            return !isLikelyBotTraffic({
+                browser: session.browser,
+                os: session.os,
+                ipAddress: session.ipAddress,
+            });
+        });
+
         // Mark current session if sessionId is provided
-        const formattedSessions: SessionResponse[] = sessions.map((session) => ({
+        const formattedSessions: SessionResponse[] = humanSessions.map((session) => ({
             ...session,
             isCurrent: currentSessionId
                 ? session.id === currentSessionId
@@ -379,13 +391,18 @@ export class SessionService {
      * Get session count for user
      */
     async getActiveSessionCount(userId: number): Promise<number> {
-        return this.prisma.session.count({
+        const sessions = await this.prisma.session.findMany({
             where: {
                 userId,
                 isActive: true,
+                isBotSession: false,
                 expiresAt: { gt: new Date() },
             },
+            select: { id: true, browser: true, os: true, ipAddress: true },
         });
+        return sessions.filter(
+            (s) => !isLikelyBotTraffic({ browser: s.browser, os: s.os, ipAddress: s.ipAddress })
+        ).length;
     }
 
     /**

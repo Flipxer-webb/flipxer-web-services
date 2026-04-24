@@ -6,6 +6,7 @@ import * as Utils from "@/utils";
 import * as e from "../errors/notification.error";
 import { NotificationEvent } from "../events/notification.event";
 import { PushNotificationService } from "./push.notification.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
 @Injectable()
@@ -17,6 +18,7 @@ export class AdminNotificationService {
         private readonly notificationEvent: NotificationEvent,
         private readonly pushNotificationService: PushNotificationService,
         private readonly wsGateway: WsGateway,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     async getNotification(notificationId: number) {
@@ -159,14 +161,12 @@ export class AdminNotificationService {
         });
 
         // Log audit
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "CREATE_NOTIFICATION",
-                resource: "notification",
-                resourceId: notification.id.toString(),
-                details: { title: data.title, type: data.type, beneficiary: data.beneficiary },
-            },
+        await this.auditLogService.log({
+            adminId,
+            action: "CREATE_NOTIFICATION",
+            resource: "notification",
+            resourceId: notification.id.toString(),
+            details: { title: data.title, type: data.type, beneficiary: data.beneficiary },
         });
 
         return Utils.buildResponse({
@@ -259,17 +259,15 @@ export class AdminNotificationService {
         }
 
         // Log audit
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "BROADCAST_NOTIFICATION",
-                resource: "notification",
-                resourceId: "broadcast",
-                details: { 
-                    title, 
-                    targetAudience, 
-                    recipientCount: targetUsers.length,
-                },
+        await this.auditLogService.log({
+            adminId,
+            action: "BROADCAST_NOTIFICATION",
+            resource: "notification",
+            resourceId: "broadcast",
+            details: { 
+                title, 
+                targetAudience, 
+                recipientCount: targetUsers.length,
             },
         });
 
@@ -371,14 +369,12 @@ export class AdminNotificationService {
             }
         }
 
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "UPDATE_NOTIFICATION_STATUS",
-                resource: "notification",
-                resourceId: notificationId.toString(),
-                details: { previousStatus: notification.status, newStatus: status },
-            },
+        await this.auditLogService.log({
+            adminId,
+            action: "UPDATE_NOTIFICATION_STATUS",
+            resource: "notification",
+            resourceId: notificationId.toString(),
+            details: { previousStatus: notification.status, newStatus: status },
         });
 
         return Utils.buildResponse({
@@ -392,14 +388,12 @@ export class AdminNotificationService {
             where: { id: notificationId },
         });
 
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "DELETE_NOTIFICATION",
-                resource: "notification",
-                resourceId: notificationId.toString(),
-                details: {},
-            },
+        await this.auditLogService.log({
+            adminId,
+            action: "DELETE_NOTIFICATION",
+            resource: "notification",
+            resourceId: notificationId.toString(),
+            details: {},
         });
 
         return Utils.buildResponse({

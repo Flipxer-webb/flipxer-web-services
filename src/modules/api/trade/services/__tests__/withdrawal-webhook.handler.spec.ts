@@ -2,6 +2,7 @@ import {
     OrderCategory,
     OrderStatus,
     OrderStreamlinedStatus,
+    TransactionStatus,
 } from "@prisma/client";
 
 // Break circular dependency: auth/guard -> @/modules/api/user -> auth/index -> auth/controllers -> @User()
@@ -22,6 +23,15 @@ jest.mock("@/utils", () => ({
     generateId: jest.fn().mockReturnValue("payout-ref-123"),
     __esModule: true,
 }));
+
+jest.mock("@/config", () => {
+    const actual = jest.requireActual("@/config");
+    return {
+        ...actual,
+        sellPayoutProvider: "fincra",
+        slackPayoutAlertWebhookUrl: "",
+    };
+});
 
 import { WithdrawalWebhookHandler } from "../webhook-handlers/withdrawal-webhook.handler";
 
@@ -63,6 +73,7 @@ describe("WithdrawalWebhookHandler", () => {
             update: jest.Mock;
         };
     };
+    let fincraService: { initializeTransfer: jest.Mock };
     let nombaService: { initializeTransfer: jest.Mock };
     let notificationMessage: {
         sellTransactionSuccess: jest.Mock;
@@ -86,6 +97,9 @@ describe("WithdrawalWebhookHandler", () => {
                 findUnique: jest.fn(),
                 update: jest.fn(),
             },
+        };
+        fincraService = {
+            initializeTransfer: jest.fn().mockResolvedValue(undefined),
         };
         nombaService = {
             initializeTransfer: jest.fn().mockResolvedValue(undefined),
@@ -117,6 +131,7 @@ describe("WithdrawalWebhookHandler", () => {
 
         handler = new WithdrawalWebhookHandler(
             prisma as any,
+            fincraService as any,
             nombaService as any,
             notificationMessage as any,
             wsGateway as any,
@@ -252,7 +267,7 @@ describe("WithdrawalWebhookHandler", () => {
         );
     });
 
-    it("handles retry payout success and marks transaction completed", async () => {
+    it("keeps retry payout in processing until the configured provider confirms the transfer", async () => {
         const sellTx = makeTransaction({
             orderCategory: OrderCategory.SELL,
             status: OrderStatus.pending,
@@ -260,7 +275,13 @@ describe("WithdrawalWebhookHandler", () => {
         });
         prisma.order.findUnique.mockResolvedValue(sellTx);
         prisma.order.update.mockResolvedValue(
-            makeTransaction({ status: OrderStatus.done, streamlinedStatus: OrderStreamlinedStatus.completed })
+            makeTransaction({
+                status: OrderStatus.processing,
+                streamlinedStatus: OrderStreamlinedStatus.pending,
+                paymentStatus: TransactionStatus.PENDING,
+                fulfilled: false,
+                reason: null,
+            })
         );
         jest.spyOn(handler as any, "initiateFiatPayout").mockResolvedValue(undefined);
 
@@ -271,12 +292,15 @@ describe("WithdrawalWebhookHandler", () => {
             expect.objectContaining({
                 where: { id: sellTx.id },
                 data: expect.objectContaining({
-                    status: OrderStatus.done,
-                    streamlinedStatus: OrderStreamlinedStatus.completed,
-                    fulfilled: true,
+                    status: OrderStatus.processing,
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    paymentStatus: TransactionStatus.PENDING,
+                    fulfilled: false,
+                    reason: null,
                 }),
             })
         );
+        expect(wsGateway.notifyWalletUpdate).not.toHaveBeenCalled();
     });
 
     it("handles retry payout failure and marks transaction failed", async () => {
@@ -295,7 +319,10 @@ describe("WithdrawalWebhookHandler", () => {
         expect(prisma.order.update).toHaveBeenCalledWith(
             expect.objectContaining({
                 where: { id: sellTx.id },
-                data: expect.objectContaining({ status: OrderStatus.failed }),
+                data: expect.objectContaining({
+                    status: OrderStatus.failed,
+                    paymentStatus: TransactionStatus.FAILED,
+                }),
             })
         );
     });
@@ -324,20 +351,35 @@ describe("WithdrawalWebhookHandler", () => {
         expect(completeSpy).toHaveBeenCalledWith(77, sellTx);
     });
 
-    it("completes SELL payout path and sends notification", async () => {
+    it("keeps SELL payout in processing until the configured provider confirms and sends no completion notification", async () => {
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });
         jest.spyOn(handler as any, "initiateFiatPayout").mockResolvedValue(undefined);
         prisma.order.update.mockResolvedValue(
-            makeTransaction({ status: OrderStatus.done, streamlinedStatus: OrderStreamlinedStatus.completed })
+            makeTransaction({
+                status: OrderStatus.processing,
+                streamlinedStatus: OrderStreamlinedStatus.pending,
+                paymentStatus: TransactionStatus.PENDING,
+                fulfilled: false,
+            })
         );
 
         const result = await (handler as any).handleSellOrderDone(sellTx);
 
         expect(result).toBe(true);
-        expect(notificationMessage.sellTransactionSuccess).toHaveBeenCalled();
-        expect(notificationDispatcher.notify).toHaveBeenCalledWith(
-            expect.objectContaining({ title: "Sell order completed" })
+        expect(prisma.order.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    status: OrderStatus.processing,
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    paymentStatus: TransactionStatus.PENDING,
+                    fulfilled: false,
+                }),
+            })
         );
+        // No completion notification — Nomba webhook will send it on success
+        expect(notificationMessage.sellTransactionSuccess).not.toHaveBeenCalled();
+        expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+        expect(wsGateway.notifyWalletUpdate).not.toHaveBeenCalled();
     });
 
     it("marks SELL payout path as failed and triggers compensating actions", async () => {
@@ -387,7 +429,25 @@ describe("WithdrawalWebhookHandler", () => {
         expect(wsGateway.notifyWalletUpdate).toHaveBeenCalledWith(buyOrder.user.id);
     });
 
-    it("initiates payout through Nomba", async () => {
+    it("initiates payout through Fincra", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL });
+
+        await (handler as any).initiateFiatPayout(sellTx);
+
+        expect(fincraService.initializeTransfer).toHaveBeenCalledWith(
+            expect.objectContaining({
+                orderId: sellTx.id,
+                userId: sellTx.userId,
+                reference: "payout-ref-123",
+            })
+        );
+        expect(nombaService.initializeTransfer).not.toHaveBeenCalled();
+    });
+
+    it("initiates payout through Nomba when SELL_PAYOUT_PROVIDER=nomba", async () => {
+        const config = require("@/config");
+        const original = config.sellPayoutProvider;
+        Object.defineProperty(config, "sellPayoutProvider", { value: "nomba", writable: true });
         const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL });
 
         await (handler as any).initiateFiatPayout(sellTx);
@@ -399,6 +459,9 @@ describe("WithdrawalWebhookHandler", () => {
                 reference: "payout-ref-123",
             })
         );
+        expect(fincraService.initializeTransfer).not.toHaveBeenCalled();
+
+        Object.defineProperty(config, "sellPayoutProvider", { value: original, writable: true });
     });
 
     it("handles withdrawal done and failed notification paths", async () => {
@@ -410,5 +473,398 @@ describe("WithdrawalWebhookHandler", () => {
         expect(walletAddressService.syncWallet).toHaveBeenCalledTimes(2);
         expect(wsGateway.notifyWalletUpdate).toHaveBeenCalledWith(tx.user.id);
         expect(notificationDispatcher.notify).toHaveBeenCalledTimes(2);
+    });
+
+    // â”€â”€ WebSocket state emission for SELL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("emits notifyTransactionUpdate with streamlinedStatus=pending when sell payout is initiated", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });
+        jest.spyOn(handler as any, "initiateFiatPayout").mockResolvedValue(undefined);
+        const processingOrder = {
+            ...sellTx,
+            status: OrderStatus.processing,
+            streamlinedStatus: OrderStreamlinedStatus.pending,
+            paymentStatus: TransactionStatus.PENDING,
+            fulfilled: false,
+        };
+        prisma.order.update.mockResolvedValue(processingOrder);
+
+        await (handler as any).handleSellOrderDone(sellTx);
+
+        expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalledWith(
+            sellTx.user.id,
+            expect.objectContaining({
+                type: "transaction_update",
+                transaction: expect.objectContaining({
+                    id: sellTx.id,
+                    transactionId: sellTx.transactionId,
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    status: OrderStatus.processing,
+                }),
+            }),
+        );
+    });
+
+    it("emits notifyTransactionUpdate with streamlinedStatus=failed when sell payout fails", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, transaction_note: null });
+        jest.spyOn(handler as any, "initiateFiatPayout").mockRejectedValue(new Error("bank outage"));
+        const failedOrder = {
+            ...sellTx,
+            status: OrderStatus.failed,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+        };
+        prisma.order.update.mockResolvedValue(failedOrder);
+        jest.spyOn(handler as any, "handleWithdrawalFailed").mockResolvedValue(undefined);
+        jest.spyOn(handler as any, "refundSellOrder").mockResolvedValue(undefined);
+
+        await (handler as any).handleSellOrderDone(sellTx);
+
+        expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalledWith(
+            sellTx.user.id,
+            expect.objectContaining({
+                type: "transaction_update",
+                transaction: expect.objectContaining({
+                    streamlinedStatus: OrderStreamlinedStatus.failed,
+                    status: OrderStatus.failed,
+                }),
+            }),
+        );
+    });
+
+    it("retryFiatPayout emits processing status WebSocket while awaiting provider confirmation", async () => {
+        const sellTx = makeTransaction({
+            orderCategory: OrderCategory.SELL,
+            status: OrderStatus.pending,
+            streamlinedStatus: OrderStreamlinedStatus.pending,
+        });
+        prisma.order.findUnique.mockResolvedValue(sellTx);
+        const processingOrder = {
+            ...sellTx,
+            status: OrderStatus.processing,
+            streamlinedStatus: OrderStreamlinedStatus.pending,
+            paymentStatus: TransactionStatus.PENDING,
+        };
+        prisma.order.update.mockResolvedValue(processingOrder);
+        jest.spyOn(handler as any, "initiateFiatPayout").mockResolvedValue(undefined);
+
+        await handler.retryFiatPayout(sellTx.id);
+
+        expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalledWith(
+            sellTx.user.id,
+            expect.objectContaining({
+                type: "transaction_update",
+                transaction: expect.objectContaining({
+                    streamlinedStatus: OrderStreamlinedStatus.pending,
+                    status: OrderStatus.processing,
+                }),
+            }),
+        );
+    });
+
+    it("retryFiatPayout emits failed status WebSocket on payout error", async () => {
+        const sellTx = makeTransaction({
+            orderCategory: OrderCategory.SELL,
+            status: OrderStatus.pending,
+            streamlinedStatus: OrderStreamlinedStatus.pending,
+        });
+        prisma.order.findUnique.mockResolvedValue(sellTx);
+        jest.spyOn(handler as any, "initiateFiatPayout").mockRejectedValue(new Error("timeout"));
+        const failedOrder = {
+            ...sellTx,
+            status: OrderStatus.failed,
+            streamlinedStatus: OrderStreamlinedStatus.failed,
+        };
+        prisma.order.update.mockResolvedValue(failedOrder);
+
+        await expect(handler.retryFiatPayout(sellTx.id)).rejects.toThrow("timeout");
+
+        expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalledWith(
+            sellTx.user.id,
+            expect.objectContaining({
+                type: "transaction_update",
+                transaction: expect.objectContaining({
+                    streamlinedStatus: OrderStreamlinedStatus.failed,
+                    status: OrderStatus.failed,
+                }),
+            }),
+        );
+    });
+
+    // â”€â”€ retryFiatPayout guard clauses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("retryFiatPayout throws when transaction is not found", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        await expect(handler.retryFiatPayout(999)).rejects.toThrow("Transaction not found");
+    });
+
+    it("retryFiatPayout throws when transaction is already completed", async () => {
+        prisma.order.findUnique.mockResolvedValue(
+            makeTransaction({
+                orderCategory: OrderCategory.SELL,
+                status: OrderStatus.done,
+                streamlinedStatus: OrderStreamlinedStatus.completed,
+            })
+        );
+
+        await expect(handler.retryFiatPayout(22)).rejects.toThrow("Transaction already completed");
+    });
+
+    it("retryFiatPayout throws when payout is already in progress", async () => {
+        prisma.order.findUnique.mockResolvedValue(
+            makeTransaction({
+                orderCategory: OrderCategory.SELL,
+                status: OrderStatus.processing,
+                streamlinedStatus: OrderStreamlinedStatus.pending,
+                paymentStatus: TransactionStatus.PENDING,
+            })
+        );
+
+        await expect(handler.retryFiatPayout(22)).rejects.toThrow("Payout already in progress");
+    });
+
+    it("retryFiatPayout throws when order is not a SELL", async () => {
+        prisma.order.findUnique.mockResolvedValue(
+            makeTransaction({ orderCategory: OrderCategory.SEND, status: OrderStatus.pending })
+        );
+
+        await expect(handler.retryFiatPayout(22)).rejects.toThrow("Only SELL orders can be retried");
+    });
+
+    // â”€â”€ refundSellOrderByOrderId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("refundSellOrderByOrderId returns silently when order is not found", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        await expect(
+            (handler as any).refundSellOrderByOrderId(999)
+        ).resolves.toBeUndefined();
+    });
+
+    it("refundSellOrderByOrderId delegates to refundSellOrder", async () => {
+        const order = makeTransaction({ orderCategory: OrderCategory.SELL });
+        prisma.order.findUnique.mockResolvedValue(order);
+        const spy = jest.spyOn(handler as any, "refundSellOrder").mockResolvedValue(undefined);
+
+        await (handler as any).refundSellOrderByOrderId(order.id);
+
+        expect(spy).toHaveBeenCalledWith(order);
+    });
+
+    // â”€â”€ refundSellOrder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("refundSellOrder credits the user via pairedCredit on success", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, total: 0.5 });
+        ledgerService.pairedCredit.mockResolvedValue({ success: true });
+
+        await (handler as any).refundSellOrder(sellTx);
+
+        expect(ledgerService.pairedCredit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                userId: sellTx.userId,
+                currency: "BTC",
+                amount: 0.5,
+                reference: `refund:${sellTx.orderReference}`,
+                createPlatformEntry: true,
+            })
+        );
+    });
+
+    it("refundSellOrder sends Slack alert when pairedCredit fails", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, total: 0.5 });
+        ledgerService.pairedCredit.mockResolvedValue({ success: false, error: "insufficient platform balance" });
+        const alertSpy = jest.spyOn(handler as any, "sendPayoutAlert").mockResolvedValue(undefined);
+
+        await (handler as any).refundSellOrder(sellTx);
+
+        expect(alertSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                orderId: sellTx.id,
+                error: expect.stringContaining("REFUND FAILED"),
+                isCritical: true,
+            })
+        );
+    });
+
+    it("refundSellOrder catches exceptions and sends critical Slack alert", async () => {
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL, total: 0.5 });
+        ledgerService.pairedCredit.mockRejectedValue(new Error("db down"));
+        const alertSpy = jest.spyOn(handler as any, "sendPayoutAlert").mockResolvedValue(undefined);
+
+        await (handler as any).refundSellOrder(sellTx);
+
+        expect(alertSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                error: expect.stringContaining("REFUND EXCEPTION"),
+                isCritical: true,
+            })
+        );
+    });
+
+    // â”€â”€ sendPayoutAlert â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("sendPayoutAlert sends a Slack message when webhook URL is configured", async () => {
+        const config = require("@/config");
+        const original = config.slackPayoutAlertWebhookUrl;
+        Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: "https://hooks.slack.com/test", writable: true });
+        const originalFetch = globalThis.fetch;
+        const fetchMock = jest.fn().mockResolvedValue({ ok: true } as Response);
+        Object.defineProperty(globalThis, "fetch", { value: fetchMock, writable: true });
+
+        await (handler as any).sendPayoutAlert({
+            orderId: 1,
+            userId: 2,
+            amount: 50000,
+            accountNumber: "123",
+            bankName: "Test Bank",
+            provider: "Nomba",
+            error: "timeout",
+            isCritical: true,
+        });
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            "https://hooks.slack.com/test",
+            expect.objectContaining({ method: "POST" })
+        );
+        Object.defineProperty(globalThis, "fetch", { value: originalFetch, writable: true });
+        Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: original, writable: true });
+    });
+
+    it("sendPayoutAlert skips when webhook URL is not configured", async () => {
+        const config = require("@/config");
+        const original = config.slackPayoutAlertWebhookUrl;
+        Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: "", writable: true });
+        const originalFetch = globalThis.fetch;
+        const fetchMock = jest.fn().mockResolvedValue({ ok: true } as Response);
+        Object.defineProperty(globalThis, "fetch", { value: fetchMock, writable: true });
+
+        await (handler as any).sendPayoutAlert({
+            orderId: 1,
+            userId: 2,
+            amount: 50000,
+            accountNumber: "123",
+            bankName: "Test Bank",
+            provider: "Nomba",
+            error: "timeout",
+        });
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        Object.defineProperty(globalThis, "fetch", { value: originalFetch, writable: true });
+        Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: original, writable: true });
+    });
+
+    it("sendPayoutAlert swallows fetch errors", async () => {
+        const config = require("@/config");
+        const original = config.slackPayoutAlertWebhookUrl;
+        Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: "https://hooks.slack.com/test", writable: true });
+        const originalFetch = globalThis.fetch;
+        const fetchMock = jest.fn().mockRejectedValue(new Error("network"));
+        Object.defineProperty(globalThis, "fetch", { value: fetchMock, writable: true });
+
+        await expect(
+            (handler as any).sendPayoutAlert({
+                orderId: 1,
+                userId: 2,
+                amount: 50000,
+                accountNumber: "123",
+                bankName: "Test Bank",
+                provider: "Nomba",
+                error: "timeout",
+            })
+        ).resolves.toBeUndefined();
+        Object.defineProperty(globalThis, "fetch", { value: originalFetch, writable: true });
+        Object.defineProperty(config, "slackPayoutAlertWebhookUrl", { value: original, writable: true });
+    });
+
+    // â”€â”€ settleOrReleaseSendHold error paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("settleOrReleaseSendHold logs error when settle fails", async () => {
+        ledgerService.releaseHoldWithPlatformEntry.mockResolvedValue({ success: false, error: "hold not found" });
+
+        await (handler as any).settleOrReleaseSendHold(makeTransaction(), true);
+
+        expect(ledgerService.releaseHoldWithPlatformEntry).toHaveBeenCalled();
+    });
+
+    it("settleOrReleaseSendHold logs error when release fails", async () => {
+        ledgerService.releaseHold.mockResolvedValue({ success: false, error: "hold not found" });
+
+        await (handler as any).settleOrReleaseSendHold(makeTransaction(), false);
+
+        expect(ledgerService.releaseHold).toHaveBeenCalled();
+    });
+
+    it("settleOrReleaseSendHold catches exceptions without throwing", async () => {
+        ledgerService.releaseHoldWithPlatformEntry.mockRejectedValue(new Error("redis crash"));
+
+        await expect(
+            (handler as any).settleOrReleaseSendHold(makeTransaction(), true)
+        ).resolves.toBeUndefined();
+    });
+
+    // â”€â”€ completeBuyOrder / failBuyOrder not-found paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("completeBuyOrder returns early when buy order is not found", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        await (handler as any).completeBuyOrder(999, makeTransaction());
+
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("failBuyOrder returns early when buy order is not found", async () => {
+        prisma.order.findUnique.mockResolvedValue(null);
+
+        await (handler as any).failBuyOrder(999, makeTransaction());
+
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    // â”€â”€ processWithdrawerTransaction early returns â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("returns early when current status matches incoming status", async () => {
+        jest.spyOn(handler as any, "findTransactionOrSkip").mockResolvedValue(
+            makeTransaction({ status: OrderStatus.pending })
+        );
+
+        await (handler as any).processWithdrawerTransaction({
+            orderReference: "wd-ref-22",
+            status: OrderStatus.pending,
+        });
+
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    // â”€â”€ handleCancelledStatus releases SEND holds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    it("handleCancelledStatus releases SEND hold and notifies failure", async () => {
+        const sendTx = makeTransaction({ orderCategory: OrderCategory.SEND });
+        jest.spyOn(handler as any, "settleOrReleaseSendHold").mockResolvedValue(undefined);
+        jest.spyOn(handler as any, "handleWithdrawalFailed").mockResolvedValue(undefined);
+
+        await (handler as any).handleCancelledStatus(sendTx);
+
+        expect((handler as any).settleOrReleaseSendHold).toHaveBeenCalledWith(sendTx, false);
+        expect((handler as any).handleWithdrawalFailed).toHaveBeenCalledWith(sendTx);
+    });
+
+    // â€" Fincra payout failure throws with alert â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"â€"
+
+    it("initiateFiatPayout throws and sends Slack alert on Fincra failure", async () => {
+        fincraService.initializeTransfer.mockRejectedValue(new Error("gateway timeout"));
+        const alertSpy = jest.spyOn(handler as any, "sendPayoutAlert").mockResolvedValue(undefined);
+        const sellTx = makeTransaction({ orderCategory: OrderCategory.SELL });
+
+        await expect(
+            (handler as any).initiateFiatPayout(sellTx)
+        ).rejects.toThrow("Fincra payout failed");
+
+        expect(alertSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                orderId: sellTx.id,
+                provider: "Fincra",
+                isCritical: true,
+            })
+        );
     });
 });

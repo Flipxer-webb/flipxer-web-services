@@ -5,6 +5,9 @@ jest.mock("@/modules/api/auth/guard", () => ({
     CountryBlockGuard: class {
         readonly __stub = true;
     },
+    EnabledAccountGuard: class {
+        readonly __stub = true;
+    },
     SocketAuthGuard: class {
         readonly __stub = true;
     },
@@ -50,6 +53,8 @@ describe("AdminNotificationController", () => {
         deleteNotification: jest.Mock;
     };
 
+    const mockReq = { ip: '127.0.0.1', headers: { 'user-agent': 'test' }, user: { id: 1 } } as any;
+
     beforeEach(() => {
         adminNotificationService = {
             getNotificationStats: jest.fn(),
@@ -78,8 +83,8 @@ describe("AdminNotificationController", () => {
         adminNotificationService.createNotification.mockResolvedValue({ id: 10 });
         adminNotificationService.broadcastNotification.mockResolvedValue({ recipientCount: 1 });
 
-        await expect(controller.createNotification(createDto as never)).resolves.toEqual({ id: 10 });
-        await expect(controller.broadcastNotification(broadcastDto as never)).resolves.toEqual({ recipientCount: 1 });
+        await expect(controller.createNotification(createDto as never, mockReq as never)).resolves.toEqual({ id: 10 });
+        await expect(controller.broadcastNotification(broadcastDto as never, mockReq as never)).resolves.toEqual({ recipientCount: 1 });
     });
 
     it("delegates detail, status update, and delete", async () => {
@@ -90,11 +95,11 @@ describe("AdminNotificationController", () => {
 
         await expect(controller.getNotification(param as never)).resolves.toEqual({ id: 55 });
         await expect(
-            controller.updateNotificationStatus(param as never, { status: "APPROVED" } as never),
+            controller.updateNotificationStatus(param as never, { status: "APPROVED" } as never, mockReq as never),
         ).resolves.toEqual({ ok: true });
-        await expect(controller.deleteNotification(param as never)).resolves.toEqual({ deleted: true });
+        await expect(controller.deleteNotification(param as never, mockReq as never)).resolves.toEqual({ deleted: true });
 
-        expect(adminNotificationService.updateNotificationStatus).toHaveBeenCalledWith(55, "APPROVED");
-        expect(adminNotificationService.deleteNotification).toHaveBeenCalledWith(55);
+        expect(adminNotificationService.updateNotificationStatus).toHaveBeenCalledWith(55, "APPROVED", 1);
+        expect(adminNotificationService.deleteNotification).toHaveBeenCalledWith(55, 1);
     });
 });

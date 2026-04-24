@@ -36,12 +36,11 @@ describe("QuidaxWebhookEvent", () => {
     });
 
     it("bound listener should trigger processor on process-webhook-event", async () => {
-        const processorSpy = jest.spyOn(eventBus, "processor");
         const payload = { event: Event.WalletUpdatedEvent, data: { id: "wallet-1" } };
 
         eventBus.emit("process-webhook-event", payload as never);
 
         await new Promise((resolve) => setImmediate(resolve));
-        expect(processorSpy).toHaveBeenCalledWith(payload);
+        expect(service.processWebhookEvent).toHaveBeenCalledWith(payload);
     });
 });

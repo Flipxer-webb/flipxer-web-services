@@ -4,9 +4,11 @@ import {
     HttpCode,
     HttpStatus,
     Post,
+    Req,
     UseGuards,
     ValidationPipe,
 } from "@nestjs/common";
+import { Request } from "express";
 import {
     ApiTags,
     ApiOperation,
@@ -14,7 +16,9 @@ import {
 import { SignInDto, Reset2FARateLimitDto } from "../../dtos";
 import { AuthService } from "../../services";
 import { TierService } from "../../services/tier.service";
-import { ClientData, ClientDataInterface } from "@/modules/api/user";
+import { AuditLogService } from "@/modules/api/audit-log";
+import { ClientData } from "@/modules/api/user/decorators";
+import { ClientDataInterface } from "@/modules/api/user/interfaces";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { CountryBlockGuard, AuthGuard, EnabledAccountGuard } from "../../guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
@@ -30,7 +34,8 @@ import { RateLimiterGuard, RateLimit } from "@/modules/core/rate-limit";
 export class AdminAuthController {
     constructor(
         private readonly authService: AuthService,
-        private readonly tierService: TierService
+        private readonly tierService: TierService,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     @HttpCode(HttpStatus.OK)
@@ -57,9 +62,20 @@ export class AdminAuthController {
     })
     @Post("reset-2fa-rate-limit")
     async reset2FARateLimit(
-        @Body(ValidationPipe) dto: Reset2FARateLimitDto
+        @Body(ValidationPipe) dto: Reset2FARateLimitDto,
+        @Req() req: Request
     ): Promise<ApiResponse> {
-        return await this.authService.reset2FARateLimit(dto);
+        const result = await this.authService.reset2FARateLimit(dto);
+        await this.auditLogService.log({
+            action: "RESET_2FA_RATE_LIMIT",
+            resource: "user",
+            resourceId: dto.userId?.toString(),
+            details: { userId: dto.userId },
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
+        return result;
     }
 
     @UseGuards(AuthGuard, EnabledAccountGuard, RoleGuard)
@@ -70,8 +86,16 @@ export class AdminAuthController {
         description: "One-time migration endpoint to update user tiers based on verification status"
     })
     @Post("update-all-user-tiers")
-    async updateAllUserTiers(): Promise<ApiResponse> {
+    async updateAllUserTiers(@Req() req: Request): Promise<ApiResponse> {
         const result = await this.tierService.updateAllUserTiers();
+        await this.auditLogService.log({
+            action: "UPDATE_ALL_USER_TIERS",
+            resource: "user",
+            details: { updated: result.updated, unchanged: result.unchanged, errors: result.errors },
+            adminId: (req as any).user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+        });
         return buildResponse({
             message: `Updated ${result.updated} user tiers. ${result.unchanged} unchanged, ${result.errors} errors.`,
             data: result,

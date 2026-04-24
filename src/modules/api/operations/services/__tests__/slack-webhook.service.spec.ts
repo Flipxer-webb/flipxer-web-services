@@ -176,10 +176,26 @@ describe("SlackWebhookService", () => {
         axiosPost.mockResolvedValue({ status: 200 });
 
         await expect(
-            service.sendWebhookFailureAlert("nomba", "ref-2", "signature invalid"),
+            service.sendWebhookFailureAlert("nomba", "ref-2", "signature invalid", {
+                receivedAmount: 50000,
+                senderAccountName: "Test Sender",
+            }),
         ).resolves.toEqual({ sent: true });
 
         expect(axiosPost).toHaveBeenCalledTimes(1);
+        expect(axiosPost).toHaveBeenCalledWith(
+            "https://hooks.slack.com/services/T00000000/B00000000/SYSTEMXX",
+            expect.objectContaining({
+                blocks: expect.arrayContaining([
+                    expect.objectContaining({
+                        text: expect.objectContaining({
+                            text: expect.stringContaining("Received Amount"),
+                        }),
+                    }),
+                ]),
+            }),
+            expect.any(Object),
+        );
     });
 
     it("returns not-found error when testing an unknown webhook", async () => {

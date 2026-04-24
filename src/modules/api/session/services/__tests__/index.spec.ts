@@ -2,6 +2,7 @@ const buildResponseMock = jest.fn((payload) => payload);
 const getBotTrafficReasonMock = jest.fn();
 const isCloudProviderIPMock = jest.fn();
 const isSuspiciousCombinationMock = jest.fn();
+const isLikelyBotTrafficMock = jest.fn().mockReturnValue(false);
 
 jest.mock("@/utils/api-response-util", () => ({
     __esModule: true,
@@ -13,6 +14,7 @@ jest.mock("@/modules/api/session/utils/bot-detection", () => ({
     getBotTrafficReason: getBotTrafficReasonMock,
     isCloudProviderIP: isCloudProviderIPMock,
     isSuspiciousCombination: isSuspiciousCombinationMock,
+    isLikelyBotTraffic: isLikelyBotTrafficMock,
 }));
 
 jest.mock("@/config", () => ({
@@ -55,6 +57,7 @@ describe("SessionService", () => {
         getBotTrafficReasonMock.mockReturnValue(null);
         isCloudProviderIPMock.mockReturnValue(false);
         isSuspiciousCombinationMock.mockReturnValue(false);
+        isLikelyBotTrafficMock.mockReturnValue(false);
     });
 
     it("createSession deactivates previous current session and creates a new one", async () => {
@@ -124,6 +127,73 @@ describe("SessionService", () => {
         expect(response.data.totalCount).toBe(2);
         expect(response.data.sessions[0].isCurrent).toBe(true);
         expect(response.data.sessions[1].isCurrent).toBe(false);
+    });
+
+    it("getUserSessions filters non-current sessions flagged as bot traffic", async () => {
+        const now = new Date();
+        prisma.session.findMany.mockResolvedValue([
+            {
+                id: "human-1",
+                deviceName: "Chrome",
+                deviceType: "desktop",
+                browser: "Chrome",
+                os: "macOS",
+                ipAddress: ip(1, 1, 1, 1),
+                location: "Lagos",
+                isActive: true,
+                isCurrent: false,
+                lastActiveAt: now,
+                createdAt: now,
+            },
+            {
+                id: "bot-1",
+                deviceName: "Crawler",
+                deviceType: "desktop",
+                browser: "Curl",
+                os: "Linux",
+                ipAddress: ip(3, 3, 3, 3),
+                location: "Ashburn",
+                isActive: true,
+                isCurrent: false,
+                lastActiveAt: now,
+                createdAt: now,
+            },
+        ]);
+        isLikelyBotTrafficMock.mockImplementation(
+            ({ browser }: { browser: string }) => browser === "Curl"
+        );
+
+        const response = await service.getUserSessions(user, "human-1");
+
+        expect(response.data.totalCount).toBe(1);
+        expect(response.data.sessions[0].id).toBe("human-1");
+    });
+
+    it("getUserSessions always keeps the current session even if flagged as bot traffic", async () => {
+        const now = new Date();
+        prisma.session.findMany.mockResolvedValue([
+            {
+                id: "bot-current",
+                deviceName: "Crawler",
+                deviceType: "desktop",
+                browser: "Curl",
+                os: "Linux",
+                ipAddress: ip(3, 3, 3, 3),
+                location: "Ashburn",
+                isActive: true,
+                isCurrent: false,
+                lastActiveAt: now,
+                createdAt: now,
+            },
+        ]);
+        isLikelyBotTrafficMock.mockReturnValue(true);
+
+        const response = await service.getUserSessions(user, "bot-current");
+
+        expect(response.data.totalCount).toBe(1);
+        expect(response.data.sessions[0].id).toBe("bot-current");
+        expect(response.data.sessions[0].isCurrent).toBe(true);
+        expect(isLikelyBotTrafficMock).not.toHaveBeenCalled();
     });
 
     it("revokeSession throws SessionNotFoundException when session is missing", async () => {

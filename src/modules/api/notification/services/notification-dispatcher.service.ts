@@ -45,6 +45,7 @@ export interface NotifyOptions {
         currency: string;
         status: string;
         date: string;
+        notice?: string;
         // Optional fields
         txHash?: string;
         network?: string;

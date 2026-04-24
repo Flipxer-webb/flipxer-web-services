@@ -16,6 +16,9 @@ import {
 import { TransactionService } from "../../services";
 import { AdminTransactionService } from "../../services/admin-transaction.service";
 import { TradingService } from "@/modules/api/trade/services";
+import { SUPPORTED_ASSETS } from "@/modules/api/trade/constants";
+import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
+import { buildResponse } from "@/utils/api-response-util";
 import {
     ApiTags,
     ApiOperation,
@@ -28,7 +31,7 @@ import {
 } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 import {
     GetUserTransactionListDto,
@@ -39,6 +42,7 @@ import {
 } from "../../dtos";
 import { UserTypes, Permissions, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 @ApiTags("admin")
 @UseGuards(CountryBlockGuard, AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -52,6 +56,7 @@ export class AdminTransactionController {
         private readonly transactionService: TransactionService,
         private readonly adminTransactionService: AdminTransactionService,
         private readonly tradingService: TradingService,
+        private readonly auditLogService: AuditLogService,
     ) { }
 
     @HttpCode(HttpStatus.OK)
@@ -191,8 +196,18 @@ export class AdminTransactionController {
     @ApiOperation({ summary: "Sync deposits from Quidax for a user" })
     @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("sync-deposits/:userId")
-    async syncUserDeposits(@Param("userId", ParseIntPipe) userId: number) {
-        return this.tradingService.syncUserDeposits(userId);
+    async syncUserDeposits(@Param("userId", ParseIntPipe) userId: number, @Req() req: any) {
+        const result = await this.tradingService.syncUserDeposits(userId);
+        await this.auditLogService.log({
+            action: "SYNC_USER_DEPOSITS",
+            resource: "transaction",
+            resourceId: userId.toString(),
+            details: { userId },
+            adminId: req.user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers?.["user-agent"],
+        });
+        return result;
     }
 
     @HttpCode(HttpStatus.OK)
@@ -204,5 +219,48 @@ export class AdminTransactionController {
         @Param("currency") currency: string,
     ) {
         return this.tradingService.debugUserWallet(userId, currency);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Debug: Get all wallet-address records for a user grouped by asset" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
+    @Get("wallet-address-records/:userId")
+    async getWalletAddressRecords(
+        @Param("userId", ParseIntPipe) userId: number,
+    ) {
+        return this.tradingService.getUserWalletAddressRecords(userId);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: "Trigger wallet address update for a user across all supported assets" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
+    @Post("trigger-wallet-update/:userId")
+    async triggerWalletUpdate(@Param("userId", ParseIntPipe) userId: number, @Req() req: any) {
+        const results: Record<string, { status: string; addressCount: number }> = {};
+
+        for (const asset of SUPPORTED_ASSETS) {
+            try {
+                const response = await this.tradingService.getWalletAddresses(userId, { asset: asset.toLowerCase() as SupportedAssets });
+                const addresses = response?.data ?? [];
+                results[asset] = { status: "ok", addressCount: Array.isArray(addresses) ? addresses.length : 0 };
+            } catch (error) {
+                results[asset] = { status: `error: ${error.message}`, addressCount: 0 };
+            }
+        }
+
+        await this.auditLogService.log({
+            action: "TRIGGER_WALLET_UPDATE",
+            resource: "wallet",
+            resourceId: userId.toString(),
+            details: { userId, assetsProcessed: Object.keys(results) },
+            adminId: req.user?.id,
+            ipAddress: req.ip,
+            userAgent: req.headers?.["user-agent"],
+        });
+
+        return buildResponse({
+            message: "wallet update triggered",
+            data: results,
+        });
     }
 }

@@ -3,7 +3,7 @@ import { HttpStatus, Logger } from "@nestjs/common";
 import { QuidaxValidationError } from "@/libs/quidax";
 
 import { QuidaxException } from "../../errors";
-import { QuidaxAccountService } from "../account.service";
+import { QuidaxAccountService, namespaceEmail } from "../account.service";
 import { executeQuidaxCall, handleQuidaxError } from "../error-handler";
 import { QuidaxService } from "../index";
 
@@ -144,11 +144,57 @@ describe("Quidax error handler", () => {
     });
 });
 
+describe("namespaceEmail", () => {
+    let originalEnv: string | undefined;
+
+    afterEach(() => {
+        if (originalEnv === undefined) {
+            delete process.env.ENVIRONMENT;
+        } else {
+            process.env.ENVIRONMENT = originalEnv;
+        }
+    });
+
+    it("returns email unchanged in production", () => {
+        originalEnv = process.env.ENVIRONMENT;
+        process.env.ENVIRONMENT = "production";
+        expect(namespaceEmail("user@example.com")).toBe("user@example.com");
+    });
+
+    it("prefixes with stg_ in staging", () => {
+        originalEnv = process.env.ENVIRONMENT;
+        process.env.ENVIRONMENT = "staging";
+        expect(namespaceEmail("user@example.com")).toBe("stg_user@example.com");
+    });
+
+    it("prefixes with dev_ in development", () => {
+        originalEnv = process.env.ENVIRONMENT;
+        process.env.ENVIRONMENT = "development";
+        expect(namespaceEmail("user@example.com")).toBe("dev_user@example.com");
+    });
+
+    it("defaults to dev_ when ENVIRONMENT is unset", () => {
+        originalEnv = process.env.ENVIRONMENT;
+        delete process.env.ENVIRONMENT;
+        const originalNode = process.env.NODE_ENV;
+        delete process.env.NODE_ENV;
+        try {
+            expect(namespaceEmail("user@example.com")).toBe("dev_user@example.com");
+        } finally {
+            process.env.NODE_ENV = originalNode;
+        }
+    });
+});
+
 describe("QuidaxAccountService", () => {
     let quidax: ReturnType<typeof buildQuidaxMock>;
     let service: QuidaxAccountService;
+    let originalEnv: string | undefined;
 
     beforeEach(() => {
+        originalEnv = process.env.ENVIRONMENT;
+        process.env.ENVIRONMENT = "staging";
+
         quidax = buildQuidaxMock();
         service = new QuidaxAccountService(quidax as any);
 
@@ -158,22 +204,37 @@ describe("QuidaxAccountService", () => {
     });
 
     afterEach(() => {
+        if (originalEnv === undefined) {
+            delete process.env.ENVIRONMENT;
+        } else {
+            process.env.ENVIRONMENT = originalEnv;
+        }
         jest.restoreAllMocks();
         jest.clearAllMocks();
     });
 
-    it("findSubAccountByEmail should delegate to Quidax library", async () => {
+    it("findSubAccountByEmail should namespace and delegate to Quidax library", async () => {
+        quidax.findSubAccountByEmail.mockResolvedValue({ id: "sub-1", email: "stg_user@example.com" });
+
+        const result = await service.findSubAccountByEmail("user@example.com");
+
+        expect(result).toEqual({ id: "sub-1", email: "stg_user@example.com" });
+        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith("stg_user@example.com");
+    });
+
+    it("findSubAccountByEmail should not namespace in production", async () => {
+        process.env.ENVIRONMENT = "production";
         quidax.findSubAccountByEmail.mockResolvedValue({ id: "sub-1", email: "user@example.com" });
 
         const result = await service.findSubAccountByEmail("user@example.com");
 
-        expect(result).toEqual({ id: "sub-1", email: "user@example.com" });
         expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith("user@example.com");
+        expect(result).toEqual({ id: "sub-1", email: "user@example.com" });
     });
 
     it("createOrFindSubAccount should return existing account when found", async () => {
-        const existing = { id: "sub-1", email: "user@example.com" };
-        jest.spyOn(service, "findSubAccountByEmail").mockResolvedValue(existing as any);
+        const existing = { id: "sub-1", email: "stg_user@example.com" };
+        quidax.findSubAccountByEmail.mockResolvedValue(existing);
 
         const result = await service.createOrFindSubAccount({
             email: "user@example.com",
@@ -183,6 +244,7 @@ describe("QuidaxAccountService", () => {
 
         expect(result.status).toBe("success");
         expect(result.data).toEqual(existing);
+        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith("stg_user@example.com");
     });
 
     it("createOrFindSubAccount should retry lookup on E0101 and return found account", async () => {
@@ -195,16 +257,13 @@ describe("QuidaxAccountService", () => {
                 return 0 as any;
             }) as any);
 
-        const findSpy = jest
-            .spyOn(service, "findSubAccountByEmail")
+        quidax.findSubAccountByEmail
             .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce({ id: "sub-retry", email: "retry@gmail.com" } as any);
+            .mockResolvedValueOnce({ id: "sub-retry", email: "stg_retry@gmail.com" });
 
-        const createSpy = jest
-            .spyOn(service, "createSubAccount")
-            .mockRejectedValueOnce(
-                new QuidaxException("already exists", HttpStatus.BAD_REQUEST, "E0101"),
-            );
+        quidax.createSubAccount.mockRejectedValueOnce(
+            new QuidaxValidationError("already exists", "E0101"),
+        );
 
         const result = await service.createOrFindSubAccount({
             email: "retry@gmail.com",
@@ -214,8 +273,12 @@ describe("QuidaxAccountService", () => {
 
         expect(result.status).toBe("success");
         expect((result.data as any).id).toBe("sub-retry");
-        expect(findSpy).toHaveBeenCalledTimes(2);
-        expect(createSpy).toHaveBeenCalledTimes(1);
+        expect(quidax.findSubAccountByEmail).toHaveBeenCalledTimes(2);
+        expect(quidax.createSubAccount).toHaveBeenCalledTimes(1);
+        // Verify the namespaced email was passed
+        expect(quidax.createSubAccount).toHaveBeenCalledWith(
+            expect.objectContaining({ email: "stg_retry@gmail.com" }),
+        );
 
         setTimeoutSpy.mockRestore();
     });
@@ -230,18 +293,17 @@ describe("QuidaxAccountService", () => {
                 return 0 as any;
             }) as any);
 
-        jest.spyOn(service, "findSubAccountByEmail").mockResolvedValue(null);
+        quidax.findSubAccountByEmail.mockResolvedValue(null);
 
-        const createSpy = jest
-            .spyOn(service, "createSubAccount")
+        quidax.createSubAccount
             .mockRejectedValueOnce(
-                new QuidaxException("already exists", HttpStatus.BAD_REQUEST, "E0101"),
+                new QuidaxValidationError("already exists", "E0101"),
             )
             .mockResolvedValueOnce({
                 status: "success",
                 message: "alias created",
                 data: { id: "sub-alias" },
-            } as any);
+            });
 
         const result = await service.createOrFindSubAccount({
             email: "alias@gmail.com",
@@ -250,8 +312,9 @@ describe("QuidaxAccountService", () => {
         } as any);
 
         expect(result.message).toBe("alias created");
-        const aliasCall = createSpy.mock.calls[1]?.[0] as any;
-        expect(aliasCall.email).toMatch(/^alias\+flip\d{6}@gmail\.com$/);
+        // Alias is applied to the namespaced email: stg_alias+flip123456@gmail.com
+        const aliasCall = quidax.createSubAccount.mock.calls[1]?.[0] as any;
+        expect(aliasCall.email).toMatch(/^stg_alias\+flip\d{6}@gmail\.com$/);
 
         setTimeoutSpy.mockRestore();
     });
@@ -266,18 +329,17 @@ describe("QuidaxAccountService", () => {
                 return 0 as any;
             }) as any);
 
-        jest.spyOn(service, "findSubAccountByEmail").mockResolvedValue(null);
+        quidax.findSubAccountByEmail.mockResolvedValue(null);
 
-        const createSpy = jest
-            .spyOn(service, "createSubAccount")
+        quidax.createSubAccount
             .mockRejectedValueOnce(
-                new QuidaxException("already exists", HttpStatus.BAD_REQUEST, "E0101"),
+                new QuidaxValidationError("already exists", "E0101"),
             )
             .mockResolvedValueOnce({
                 status: "success",
                 message: "alias created",
                 data: { id: "sub-dot-alias" },
-            } as any);
+            });
 
         await service.createOrFindSubAccount({
             email: "alias@yahoo.com",
@@ -285,17 +347,18 @@ describe("QuidaxAccountService", () => {
             last_name: "User",
         } as any);
 
-        const aliasCall = createSpy.mock.calls[1]?.[0] as any;
-        expect(aliasCall.email).toMatch(/^alias\.flip\d{6}@yahoo\.com$/);
+        // Alias is applied to the namespaced email: stg_alias.flip123456@yahoo.com
+        const aliasCall = quidax.createSubAccount.mock.calls[1]?.[0] as any;
+        expect(aliasCall.email).toMatch(/^stg_alias\.flip\d{6}@yahoo\.com$/);
 
         setTimeoutSpy.mockRestore();
     });
 
     it("createOrFindSubAccount should rethrow non-E0101 errors", async () => {
-        jest.spyOn(service, "findSubAccountByEmail").mockResolvedValue(null);
-        jest
-            .spyOn(service, "createSubAccount")
-            .mockRejectedValueOnce(new QuidaxException("bad request", HttpStatus.BAD_REQUEST, "E0900"));
+        quidax.findSubAccountByEmail.mockResolvedValue(null);
+        quidax.createSubAccount.mockRejectedValueOnce(
+            new QuidaxValidationError("bad request", "E0900"),
+        );
 
         await expect(
             service.createOrFindSubAccount({

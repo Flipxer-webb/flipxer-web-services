@@ -6,6 +6,7 @@ import { getTriggeredTime } from "@/modules/scheduler/services/utils";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
 /**
  * Price Cache Scheduler
@@ -29,7 +30,8 @@ export class PriceCacheSchedulerService implements OnModuleInit {
         private readonly liveCoinWatchService: LiveCoinWatchService,
         @Inject(TradingInjectionToken.COINCAP)
         private readonly coinCapService: CoinCapService,
-        private readonly redisCacheService: RedisCacheService
+        private readonly redisCacheService: RedisCacheService,
+        private readonly wsGateway: WsGateway
     ) { }
 
     // Run immediately when the server starts
@@ -146,6 +148,15 @@ export class PriceCacheSchedulerService implements OnModuleInit {
             this.logger.debug(
                 `[LiveCoinWatch] Completed USDT price updates: ${successCount}/${this.coins.length} coins (batch: ${batchSuccess})`
             );
+
+            // Broadcast price update to connected clients via WebSocket
+            if (successCount > 0) {
+                const pricePayload: Record<string, { price: number; change24h?: number } | null> = {};
+                for (const [symbol, price] of Object.entries(usdtPrices)) {
+                    pricePayload[symbol] = price ? { price } : null;
+                }
+                this.wsGateway.broadcastPriceUpdate(pricePayload);
+            }
         } catch (error: any) {
             this.logger.error("Error in running USDT prices update cron job:", error);
         } finally {

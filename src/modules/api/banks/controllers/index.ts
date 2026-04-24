@@ -10,6 +10,7 @@ import {
     ValidationPipe,
     HttpCode,
     HttpStatus,
+    Query,
 } from "@nestjs/common";
 import {
     ApiTags,
@@ -27,8 +28,9 @@ import {
     VerifyBankAccountDto,
 } from "../dtos";
 import { ApiResponse } from "@/utils";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
+import { BankProvider } from "@/modules/factory/bank/types";
 
 @ApiTags("Bank")
 @Controller("banks")
@@ -44,8 +46,52 @@ export class BankController {
     @UseGuards(RateLimiterGuard)
     @RateLimit({ limit: 10, windowSeconds: 60, errorMessage: "Too many account verification attempts. Please try again later." })
     @Post("verify-account")
-    async verifyBankAccount(@Body() dto: VerifyBankAccountDto) {
-        return await this.bankService.verifyBankAccount(dto);
+    async verifyBankAccount(
+        @Body() dto: VerifyBankAccountDto,
+        @Query("provider") provider?: BankProvider,
+    ) {
+        return await this.bankService.verifyBankAccount(dto, provider || "nomba");
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @Post("checkout")
+    @ApiOperation({
+        summary: "Initialize fiat checkout for payment",
+        description: "Creates a fiat checkout order with the selected provider and returns a payment link.",
+    })
+    async initializeCheckout(
+        @User() user: UserModel,
+        @Body() body: { amount: number; callbackUrl?: string; provider?: BankProvider }
+    ) {
+        return await this.bankService.initializeCheckout(
+            user.id,
+            body.amount,
+            body.callbackUrl,
+            body.provider || "nomba"
+        );
+    }
+
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth("access-token")
+    @HttpCode(HttpStatus.OK)
+    @Get("checkout/:reference")
+    @ApiOperation({
+        summary: "Verify fiat checkout status",
+        description: "Returns the status of a fiat checkout order for the selected provider.",
+    })
+    @ApiParam({
+        name: "reference",
+        description: "Order reference from checkout creation",
+        type: String,
+    })
+    async verifyCheckout(
+        @User() user: UserModel,
+        @Param("reference") reference: string,
+        @Query("provider") provider?: BankProvider,
+    ) {
+        return await this.bankService.verifyCheckout(reference, provider || "nomba");
     }
 
     @UseGuards(AuthGuard)

@@ -290,8 +290,30 @@ export class DistributedLockService {
      * Cleanup on module destroy
      */
     async onModuleDestroy(): Promise<void> {
-        if (this.client) {
+        if (!this.client) {
+            return;
+        }
+
+        this.isConnected = false;
+
+        try {
+            const status = this.client.status ?? "ready";
+
+            if (status !== "ready") {
+                this.client.disconnect(false);
+                return;
+            }
+
             await this.client.quit();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+
+            if (message.includes("Connection is closed")) {
+                this.client.disconnect(false);
+                return;
+            }
+
+            this.logger.warn(`Lock service shutdown error: ${message}`);
         }
     }
 }

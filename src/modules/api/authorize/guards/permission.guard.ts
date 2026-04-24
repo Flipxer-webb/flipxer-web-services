@@ -11,7 +11,8 @@ import {
     RoleNotFoundException,
 } from "../error/role";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { UserNotFoundException, UserWithRoles } from "../../user";
+import { UserNotFoundException } from "@/modules/api/user/errors";
+import { UserWithRoles } from "@/modules/api/user/interfaces";
 import { RoleEnum } from "../enums/role";
 import { Permissions } from "../decorator";
 

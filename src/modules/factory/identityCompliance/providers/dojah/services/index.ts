@@ -1,10 +1,35 @@
 import * as DJ from "@/libs/dojah";
 import { HttpStatus, Logger } from "@nestjs/common";
+import { matchNames, NameMatchResult } from "@/utils/name-matcher";
 import * as e from "../errors";
 
 export class DojahService {
     private readonly logger = new Logger(DojahService.name);
     constructor(private readonly dojah: DJ.DojahLib) { }
+
+    private buildDocumentNameCandidates(parsed: DJ.ParsedDocumentData) {
+        const candidates = new Map<string, { providerFirst: string; providerLast: string; source: string }>();
+        const addCandidate = (providerFirst?: string, providerLast?: string, source?: string) => {
+            if (!providerFirst || !providerLast || !source) {
+                return;
+            }
+
+            const key = `${providerFirst}::${providerLast}`.toLowerCase().trim();
+            if (!key || candidates.has(key)) {
+                return;
+            }
+
+            candidates.set(key, { providerFirst, providerLast, source });
+        };
+
+        addCandidate(parsed.firstName, parsed.lastName, "first_name+last_name");
+        addCandidate(parsed.givenNames, parsed.lastName, "given_names+last_name");
+
+        const firstGivenName = parsed.givenNames?.split(/\s+/).find(Boolean);
+        addCandidate(firstGivenName, parsed.lastName, "given_name_token+last_name");
+
+        return [...candidates.values()];
+    }
 
     async verifyBvn(options: DJ.VerifyBvnOptions) {
         try {
@@ -116,32 +141,32 @@ export class DojahService {
     }> {
         const { parsed } = await this.analyzeDocument(options);
 
-        // Normalize names for comparison (lowercase, trim)
-        const normalize = (s?: string) => s?.toLowerCase().trim() || "";
+        const nameCandidates = this.buildDocumentNameCandidates(parsed);
+        const bestMatch = nameCandidates.reduce<
+            { candidate: { providerFirst: string; providerLast: string; source: string }; result: NameMatchResult } | null
+        >((best, candidate) => {
+            const result = matchNames(
+                expectedFirstName,
+                expectedLastName,
+                candidate.providerFirst,
+                candidate.providerLast,
+            );
 
-        const expectedFirst = normalize(expectedFirstName);
-        const expectedLast = normalize(expectedLastName);
-        const extractedFirst = normalize(parsed.firstName);
-        const extractedLast = normalize(parsed.lastName);
-        const extractedGivenNames = normalize(parsed.givenNames);
+            if (!best || result.score > best.result.score) {
+                return { candidate, result };
+            }
 
-        // Check name match - be flexible with given names vs first name
-        const firstNameMatches =
-            extractedFirst === expectedFirst ||
-            extractedGivenNames.includes(expectedFirst) ||
-            expectedFirst.includes(extractedFirst);
+            return best;
+        }, null);
 
-        const lastNameMatches =
-            extractedLast === expectedLast ||
-            expectedLast.includes(extractedLast) ||
-            extractedLast.includes(expectedLast);
-
-        const nameMatches = firstNameMatches && lastNameMatches;
+        const nameMatches = bestMatch?.result.matches ?? false;
 
         this.logger.log(
             `Document name verification: expected="${expectedFirstName} ${expectedLastName}", ` +
             `extracted="${parsed.firstName || ""} ${parsed.lastName || ""}", ` +
-            `matches=${nameMatches}`
+            `matches=${nameMatches}, ` +
+            `candidate=${bestMatch?.candidate.source || "none"}, ` +
+            `detail=${bestMatch?.result.detail || "missing extracted names"}`
         );
 
         return {
