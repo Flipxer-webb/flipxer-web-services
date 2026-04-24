@@ -21,7 +21,9 @@ const CryptoWalletStatus = {
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {
         status: number;
@@ -72,15 +74,20 @@ const mockQuidax = {
 
 const mockTradeHelpers = {
     safeJsonStringify: jest.fn().mockReturnValue("{}"),
-    normalizeNetworkInput: jest.fn().mockImplementation((input?: string | null) => {
-        if (!input) return null;
-        const lower = input.toLowerCase();
-        if (lower.includes("erc20") || lower === "ethereum") return NetworkTypes.erc20;
-        if (lower.includes("trc20") || lower === "tron") return NetworkTypes.trc20;
-        if (lower === "btc" || lower === "bitcoin") return NetworkTypes.btc;
-        if (lower === "sol" || lower === "solana") return NetworkTypes.solana;
-        return null;
-    }),
+    normalizeNetworkInput: jest
+        .fn()
+        .mockImplementation((input?: string | null) => {
+            if (!input) return null;
+            const lower = input.toLowerCase();
+            if (lower.includes("erc20") || lower === "ethereum")
+                return NetworkTypes.erc20;
+            if (lower.includes("trc20") || lower === "tron")
+                return NetworkTypes.trc20;
+            if (lower === "btc" || lower === "bitcoin") return NetworkTypes.btc;
+            if (lower === "sol" || lower === "solana")
+                return NetworkTypes.solana;
+            return null;
+        }),
 };
 
 describe("WalletAddressService", () => {
@@ -107,7 +114,9 @@ describe("WalletAddressService", () => {
 
     describe("syncWallet", () => {
         it("should sync wallet metadata from Quidax", async () => {
-            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: "qx-123" });
+            prisma.user.findUnique.mockResolvedValue({
+                cryptoSubAccountId: "qx-123",
+            });
             mockQuidax.getUserWallet.mockResolvedValue({
                 data: {
                     deposit_address: "0xABC",
@@ -122,14 +131,21 @@ describe("WalletAddressService", () => {
 
             expect(prisma.assetWallet.update).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    where: { userId_assetCurrency: { userId: 1, assetCurrency: "ETH" } },
+                    where: {
+                        userId_assetCurrency: {
+                            userId: 1,
+                            assetCurrency: "ETH",
+                        },
+                    },
                     data: expect.objectContaining({ depositAddress: "0xABC" }),
                 }),
             );
         });
 
         it("should return early if user has no crypto sub-account", async () => {
-            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: null });
+            prisma.user.findUnique.mockResolvedValue({
+                cryptoSubAccountId: null,
+            });
 
             await service.syncWallet(1, "ETH");
 
@@ -137,8 +153,12 @@ describe("WalletAddressService", () => {
         });
 
         it("should not throw on sync failure", async () => {
-            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: "qx-123" });
-            mockQuidax.getUserWallet.mockRejectedValue(new Error("Network error"));
+            prisma.user.findUnique.mockResolvedValue({
+                cryptoSubAccountId: "qx-123",
+            });
+            mockQuidax.getUserWallet.mockRejectedValue(
+                new Error("Network error")
+            );
 
             await expect(service.syncWallet(1, "ETH")).resolves.toBeUndefined();
         });
@@ -247,10 +267,14 @@ describe("WalletAddressService", () => {
                 { id: 1, network: NetworkTypes.erc20 },
                 { id: 2, network: NetworkTypes.trc20 },
             ];
-            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: null });
+            prisma.user.findUnique.mockResolvedValue({
+                cryptoSubAccountId: null,
+            });
             prisma.cryptoWalletAddress.findMany.mockResolvedValue(wallets);
 
-            const result = await service.getWalletAddresses(1, { asset: "usdt" } as any);
+            const result = await service.getWalletAddresses(1, {
+                asset: "usdt",
+            } as any);
 
             expect(result.data).toHaveLength(2);
             expect(prisma.cryptoWalletAddress.findMany).toHaveBeenCalledWith(
@@ -295,7 +319,9 @@ describe("WalletAddressService", () => {
             prisma.user.findUnique.mockResolvedValue(null);
 
             await expect(
-                service.initiateWalletAddressCreation(1, { asset: "btc" } as any),
+                service.initiateWalletAddressCreation(1, {
+                    asset: "btc",
+                } as any)
             ).rejects.toThrow();
         });
 
@@ -463,20 +489,22 @@ describe("WalletAddressService", () => {
                 status: CryptoWalletStatus.ACTIVE,
             });
 
-            mockQuidax.createPaymentAddress.mockImplementation(({ network }: any) => {
-                if (network === "trc20") {
-                    return Promise.resolve({
-                        data: {
-                            id: "new-trc20",
-                            network: "trc20",
-                            address: "TRXADDR",
-                            destination_tag: null,
-                        },
-                    });
-                }
+            mockQuidax.createPaymentAddress.mockImplementation(
+                ({ network }: any) => {
+                    if (network === "trc20") {
+                        return Promise.resolve({
+                            data: {
+                                id: "new-trc20",
+                                network: "trc20",
+                                address: "TRXADDR",
+                                destination_tag: null,
+                            },
+                        });
+                    }
 
-                return Promise.reject(new Error("provider-failure"));
-            });
+                    return Promise.reject(new Error("provider-failure"));
+                }
+            );
 
             const result = await service.ensureWalletPaymentAddresses({
                 userId: 1,
@@ -659,14 +687,12 @@ describe("WalletAddressService", () => {
             });
 
             // Should not throw — persistProviderAddress catches and returns null
-            const result = await service.ensureWalletPaymentAddresses({
+            await service.ensureWalletPaymentAddresses({
                 userId: 1,
                 cryptoSubAccountId: "qx-123",
                 assetSymbol: "USDT",
             });
-
         });
-
     });
 
     // ── Extracted Helper Methods ─────────────────────────────
@@ -716,7 +742,7 @@ describe("WalletAddressService", () => {
             const result = await (service as any).getOrFetchWalletResponse(
                 undefined,
                 "qx-123",
-                "eth"
+                "eth",
             );
 
             expect(result).toBeNull();
@@ -758,9 +784,7 @@ describe("WalletAddressService", () => {
         });
 
         it("should throw when requested network is not available", async () => {
-            const depositMap = new Map([
-                [NetworkTypes.erc20, "erc20"],
-            ]);
+            const depositMap = new Map([[NetworkTypes.erc20, "erc20"]]);
 
             await expect(
                 (service as any).determineTargetNetworks({
@@ -793,14 +817,16 @@ describe("WalletAddressService", () => {
             );
 
             expect(result.existingNetworkSet.size).toBe(2);
-            expect(result.existingNetworkSet.has(NetworkTypes.erc20)).toBe(true),
-            expect(result.defaultNetworkNormalized).toBe(NetworkTypes.erc20);
+            expect(result.existingNetworkSet.has(NetworkTypes.erc20)).toBe(
+                true
+            ),
+                expect(result.defaultNetworkNormalized).toBe(
+                    NetworkTypes.erc20
+                );
         });
 
         it("should only return non-FAILED addresses", async () => {
-            const depositMap = new Map([
-                [NetworkTypes.erc20, "erc20"],
-            ]);
+            const depositMap = new Map([[NetworkTypes.erc20, "erc20"]]);
 
             await (service as any).buildExistingNetworkContext(
                 1,
@@ -847,7 +873,7 @@ describe("WalletAddressService", () => {
             await (service as any).deleteFailedRecordsForNetworks(
                 1,
                 "USDT",
-                [NetworkTypes.erc20],
+                NetworkTypes.erc20,
             );
 
             expect(prisma.cryptoWalletAddress.deleteMany).toHaveBeenCalledWith({
@@ -867,7 +893,9 @@ describe("WalletAddressService", () => {
                 [],
             );
 
-            expect(prisma.cryptoWalletAddress.deleteMany).not.toHaveBeenCalled();
+            expect(
+                prisma.cryptoWalletAddress.deleteMany
+            ).not.toHaveBeenCalled();
         });
     });
 
@@ -882,7 +910,9 @@ describe("WalletAddressService", () => {
                 },
             });
 
-            const result = await (service as any).createPaymentAddressForNetwork({
+            const result = await (
+                service as any
+            ).createPaymentAddressForNetwork({
                 network: NetworkTypes.erc20,
                 depositEnabledNetworkMap: new Map([
                     [NetworkTypes.erc20, "erc20"],
@@ -958,7 +988,9 @@ describe("WalletAddressService", () => {
                 } as PromiseFulfilledResult<any>,
             ];
 
-            const filtered = (service as any).filterSuccessfulCreations(results);
+            const filtered = (service as any).filterSuccessfulCreations(
+                results
+            );
 
             expect(filtered).toHaveLength(2);
             expect(filtered[0].value.network).toBe(NetworkTypes.erc20);
@@ -977,7 +1009,9 @@ describe("WalletAddressService", () => {
                 } as PromiseRejectedResult,
             ];
 
-            const filtered = (service as any).filterSuccessfulCreations(results);
+            const filtered = (service as any).filterSuccessfulCreations(
+                results
+            );
 
             expect(filtered).toHaveLength(0);
         });
