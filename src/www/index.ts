@@ -154,7 +154,6 @@ export default async function createServer(
             policy: "strict-origin-when-cross-origin",
         },
         noSniff: true,
-        xssFilter: true,
         hidePoweredBy: true,
     }));
     app.use(compression()); // Gzip compression for 60-80% smaller responses
