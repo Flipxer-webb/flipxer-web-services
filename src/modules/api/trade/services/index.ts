@@ -95,6 +95,71 @@ export class TradingService {
         this.logger.debug(`[WalletFlow] ${step} | ${safePayload}`);
     }
 
+    private async resolveAssetWalletAddressState(options: {
+        userId: number;
+        assetSymbol: string;
+        defaultNetwork?: string | null;
+        providerDepositAddress?: string | null;
+        providerDestinationTag?: string | null;
+    }): Promise<{
+        depositAddress: string | null;
+        destinationTag: string | null;
+        addressSynced: boolean;
+        isActive: boolean;
+    }> {
+        const { userId, assetSymbol, defaultNetwork, providerDepositAddress, providerDestinationTag } = options;
+
+        if (providerDepositAddress) {
+            return {
+                depositAddress: providerDepositAddress,
+                destinationTag: providerDestinationTag ?? null,
+                addressSynced: true,
+                isActive: true,
+            };
+        }
+
+        const normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+            defaultNetwork
+        );
+
+        if (!normalizedDefaultNetwork) {
+            return {
+                depositAddress: null,
+                destinationTag: providerDestinationTag ?? null,
+                addressSynced: false,
+                isActive: false,
+            };
+        }
+
+        const activeDefaultNetworkAddress =
+            await this.prisma.cryptoWalletAddress.findFirst({
+                where: {
+                    userId,
+                    assetSymbol: assetSymbol.toUpperCase(),
+                    network: normalizedDefaultNetwork,
+                    status: CryptoWalletStatus.ACTIVE,
+                    address: { not: null },
+                },
+                select: {
+                    address: true,
+                    destination_tag: true,
+                },
+                orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            });
+
+        const depositAddress = activeDefaultNetworkAddress?.address ?? null;
+
+        return {
+            depositAddress,
+            destinationTag:
+                providerDestinationTag ??
+                activeDefaultNetworkAddress?.destination_tag ??
+                null,
+            addressSynced: Boolean(depositAddress),
+            isActive: Boolean(depositAddress),
+        };
+    }
+
     private async enforcePasswordChangeCooldown(userId: number): Promise<void> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -847,7 +912,12 @@ export class TradingService {
                     userId: user.id,
                     assetCurrency: { in: currencies.map(c => c.toUpperCase()) },
                 },
-                select: { assetCurrency: true, addressSynced: true },
+                select: {
+                    assetCurrency: true,
+                    addressSynced: true,
+                    depositAddress: true,
+                    defaultNetwork: true,
+                },
             });
             const existingCurrencies = new Set(existingWallets.map(w => w.assetCurrency.toLowerCase()));
 
@@ -856,7 +926,7 @@ export class TradingService {
 
             // Find currencies that have wallets but no addresses synced
             const walletsNeedingAddresses = existingWallets
-                .filter(w => !w.addressSynced)
+                .filter(w => !w.addressSynced || !w.depositAddress || !w.defaultNetwork)
                 .map(w => w.assetCurrency.toLowerCase());
 
             // Combine: create new wallets + generate addresses for existing wallets without addresses
@@ -928,9 +998,13 @@ export class TradingService {
             if (walletData.status !== "success" || !walletData.data) return;
 
             const data = walletData.data;
-            const addressFields = data.deposit_address
-                ? { addressSynced: true, isActive: true }
-                : {};
+            const addressState = await this.resolveAssetWalletAddressState({
+                userId,
+                assetSymbol: currency.toUpperCase(),
+                defaultNetwork: data.default_network,
+                providerDepositAddress: data.deposit_address,
+                providerDestinationTag: data.destination_tag,
+            });
 
             await this.prisma.assetWallet.upsert({
                 where: {
@@ -951,9 +1025,10 @@ export class TradingService {
                     isCrypto: data.is_crypto,
                     networks: data.networks,
                     referenceCurrency: data.reference_currency,
-                    depositAddress: data.deposit_address,
-                    destinationTag: data.destination_tag,
-                    ...addressFields,
+                    depositAddress: addressState.depositAddress,
+                    destinationTag: addressState.destinationTag,
+                    addressSynced: addressState.addressSynced,
+                    isActive: addressState.isActive,
                 },
                 create: {
                     quidaxWalletId: data.id,
@@ -968,10 +1043,11 @@ export class TradingService {
                     isCrypto: data.is_crypto,
                     networks: data.networks,
                     referenceCurrency: data.reference_currency,
-                    depositAddress: data.deposit_address,
-                    destinationTag: data.destination_tag,
+                    depositAddress: addressState.depositAddress,
+                    destinationTag: addressState.destinationTag,
                     userId,
-                    ...addressFields,
+                    addressSynced: addressState.addressSynced,
+                    isActive: addressState.isActive,
                 },
             });
             this.logger.log(`AssetWallet created/updated for ${currency.toUpperCase()}`);
@@ -1001,86 +1077,6 @@ export class TradingService {
             return;
         }
 
-        // Step 3: Check if an asset wallet already exists for this user and asset
-        const assetWallet = await this.prisma.assetWallet.findUnique({
-            where: {
-                userId_assetCurrency: {
-                    userId: walletAddress.user.id,
-                    assetCurrency: walletAddress.assetSymbol.toUpperCase(),
-                },
-            },
-            select: {
-                id: true,
-                quidaxWalletId: true,
-                user: { select: { cryptoSubAccountId: true } },
-            },
-        });
-
-        // Step 4: If no asset wallet exists, fetch wallet data from Quidax and create a new asset wallet
-        if (!assetWallet) {
-            const { status, data } = await this.quidaxService.getUserWallet({
-                user_id: walletAddress.user.cryptoSubAccountId,
-                currency: walletAddress.assetSymbol.toLowerCase(),
-            });
-
-            if (status === "success") {
-                await this.prisma.assetWallet.upsert({
-                    where: {
-                        userId_assetCurrency: {
-                            userId: walletAddress.user.id,
-                            assetCurrency:
-                                walletAddress.assetSymbol.toUpperCase(),
-                        },
-                    },
-                    update: {
-                        quidaxWalletId: data.id,
-                        assetName: data.name,
-                        balance: data.balance,
-                        locked: data.locked,
-                        staked: data.staked,
-                        convertedBalance: data.converted_balance,
-                        blockchainEnabled: data.blockchain_enabled,
-                        defaultNetwork: data.default_network,
-                        isCrypto: data.is_crypto,
-                        networks: data.networks,
-                        referenceCurrency: data.reference_currency,
-                        depositAddress: data.deposit_address,
-                        destinationTag: data.destination_tag,
-                        ...(data.deposit_address && { addressSynced: true }),
-                        ...(data.deposit_address && { isActive: true }),
-                    },
-                    create: {
-                        quidaxWalletId: data.id, // Quidax wallet ID
-                        assetCurrency: data.currency.toUpperCase(),
-                        assetName: data.name,
-                        balance: data.balance,
-                        locked: data.locked,
-                        staked: data.staked,
-                        convertedBalance: data.converted_balance,
-                        blockchainEnabled: data.blockchain_enabled,
-                        defaultNetwork: data.default_network,
-                        isCrypto: data.is_crypto,
-                        networks: data.networks, // List of network objects with deposit/withdraw status
-                        referenceCurrency: data.reference_currency,
-                        depositAddress: data.deposit_address, // Can be null initially
-                        destinationTag: data.destination_tag,
-                        userId: walletAddress.user.id,
-                        ...(data.deposit_address && { addressSynced: true }), // Mark address as synced if present
-                        ...(data.deposit_address && { isActive: true }), // Mark wallet as active if deposit address exists
-                    },
-                });
-
-                this.logWalletFlow(
-                    "walletAddressCreatedSuccessHandler:asset_wallet_synced",
-                    {
-                        userId: walletAddress.user.id,
-                        asset: walletAddress.assetSymbol,
-                        walletId: data.id,
-                    }
-                );
-            }
-        }
-
         const webhookNetwork = this.tradeHelpers.normalizeNetworkInput(data.network);
         this.logger.debug(`webhook network: ${webhookNetwork}`);
 
@@ -1094,7 +1090,7 @@ export class TradingService {
             );
         }
 
-        // Step 5: Update the crypto wallet address record with the new address and mark it active
+        // Step 3: Update the crypto wallet address record with the new address and mark it active
         await this.prisma.cryptoWalletAddress.update({
             where: { id: walletAddress.id },
             data: {
@@ -1111,6 +1107,117 @@ export class TradingService {
                 }),
             },
         });
+
+        // Step 4: Check if an asset wallet already exists for this user and asset
+        let assetWallet = await this.prisma.assetWallet.findUnique({
+            where: {
+                userId_assetCurrency: {
+                    userId: walletAddress.user.id,
+                    assetCurrency: walletAddress.assetSymbol.toUpperCase(),
+                },
+            },
+            select: {
+                id: true,
+                defaultNetwork: true,
+            },
+        });
+
+        // Step 5: If no asset wallet exists, fetch wallet data from Quidax and create a new asset wallet
+        if (!assetWallet) {
+            const walletResponse = await this.quidaxService.getUserWallet({
+                user_id: walletAddress.user.cryptoSubAccountId,
+                currency: walletAddress.assetSymbol.toLowerCase(),
+            });
+
+            if (walletResponse.status === "success") {
+                const addressState = await this.resolveAssetWalletAddressState({
+                    userId: walletAddress.user.id,
+                    assetSymbol: walletAddress.assetSymbol.toUpperCase(),
+                    defaultNetwork: walletResponse.data.default_network,
+                    providerDepositAddress: walletResponse.data.deposit_address,
+                    providerDestinationTag: walletResponse.data.destination_tag,
+                });
+
+                assetWallet = await this.prisma.assetWallet.upsert({
+                    where: {
+                        userId_assetCurrency: {
+                            userId: walletAddress.user.id,
+                            assetCurrency:
+                                walletAddress.assetSymbol.toUpperCase(),
+                        },
+                    },
+                    update: {
+                        quidaxWalletId: walletResponse.data.id,
+                        assetName: walletResponse.data.name,
+                        balance: walletResponse.data.balance,
+                        locked: walletResponse.data.locked,
+                        staked: walletResponse.data.staked,
+                        convertedBalance: walletResponse.data.converted_balance,
+                        blockchainEnabled: walletResponse.data.blockchain_enabled,
+                        defaultNetwork: walletResponse.data.default_network,
+                        isCrypto: walletResponse.data.is_crypto,
+                        networks: walletResponse.data.networks,
+                        referenceCurrency: walletResponse.data.reference_currency,
+                        depositAddress: addressState.depositAddress,
+                        destinationTag: addressState.destinationTag,
+                        addressSynced: addressState.addressSynced,
+                        isActive: addressState.isActive,
+                    },
+                    create: {
+                        quidaxWalletId: walletResponse.data.id, // Quidax wallet ID
+                        assetCurrency: walletResponse.data.currency.toUpperCase(),
+                        assetName: walletResponse.data.name,
+                        balance: walletResponse.data.balance,
+                        locked: walletResponse.data.locked,
+                        staked: walletResponse.data.staked,
+                        convertedBalance: walletResponse.data.converted_balance,
+                        blockchainEnabled: walletResponse.data.blockchain_enabled,
+                        defaultNetwork: walletResponse.data.default_network,
+                        isCrypto: walletResponse.data.is_crypto,
+                        networks: walletResponse.data.networks, // List of network objects with deposit/withdraw status
+                        referenceCurrency: walletResponse.data.reference_currency,
+                        depositAddress: addressState.depositAddress,
+                        destinationTag: addressState.destinationTag,
+                        userId: walletAddress.user.id,
+                        addressSynced: addressState.addressSynced,
+                        isActive: addressState.isActive,
+                    },
+                });
+
+                this.logWalletFlow(
+                    "walletAddressCreatedSuccessHandler:asset_wallet_synced",
+                    {
+                        userId: walletAddress.user.id,
+                        asset: walletAddress.assetSymbol,
+                        walletId: walletResponse.data.id,
+                    }
+                );
+            }
+        }
+
+        const resolvedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+            assetWallet?.defaultNetwork
+        );
+        const resolvedWalletNetwork = walletAddress.network ?? webhookNetwork;
+
+        if (
+            assetWallet?.id &&
+            resolvedDefaultNetwork &&
+            resolvedWalletNetwork === resolvedDefaultNetwork
+        ) {
+            await this.prisma.assetWallet.update({
+                where: { id: assetWallet.id },
+                data: {
+                    depositAddress: data.walletAddress,
+                    ...(data.destination_tag !== undefined && {
+                        destinationTag: data.destination_tag,
+                    }),
+                    addressSynced: true,
+                    isActive: true,
+                    updatedAt: new Date(),
+                },
+            });
+        }
     }
 
     async getGeneratedWalletAddress(data: GetPaymentAddressByIdOptions) {
@@ -1121,6 +1228,12 @@ export class TradingService {
     async walletUpdatedHandler(data: IWalletUpdated) {
         const wallet = await this.prisma.assetWallet.findUnique({
             where: { quidaxWalletId: data.walletId },
+            select: {
+                id: true,
+                userId: true,
+                assetCurrency: true,
+                defaultNetwork: true,
+            },
         });
 
         if (!wallet) {
@@ -1131,6 +1244,14 @@ export class TradingService {
             return;
         }
 
+        const addressState = await this.resolveAssetWalletAddressState({
+            userId: wallet.userId,
+            assetSymbol: wallet.assetCurrency,
+            defaultNetwork: wallet.defaultNetwork,
+            providerDepositAddress: data.depositAddress,
+            providerDestinationTag: data.destinationTag,
+        });
+
         // VIRTUAL BALANCE SYSTEM: Only sync metadata, not balance
         // User balances are tracked in LedgerEntry table
         await this.prisma.assetWallet.update({
@@ -1138,11 +1259,11 @@ export class TradingService {
             data: {
                 // Metadata only - balance is in LedgerEntry
                 updatedAt: new Date(data.updatedAt),
-                depositAddress: data.depositAddress, // Can be null initially
-                destinationTag: data.destinationTag,
+                depositAddress: addressState.depositAddress,
+                destinationTag: addressState.destinationTag,
                 referenceCurrency: data.referenceCurrency,
-                ...(data.depositAddress && { addressSynced: true }), // Mark address as synced if present
-                ...(data.depositAddress && { isActive: true }), // Mark wallet as active if deposit address exists
+                addressSynced: addressState.addressSynced,
+                isActive: addressState.isActive,
             },
         });
     }
@@ -1597,6 +1718,55 @@ export class TradingService {
                 deposits: quidaxDeposits,
                 error: quidaxError,
             },
+        };
+    }
+
+    async getUserWalletAddressRecords(userId: number) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                email: true,
+                cryptoSubAccountId: true,
+            },
+        });
+
+        if (!user) {
+            return { error: "User not found" };
+        }
+
+        const records = await this.prisma.cryptoWalletAddress.findMany({
+            where: { userId: user.id },
+            orderBy: [
+                { assetSymbol: "asc" },
+                { network: "asc" },
+                { createdAt: "desc" },
+            ],
+            select: {
+                id: true,
+                assetSymbol: true,
+                network: true,
+                status: true,
+                address: true,
+                walletAddressId: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        const grouped = records.reduce((acc, record) => {
+            if (!acc[record.assetSymbol]) {
+                acc[record.assetSymbol] = [];
+            }
+
+            acc[record.assetSymbol].push(record);
+            return acc;
+        }, {} as Record<string, typeof records>);
+
+        return {
+            user,
+            totalRecords: records.length,
+            grouped,
         };
     }
 

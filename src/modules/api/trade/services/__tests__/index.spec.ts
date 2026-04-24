@@ -1,5 +1,11 @@
 import { ForbiddenException } from "@nestjs/common";
-import { EntryStatus, OrderCategory, OrderStatus } from "@prisma/client";
+import {
+    CryptoWalletStatus,
+    EntryStatus,
+    NetworkTypes,
+    OrderCategory,
+    OrderStatus,
+} from "@prisma/client";
 
 // Break circular dependency chain (auth/guards -> user module) for isolated service tests
 jest.mock("@/modules/api/user", () => ({
@@ -473,20 +479,27 @@ describe("TradingService (index)", () => {
             quidaxService.getWithdrawerByReference.mockResolvedValue({ data: { id: "wd-ref" } });
             quidaxService.createOrFindSubAccount.mockResolvedValue({ status: "success", data: { id: "sub-1" } });
 
-            prisma.assetWallet.findMany.mockResolvedValue([
-                { assetCurrency: "BTC", addressSynced: true },
-                { assetCurrency: "ETH", addressSynced: true },
-                { assetCurrency: "USDT", addressSynced: true },
-                { assetCurrency: "USDC", addressSynced: true },
-                { assetCurrency: "BNB", addressSynced: true },
-                { assetCurrency: "SOL", addressSynced: true },
-                { assetCurrency: "XRP", addressSynced: true },
-                { assetCurrency: "ADA", addressSynced: true },
-                { assetCurrency: "DOGE", addressSynced: true },
-                { assetCurrency: "LTC", addressSynced: true },
-                { assetCurrency: "TRX", addressSynced: true },
-                { assetCurrency: "SHIB", addressSynced: true },
-            ]);
+            prisma.assetWallet.findMany.mockResolvedValue(
+                [
+                    "BTC",
+                    "ETH",
+                    "USDT",
+                    "USDC",
+                    "BNB",
+                    "SOL",
+                    "XRP",
+                    "ADA",
+                    "DOGE",
+                    "LTC",
+                    "TRX",
+                    "SHIB",
+                ].map((assetCurrency) => ({
+                    assetCurrency,
+                    addressSynced: true,
+                    depositAddress: `${assetCurrency.toLowerCase()}-address`,
+                    defaultNetwork: "bep20",
+                })),
+            );
 
             await expect(service.verifySwapQuoteTransaction("swap-ref", "user-sub-1")).resolves.toEqual({
                 data: { id: "swap-ref" },
@@ -781,6 +794,81 @@ describe("TradingService (index)", () => {
     });
 
     describe("wallet update paths", () => {
+        it("resolveAssetWalletAddressState prefers provider deposit metadata when present", async () => {
+            const { service, prisma } = makeDeps();
+
+            await expect(
+                (service as any).resolveAssetWalletAddressState({
+                    userId: 10,
+                    assetSymbol: "XRP",
+                    defaultNetwork: "ripple",
+                    providerDepositAddress: "rProvider123",
+                    providerDestinationTag: "12345",
+                }),
+            ).resolves.toEqual({
+                depositAddress: "rProvider123",
+                destinationTag: "12345",
+                addressSynced: true,
+                isActive: true,
+            });
+
+            expect(prisma.cryptoWalletAddress.findFirst).not.toHaveBeenCalled();
+        });
+
+        it("resolveAssetWalletAddressState returns inactive metadata when default network is missing", async () => {
+            const { service, prisma } = makeDeps();
+
+            await expect(
+                (service as any).resolveAssetWalletAddressState({
+                    userId: 10,
+                    assetSymbol: "TRX",
+                    defaultNetwork: null,
+                    providerDepositAddress: null,
+                    providerDestinationTag: "memo-10",
+                }),
+            ).resolves.toEqual({
+                depositAddress: null,
+                destinationTag: "memo-10",
+                addressSynced: false,
+                isActive: false,
+            });
+
+            expect(prisma.cryptoWalletAddress.findFirst).not.toHaveBeenCalled();
+        });
+
+        it("resolveAssetWalletAddressState uses the active child address when provider metadata is missing", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "TChild456",
+                destination_tag: "memo-child",
+            });
+
+            await expect(
+                (service as any).resolveAssetWalletAddressState({
+                    userId: 10,
+                    assetSymbol: "TRX",
+                    defaultNetwork: "trc20",
+                    providerDepositAddress: null,
+                    providerDestinationTag: null,
+                }),
+            ).resolves.toEqual({
+                depositAddress: "TChild456",
+                destinationTag: "memo-child",
+                addressSynced: true,
+                isActive: true,
+            });
+
+            expect(prisma.cryptoWalletAddress.findFirst).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        userId: 10,
+                        assetSymbol: "TRX",
+                        network: "trc20",
+                    }),
+                }),
+            );
+        });
+
         it("walletUpdatedHandler returns when wallet is not found", async () => {
             const { service, prisma } = makeDeps();
             prisma.assetWallet.findUnique.mockResolvedValue(null);
@@ -815,6 +903,69 @@ describe("TradingService (index)", () => {
             );
         });
 
+        it("walletUpdatedHandler falls back to the active default-network child address", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.assetWallet.findUnique.mockResolvedValue({
+                id: 9,
+                userId: 10,
+                assetCurrency: "TRX",
+                defaultNetwork: "trc20",
+            });
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "TChild123",
+                destination_tag: null,
+            });
+
+            await service.walletUpdatedHandler({
+                walletId: "wallet-1",
+                updatedAt: "2026-03-28T10:00:00Z",
+                depositAddress: null,
+                destinationTag: null,
+                referenceCurrency: "ngn",
+            } as any);
+
+            expect(prisma.assetWallet.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 9 },
+                    data: expect.objectContaining({
+                        depositAddress: "TChild123",
+                        addressSynced: true,
+                        isActive: true,
+                    }),
+                }),
+            );
+        });
+
+        it("walletUpdatedHandler clears stale parent flags when provider and child addresses are missing", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.assetWallet.findUnique.mockResolvedValue({
+                id: 9,
+                userId: 10,
+                assetCurrency: "TRX",
+                defaultNetwork: "trc20",
+            });
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
+
+            await service.walletUpdatedHandler({
+                walletId: "wallet-1",
+                updatedAt: "2026-03-28T10:00:00Z",
+                depositAddress: null,
+                destinationTag: null,
+                referenceCurrency: "ngn",
+            } as any);
+
+            expect(prisma.assetWallet.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 9 },
+                    data: expect.objectContaining({
+                        depositAddress: null,
+                        addressSynced: false,
+                        isActive: false,
+                    }),
+                }),
+            );
+        });
+
         it("walletAddressCreatedSuccessHandler exits safely when wallet address record is missing", async () => {
             const { service, prisma } = makeDeps();
             prisma.cryptoWalletAddress.findUnique.mockResolvedValue(null);
@@ -823,6 +974,100 @@ describe("TradingService (index)", () => {
                 service.walletAddressCreatedSuccessHandler({ walletAddressId: "wa-1" } as any),
             ).resolves.toBeUndefined();
             expect(prisma.cryptoWalletAddress.update).not.toHaveBeenCalled();
+        });
+
+        it("walletAddressCreatedSuccessHandler repairs an existing parent wallet on the default network", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.cryptoWalletAddress.findUnique.mockResolvedValue({
+                id: 12,
+                assetSymbol: "XRP",
+                network: NetworkTypes.ripple,
+                user: { id: 10, cryptoSubAccountId: "sub-10" },
+            });
+            prisma.assetWallet.findUnique.mockResolvedValue({
+                id: 44,
+                quidaxWalletId: "wallet-44",
+                defaultNetwork: "ripple",
+                user: { cryptoSubAccountId: "sub-10" },
+            });
+
+            await service.walletAddressCreatedSuccessHandler({
+                walletAddressId: "wa-1",
+                walletAddress: "rnZboEfo3HhKXwoxoSthHVxf5zpbBkXghU",
+                destination_tag: "1784961909",
+                network: "ripple",
+                totalPayments: "0",
+            });
+
+            expect(prisma.cryptoWalletAddress.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 12 },
+                    data: expect.objectContaining({
+                        address: "rnZboEfo3HhKXwoxoSthHVxf5zpbBkXghU",
+                        status: CryptoWalletStatus.ACTIVE,
+                    }),
+                }),
+            );
+            expect(prisma.assetWallet.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 44 },
+                    data: expect.objectContaining({
+                        depositAddress: "rnZboEfo3HhKXwoxoSthHVxf5zpbBkXghU",
+                        destinationTag: "1784961909",
+                        addressSynced: true,
+                        isActive: true,
+                    }),
+                }),
+            );
+        });
+
+        it("triggerQuidaxAccountCreation reprocesses wallets with null parent deposit addresses", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.assetWallet.findMany.mockResolvedValue(
+                [
+                    "BTC",
+                    "ETH",
+                    "USDT",
+                    "USDC",
+                    "BNB",
+                    "SOL",
+                    "XRP",
+                    "ADA",
+                    "DOGE",
+                    "LTC",
+                    "TRX",
+                    "SHIB",
+                ].map((assetCurrency) => ({
+                    assetCurrency,
+                    addressSynced: true,
+                    depositAddress:
+                        assetCurrency === "XRP"
+                            ? null
+                            : `${assetCurrency.toLowerCase()}-address`,
+                    defaultNetwork: "bep20",
+                })),
+            );
+
+            const processWalletForCurrencySpy = jest
+                .spyOn(service as any, "processWalletForCurrency")
+                .mockResolvedValue({ currency: "xrp", success: true, addresses: 1 });
+
+            await expect(
+                service.triggerQuidaxAccountCreation({
+                    id: 10,
+                    email: "user@example.com",
+                    cryptoSubAccountId: "sub-10",
+                } as any),
+            ).resolves.toMatchObject({
+                message: expect.stringContaining("account generation completed"),
+            });
+
+            expect(processWalletForCurrencySpy).toHaveBeenCalledTimes(1);
+            expect(processWalletForCurrencySpy).toHaveBeenCalledWith(
+                10,
+                "sub-10",
+                "xrp",
+            );
         });
     });
 

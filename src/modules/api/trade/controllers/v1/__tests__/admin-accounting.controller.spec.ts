@@ -17,11 +17,13 @@ jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
 jest.mock("@/modules/api/authorize/decorator", () => ({
     UserTypes: () => () => undefined,
     ADMIN_USER_TYPES: ["SUPER_ADMIN"],
+    Permissions: () => () => undefined,
     __esModule: true,
 }));
 
 import { OrderCategory } from "@prisma/client";
 import { AdminAccountingController } from "../admin-accounting.controller";
+import { FiatGatewayRegistryService } from "@/modules/factory/bank/services/fiat-gateway-registry.service";
 
 describe("AdminAccountingController", () => {
     let controller: AdminAccountingController;
@@ -32,12 +34,18 @@ describe("AdminAccountingController", () => {
         };
         order: {
             findMany: jest.Mock;
+            update: jest.Mock;
         };
         user: {
             findMany: jest.Mock;
+            findUnique: jest.Mock;
         };
         assetWallet: {
             findMany: jest.Mock;
+        };
+        payment: {
+            findMany: jest.Mock;
+            count: jest.Mock;
         };
         $queryRaw: jest.Mock;
     };
@@ -47,6 +55,22 @@ describe("AdminAccountingController", () => {
     let rateService: {
         getAssetUsdtPrice: jest.Mock;
     };
+    let fincraService: {
+        getWallets: jest.Mock;
+    };
+    let nombaService: {
+        getAccountBalance: jest.Mock;
+    };
+    let ledgerService: {
+        pairedCredit: jest.Mock;
+        pairedDebit: jest.Mock;
+    };
+    let adminSwapService: {
+        getSwapQuote: jest.Mock;
+        confirmSwap: jest.Mock;
+    };
+    let fiatGatewayRegistryService: FiatGatewayRegistryService;
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     beforeEach(() => {
         prisma = {
@@ -56,12 +80,18 @@ describe("AdminAccountingController", () => {
             },
             order: {
                 findMany: jest.fn(),
+                update: jest.fn(),
             },
             user: {
                 findMany: jest.fn(),
+                findUnique: jest.fn(),
             },
             assetWallet: {
                 findMany: jest.fn(),
+            },
+            payment: {
+                findMany: jest.fn(),
+                count: jest.fn(),
             },
             $queryRaw: jest.fn(),
         };
@@ -74,18 +104,41 @@ describe("AdminAccountingController", () => {
             getAssetUsdtPrice: jest.fn(),
         };
 
-        const adminSwapService = {
+        adminSwapService = {
             getSwapQuote: jest.fn(),
             confirmSwap: jest.fn(),
+        };
+
+        fincraService = {
+            getWallets: jest.fn(),
+        };
+
+        nombaService = {
+            getAccountBalance: jest.fn(),
+        };
+
+        fiatGatewayRegistryService = new FiatGatewayRegistryService(
+            fincraService as any,
+            nombaService as any,
+        );
+
+        ledgerService = {
+            pairedCredit: jest.fn(),
+            pairedDebit: jest.fn(),
         };
 
         controller = new AdminAccountingController(
             prisma as any,
             solvencyService as any,
+            ledgerService as any,
             rateService as any,
             adminSwapService as any,
+            fiatGatewayRegistryService as any,
+            mockAuditLogService as any,
         );
 
+        jest.spyOn((controller as any).logger, "warn").mockImplementation(() => undefined);
+        jest.spyOn((controller as any).logger, "error").mockImplementation(() => undefined);
         jest.spyOn((controller as any).logger, "log").mockImplementation(() => undefined);
     });
 
@@ -296,5 +349,417 @@ describe("AdminAccountingController", () => {
         expect(result.data.totals.walletCount).toBe(2);
         expect(result.data.totals.totalValueUsd).toBe(503);
         expect(result.data.overallStatus).toBe("HEALTHY");
+    });
+
+    it("returns fiat gateway summary with balances from both providers", async () => {
+        fincraService.getWallets.mockResolvedValue({
+            data: [
+                {
+                    currency: "NGN",
+                    availableBalance: 500000,
+                    lockedBalance: 20000,
+                    ledgerBalance: 520000,
+                },
+                {
+                    currency: "USD",
+                    availableBalance: 1000,
+                    lockedBalance: 0,
+                    ledgerBalance: 1000,
+                },
+            ],
+        });
+
+        nombaService.getAccountBalance.mockResolvedValue({
+            data: {
+                amount: "300000",
+                currency: "NGN",
+                timeCreated: "2026-01-01T00:00:00.000Z",
+            },
+        });
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.message).toBe("Fiat gateway summary retrieved");
+        expect(result.data.gateways).toHaveLength(3);
+        expect(result.data.gateways[0]).toEqual(
+            expect.objectContaining({ provider: "Fincra", providerKey: "fincra", status: "connected", currency: "NGN" }),
+        );
+        expect(result.data.gateways[2]).toEqual(
+            expect.objectContaining({ provider: "Nomba", providerKey: "nomba", status: "connected", currency: "NGN" }),
+        );
+        expect(result.data.totals.totalAvailable).toBe(801000);
+        expect(result.data.totals.connectedGateways).toBe(3);
+    });
+
+    it("handles snake_case fields from Fincra API response", async () => {
+        fincraService.getWallets.mockResolvedValue({
+            status: true,
+            data: [
+                {
+                    id: "w1",
+                    wallet_number: "WALLET-001",
+                    currency: "NGN",
+                    available_balance: 750000,
+                    locked_balance: 30000,
+                    ledger_balance: 780000,
+                },
+            ],
+        });
+
+        nombaService.getAccountBalance.mockResolvedValue({
+            data: {
+                amount: "200000",
+                currency: "NGN",
+                timeCreated: "2026-01-01T00:00:00.000Z",
+            },
+        });
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.data.gateways[0].availableBalance).toBe(750000);
+        expect(result.data.gateways[0].lockedBalance).toBe(30000);
+        expect(result.data.gateways[0].ledgerBalance).toBe(780000);
+        expect(result.data.gateways[1].availableBalance).toBe(200000);
+        expect(result.data.gateways[1].lockedBalance).toBe(0);
+        expect(result.data.totals.totalAvailable).toBe(950000);
+    });
+
+    it("defaults to 0 when balance fields are missing entirely", async () => {
+        fincraService.getWallets.mockResolvedValue({
+            status: true,
+            data: [{ id: "w1", currency: "NGN" }],
+        });
+
+        nombaService.getAccountBalance.mockResolvedValue({
+            data: { currency: "NGN" },
+        });
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.data.gateways[0].availableBalance).toBe(0);
+        expect(result.data.gateways[0].lockedBalance).toBe(0);
+        expect(result.data.gateways[0].ledgerBalance).toBe(0);
+        expect(result.data.gateways[1].availableBalance).toBe(0);
+        expect(result.data.gateways[1].lockedBalance).toBe(0);
+        expect(result.data.gateways[1].ledgerBalance).toBe(0);
+        expect(result.data.totals.totalAvailable).toBe(0);
+    });
+
+    it("maps null flow to collection (legacy records without flow field)", async () => {
+        prisma.payment.findMany.mockResolvedValue([
+            {
+                id: 10,
+                reference: "ref-legacy",
+                transactionId: "txn-legacy",
+                paymentMethod: "NOMBA",
+                flow: null,
+                amount: 25000,
+                expectedCurrency: "NGN",
+                status: "COMPLETED",
+                userId: 1,
+                narration: "Legacy deposit",
+                createdAt: new Date("2025-12-01"),
+                updatedAt: new Date("2025-12-01"),
+                user: { id: 1, email: "alice@example.com", firstName: "Alice", lastName: "Doe" },
+            },
+        ]);
+        prisma.payment.count.mockResolvedValue(1);
+
+        const result = await controller.getFiatGatewayActivity(1, 20);
+
+        expect(result.data.records[0].type).toBe("collection");
+        expect(result.data.records[0].provider).toBe("Nomba");
+    });
+
+    it("returns fiat gateway summary with error status when providers fail", async () => {
+        fincraService.getWallets.mockRejectedValue(new Error("Fincra timeout"));
+        nombaService.getAccountBalance.mockRejectedValue(new Error("Nomba auth failed"));
+
+        jest.spyOn((controller as any).logger, "error").mockImplementation(() => undefined);
+
+        const result = await controller.getFiatGatewaySummary();
+
+        expect(result.message).toBe("Fiat gateway summary retrieved");
+        expect(result.data.gateways).toHaveLength(2);
+        expect(result.data.gateways[0]).toEqual(
+            expect.objectContaining({ provider: "Fincra", providerKey: "fincra", status: "error", error: "Unable to connect to Fincra" }),
+        );
+        expect(result.data.gateways[1]).toEqual(
+            expect.objectContaining({ provider: "Nomba", providerKey: "nomba", status: "error", error: "Unable to connect to Nomba" }),
+        );
+        expect(result.data.totals.totalAvailable).toBe(0);
+        expect(result.data.totals.connectedGateways).toBe(0);
+    });
+
+    it("returns paginated fiat gateway activity with filters", async () => {
+        prisma.payment.findMany.mockResolvedValue([
+            {
+                id: 1,
+                reference: "ref-001",
+                transactionId: "txn-001",
+                paymentMethod: "FINCRA",
+                flow: "IN",
+                amount: 50000,
+                expectedCurrency: "NGN",
+                status: "COMPLETED",
+                userId: 1,
+                narration: "Deposit",
+                createdAt: new Date("2026-01-10"),
+                updatedAt: new Date("2026-01-10"),
+                user: { id: 1, email: "alice@example.com", firstName: "Alice", lastName: "Doe" },
+            },
+        ]);
+        prisma.payment.count.mockResolvedValue(1);
+
+        const result = await controller.getFiatGatewayActivity(1, 20, "fincra", "collection");
+
+        expect(result.message).toBe("Fiat gateway activity retrieved");
+        expect(result.data.records).toHaveLength(1);
+        expect(result.data.records[0]).toEqual(
+            expect.objectContaining({
+                provider: "Fincra",
+                providerKey: "fincra",
+                type: "collection",
+                amount: 50000,
+                currency: "NGN",
+            }),
+        );
+        expect(result.data.meta.totalCount).toBe(1);
+    });
+
+    it("returns fiat gateway activity for all providers when no filter specified", async () => {
+        prisma.payment.findMany.mockResolvedValue([]);
+        prisma.payment.count.mockResolvedValue(0);
+
+        const result = await controller.getFiatGatewayActivity(1, 20);
+
+        expect(result.message).toBe("Fiat gateway activity retrieved");
+        expect(result.data.records).toHaveLength(0);
+        expect(result.data.meta.totalCount).toBe(0);
+    });
+
+    it("filters fiat gateway activity by date range", async () => {
+        prisma.payment.findMany.mockResolvedValue([]);
+        prisma.payment.count.mockResolvedValue(0);
+
+        await controller.getFiatGatewayActivity(1, 20, undefined, undefined, "2026-01-01T00:00:00.000Z", "2026-01-31T23:59:59.000Z");
+
+        expect(prisma.payment.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    createdAt: {
+                        gte: new Date("2026-01-01T00:00:00.000Z"),
+                        lte: new Date("2026-01-31T23:59:59.000Z"),
+                    },
+                }),
+            }),
+        );
+    });
+
+    // =========================================================================
+    // ADMIN ADJUSTMENT TESTS
+    // =========================================================================
+
+    const adminUser = { id: 1, email: "admin@resolve.ng" } as any;
+
+    it("creates adjustment and links to order", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedCredit.mockResolvedValue({
+            success: true,
+            userEntry: { id: "ledger-123", balanceAfter: 2, reference: "adj-ref" },
+            userBalanceAfter: 2,
+        });
+        prisma.order.update.mockResolvedValue({});
+
+        const dto = { userId: 12, currency: "usdt", amount: 2, reason: "backfill", orderId: 2 };
+        const result = await controller.createAdjustment(dto, adminUser);
+
+        expect(result.message).toBe("Adjustment applied successfully");
+        expect(result.data.ledgerEntryId).toBe("ledger-123");
+        expect(result.data.balanceAfter).toBe("2");
+        expect(ledgerService.pairedCredit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                userId: 12,
+                currency: "USDT",
+                type: "ADJUSTMENT",
+                amount: 2,
+            }),
+        );
+        expect(prisma.order.update).toHaveBeenCalledWith({
+            where: { id: 2 },
+            data: { ledgerEntryId: "ledger-123", fulfilled: true },
+        });
+    });
+
+    it("throws NotFoundException when user does not exist", async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+
+        const dto = { userId: 999, currency: "usdt", amount: 2, reason: "test" };
+        await expect(controller.createAdjustment(dto, adminUser)).rejects.toThrow("User 999 not found");
+    });
+
+    it("throws BadRequestException when ledger credit fails", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedCredit.mockResolvedValue({ success: false, error: "Insufficient balance" });
+
+        const dto = { userId: 12, currency: "usdt", amount: 2, reason: "test" };
+        await expect(controller.createAdjustment(dto, adminUser)).rejects.toThrow("Adjustment failed: Insufficient balance");
+    });
+
+    it("creates debit adjustment via pairedDebit", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedDebit.mockResolvedValue({
+            success: true,
+            userEntry: { id: "ledger-debit-123", balanceAfter: 3, reference: "adj-ref" },
+            userBalanceAfter: 3,
+        });
+
+        const dto = { userId: 12, currency: "usdt", amount: 2, direction: "debit", reason: "cleanup proof balance" };
+        const result = await controller.createAdjustment(dto as any, adminUser);
+
+        expect(result.message).toBe("Adjustment applied successfully");
+        expect(result.data.direction).toBe("debit");
+        expect(ledgerService.pairedDebit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                userId: 12,
+                currency: "USDT",
+                type: "ADJUSTMENT",
+                amount: 2,
+                metadata: expect.objectContaining({ direction: "debit" }),
+            }),
+        );
+        expect(ledgerService.pairedCredit).not.toHaveBeenCalled();
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects debit adjustment when orderId is provided", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+
+        const dto = {
+            userId: 12,
+            currency: "usdt",
+            amount: 2,
+            direction: "debit",
+            reason: "cleanup proof balance",
+            orderId: 2,
+        };
+
+        await expect(controller.createAdjustment(dto as any, adminUser)).rejects.toThrow(
+            "orderId is only supported for credit adjustments",
+        );
+        expect(ledgerService.pairedDebit).not.toHaveBeenCalled();
+        expect(ledgerService.pairedCredit).not.toHaveBeenCalled();
+    });
+
+    it("succeeds without orderId (no order link)", async () => {
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedCredit.mockResolvedValue({
+            success: true,
+            userEntry: { id: "ledger-456", balanceAfter: 5, reference: "adj-ref" },
+            userBalanceAfter: 5,
+        });
+
+        const dto = { userId: 12, currency: "btc", amount: 0.5, reason: "courtesy credit" };
+        const result = await controller.createAdjustment(dto, adminUser);
+
+        expect(result.message).toBe("Adjustment applied successfully");
+        expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("sorts trading balances by lowest", async () => {
+        prisma.ledgerEntry.findMany
+            .mockResolvedValueOnce([{ userId: 1 }, { userId: 2 }])
+            .mockResolvedValueOnce([
+                {
+                    userId: 1, currency: "BTC", balanceAfter: 10, updatedAt: new Date(),
+                    user: { id: 1, email: "a@test.com", firstName: "A", lastName: "B", userType: "INDIVIDUAL" },
+                },
+                {
+                    userId: 2, currency: "BTC", balanceAfter: 5, updatedAt: new Date(),
+                    user: { id: 2, email: "b@test.com", firstName: "B", lastName: "C", userType: "INDIVIDUAL" },
+                },
+            ]);
+        prisma.ledgerEntry.aggregate
+            .mockResolvedValueOnce({ _sum: { holdAmount: 0 } })
+            .mockResolvedValueOnce({ _sum: { credit: 10, debit: 0 } })
+            .mockResolvedValueOnce({ _sum: { holdAmount: 0 } })
+            .mockResolvedValueOnce({ _sum: { credit: 5, debit: 0 } });
+        rateService.getAssetUsdtPrice.mockResolvedValue(1);
+
+        const result = await controller.getTradingBalances(1, 20, undefined, undefined, undefined, "lowest");
+        expect(result.data.records[0].totalBalanceUsdt).toBeLessThanOrEqual(result.data.records[1].totalBalanceUsdt);
+    });
+
+    it("filters swap log by source=admin", async () => {
+        prisma.order.findMany
+            .mockResolvedValueOnce([{ userId: 1 }])
+            .mockResolvedValueOnce([{
+                id: "ord1", userId: 1, fromCurrency: "BTC", toCurrency: "USDT",
+                fromAmount: 1, toAmount: 100, rate: 100, status: "COMPLETED",
+                category: OrderCategory.SWAP, createdAt: new Date(), updatedAt: new Date(),
+                user: { id: 1, email: "user@test.com", firstName: "Test", lastName: "User", userType: "INDIVIDUAL" },
+            }]);
+
+        const result = await controller.getSwapLog(1, 20, undefined, undefined, "admin");
+        expect(result.message).toBe("Swap log retrieved");
+    });
+
+    it("filters swap log by source=user", async () => {
+        prisma.order.findMany
+            .mockResolvedValueOnce([{ userId: 1 }])
+            .mockResolvedValueOnce([{
+                id: "ord1", userId: 1, fromCurrency: "BTC", toCurrency: "USDT",
+                fromAmount: 1, toAmount: 100, rate: 100, status: "COMPLETED",
+                category: OrderCategory.SWAP, createdAt: new Date(), updatedAt: new Date(),
+                user: { id: 1, email: "user@test.com", firstName: "Test", lastName: "User", userType: "INDIVIDUAL" },
+            }]);
+
+        const result = await controller.getSwapLog(1, 20, undefined, undefined, "user");
+        expect(result.message).toBe("Swap log retrieved");
+    });
+
+    it("delegates getSwapQuote to adminSwapService", async () => {
+        const quoteResult = { rate: 100, fromCurrency: "BTC", toCurrency: "USDT" };
+        adminSwapService.getSwapQuote.mockResolvedValue(quoteResult);
+
+        const result = await controller.getSwapQuote({ fromCurrency: "BTC", toCurrency: "USDT", amount: 1 } as any);
+        expect(adminSwapService.getSwapQuote).toHaveBeenCalledWith({ fromCurrency: "BTC", toCurrency: "USDT", amount: 1 });
+        expect(result).toEqual(quoteResult);
+    });
+
+    it("delegates confirmSwap to adminSwapService", async () => {
+        const confirmResult = { success: true };
+        adminSwapService.confirmSwap.mockResolvedValue(confirmResult);
+        const adminUser = { id: 5 } as any;
+
+        const result = await controller.confirmSwap({ quoteId: "q1" } as any, adminUser);
+        expect(adminSwapService.confirmSwap).toHaveBeenCalledWith({ quoteId: "q1" }, 5);
+        expect(result).toEqual(confirmResult);
+    });
+
+    it("filters fiat gateway activity by type=payout", async () => {
+        prisma.payment.findMany.mockResolvedValue([]);
+        prisma.payment.count.mockResolvedValue(0);
+
+        const result = await controller.getFiatGatewayActivity(1, 20, undefined, "payout");
+        expect(result.message).toBe("Fiat gateway activity retrieved");
+        expect(prisma.payment.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: expect.objectContaining({ flow: "OUT" }) }),
+        );
+    });
+
+    it("logs warning when order link fails in adjustment", async () => {
+        const adminUser = { id: 1, email: "admin@test.com" } as any;
+        prisma.user.findUnique.mockResolvedValue({ id: 12, email: "user@test.com" });
+        ledgerService.pairedCredit.mockResolvedValue({
+            success: true,
+            userEntry: { id: "ledger-789" },
+            userBalanceAfter: 10,
+        });
+        prisma.order.update.mockRejectedValue(new Error("order not found"));
+
+        const dto = { userId: 12, currency: "usdt", amount: 5, reason: "fix", orderId: 999 };
+        const result = await controller.createAdjustment(dto, adminUser);
+        expect(result.message).toBe("Adjustment applied successfully");
     });
 });

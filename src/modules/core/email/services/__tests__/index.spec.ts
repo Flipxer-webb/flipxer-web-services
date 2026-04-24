@@ -29,7 +29,7 @@ describe("EmailService", () => {
     it("delegates sendBatchMail", async () => {
         client.mailBatchWithTemplate.mockResolvedValue({ total: 2 });
 
-        await expect(service.sendBatchMail({ mail_template_key: "template" } as never)).resolves.toEqual({ total: 2 });
+        await expect(service.sendBatchMail({ template_key: "template" } as never)).resolves.toEqual({ total: 2 });
     });
 
     it("logs and returns sendMailWithTemplate success", async () => {
@@ -40,6 +40,11 @@ describe("EmailService", () => {
             service.sendMailWithTemplate({ to: [{ email_address: { address: "ok@test.com" } }], template_key: "welcome" } as never),
         ).resolves.toEqual({ request_id: "req-1" });
         expect(logSpy).toHaveBeenCalled();
+
+        // Verify template_key is passed through unchanged to match production behavior.
+        const passedOptions = client.sendMailWithTemplate.mock.calls[0][0];
+        expect(passedOptions.template_key).toBe("welcome");
+        expect(passedOptions.mail_template_key).toBeUndefined();
     });
 
     it("logs and rethrows sendMailWithTemplate errors", async () => {

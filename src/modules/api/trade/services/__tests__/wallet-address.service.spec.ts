@@ -39,6 +39,8 @@ function makePrisma() {
             findUnique: jest.fn(),
             findMany: jest.fn().mockResolvedValue([]),
             upsert: jest.fn(),
+            deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         },
         $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
     };
@@ -228,6 +230,7 @@ describe("WalletAddressService", () => {
                 { id: 1, network: NetworkTypes.erc20 },
                 { id: 2, network: NetworkTypes.trc20 },
             ];
+            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: null });
             prisma.cryptoWalletAddress.findMany.mockResolvedValue(wallets);
 
             const result = await service.getWalletAddresses(1, { asset: "usdt" } as any);
@@ -235,7 +238,11 @@ describe("WalletAddressService", () => {
             expect(result.data).toHaveLength(2);
             expect(prisma.cryptoWalletAddress.findMany).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    where: { userId: 1, assetSymbol: "USDT" },
+                    where: expect.objectContaining({
+                        userId: 1,
+                        assetSymbol: "USDT",
+                        status: CryptoWalletStatus.ACTIVE,
+                    }),
                 }),
             );
         });

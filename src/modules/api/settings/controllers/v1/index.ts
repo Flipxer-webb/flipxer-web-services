@@ -30,9 +30,9 @@ import {
     SendTransactionOtpDto,
     // UpdateAllowedIpDto,
 } from "../../dtos";
-import { AuthGuard } from "@/modules/api/auth/guard";
+import { AuthGuard, TwoFactorGuard } from "@/modules/api/auth/guard";
 import { RateLimiterGuard } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 
 @ApiTags("settings")
@@ -234,7 +234,7 @@ export class SettingController {
         return this.settingService.setTradingPassword(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, TwoFactorGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Generate new backup codes" })

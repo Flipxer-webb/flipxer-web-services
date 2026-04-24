@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { GoneException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -32,7 +32,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
 import { generateFileName, generateId, generateRandomNum, decryptField } from "@/utils";
 import { customAlphabet } from "nanoid";
-import { DuplicateUserException } from "../../user";
+import { DuplicateUserException } from "@/modules/api/user/errors";
 import {
     UserNotFoundException,
     InvalidCredentialException,
@@ -118,6 +118,7 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 
 /**
  * Build a spread-safe object for a file field in update operations.
@@ -339,6 +340,45 @@ export class AuthService {
                     message: error.message,
                     status: error.status,
                 },
+            };
+        }
+    }
+
+    private async callDojahUrlDocumentVerification(
+        imageFrontSide: string,
+        imageBackSide: string | undefined,
+        user: User,
+        logger: Logger,
+    ) {
+        try {
+            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
+                {
+                    inputType: "url",
+                    imageFrontSide,
+                    ...(imageBackSide && { imageBackSide }),
+                },
+                user.firstName,
+                user.lastName,
+            );
+
+            return {
+                success: true,
+                isValid: verificationResult.isValid,
+                nameMatches: verificationResult.nameMatches,
+                parsed: verificationResult.parsed,
+                raw: JSON.stringify(verificationResult),
+            };
+        } catch (error) {
+            logger.warn(
+                `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error instanceof Error ? error.message : String(error)}`,
+            );
+
+            return {
+                success: false,
+                isValid: false,
+                nameMatches: false,
+                parsed: null,
+                raw: null,
             };
         }
     }
@@ -903,6 +943,7 @@ export class AuthService {
         const signupData = {
             ...options,
             email, // Store normalized email
+            residentialAddress: options.residentialAddress?.trim() || null,
             ipAddress: ip,
             roleId: role.id
         };
@@ -1076,6 +1117,7 @@ export class AuthService {
                 lastName: cachedSignup.lastName,
                 businessName: cachedSignup.businessName?.trim() || null,
                 dateOfBirth: new Date(cachedSignup.dateOfBirth),
+                residentialAddress: cachedSignup.residentialAddress?.trim() || null,
                 isEmailVerified: true,
                 securityMethods: {
                     sms: false,
@@ -1278,6 +1320,26 @@ export class AuthService {
         this.wsGateway.notifyProfileUpdate(userId);
     }
 
+    private sendPendingReviewEmail(
+        userId: number,
+        userEmail: string,
+        firstName: string,
+        documentType: string,
+    ): void {
+        if (userEmail && emailTemplateConfig.document_pending_review) {
+            this.emailService.sendMailWithTemplate({
+                from: { address: mailConfig.senderMail },
+                to: [{ email_address: { address: userEmail } }],
+                template_key: emailTemplateConfig.document_pending_review,
+                merge_info: {
+                    name: firstName || "User",
+                    document_type: documentType,
+                    company_name: COMPANY_NAME,
+                },
+            }).catch((e) => this.logger.error(`[KYC] Failed to send pending review email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+        }
+    }
+
     private ensureIdentityProfilePresent(user: User, identityType: "BVN" | "NIN"): void {
         if (!user.firstName || !user.lastName || !user.dateOfBirth) {
             throw new VerificationGenericException(
@@ -1285,6 +1347,29 @@ export class AuthService {
                 HttpStatus.BAD_REQUEST
             );
         }
+    }
+
+    private getUserDateOfBirth(user: Pick<User, "dateOfBirth">): string | null {
+        return user.dateOfBirth ? user.dateOfBirth.toISOString().split("T")[0] : null;
+    }
+
+    private evaluateDocumentProfileMatch(
+        user: Pick<User, "firstName" | "lastName" | "dateOfBirth">,
+        parsedDocument: { dateOfBirth?: string | null } | null | undefined,
+        nameMatches: boolean,
+    ): { nameMatches: boolean; dobMatches: boolean; profileMatches: boolean } {
+        const profileDateOfBirth = this.getUserDateOfBirth(user);
+        const dobMatches = Boolean(
+            profileDateOfBirth &&
+            parsedDocument?.dateOfBirth &&
+            matchDateOfBirth(profileDateOfBirth, parsedDocument.dateOfBirth),
+        );
+
+        return {
+            nameMatches,
+            dobMatches,
+            profileMatches: nameMatches && dobMatches,
+        };
     }
 
     private async updateIdentityWithConflictGuard(
@@ -1331,6 +1416,32 @@ export class AuthService {
                 providerRawResponse: result?.data,
                 reviewNote: `Name/DOB mismatch: ${nameResult.detail}, dobMatches=${dobMatches}`,
             });
+            await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
+            // Notify user of rejection (fire-and-forget)
+            this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Identity Verification Unsuccessful",
+                body: `Your ${identityType} verification was unsuccessful. Please check your details and try again.`,
+                category: "security",
+                enablePush: true,
+            }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send rejection notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+
+            if (user.email && emailTemplateConfig.document_rejected) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_rejected,
+                    merge_info: {
+                        first_name: user.firstName || "User",
+                        document_type: identityType,
+                        company_name: COMPANY_NAME,
+                        rejection_reason: "The details provided do not match the identity records. Please ensure your name and date of birth are correct.",
+                        status: "Rejected",
+                    },
+                }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send rejection email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }
+
             throw new VerificationGenericException(
                 "Incorrect first name, last name or date of birth",
                 HttpStatus.BAD_REQUEST
@@ -1350,6 +1461,29 @@ export class AuthService {
             } catch {
                 // If an active REJECTED record exists, reopen via RESUBMITTED -> PENDING.
                 await this.kycStateMachine.transition(user.id, identityType, "RESUBMITTED", transitionMeta);
+            }
+            await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+
+            // Notify user of pending review (fire-and-forget)
+            this.notificationDispatcher.notify({
+                userId: user.id,
+                title: "Identity Verification Under Review",
+                body: `Your ${identityType} verification has been submitted for manual review. We'll notify you once it's processed.`,
+                category: "security",
+                enablePush: true,
+            }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send pending notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+
+            if (user.email && emailTemplateConfig.document_pending_review) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: user.firstName || "User",
+                        document_type: identityType,
+                        company_name: COMPANY_NAME,
+                    },
+                }).catch((e) => this.logger.error(`[KYC][${identityType}] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
             }
 
             return "PENDING_REVIEW";
@@ -1468,10 +1602,14 @@ export class AuthService {
         }
 
         this.ensureIdentityProfilePresent(user, "BVN");
+        const profileDateOfBirth = this.getUserDateOfBirth(user);
 
         this.logger.debug(`[KYC][BVN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyBvn({
             bvn: dto.bvn,
+            first_name: user.firstName || undefined,
+            last_name: user.lastName || undefined,
+            dob: profileDateOfBirth || undefined,
         });
         this.logger.log(`[KYC][BVN] Dojah verification response received for user ${user.id}`);
 
@@ -1492,6 +1630,7 @@ export class AuthService {
             if (identityMatchOutcome === "PENDING_REVIEW") {
                 return buildResponse({
                     message: "BVN submitted for manual review. An admin will review your details shortly.",
+                    data: { status: "PENDING" },
                 });
             }
             await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, dto.bvn, user.id, {
@@ -1544,10 +1683,14 @@ export class AuthService {
         }
 
         this.ensureIdentityProfilePresent(user, "NIN");
+        const profileDateOfBirth = this.getUserDateOfBirth(user);
 
         this.logger.debug(`[KYC][NIN] Calling Dojah verification for user ${user.id}`);
         const result = await this.dojahService.verifyNin({
             nin: dto.nin,
+            first_name: user.firstName || undefined,
+            last_name: user.lastName || undefined,
+            dob: profileDateOfBirth || undefined,
         });
         this.logger.log(`[KYC][NIN] Dojah verification response received for user ${user.id}`);
 
@@ -1568,6 +1711,7 @@ export class AuthService {
             if (identityMatchOutcome === "PENDING_REVIEW") {
                 return buildResponse({
                     message: "NIN submitted for manual review. An admin will review your details shortly.",
+                    data: { status: "PENDING" },
                 });
             }
             await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, dto.nin, user.id, {
@@ -1610,6 +1754,7 @@ export class AuthService {
                 firstName: dto.firstName,
                 lastName: dto.lastName,
                 dateOfBirth: new Date(dto.dateOfBirth),
+                residentialAddress: dto.residentialAddress.trim(),
             },
         });
 
@@ -1661,67 +1806,41 @@ export class AuthService {
             documentImage2Promise,
         ]);
 
-        // Attempt to verify document with Dojah
-        let isDocumentValid = false;
-        let nameMatches = false;
-        let dojahParsed: any = null;
-        let dojahRawResponse: string | null = null;
+        const dojahResult = await this.callDojahUrlDocumentVerification(
+            documentImage1.url,
+            documentImage2?.url,
+            user,
+            logger,
+        );
+        let {
+            isValid: isDocumentValid,
+            nameMatches,
+            parsed: dojahParsed,
+            raw: dojahRawResponse,
+        } = dojahResult;
 
-        try {
-            // Use the new verifyDocumentWithNameMatch method
-            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
-                {
-                    inputType: "url",
-                    imageFrontSide: documentImage1.url,
-                    ...(documentImage2 && { imageBackSide: documentImage2.url }),
-                },
-                user.firstName,
-                user.lastName
-            );
+        isDocumentValid = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
 
-            isDocumentValid = verificationResult.isValid;
-            nameMatches = verificationResult.nameMatches;
-            dojahParsed = verificationResult.parsed;
-            dojahRawResponse = JSON.stringify(verificationResult);
-
-            // Check if document is expired
-            if (isDocumentValid && this.isDocumentExpired(dojahParsed?.expiryDate)) {
-                logger.warn(`Document for user ${user.id} is expired: ${dojahParsed?.expiryDate}`);
-                isDocumentValid = false;
-                dojahParsed.reason = "Document has expired";
-            }
-
-            logger.log(
-                `Document analysis for user ${user.id}: ` +
-                `valid=${isDocumentValid}, nameMatches=${nameMatches}, ` +
-                `docType=${dojahParsed?.documentType || "unknown"}, ` +
-                `expiryDate=${dojahParsed?.expiryDate || "unknown"}`
-            );
-
-            // Document must be valid AND name must match for auto-approval
-            if (!isDocumentValid) {
-                logger.warn(`Document for user ${user.id} failed validation: ${dojahParsed?.reason}`);
-            }
-            if (!nameMatches) {
-                logger.warn(
-                    `Name mismatch for user ${user.id}: ` +
-                    `expected "${user.firstName} ${user.lastName}", ` +
-                    `got "${dojahParsed?.firstName || ""} ${dojahParsed?.lastName || ""}"`
-                );
-            }
-        } catch (error) {
-            // If Dojah fails (API error, low balance, timeout, etc.), fall back to pending review
+        if (dojahResult.success && !nameMatches) {
             logger.warn(
-                `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error.message}`
+                `Name mismatch for user ${user.id}: ` +
+                `expected "${user.firstName} ${user.lastName}", ` +
+                `got "${dojahParsed?.firstName || ""} ${dojahParsed?.lastName || ""}"`
             );
-            isDocumentValid = false;
-            nameMatches = false;
+        }
+
+        const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);
+
+        if (isDocumentValid && !documentProfileMatch.dobMatches) {
+            logger.warn(
+                `Document DOB mismatch for user ${user.id}: expected=${this.getUserDateOfBirth(user) || "missing"}, got=${dojahParsed?.dateOfBirth || "missing"}`,
+            );
         }
 
         // Determine verification status:
-        // - VERIFIED: Document is valid AND name matches
-        // - PENDING: Document is invalid, name doesn't match, or Dojah call failed
-        const shouldAutoApprove = isDocumentValid && nameMatches;
+        // - VERIFIED: Document is valid and the extracted profile matches the stored profile
+        // - PENDING: Document is invalid, profile data does not match, or Dojah call failed
+        const shouldAutoApprove = isDocumentValid && documentProfileMatch.profileMatches;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
             : DocumentVerificationStatus.PENDING;
@@ -1750,7 +1869,7 @@ export class AuthService {
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
                         dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: nameMatches,
+                        dojahNameMatches: documentProfileMatch.nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                         updatedAt: new Date(),
@@ -1776,7 +1895,7 @@ export class AuthService {
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
                         dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
                         dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: nameMatches,
+                        dojahNameMatches: documentProfileMatch.nameMatches,
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                     },
@@ -1802,8 +1921,8 @@ export class AuthService {
                 providerRef: dojahParsed?.documentNumber || null,
                 providerRawResponse: dojahParsed,
                 reviewNote: shouldAutoApprove
-                    ? "Auto-approved: document valid and name matches"
-                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${nameMatches}`,
+                    ? "Auto-approved: document valid, name matched, and DOB matched"
+                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${documentProfileMatch.nameMatches}, dobMatches=${documentProfileMatch.dobMatches}`,
             }
         );
 
@@ -1825,8 +1944,11 @@ export class AuthService {
             category: "security",
         });
 
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Identity Document");
+
         return buildResponse({
             message: "Document submitted for review. You will be notified once verification is complete.",
+            data: { status: "PENDING" },
         });
     }
 
@@ -2186,9 +2308,12 @@ export class AuthService {
             body: "Your identity document has been submitted for review. We'll notify you once it's processed.",
             category: "security",
         });
+
+        this.sendPendingReviewEmail(userId, updatedUser.email, updatedUser.firstName, "Identity Document");
+
         return buildResponse({
             message: "Document submitted for review. You will be notified once verification is complete.",
-            data: { verified: false, documentType, pendingReview: true },
+            data: { status: "PENDING", verified: false, documentType, pendingReview: true },
         });
     }
 
@@ -2196,67 +2321,9 @@ export class AuthService {
      * Submit Dojah Widget verification result
      * Receives verification data from Dojah Widget and saves to database
      */
-    async submitDojahWidgetVerification(user: User, dto: DojahWidgetVerificationDto) {
-        const logger = new Logger("DojahWidgetVerification");
-
-        logger.log(`Dojah widget verification submission for user ${user.id}`, {
-            verificationId: dto.verificationId,
-            referenceId: dto.referenceId,
-            verificationType: dto.verificationType,
-            hasIdData: !!dto.idData,
-            hasLiveness: !!dto.liveness,
-            hasSelfie: !!dto.selfie,
-            hasFaceMatch: !!dto.faceMatch,
-        });
-
-        try {
-            // Check if already verified
-            if (user.isDocumentVerified) {
-                return buildResponse({
-                    message: "Document has already been verified",
-                    data: { verified: true },
-                });
-            }
-
-            // Map Dojah document type to internal document type
-            const documentType = this.mapDojahToDocumentType(
-                dto.idData?.document_type,
-                dto.documentType,
-            );
-
-            // SECURITY: Server-side verification of widget result
-            // Do NOT trust the client-submitted verification data alone
-            const { serverVerified, serverVerificationData } =
-                await this.verifyDojahServerSide(dto.verificationId, user.id, logger);
-
-            const finalStatus = serverVerified
-                ? DocumentVerificationStatus.VERIFIED
-                : DocumentVerificationStatus.PENDING;
-
-            // Persist widget verification data and update user status
-            await this.persistWidgetVerification(
-                user.id, documentType, dto, serverVerified, finalStatus, serverVerificationData,
-            );
-
-            // Sync tier & flush cache for both branches — flags were written above
-            const updatedUser = await this.tierService.syncTierAndCache(user.id);
-
-            if (serverVerified) {
-                this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
-            }
-
-            return this.buildWidgetVerificationResponse(
-                serverVerified, user.id, documentType, dto, updatedUser, logger,
-            );
-        } catch (error) {
-            logger.error(`Dojah widget verification failed for user ${user.id}`, {
-                error: error.message,
-                stack: error.stack,
-            });
-
-            // Re-throw so the controller returns proper HTTP error code
-            throw error;
-        }
+    async submitDojahWidgetVerification(user: User, _dto: DojahWidgetVerificationDto) {
+        this.logger.warn(`[KYC][DOCUMENT] Retired Dojah widget endpoint hit for user ${user.id}`);
+        throw new GoneException("Dojah widget verification has been retired. Use the document upload flow instead.");
     }
 
     /**
@@ -2324,10 +2391,16 @@ export class AuthService {
         }
 
         isDocumentValid = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
+        const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);
 
-        // Auto-approve if document is valid; otherwise save as PENDING for manual review
-        // Name matching is informational only, logged for review if needed
-        const shouldAutoApprove = isDocumentValid;
+        if (isDocumentValid && !documentProfileMatch.dobMatches) {
+            logger.warn(
+                `Document DOB mismatch for user ${user.id}: expected=${this.getUserDateOfBirth(user) || "missing"}, got=${dojahParsed?.dateOfBirth || "missing"}`,
+            );
+        }
+
+        // Auto-approve only when the document is valid and the extracted profile matches the stored profile.
+        const shouldAutoApprove = isDocumentValid && documentProfileMatch.profileMatches;
         const verificationStatus = shouldAutoApprove
             ? DocumentVerificationStatus.VERIFIED
             : DocumentVerificationStatus.PENDING;
@@ -2408,8 +2481,8 @@ export class AuthService {
                 providerRef: dojahParsed?.documentNumber || null,
                 providerRawResponse: dojahParsed,
                 reviewNote: shouldAutoApprove
-                    ? "Auto-approved: document valid via base64 upload"
-                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${nameMatches}`,
+                    ? "Auto-approved: document valid, name matched, and DOB matched"
+                    : `Manual review needed: valid=${isDocumentValid}, nameMatches=${documentProfileMatch.nameMatches}, dobMatches=${documentProfileMatch.dobMatches}`,
             }
         );
 
@@ -2431,8 +2504,11 @@ export class AuthService {
             category: "security",
         });
 
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Identity Document");
+
         return buildResponse({
             message: "Document verification is pending review",
+            data: { status: "PENDING" },
         });
     }
 
@@ -2598,6 +2674,8 @@ export class AuthService {
             body: "Your business documents have been submitted for review. We'll notify you once they're processed.",
             category: "security",
         });
+
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Business Documents");
 
         // Fire-and-forget: Run Dojah business verification in background
         // This does NOT block the user response — results are stored async
@@ -2870,6 +2948,8 @@ export class AuthService {
             category: "security",
         });
 
+        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Business Documents");
+
         // For Dojah verification we need the CAC image buffer.
         // Since we already uploaded to ImageKit, fetch it back as base64.
         this.runDojahBusinessVerificationFromStoredDocument(
@@ -3129,6 +3209,39 @@ export class AuthService {
         return await this.signIn(options, LoginPlatform.ADMIN, ip);
     }
 
+    /**
+     * Create a login session with error handling.
+     * Session creation failure should NOT prevent login.
+     */
+    private async createLoginSession(
+        userId: number,
+        deviceInfo: { deviceName?: string; deviceType?: string; browser?: string; os?: string },
+        ip: string,
+    ): Promise<string | undefined> {
+        try {
+            const sessionInfo: SessionInfo = {
+                deviceName: deviceInfo.deviceName,
+                deviceType: deviceInfo.deviceType,
+                browser: deviceInfo.browser,
+                os: deviceInfo.os,
+                ipAddress: ip,
+            };
+            const sessionResult = await this.sessionService.createSession(userId, sessionInfo);
+            return sessionResult.sessionId;
+        } catch (sessionError: unknown) {
+            const errMsg = sessionError instanceof Error ? sessionError.message : JSON.stringify(sessionError);
+            Logger.error(`Failed to create session for user ${userId}: ${errMsg}`);
+            return undefined;
+        }
+    }
+
+    private buildAdminPermissions(user: { userType: string; role?: { rolePermission?: Array<{ permission: { name: string } }> } }): string[] {
+        if (user.userType === UserType.SUPER_ADMIN) {
+            return Object.values(PermissionName);
+        }
+        return (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
+    }
+
     private async signIn(
         options: SignInOptions,
         loginPlatform: LoginPlatform,
@@ -3140,7 +3253,7 @@ export class AuthService {
             password: true,
             userType: true,
             status: true,
-            role: { select: { name: true, rolePermission: true } },
+            role: { select: { name: true, slug: true, rolePermission: { select: { permission: { select: { name: true } } } } } },
             lastLogin: true,
             loginCount: true,
             flaggedRecord: true,
@@ -3245,33 +3358,14 @@ export class AuthService {
         }
 
         // Create session for user logins with error handling
-        // Session creation failure should NOT prevent login
-        let sessionId: string | undefined;
-        if (loginPlatform === LoginPlatform.USER) {
-            try {
-                const sessionInfo: SessionInfo = {
-                    deviceName: options.deviceName,
-                    deviceType: options.deviceType,
-                    browser: options.browser,
-                    os: options.os,
-                    ipAddress: ip,
-                };
-                const sessionResult = await this.sessionService.createSession(
-                    user.id,
-                    sessionInfo
-                );
-                sessionId = sessionResult.sessionId;
-            } catch (sessionError) {
-                // Log the error but don't fail the login
-                Logger.error(`Failed to create session for user ${user.id}: ${sessionError.message}`);
-                // Session creation is non-critical, login should still succeed
-            }
-        }
+        const sessionId = loginPlatform === LoginPlatform.USER
+            ? await this.createLoginSession(user.id, options, ip)
+            : undefined;
 
         const tokenPayload: Record<string, any> = {
             sub: user.id,
             platform: loginPlatform,
-            ...(sessionId ? { sessionId } : {}),
+            sessionId,
         };
 
         const tokens = await this.generateTokens(tokenPayload);
@@ -3288,12 +3382,16 @@ export class AuthService {
         });
 
         if (loginPlatform === LoginPlatform.ADMIN) {
+            const permissions = this.buildAdminPermissions(user);
+
             return buildResponse({
                 message: "Login successful",
                 data: {
                     accessToken: tokens.accessToken,
                     refreshToken: tokens.refreshToken,
                     userType: user.userType,
+                    role: user.role ? { name: user.role.name, slug: (user.role as any).slug } : null,
+                    permissions,
                 },
             });
         }
@@ -3371,6 +3469,7 @@ export class AuthService {
 
                 const newTokens = await this.generateTokens({
                     sub: payload.sub,
+                    ...(payload.platform ? { platform: payload.platform } : {}),
                     ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
                 });
 
@@ -3466,6 +3565,7 @@ export class AuthService {
                 isDocumentVerified: true,
                 businessRecordCompleted: true,
                 businessDocumentVerificationStatus: true,
+                role: { select: { name: true, slug: true, rolePermission: { select: { permission: { select: { name: true } } } } } },
             },
         });
 
@@ -3526,33 +3626,15 @@ export class AuthService {
         }
 
         // Create session for user logins (2FA complete) with error handling
-        // Session creation failure should NOT prevent login
-        let sessionId: string | undefined;
-        if (payload.platform === LoginPlatform.USER) {
-            try {
-                const sessionInfo: SessionInfo = {
-                    deviceName: dto.deviceName,
-                    deviceType: dto.deviceType,
-                    browser: dto.browser,
-                    os: dto.os,
-                    ipAddress: ip,
-                };
-                const sessionResult = await this.sessionService.createSession(
-                    user.id,
-                    sessionInfo
-                );
-                sessionId = sessionResult.sessionId;
-            } catch (sessionError) {
-                // Log the error but don't fail the login
-                Logger.error(`Failed to create 2FA session for user ${user.id}: ${sessionError.message}`);
-                // Session creation is non-critical, login should still succeed
-            }
-        }
+        // Create session for user logins (2FA complete) with error handling
+        const sessionId = payload.platform === LoginPlatform.USER
+            ? await this.createLoginSession(user.id, dto, ip)
+            : undefined;
 
         const tokens = await this.generateTokens({
             sub: user.id,
             platform: payload.platform,
-            ...(sessionId ? { sessionId } : {}),
+            sessionId,
         });
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
@@ -3565,6 +3647,22 @@ export class AuthService {
                 lastLogin: new Date(),
             },
         });
+
+        // Admin platform: return enriched response with permissions
+        if (payload.platform === LoginPlatform.ADMIN) {
+            const permissions = this.buildAdminPermissions(user);
+
+            return buildResponse({
+                message: "Login successful",
+                data: {
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                    userType: user.userType,
+                    role: user.role ? { name: user.role.name, slug: (user.role as any).slug } : null,
+                    permissions,
+                },
+            });
+        }
 
         const verificationStatus: VerificationStatus = {
             isEmailVerified: user.isEmailVerified,

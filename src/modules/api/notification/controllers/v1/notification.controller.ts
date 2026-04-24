@@ -10,7 +10,7 @@ import {
 } from "@nestjs/common";
 import { NotificationService } from "../../services/notification.service";
 import { AuthGuard, CountryBlockGuard } from "@/modules/api/auth/guard";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 import * as dto from "../../dtos/notification.dto";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";

@@ -18,7 +18,7 @@ import {
     TransactionAmountGuard,
 } from "@/modules/api/auth/guard";
 import { TransactionSecurityGuard } from "../../guards";
-import { User } from "@/modules/api/user";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 import {
     BuyCryptoOrderDto,

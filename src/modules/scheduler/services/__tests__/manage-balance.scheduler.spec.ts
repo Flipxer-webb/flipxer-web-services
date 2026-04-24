@@ -20,6 +20,7 @@ describe("AssetBalanceSchedulerService", () => {
         };
         cryptoWalletAddress: {
             findMany: jest.Mock;
+            update: jest.Mock;
         };
     };
     let cryptoAccountProducer: {
@@ -38,6 +39,7 @@ describe("AssetBalanceSchedulerService", () => {
             },
             cryptoWalletAddress: {
                 findMany: jest.fn(),
+                update: jest.fn(),
             },
         };
 
@@ -93,6 +95,7 @@ describe("AssetBalanceSchedulerService", () => {
                     id: 1,
                     walletAddressId: "wa-1",
                     assetSymbol: "BTC",
+                    updatedAt: new Date("2026-04-21T17:00:00Z"),
                     user: { cryptoSubAccountId: "sub-1" },
                 },
             ]);
@@ -125,6 +128,7 @@ describe("AssetBalanceSchedulerService", () => {
                     id: 2,
                     walletAddressId: "wa-2",
                     assetSymbol: "ETH",
+                    updatedAt: new Date("2026-04-21T17:45:00Z"),
                     user: { cryptoSubAccountId: "sub-2" },
                 },
             ]);
@@ -139,6 +143,39 @@ describe("AssetBalanceSchedulerService", () => {
             await service.syncWalletAddress();
 
             expect(tradingService.walletAddressCreatedSuccessHandler).not.toHaveBeenCalled();
+            expect(prisma.cryptoWalletAddress.update).not.toHaveBeenCalled();
+        });
+
+        it("should mark stale null provider responses as failed", async () => {
+            const nowSpy = jest.spyOn(Date, "now").mockReturnValue(
+                new Date("2026-04-21T18:00:00Z").getTime()
+            );
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+                {
+                    id: 4,
+                    walletAddressId: "wa-4",
+                    assetSymbol: "USDT",
+                    updatedAt: new Date("2026-04-21T17:20:00Z"),
+                    user: { cryptoSubAccountId: "sub-4" },
+                },
+            ]);
+            tradingService.getGeneratedWalletAddress.mockResolvedValue({
+                data: {
+                    address: null,
+                    total_payments: 0,
+                    destination_tag: null,
+                },
+            });
+
+            await service.syncWalletAddress();
+
+            expect(prisma.cryptoWalletAddress.update).toHaveBeenCalledWith({
+                where: { id: 4 },
+                data: { status: CryptoWalletStatus.FAILED },
+            });
+            expect(tradingService.walletAddressCreatedSuccessHandler).not.toHaveBeenCalled();
+
+            nowSpy.mockRestore();
         });
 
         it("should swallow per-address sync failures", async () => {
@@ -155,7 +192,7 @@ describe("AssetBalanceSchedulerService", () => {
             await expect(service.syncWalletAddress()).resolves.toBeUndefined();
         });
 
-        it("should only query recent pending wallet addresses", async () => {
+        it("should query all pending wallet addresses", async () => {
             prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
 
             await service.syncWalletAddress();
@@ -164,7 +201,6 @@ describe("AssetBalanceSchedulerService", () => {
                 expect.objectContaining({
                     where: expect.objectContaining({
                         status: CryptoWalletStatus.PENDING,
-                        createdAt: { gte: expect.any(Date) },
                     }),
                 }),
             );

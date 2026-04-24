@@ -11,7 +11,14 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { FincraWebhookGuard } from '../../auth/guard';
 import { BankService } from '../services';
 import { PrismaService } from '@/modules/core/prisma/services';
-import { FincraWebhookPayloadDto } from '../dtos/fincra-webhook.dto';
+import { PaymentGatewayWebhookPayloadDto } from '../dtos/payment-webhook.dto';
+import { PaymentWebhookAdapterService } from '@/modules/factory/bank/services/payment-webhook-adapter.service';
+import { BuyOrderService } from '../../trade/services/buy-order.service';
+import { SlackWebhookService } from '@/modules/api/operations/services/slack-webhook.service';
+import {
+    BuyOrderWebhookPayment,
+    handleBuyOrderWebhookPayment,
+} from '../services/buy-order-webhook-payment.util';
 
 /**
  * Fincra Webhook Controller
@@ -34,6 +41,9 @@ export class FincraWebhookController {
     constructor(
         private readonly bankService: BankService,
         private readonly prisma: PrismaService,
+        private readonly paymentWebhookAdapterService: PaymentWebhookAdapterService,
+        private readonly buyOrderService: BuyOrderService,
+        private readonly slackWebhookService: SlackWebhookService,
     ) { }
 
     @Post('fincra')
@@ -43,15 +53,14 @@ export class FincraWebhookController {
         summary: 'Handle Fincra webhook events',
         description: 'Receives webhook notifications from Fincra for payment collection events',
     })
-    async handleFincraWebhook(@Body() payload: FincraWebhookPayloadDto) {
-        const { event, data } = payload;
+    async handleFincraWebhook(@Body() payload: PaymentGatewayWebhookPayloadDto) {
+        const event = this.paymentWebhookAdapterService.normalizeFincraWebhook(payload as any);
 
-        this.logger.log(`Received Fincra webhook: ${event}`);
-        this.logger.log(`Reference: ${data.reference || data.merchantReference}`);
-        this.logger.log(`Status: ${data.status}`);
+        this.logger.log(`Received Fincra webhook: ${event.eventName}`);
+        this.logger.log(`Reference: ${event.reference}`);
+        this.logger.log(`Status: ${event.status}`);
 
-        // Use merchantReference as that's what we set as our reference during initializePayment
-        const reference = data.merchantReference || data.reference;
+        const reference = event.reference;
 
         if (!reference) {
             this.logger.warn('No reference found in webhook payload');
@@ -59,19 +68,19 @@ export class FincraWebhookController {
         }
 
         // Persist raw webhook payload to WebhookLog for audit trail
-        const providerReference = data.reference || reference;
+        const providerReference = event.providerReference || reference;
         try {
             await this.prisma.webhookLog.upsert({
                 where: {
                     provider_eventType_externalId: {
                         provider: 'fincra',
-                        eventType: event,
+                        eventType: event.eventName,
                         externalId: providerReference,
                     },
                 },
                 create: {
                     provider: 'fincra',
-                    eventType: event,
+                    eventType: event.eventName,
                     externalId: providerReference,
                     payload: payload as any,
                 },
@@ -94,49 +103,91 @@ export class FincraWebhookController {
         }
 
         try {
-            switch (event) {
-                case 'collection.successful':
-                    this.logger.log(`Processing successful payment for reference: ${reference}`);
-                    await this.bankService.paymentSuccessHandler(reference);
-                    this.logger.log(`Successfully processed payment for reference: ${reference}`);
-                    break;
+            await this.processNormalizedEvent(reference, event);
 
-                case 'collection.failed':
-                    this.logger.log(`Processing failed payment for reference: ${reference}`);
-                    await this.bankService.paymentFailedHandler(reference);
-                    this.logger.log(`Processed failed payment for reference: ${reference}`);
-                    break;
-
-                case 'collection.pending':
-                    this.logger.log(`Payment pending for reference: ${reference}`);
-                    // No action needed for pending payments
-                    break;
-
-                case 'payout.successful':
-                    this.logger.log(`Payout successful for reference: ${reference}`);
-                    await this.bankService.processAssetValueTransferToBankHandler({
-                        paymentReference: reference,
-                        transferToBankStatus: 'SUCCESS' as any,
-                    });
-                    break;
-
-                case 'payout.failed':
-                    this.logger.log(`Payout failed for reference: ${reference}`);
-                    await this.bankService.processAssetValueTransferToBankHandler({
-                        paymentReference: reference,
-                        transferToBankStatus: 'FAILED' as any,
-                    });
-                    break;
-
-                default:
-                    this.logger.warn(`Unknown Fincra event: ${event}`);
-            }
-
-            return { success: true, message: `Webhook processed for event: ${event}` };
+            return { success: true, message: `Webhook processed for event: ${event.eventName}` };
         } catch (error) {
             this.logger.error(`Error processing Fincra webhook: ${error.message}`, error.stack);
-            // Still return 200 to prevent Fincra from retrying
-            return { success: false, message: error.message };
+            throw error;
+        }
+    }
+
+    private async processNormalizedEvent(reference: string, event: ReturnType<PaymentWebhookAdapterService["normalizeFincraWebhook"]>) {
+        if (event.kind === 'incoming_payment') {
+            await this.processIncomingPayment(reference, event);
+            return;
+        }
+
+        if (event.kind === 'payout') {
+            await this.processPayout(reference, event.status);
+            return;
+        }
+
+        this.logger.warn(`Unknown Fincra event: ${event.eventName}`);
+    }
+
+    private async processIncomingPayment(reference: string, event: ReturnType<PaymentWebhookAdapterService["normalizeFincraWebhook"]>) {
+        const status = event.status;
+        if (status === 'successful') {
+            this.logger.log(`Processing successful payment for reference: ${reference}`);
+
+            const payment = await this.prisma.payment.findUnique({
+                where: { reference },
+            });
+
+            if (payment?.orderId) {
+                await handleBuyOrderWebhookPayment({
+                    payment: payment as BuyOrderWebhookPayment,
+                    event,
+                    reference,
+                    provider: 'fincra',
+                    prisma: this.prisma,
+                    buyOrderService: this.buyOrderService,
+                    slackWebhookService: this.slackWebhookService,
+                    logger: this.logger,
+                });
+                this.logger.log(`Successfully processed buy-order payment for reference: ${reference}`);
+                return;
+            }
+
+            await this.bankService.paymentSuccessHandler(reference);
+            this.logger.log(`Successfully processed payment for reference: ${reference}`);
+            return;
+        }
+
+        if (status === 'failed') {
+            this.logger.log(`Processing failed payment for reference: ${reference}`);
+            await this.bankService.paymentFailedHandler(reference);
+            this.logger.log(`Processed failed payment for reference: ${reference}`);
+            return;
+        }
+
+        if (status === 'pending') {
+            this.logger.log(`Payment pending for reference: ${reference}`);
+        }
+    }
+
+    private async processPayout(reference: string, status: ReturnType<PaymentWebhookAdapterService["normalizeFincraWebhook"]>["status"]) {
+        if (status === 'successful') {
+            this.logger.log(`Payout successful for reference: ${reference}`);
+            await this.bankService.processAssetValueTransferToBankHandler({
+                paymentReference: reference,
+                transferToBankStatus: 'SUCCESS' as any,
+            });
+            return;
+        }
+
+        if (status === 'failed') {
+            this.logger.log(`Payout failed for reference: ${reference}`);
+            await this.bankService.processAssetValueTransferToBankHandler({
+                paymentReference: reference,
+                transferToBankStatus: 'FAILED' as any,
+            });
+            return;
+        }
+
+        if (status === 'pending') {
+            this.logger.log(`Payout pending for reference: ${reference}`);
         }
     }
 }

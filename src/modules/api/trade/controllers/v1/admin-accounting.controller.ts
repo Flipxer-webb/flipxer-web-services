@@ -8,24 +8,30 @@ import {
     Logger,
     ParseIntPipe,
     DefaultValuePipe,
+    NotFoundException,
+    BadRequestException,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from "@nestjs/swagger";
 import {
     AuthGuard,
     EnabledAccountGuard,
 } from "@/modules/api/auth/guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { User as UserEntity, LedgerType, EntryStatus, OrderCategory, Prisma } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { SolvencyService } from "../../services/ledger/solvency.service";
+import { LedgerService } from "../../services/ledger/ledger.service";
 import { RateService } from "../../services/rate.service";
 import { AdminSwapService } from "../../services/admin-swap.service";
-import { AdminSwapQuoteDto, AdminSwapConfirmDto } from "../../dtos";
+import { AdminSwapQuoteDto, AdminSwapConfirmDto, AdminAdjustmentDto, AdminAdjustmentDirection } from "../../dtos";
 import { User } from "@/modules/api/user/decorators";
 import { buildResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
+import { FiatGatewayRegistryService } from "@/modules/factory/bank/services/fiat-gateway-registry.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
@@ -40,8 +46,11 @@ export class AdminAccountingController {
     constructor(
         private readonly prisma: PrismaService,
         private readonly solvencyService: SolvencyService,
+        private readonly ledgerService: LedgerService,
         private readonly rateService: RateService,
         private readonly adminSwapService: AdminSwapService,
+        private readonly fiatGatewayRegistryService: FiatGatewayRegistryService,
+        private readonly auditLogService: AuditLogService,
     ) {}
 
     // =========================================================================
@@ -55,6 +64,7 @@ export class AdminAccountingController {
     @ApiQuery({ name: "search", required: false, description: "Search by user email or name" })
     @ApiQuery({ name: "accountType", required: false, description: "Filter by account type (INDIVIDUAL/BUSINESS)" })
     @ApiQuery({ name: "sortBalance", required: false, description: "Sort by total balance: highest or lowest" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("trading-balances")
     async getTradingBalances(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
@@ -233,6 +243,7 @@ export class AdminAccountingController {
     @ApiQuery({ name: "status", required: false, description: "Filter by status" })
     @ApiQuery({ name: "currency", required: false, description: "Filter by from/to currency" })
     @ApiQuery({ name: "source", required: false, description: "Filter by swap source (admin | user | all)" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("swap-log")
     async getSwapLog(
         @Query("pageNumber", new DefaultValuePipe(1), ParseIntPipe) pageNumber: number,
@@ -365,6 +376,7 @@ export class AdminAccountingController {
     @ApiQuery({ name: "limit", required: false, type: Number })
     @ApiQuery({ name: "currency", required: false, type: String })
     @ApiQuery({ name: "search", required: false, type: String })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("deposit-withdrawal-summary")
     async getDepositWithdrawalSummary(
         @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -494,6 +506,7 @@ export class AdminAccountingController {
     // =========================================================================
 
     @ApiOperation({ summary: "Get on-chain solvency summary (wallet balances vs ledger)" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
     @Get("on-chain-summary")
     async getOnChainSummary() {
         this.logger.log("Admin fetching on-chain summary");
@@ -540,17 +553,260 @@ export class AdminAccountingController {
     // =========================================================================
 
     @ApiOperation({ summary: "Get a swap quote for the platform main wallet via Quidax" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("swap-quote")
     async getSwapQuote(@Body() dto: AdminSwapQuoteDto) {
         return this.adminSwapService.getSwapQuote(dto);
     }
 
     @ApiOperation({ summary: "Confirm and execute a swap on the platform main wallet via Quidax" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("swap-confirm")
     async confirmSwap(
         @Body() dto: AdminSwapConfirmDto,
         @User() admin: UserEntity,
     ) {
-        return this.adminSwapService.confirmSwap(dto, admin.id);
+        const result = await this.adminSwapService.confirmSwap(dto, admin.id);
+        await this.auditLogService.log({
+            action: "CONFIRM_ADMIN_SWAP",
+            resource: "swap",
+            details: { ...dto },
+            adminId: admin.id,
+        });
+        return result;
+    }
+
+    // =========================================================================
+    // FIAT GATEWAY ENDPOINTS
+    // =========================================================================
+
+    @ApiOperation({ summary: "Get fiat gateway balances from all configured providers" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
+    @Get("fiat-gateway-summary")
+    async getFiatGatewaySummary() {
+        this.logger.log("Admin fetching fiat gateway summary");
+
+        const gateways = await this.fiatGatewayRegistryService.getGatewaySummaries();
+
+        const totalAvailable = gateways
+            .filter((g) => g.status === "connected")
+            .reduce((sum, g) => sum + g.availableBalance, 0);
+        const totalLocked = gateways
+            .filter((g) => g.status === "connected")
+            .reduce((sum, g) => sum + g.lockedBalance, 0);
+        const connectedCount = gateways.filter((g) => g.status === "connected").length;
+
+        return buildResponse({
+            message: "Fiat gateway summary retrieved",
+            data: {
+                gateways,
+                totals: {
+                    totalAvailable,
+                    totalLocked,
+                    totalLedger: totalAvailable + totalLocked,
+                    connectedGateways: connectedCount,
+                    totalGateways: gateways.length,
+                },
+                timestamp: new Date().toISOString(),
+            },
+        });
+    }
+
+    @ApiOperation({ summary: "Get recent fiat gateway activity (buy/sell orders involving NGN)" })
+    @ApiQuery({ name: "page", required: false, type: Number })
+    @ApiQuery({ name: "limit", required: false, type: Number })
+    @ApiQuery({ name: "provider", required: false, description: "Filter by configured gateway provider key" })
+    @ApiQuery({ name: "type", required: false, description: "Filter by type: collection, payout, or all" })
+    @ApiQuery({ name: "startDate", required: false, description: "Filter from date (ISO 8601)" })
+    @ApiQuery({ name: "endDate", required: false, description: "Filter to date (ISO 8601)" })
+    @Permissions([PermissionName.TRANSACTIONS_READ])
+    @Get("fiat-gateway-activity")
+    async getFiatGatewayActivity(
+        @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
+        @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit: number,
+        @Query("provider") provider?: string,
+        @Query("type") type?: string,
+        @Query("startDate") startDate?: string,
+        @Query("endDate") endDate?: string,
+    ) {
+        this.logger.log(`Admin fetching fiat gateway activity (page ${page})`);
+
+        const pageSize = Math.min(limit, 100);
+        const skip = (Math.max(page, 1) - 1) * pageSize;
+
+        const where: any = {};
+
+        // Filter by payment method (maps to provider)
+        where.paymentMethod = {
+            in: this.fiatGatewayRegistryService.getPaymentMethodsForFilter(provider),
+        };
+
+        // Filter by flow type
+        if (type === "collection") {
+            where.flow = "IN";
+        } else if (type === "payout") {
+            where.flow = "OUT";
+        }
+
+        // Filter by date range
+        if (startDate || endDate) {
+            where.createdAt = {};
+            if (startDate) {
+                where.createdAt.gte = new Date(startDate);
+            }
+            if (endDate) {
+                where.createdAt.lte = new Date(endDate);
+            }
+        }
+
+        const [payments, total] = await Promise.all([
+            this.prisma.payment.findMany({
+                where,
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                        },
+                    },
+                },
+                orderBy: { createdAt: "desc" },
+                skip,
+                take: pageSize,
+            }),
+            this.prisma.payment.count({ where }),
+        ]);
+
+        const records = payments.map((p) => {
+            const providerKey = this.fiatGatewayRegistryService.getProviderKeyForPaymentMethod(p.paymentMethod);
+
+            return {
+            id: p.id,
+            reference: p.reference,
+            transactionId: p.transactionId,
+            provider: this.fiatGatewayRegistryService.getDisplayNameForPaymentMethod(p.paymentMethod),
+            providerKey: providerKey ?? "unknown",
+            type: p.flow === "OUT" ? "payout" : "collection",
+            amount: Number(p.amount),
+            currency: p.expectedCurrency || "NGN",
+            status: p.status,
+            userId: p.userId,
+            userName: p.user
+                ? `${p.user.firstName ?? ""} ${p.user.lastName ?? ""}`.trim()
+                : "Unknown",
+            email: p.user?.email ?? "",
+            narration: p.narration,
+            createdAt: p.createdAt,
+            updatedAt: p.updatedAt,
+            };
+        });
+
+        return buildResponse({
+            message: "Fiat gateway activity retrieved",
+            data: {
+                meta: buildPaginationMeta(page, pageSize, total, records.length),
+                records,
+            },
+        });
+    }
+
+    // =========================================================================
+    // ADMIN LEDGER ADJUSTMENT
+    // =========================================================================
+
+    @ApiOperation({ summary: "Credit or debit a user's ledger balance (admin adjustment)" })
+    @Permissions([PermissionName.TRANSACTIONS_UPDATE])
+    @Post("adjustment")
+    async createAdjustment(
+        @Body() dto: AdminAdjustmentDto,
+        @User() admin: UserEntity,
+    ) {
+        const {
+            userId,
+            currency,
+            amount,
+            reason,
+            orderId,
+            direction = AdminAdjustmentDirection.CREDIT,
+        } = dto;
+
+        // Verify user exists
+        const user = await this.prisma.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            throw new NotFoundException(`User ${userId} not found`);
+        }
+
+        if (direction === AdminAdjustmentDirection.DEBIT && orderId) {
+            throw new BadRequestException("orderId is only supported for credit adjustments");
+        }
+
+        const reference = `admin-adj:${direction}:${admin.id}:${Date.now()}`;
+        const normalizedCurrency = currency.toUpperCase();
+        const operationVerb = direction === AdminAdjustmentDirection.DEBIT ? "debiting" : "crediting";
+
+        this.logger.warn(
+            `[ADMIN ADJUSTMENT] Admin ${admin.id} (${admin.email}) ${operationVerb} ${amount} ${normalizedCurrency} ${direction === AdminAdjustmentDirection.DEBIT ? "from" : "to"} user ${userId} (${user.email}) | Reason: ${reason} | OrderId: ${orderId ?? "none"}`,
+        );
+
+        const ledgerOptions = {
+            userId,
+            currency: normalizedCurrency,
+            type: LedgerType.ADJUSTMENT,
+            amount,
+            reference,
+            description: `Admin ${direction} adjustment: ${reason}`,
+            metadata: {
+                adminId: admin.id,
+                adminEmail: admin.email,
+                reason,
+                direction,
+                ...(orderId ? { orderId } : {}),
+            },
+            sweepStatus: undefined,
+            createPlatformEntry: true,
+        };
+
+        const result = direction === AdminAdjustmentDirection.DEBIT
+            ? await this.ledgerService.pairedDebit(ledgerOptions)
+            : await this.ledgerService.pairedCredit(ledgerOptions);
+
+        if (!result.success) {
+            this.logger.error(`[ADMIN ADJUSTMENT] Failed: ${result.error}`);
+            throw new BadRequestException(`Adjustment failed: ${result.error}`);
+        }
+
+        // If an orderId was provided, link the credit entry to the order
+        if (direction === AdminAdjustmentDirection.CREDIT && orderId && result.userEntry) {
+            await this.prisma.order.update({
+                where: { id: orderId },
+                data: { ledgerEntryId: result.userEntry.id, fulfilled: true },
+            }).catch((err) => {
+                this.logger.warn(`[ADMIN ADJUSTMENT] Could not link ledger entry to order ${orderId}: ${err.message}`);
+            });
+        }
+
+        this.logger.log(
+            `[ADMIN ADJUSTMENT] Success | LedgerEntry: ${result.userEntry?.id} | BalanceAfter: ${result.userBalanceAfter}`,
+        );
+
+        await this.auditLogService.log({
+            action: "CREATE_ADJUSTMENT",
+            resource: "ledger",
+            resourceId: result.userEntry?.id,
+            details: { userId, currency: normalizedCurrency, amount, reason, orderId, reference, direction },
+            adminId: admin.id,
+        });
+
+        return buildResponse({
+            message: "Adjustment applied successfully",
+            data: {
+                ledgerEntryId: result.userEntry?.id,
+                balanceAfter: result.userBalanceAfter?.toString(),
+                direction,
+                reference,
+            },
+        });
     }
 }

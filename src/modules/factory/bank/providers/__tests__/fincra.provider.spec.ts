@@ -25,6 +25,7 @@ describe("FincraBank", () => {
         verifyPayment: jest.fn(),
         initiateBankTransfer: jest.fn(),
         verifyPayoutByCustomerReference: jest.fn(),
+        getWallets: jest.fn(),
     };
 
     const prisma = {
@@ -185,5 +186,29 @@ describe("FincraBank", () => {
                 }),
             }),
         );
+    });
+
+    it("getWallets returns wallet balances on success", async () => {
+        fincra.getWallets.mockResolvedValue({
+            status: true,
+            data: [{ currency: "NGN", availableBalance: 100000 }],
+        });
+
+        const result = await provider.getWallets();
+
+        expect(result.status).toBe(true);
+        expect(result.data).toHaveLength(1);
+    });
+
+    it("getWallets throws FINCRABankException when status is falsy", async () => {
+        fincra.getWallets.mockResolvedValue({ status: false });
+
+        await expect(provider.getWallets()).rejects.toBeInstanceOf(errors.FINCRABankException);
+    });
+
+    it("getWallets throws FINCRABankException on network error", async () => {
+        fincra.getWallets.mockRejectedValue(new Error("timeout"));
+
+        await expect(provider.getWallets()).rejects.toBeInstanceOf(errors.FINCRABankException);
     });
 });

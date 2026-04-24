@@ -11,11 +11,36 @@ jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
     __esModule: true,
 }));
 
+jest.mock("@/modules/api/authorize/guards/permission.guard", () => ({
+    PermissionGuard: class { isStub() { return true; } },
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/authorize/decorator", () => ({
+    UserTypes: () => () => undefined,
+    ADMIN_USER_TYPES: ["SUPER_ADMIN"],
+    Permissions: () => () => undefined,
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/authorize/enums/role", () => ({
+    PermissionName: {},
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/user/decorators", () => ({
+    User: () => () => undefined,
+    ClientData: () => () => undefined,
+    __esModule: true,
+}));
+
 import { AdminUserController } from "../admin";
 import { AdminUserService } from "../../../services/admin";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 describe("AdminUserController", () => {
     let controller: AdminUserController;
+    const mockReq = { ip: '127.0.0.1', headers: { 'user-agent': 'test' }, user: { id: 1 } } as any;
     let adminService: {
         getAnalyticsOverview: jest.Mock;
         getUserList: jest.Mock;
@@ -39,7 +64,10 @@ describe("AdminUserController", () => {
 
         const module: TestingModule = await Test.createTestingModule({
             controllers: [AdminUserController],
-            providers: [{ provide: AdminUserService, useValue: adminService }],
+            providers: [
+                { provide: AdminUserService, useValue: adminService },
+                { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+            ],
         }).compile();
 
         controller = module.get(AdminUserController);
@@ -74,7 +102,7 @@ describe("AdminUserController", () => {
         adminService.unflagUser.mockResolvedValue({ message: "unflagged" });
         adminService.flagUser.mockResolvedValue({ message: "flagged" });
 
-        await expect(controller.unflagUser({ userId: 8 } as any)).resolves.toEqual({ message: "unflagged" });
-        await expect(controller.flagUser({ userId: 8, reason: "risk" } as any)).resolves.toEqual({ message: "flagged" });
+        await expect(controller.unflagUser({ userId: 8 } as any, mockReq as never)).resolves.toEqual({ message: "unflagged" });
+        await expect(controller.flagUser({ userId: 8, reason: "risk" } as any, mockReq as never)).resolves.toEqual({ message: "flagged" });
     });
 });

@@ -138,6 +138,24 @@ export interface FincraPayoutStatusResponse {
     };
 }
 
+// Wallet Balance Types
+export interface FincraWallet {
+    id: string;
+    walletNumber: string;
+    currency: string;
+    availableBalance: number;
+    lockedBalance: number;
+    ledgerBalance: number;
+    type?: string;
+    status?: string;
+}
+
+export interface FincraWalletsResponse {
+    status: boolean;
+    message: string;
+    data: FincraWallet[];
+}
+
 export class FincraLib {
     private readonly axios: AxiosInstance;
 
@@ -160,6 +178,16 @@ export class FincraLib {
         }
 
         this.axios = Axios.create(axiosConfig);
+    }
+
+    private normalizeReferencePathSegment(value: string, fieldName: string): string {
+        const normalizedValue = value.trim();
+
+        if (!normalizedValue || !/^[A-Za-z0-9._:-]+$/.test(normalizedValue)) {
+            throw new Error(`Invalid ${fieldName}`);
+        }
+
+        return encodeURIComponent(normalizedValue);
     }
 
     private handleError(error: AxiosError<any>) {
@@ -190,9 +218,10 @@ export class FincraLib {
 
     async verifyPayment(reference: string) {
         try {
+            const normalizedReference = this.normalizeReferencePathSegment(reference, "reference");
             const requestOptions: AxiosRequestConfig = {
                 method: "GET",
-                url: `/checkout/payments/merchant-reference/${reference}`,
+                url: `/checkout/payments/merchant-reference/${normalizedReference}`,
                 headers: this.options.businessId
                     ? { "x-business-id": this.options.businessId }
                     : undefined,
@@ -282,9 +311,10 @@ export class FincraLib {
      */
     async verifyPayoutByReference(reference: string) {
         try {
+            const normalizedReference = this.normalizeReferencePathSegment(reference, "reference");
             const requestOptions: AxiosRequestConfig = {
                 method: "GET",
-                url: `/disbursements/payouts/${reference}`,
+                url: `/disbursements/payouts/${normalizedReference}`,
             };
             const { data } = await this.axios<FincraPayoutStatusResponse>(
                 requestOptions
@@ -300,9 +330,13 @@ export class FincraLib {
      */
     async verifyPayoutByCustomerReference(customerReference: string) {
         try {
+            const normalizedCustomerReference = this.normalizeReferencePathSegment(
+                customerReference,
+                "customer reference",
+            );
             const requestOptions: AxiosRequestConfig = {
                 method: "GET",
-                url: `/disbursements/payouts/customer-reference/${customerReference}`,
+                url: `/disbursements/payouts/customer-reference/${normalizedCustomerReference}`,
             };
             const { data } = await this.axios<FincraPayoutStatusResponse>(
                 requestOptions
@@ -310,6 +344,29 @@ export class FincraLib {
             return data;
         } catch (error) {
             this.handleError(error as AxiosError);
+        }
+    }
+
+    /**
+     * Get all wallet balances for the business
+     * Requires businessId to be configured
+     */
+    async getWallets(): Promise<FincraWalletsResponse> {
+        try {
+            const businessId = this.options.businessId;
+            if (!businessId) {
+                throw new Error("Business ID is required to fetch wallets");
+            }
+            const requestOptions: AxiosRequestConfig = {
+                method: "GET",
+                url: `/wallets`,
+                params: { businessID: businessId },
+            };
+            const { data } = await this.axios<FincraWalletsResponse>(requestOptions);
+            return data;
+        } catch (error) {
+            this.handleError(error as AxiosError);
+            throw error;
         }
     }
 }

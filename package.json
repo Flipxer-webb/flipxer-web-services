@@ -23,7 +23,7 @@
         "@nestjs/platform-express": "^10.4.16",
         "@nestjs/platform-socket.io": "^10.4.16",
         "@nestjs/websockets": "^10.4.16",
-        "axios": "^1.13.5",
+        "axios": "^1.15.0",
         "brace-expansion": "~2.0.3",
         "cloudinary": "^2.7.0",
         "fast-xml-parser@4": "4.5.5",
@@ -38,7 +38,7 @@
         "minimatch@5": "5.1.8",
         "multer": "^2.1.1",
         "node-forge": "1.4.0",
-        "nodemailer": "^8.0.4",
+        "nodemailer": "^8.0.5",
         "on-headers": "^1.1.0",
         "path-to-regexp": "3.3.0",
         "picomatch@2": "2.3.2",
@@ -55,7 +55,7 @@
     "pnpm": {
         "overrides": {
             "ajv": "8.18.0",
-            "axios": "^1.13.5",
+            "axios": "^1.15.0",
             "@tootallnate/once": "3.0.1",
             "form-data": ">=4.0.4",
             "path-to-regexp": "3.3.0",
@@ -71,7 +71,7 @@
             "minimatch@5": "5.1.8",
             "multer": "^2.1.1",
             "node-forge": "1.4.0",
-            "nodemailer": "^8.0.4",
+            "nodemailer": "^8.0.5",
             "cookie": ">=0.7.0",
             "fast-xml-parser@4": "4.5.5",
             "fast-xml-parser@5": "5.5.7",
@@ -97,7 +97,7 @@
     },
     "scripts": {
         "postinstall": "npx prisma generate",
-        "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "prebuild": "node -e \"const fs=require('node:fs'),p=require('node:path');try{fs.rmSync('dist',{recursive:true,force:true})}catch(e){if(e.code==='EBUSY'){for(const f of fs.readdirSync('dist'))fs.rmSync(p.join('dist',f),{recursive:true,force:true})}else throw e}\"",
         "build": "webpack --mode production",
         "format": "prettier --write \"src/**/*.ts\"",
         "watch": "webpack --mode development --watch",
@@ -119,6 +119,7 @@
         "db:backup:list": "node scripts/backup-utils.js list",
         "db:backup:restore": "node scripts/backup-utils.js restore",
         "db:backup:help": "node scripts/backup-utils.js help",
+        "nomba:replay:local": "node scripts/replay-local-nomba-webhook.js",
         "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts",
         "db:staging:up": "docker compose -f docker-compose.staging.yml up -d",
         "db:staging:down": "docker compose -f docker-compose.staging.yml down",
@@ -130,7 +131,7 @@
         "@casl/prisma": "^1.4.1",
         "@nestjs/bull": "^10.0.1",
         "@nestjs/common": "^10.4.16",
-        "@nestjs/config": "^3.3.0",
+        "@nestjs/config": "^4.0.3",
         "@nestjs/core": "^10.4.16",
         "@nestjs/jwt": "^11.0.2",
         "@nestjs/platform-express": "^10.4.16",
@@ -145,7 +146,7 @@
         "@types/multer": "^1.4.12",
         "@types/request-ip": "^0.0.41",
         "async-mutex": "^0.5.0",
-        "axios": "^1.13.5",
+        "axios": "^1.15.0",
         "axios-retry": "^4.5.0",
         "bcryptjs": "^2.4.3",
         "bull": "^4.12.4",
@@ -172,7 +173,7 @@
         "morgan": "^1.9.1",
         "multer": "^2.1.1",
         "nanoid": "^3.3.8",
-        "nodemailer": "^8.0.4",
+        "nodemailer": "^8.0.5",
         "otplib": "^12.0.1",
         "path-to-regexp": "3.3.0",
         "pg": "^8.16.3",
@@ -195,7 +196,7 @@
         "@commitlint/cli": "^17.6.1",
         "@commitlint/config-conventional": "^17.6.1",
         "@isaacs/brace-expansion": "^5.0.1",
-        "@nestjs/cli": "^11.0.16",
+        "@nestjs/cli": "^11.0.17",
         "@nestjs/schematics": "^9.0.0",
         "@nestjs/testing": "^10.3.10",
         "@types/bcryptjs": "^2.4.2",
@@ -259,6 +260,11 @@
         ],
         "coverageDirectory": "../coverage",
         "testEnvironment": "node",
+        "globals": {
+            "ts-jest": {
+                "diagnostics": false
+            }
+        },
         "moduleNameMapper": {
             "^@/(.*)$": "<rootDir>/$1"
         }

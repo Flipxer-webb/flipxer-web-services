@@ -2,37 +2,37 @@
  * Backup Codes Utility
  * 
  * Generates formatted backup codes for 2FA recovery.
- * Format: ABCD-1234-EFGH (10-digit alphanumeric with dashes)
+ * Format: XXXXX-XXXXX-XXXXX-XXXXX (20-digit alphanumeric with dashes)
  */
 
 import * as crypto from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 
 /**
- * Generate a single backup code in format XXXX-XXXX-XX (10 characters)
+ * Generate a single backup code in format XXXXX-XXXXX-XXXXX-XXXXX (20 characters)
  * Uses uppercase alphanumeric characters (A-Z, 0-9)
  */
 function generateBackupCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
   
-  // Generate 10 random characters
-  for (let i = 0; i < 10; i++) {
+  // Generate 20 random characters
+  for (let i = 0; i < 20; i++) {
     const randomIndex = crypto.randomInt(0, chars.length);
     code += chars[randomIndex];
   }
   
-  // Format as XXXX-XXXX-XX
-  return `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 10)}`;
+  // Format as XXXXX-XXXXX-XXXXX-XXXXX
+  return `${code.slice(0, 5)}-${code.slice(5, 10)}-${code.slice(10, 15)}-${code.slice(15, 20)}`;
 }
 
 /**
  * Generate multiple backup codes
  * 
- * @param count - Number of codes to generate (default: 10)
+ * @param count - Number of codes to generate (default: 5)
  * @returns Array of formatted backup codes
  */
-export function generateBackupCodes(count: number = 10): string[] {
+export function generateBackupCodes(count: number = 5): string[] {
   const codes = new Set<string>();
   
   // Ensure uniqueness

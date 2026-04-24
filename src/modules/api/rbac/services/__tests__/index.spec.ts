@@ -80,6 +80,7 @@ describe("RbacService", () => {
     let prisma: ReturnType<typeof makePrisma>;
     let service: RbacService;
     let emailService: { sendMailWithTemplate: jest.Mock };
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
     const generatedAdminPassword = `test-${Date.now()}`;
 
     beforeEach(() => {
@@ -87,7 +88,7 @@ describe("RbacService", () => {
         emailService = {
             sendMailWithTemplate: jest.fn().mockResolvedValue({ request_id: "req-id" }),
         };
-        service = new RbacService(prisma as any, emailService as any);
+        service = new RbacService(prisma as any, emailService as any, mockAuditLogService as any);
     });
 
     it("returns shaped roles from getAllRoles", async () => {
@@ -205,7 +206,7 @@ describe("RbacService", () => {
 
         expect(result.success).toBe(true);
         expect(result.data.slug).toBe("fraud-admin");
-        expect(prisma.auditLog.create).toHaveBeenCalled();
+        expect(mockAuditLogService.log).toHaveBeenCalled();
     });
 
     it("blocks updateRole for super-admin", async () => {
@@ -641,9 +642,7 @@ describe("RbacService", () => {
         ).rejects.toBeInstanceOf(AdminUserNotFoundException);
     });
 
-    it("continues response when audit log write fails", async () => {
-        const loggerSpy = jest.spyOn((service as any).logger, "error").mockImplementation();
-
+    it("propagates error when audit log write fails", async () => {
         prisma.role.findFirst.mockResolvedValue(null);
         prisma.permission.findMany.mockResolvedValue([{ id: 1 }]);
         prisma.role.create.mockResolvedValue({
@@ -653,17 +652,15 @@ describe("RbacService", () => {
             description: "Recovery",
             rolePermission: [{ permission: { id: 1, name: "audit.read" } }],
         });
-        prisma.auditLog.create.mockRejectedValueOnce(new Error("audit down"));
+        mockAuditLogService.log.mockRejectedValueOnce(new Error("audit down"));
 
-        const result = await service.createRole({
-            name: "Recovery Admin",
-            description: "Recovery",
-            permissionIds: [1],
-        } as any);
-
-        expect(result.success).toBe(true);
-        expect(loggerSpy).toHaveBeenCalled();
-        loggerSpy.mockRestore();
+        await expect(
+            service.createRole({
+                name: "Recovery Admin",
+                description: "Recovery",
+                permissionIds: [1],
+            } as any)
+        ).rejects.toThrow("audit down");
     });
 
     it("returns paginated admin users", async () => {

@@ -176,7 +176,7 @@ describe("SettingController", () => {
         settingService.getSecurityPreferences.mockResolvedValue({ method: "2FA" });
         settingService.updateSecurityPreferences.mockResolvedValue({ method: "OTP" });
         settingService.setTradingPassword.mockResolvedValue({ updated: true });
-        settingService.generateNewBackupCodes.mockResolvedValue({ count: 10 });
+        settingService.generateNewBackupCodes.mockResolvedValue({ count: 5 });
         settingService.getBackupCodesCount.mockResolvedValue({ count: 8 });
 
         await expect(controller.get2FAStatus(user)).resolves.toEqual({ enabled: false });
@@ -189,7 +189,7 @@ describe("SettingController", () => {
             controller.updateSecurityPreferences(user, { transactionMethod: "OTP" } as any),
         ).resolves.toEqual({ method: "OTP" });
         await expect(controller.setTradingPassword(user, { password: "Aaa123456!" } as any)).resolves.toEqual({ updated: true });
-        await expect(controller.generateBackupCodes(user)).resolves.toEqual({ count: 10 });
+        await expect(controller.generateBackupCodes(user)).resolves.toEqual({ count: 5 });
         await expect(controller.getBackupCodesCount(user)).resolves.toEqual({ count: 8 });
     });
 
