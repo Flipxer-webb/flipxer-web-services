@@ -118,4 +118,23 @@ describe("QuidaxCacheService", () => {
 
         await expect(promise).rejects.toThrow("Quidax API timeout after 1ms");
     });
+
+    it("deduplicates concurrent requests via in-flight promise", async () => {
+        redisCacheService.get.mockResolvedValue(null);
+
+        let resolveApi!: (v: any) => void;
+        quidaxService.getMarketTickers.mockReturnValue(
+            new Promise((res) => { resolveApi = res; }),
+        );
+
+        const first = service.getMarketTickers();
+        const second = service.getMarketTickers();
+
+        resolveApi({ data: { btcngn: { buy: "9000" } } });
+
+        const [r1, r2] = await Promise.all([first, second]);
+        expect(r1).toEqual({ btcngn: { buy: "9000" } });
+        expect(r2).toEqual({ btcngn: { buy: "9000" } });
+        expect(quidaxService.getMarketTickers).toHaveBeenCalledTimes(1);
+    });
 });

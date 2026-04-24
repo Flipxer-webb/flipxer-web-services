@@ -28,6 +28,11 @@ jest.mock("otplib", () => ({
     },
 }));
 
+jest.mock("@/utils/name-matcher", () => ({
+    matchNames: jest.fn(),
+    matchDateOfBirth: jest.fn(),
+}));
+
 jest.mock("@/config", () => ({
     ...jest.requireActual("@/config"),
     jwtSecret: "test-jwt-secret",
@@ -40,6 +45,8 @@ jest.mock("@/config", () => ({
         [FORGOT_TEMPLATE_KEY]: "tpl-forgot",
         registration_success: "tpl-reg",
         verify_account: "tpl-verify",
+        document_pending_review: "tpl-pending-review",
+        document_rejected: "tpl-rejected",
     },
     mailConfig: { senderMail: "noreply@flipxer.com" },
     storageDirConfig: { profileDir: "/tmp", documentDir: "/tmp" },
@@ -68,6 +75,7 @@ import { DocumentType, Prisma, Status, UserType } from "@prisma/client";
 import { authenticator } from "otplib";
 import * as bcrypt from "bcryptjs";
 import axios from "axios";
+import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 function makePrisma() {
     return {
@@ -116,6 +124,8 @@ describe("AuthService", () => {
     let jwtService: { signAsync: jest.Mock; verify: jest.Mock; verifyAsync: jest.Mock };
     let emailService: { sendMailWithTemplate: jest.Mock };
     let redisCacheService: { set: jest.Mock; get: jest.Mock; del: jest.Mock };
+    let notificationDispatcher: { notify: jest.Mock };
+    let kycStateMachine: { transition: jest.Mock };
     let dojahService: {
         verifyDocumentWithNameMatch: jest.Mock;
         verifyBusinessDocuments: jest.Mock;
@@ -125,6 +135,11 @@ describe("AuthService", () => {
 
     beforeEach(async () => {
         prisma = makePrisma();
+
+        // Default: all identity checks pass (override in specific tests)
+        (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
+        (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+
         const mockJwt = {
             signAsync: jest.fn().mockResolvedValue("mock-token"),
             verify: jest.fn(),
@@ -204,6 +219,8 @@ describe("AuthService", () => {
         jwtService = module.get(JwtService);
         emailService = module.get(EmailService);
         redisCacheService = module.get(RedisCacheService);
+        notificationDispatcher = module.get(NotificationDispatcher);
+        kycStateMachine = module.get(KycStateMachineService);
         dojahService = module.get(IdentityComplianceInjectionToken.DOJAH);
     });
 
@@ -711,6 +728,40 @@ describe("AuthService", () => {
         });
     });
 
+    describe("onboardIndividual", () => {
+        it("persists residential address during individual onboarding", async () => {
+            prisma.user.update.mockResolvedValue({ id: 77 });
+
+            const result = await service.onboardIndividual(
+                {
+                    id: 77,
+                    firstName: null,
+                    lastName: null,
+                    dateOfBirth: null,
+                } as any,
+                {
+                    firstName: "Jane",
+                    lastName: "Doe",
+                    dateOfBirth: "1990-01-01",
+                    residentialAddress: "10 Main Street, Ikeja, Lagos",
+                } as any,
+            );
+
+            expect(prisma.user.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 77 },
+                    data: expect.objectContaining({
+                        firstName: "Jane",
+                        lastName: "Doe",
+                        dateOfBirth: new Date("1990-01-01"),
+                        residentialAddress: "10 Main Street, Ikeja, Lagos",
+                    }),
+                }),
+            );
+            expect(result.message).toBe("Profile updated successfully");
+        });
+    });
+
     describe("bvn/nin verification changed-line coverage", () => {
         it("executes BVN dev bypass identity linking", async () => {
             const user = {
@@ -742,6 +793,14 @@ describe("AuthService", () => {
             const result = await service.bvnVerification(user, { bvn: "22222222222" } as any);
 
             expect(result.message).toBe("Bvn Verification successfully");
+            expect(dojahService.verifyBvn).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    bvn: "22222222222",
+                    first_name: "Jane",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "BVN",
                 expect.any(String),
@@ -774,6 +833,14 @@ describe("AuthService", () => {
 
             await service.bvnVerification(user, { bvn: "12345678901" } as any);
 
+            expect(dojahService.verifyBvn).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    bvn: "12345678901",
+                    first_name: "Jane",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "BVN",
                 "12345678901",
@@ -812,6 +879,14 @@ describe("AuthService", () => {
             const result = await service.ninVerification(user, { nin: "00000000001" } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
+            expect(dojahService.verifyNin).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    nin: "00000000001",
+                    first_name: "John",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "NIN",
                 expect.any(String),
@@ -844,6 +919,14 @@ describe("AuthService", () => {
 
             await service.ninVerification(user, { nin: "98765432100" } as any);
 
+            expect(dojahService.verifyNin).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    nin: "98765432100",
+                    first_name: "John",
+                    last_name: "Doe",
+                    dob: "1990-01-01",
+                }),
+            );
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "NIN",
                 "98765432100",
@@ -993,6 +1076,9 @@ describe("AuthService", () => {
         });
 
         it("rejects BVN verification on name or DOB mismatch and records review", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "DOB mismatch" });
+
             const user = {
                 id: 66,
                 isBvnVerified: false,
@@ -1026,6 +1112,9 @@ describe("AuthService", () => {
         });
 
         it("rejects BVN verification when provider response omits identity fields", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Missing fields" });
+
             const user = {
                 id: 68,
                 isBvnVerified: false,
@@ -1056,6 +1145,9 @@ describe("AuthService", () => {
         });
 
         it("routes BVN to manual review when DOB matches but names mismatch", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
             const user = {
                 id: 70,
                 isBvnVerified: false,
@@ -1085,11 +1177,15 @@ describe("AuthService", () => {
                 "PENDING",
                 expect.objectContaining({ providerRef: "bvn-ref-manual-review" }),
             );
+            expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:70");
             expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
         });
 
         it("reopens BVN review with RESUBMITTED when PENDING transition is illegal", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
             const user = {
                 id: 71,
                 isBvnVerified: false,
@@ -1134,6 +1230,9 @@ describe("AuthService", () => {
         });
 
         it("routes NIN to manual review when DOB matches but names mismatch", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
             const user = {
                 id: 72,
                 isNinVerified: false,
@@ -1163,6 +1262,7 @@ describe("AuthService", () => {
                 "PENDING",
                 expect.objectContaining({ providerRef: "nin-ref-manual-review" }),
             );
+            expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:72");
             expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
         });
@@ -1500,8 +1600,8 @@ describe("AuthService", () => {
             validateSpy.mockRestore();
         });
 
-        it("preserves sessionId and family on successful rotation", async () => {
-            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-abc" });
+        it("preserves sessionId, platform, and family on successful rotation", async () => {
+            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-abc", platform: "USER" });
 
             const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
                 .mockResolvedValue({ valid: true, family: "family-xyz" });
@@ -1515,7 +1615,7 @@ describe("AuthService", () => {
             const result = await service.refreshToken({ refreshToken: "refresh-with-session" } as any);
 
             expect(result.data).toMatchObject({ accessToken: "next-access", refreshToken: "next-refresh" });
-            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, sessionId: "session-abc" });
+            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER", sessionId: "session-abc" });
             expect(saveSpy).toHaveBeenCalledWith(1, "next-refresh", "family-xyz");
 
             validateSpy.mockRestore();
@@ -1836,7 +1936,13 @@ describe("AuthService", () => {
             );
 
             const result = await service.documentVerificationBase64(
-                { id: 1, isDocumentVerified: false } as any,
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
                 base64Dto as any,
             );
 
@@ -1877,7 +1983,13 @@ describe("AuthService", () => {
             );
 
             const result = await service.documentVerificationBase64(
-                { id: 1, isDocumentVerified: false } as any,
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
                 base64Dto as any,
             );
 
@@ -1886,6 +1998,116 @@ describe("AuthService", () => {
                 expect.objectContaining({
                     userId: 1,
                     title: "Document Submitted",
+                }),
+            );
+        });
+
+        it("documentVerificationBase64 keeps valid but mismatched documents pending review", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-3" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-3" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: false,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: "Kehinde",
+                    lastName: "Onileola",
+                    documentNumber: "P77777",
+                    expiryDate: "2030-01-01",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 13 }) },
+                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document verification is pending review");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                1,
+                "DOCUMENT",
+                "PENDING",
+                expect.objectContaining({
+                    reviewNote: "Manual review needed: valid=true, nameMatches=false, dobMatches=false",
+                }),
+            );
+            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 1,
+                    title: "Document Submitted",
+                }),
+            );
+        });
+
+        it("documentVerificationBase64 keeps name-matched but DOB-mismatched documents pending review", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-4" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-4" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: true,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: "1988-03-15",
+                    documentNumber: "P88888",
+                    expiryDate: "2030-01-01",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 14 }) },
+                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document verification is pending review");
+            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+                1,
+                "DOCUMENT",
+                "PENDING",
+                expect.objectContaining({
+                    reviewNote: "Manual review needed: valid=true, nameMatches=true, dobMatches=false",
                 }),
             );
         });
@@ -2411,6 +2633,148 @@ describe("AuthService", () => {
                         ipAddress: "client-ip-2",
                     }),
                 }),
+            );
+        });
+    });
+
+    // ── sendPendingReviewEmail ─────────────────────────────
+
+    describe("sendPendingReviewEmail", () => {
+        it("should send pending review email when config is set", () => {
+            (service as any).sendPendingReviewEmail(1, "user@test.com", "John", "BVN");
+
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                    to: [{ email_address: { address: "user@test.com" } }],
+                    merge_info: expect.objectContaining({
+                        name: "John",
+                        document_type: "BVN",
+                    }),
+                }),
+            );
+        });
+
+        it("should default name to 'User' when firstName is empty", () => {
+            (service as any).sendPendingReviewEmail(1, "user@test.com", "", "NIN");
+
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    merge_info: expect.objectContaining({ name: "User" }),
+                }),
+            );
+        });
+
+        it("should not send email when userEmail is empty", () => {
+            (service as any).sendPendingReviewEmail(1, "", "John", "BVN");
+
+            expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
+        });
+    });
+
+    // ── rejectOnIdentityMismatch ────────────────────────────
+
+    describe("rejectOnIdentityMismatch", () => {
+        const mockUser = {
+            id: 10,
+            email: "mismatch@test.com",
+            firstName: "John",
+            lastName: "Doe",
+            dateOfBirth: new Date("1990-01-01"),
+        };
+
+        const mockResult = {
+            data: {
+                entity: {
+                    first_name: "Jane",
+                    last_name: "Doe",
+                    date_of_birth: "1990-01-01",
+                    reference_id: "ref-123",
+                },
+            },
+        };
+
+        it("should throw and send rejection notification + email when DOB mismatches", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "DOB mismatch" });
+
+            await expect(
+                (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN"),
+            ).rejects.toThrow("Incorrect first name, last name or date of birth");
+
+            expect(kycStateMachine.transition).toHaveBeenCalledWith(
+                10, "BVN", "REJECTED", expect.any(Object),
+            );
+            expect(notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 10,
+                    title: "Identity Verification Unsuccessful",
+                    category: "security",
+                }),
+            );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-rejected",
+                    merge_info: expect.objectContaining({
+                        document_type: "BVN",
+                        status: "Rejected",
+                    }),
+                }),
+            );
+        });
+
+        it("should route to manual review and send pending notification + email when names mismatch but DOB matches", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "NIN");
+
+            expect(result).toBe("PENDING_REVIEW");
+            expect(kycStateMachine.transition).toHaveBeenCalledWith(
+                10, "NIN", "PENDING", expect.any(Object),
+            );
+            expect(notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 10,
+                    title: "Identity Verification Under Review",
+                    category: "security",
+                }),
+            );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                    merge_info: expect.objectContaining({
+                        name: "John",
+                        document_type: "NIN",
+                    }),
+                }),
+            );
+        });
+
+        it("should return MATCHED when both names and DOB match", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
+
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN");
+
+            expect(result).toBe("MATCHED");
+            expect(notificationDispatcher.notify).not.toHaveBeenCalled();
+            expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
+        });
+
+        it("should fallback to RESUBMITTED transition when PENDING transition fails", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
+            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+            kycStateMachine.transition
+                .mockRejectedValueOnce(new Error("Cannot transition to PENDING"))
+                .mockResolvedValueOnce(undefined);
+
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN");
+
+            expect(result).toBe("PENDING_REVIEW");
+            expect(kycStateMachine.transition).toHaveBeenCalledTimes(2);
+            expect(kycStateMachine.transition).toHaveBeenNthCalledWith(
+                2, 10, "BVN", "RESUBMITTED", expect.any(Object),
             );
         });
     });

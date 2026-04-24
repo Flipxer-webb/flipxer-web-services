@@ -66,6 +66,8 @@ describe("TransactionService", () => {
         mockRedisCache = {
             incrbyfloat: jest.fn().mockResolvedValue(null),
             decrbyfloat: jest.fn().mockResolvedValue(null),
+            getCounter: jest.fn().mockResolvedValue(0),
+            set: jest.fn().mockResolvedValue(undefined),
         };
         mockEmailService = { sendEmail: jest.fn(), sendMailWithTemplate: jest.fn() };
 
@@ -322,6 +324,133 @@ describe("TransactionService", () => {
             await expect(
                 service.recordFailedTransaction(mockUser, 100, "BTC", "test", "/api/v1/unknown", "txn-1")
             ).rejects.toThrow("Invalid path for order category");
+        });
+    });
+
+    describe("releaseDailyLimitReservationForOrder", () => {
+        it("decrements the matching Redis daily-limit key using USD value", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 });
+
+            mockRedisCache.getCounter.mockResolvedValue(7);
+            mockRedisCache.decrbyfloat.mockResolvedValue(6);
+
+            await service.releaseDailyLimitReservationForOrder({
+                userId: 34,
+                orderCategory: "BUY" as any,
+                currency: "USDT",
+                amount: 1,
+                createdAt: new Date("2026-04-16T10:00:00.000Z"),
+            });
+
+            expect(mockRedisCache.getCounter).toHaveBeenCalledWith("limits:user:34:daily:buy:2026-04-16");
+            expect(mockRedisCache.decrbyfloat).toHaveBeenCalledWith("limits:user:34:daily:buy:2026-04-16", 1);
+        });
+
+        it("does not create a negative key when the current counter is already zero", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 });
+
+            mockRedisCache.getCounter.mockResolvedValue(0);
+
+            await service.releaseDailyLimitReservationForOrder({
+                userId: 34,
+                orderCategory: "BUY" as any,
+                currency: "USDT",
+                amount: 1,
+                createdAt: new Date("2026-04-16T10:00:00.000Z"),
+            });
+
+            expect(mockRedisCache.decrbyfloat).not.toHaveBeenCalled();
+        });
+
+        it("skips if currency, amount, or createdAt is missing", async () => {
+            await service.releaseDailyLimitReservationForOrder({
+                userId: 34,
+                orderCategory: "BUY" as any,
+                currency: null,
+                amount: 1,
+                createdAt: new Date(),
+            });
+
+            expect(mockRedisCache.getCounter).not.toHaveBeenCalled();
+        });
+
+        it("warns and returns when USD conversion fails", async () => {
+            prisma.cryptoRate.findUnique.mockResolvedValue(null);
+
+            await service.releaseDailyLimitReservationForOrder({
+                userId: 34,
+                orderCategory: "SELL" as any,
+                currency: "UNKNOWN",
+                amount: 100,
+                createdAt: new Date("2026-04-16T10:00:00.000Z"),
+            });
+
+            expect(mockRedisCache.getCounter).not.toHaveBeenCalled();
+        });
+
+        it("warns and returns when Redis getCounter returns null", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 });
+
+            mockRedisCache.getCounter.mockResolvedValue(null);
+
+            await service.releaseDailyLimitReservationForOrder({
+                userId: 34,
+                orderCategory: "BUY" as any,
+                currency: "USDT",
+                amount: 1,
+                createdAt: new Date("2026-04-16T10:00:00.000Z"),
+            });
+
+            expect(mockRedisCache.decrbyfloat).not.toHaveBeenCalled();
+        });
+
+        it("warns and returns when Redis decrbyfloat returns null", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 });
+
+            mockRedisCache.getCounter.mockResolvedValue(5);
+            mockRedisCache.decrbyfloat.mockResolvedValue(null);
+
+            await service.releaseDailyLimitReservationForOrder({
+                userId: 34,
+                orderCategory: "BUY" as any,
+                currency: "USDT",
+                amount: 1,
+                createdAt: new Date("2026-04-16T10:00:00.000Z"),
+            });
+
+            expect(mockRedisCache.decrbyfloat).toHaveBeenCalled();
+            expect(mockRedisCache.set).not.toHaveBeenCalled();
+        });
+
+        it("resets key to zero when decrbyfloat produces a negative value", async () => {
+            prisma.cryptoRate.findUnique
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 })
+                .mockResolvedValueOnce({ currency: "USDT", sellRate: 1550 });
+
+            mockRedisCache.getCounter.mockResolvedValue(1);
+            mockRedisCache.decrbyfloat.mockResolvedValue(-0.5);
+
+            await service.releaseDailyLimitReservationForOrder({
+                userId: 34,
+                orderCategory: "BUY" as any,
+                currency: "USDT",
+                amount: 2,
+                createdAt: new Date("2026-04-16T10:00:00.000Z"),
+            });
+
+            expect(mockRedisCache.set).toHaveBeenCalledWith(
+                "limits:user:34:daily:buy:2026-04-16",
+                0,
+                expect.any(Number),
+            );
         });
     });
 

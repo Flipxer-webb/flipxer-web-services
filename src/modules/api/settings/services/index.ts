@@ -25,7 +25,7 @@ import * as ipaddr from "ipaddr.js";
 import { authenticator } from "otplib";
 import * as QRCode from "qrcode";
 import * as bcrypt from "bcryptjs";
-import { generateBackupCodes, hashBackupCodes, verifyBackupCode, removeUsedBackupCode } from "../../auth/utils/backup-codes.util";
+import { generateBackupCodes, hashBackupCodes, verifyBackupCode } from "../../auth/utils/backup-codes.util";
 import { SmsService } from "@/modules/core/sms/services";
 import { EmailService } from "@/modules/core/email/services";
 import { emailTemplateConfig, mailConfig } from "@/config";
@@ -60,6 +60,20 @@ export class SettingService {
         private readonly emailService: EmailService,
         private readonly jwtService: JwtService,
     ) { }
+
+    /**
+     * Delete all existing backup codes for a user and insert new ones.
+     */
+    private async replaceBackupCodes(userId: number, hashedCodes: string[]): Promise<void> {
+        await this.prisma.$transaction([
+            this.prisma.twoFactorBackupCode.deleteMany({ where: { userId } }),
+            ...hashedCodes.map(codeHash =>
+                this.prisma.twoFactorBackupCode.create({
+                    data: { userId, codeHash },
+                }),
+            ),
+        ]);
+    }
 
     async getAllowedList(user: User) {
         const allowedIps = await this.prisma.allowedIp.findMany({
@@ -409,20 +423,22 @@ export class SettingService {
         // Generate QR code as data URL
         const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-        // Generate backup codes (10 codes in format XXXX-XXXX-XX)
-        const plainBackupCodes = generateBackupCodes(10);
+        // Generate backup codes (5 codes in format XXXXX-XXXXX-XXXXX-XXXXX)
+        const plainBackupCodes = generateBackupCodes(5);
         const hashedBackupCodes = await hashBackupCodes(plainBackupCodes);
 
-        // Store the secret and hashed backup codes but DO NOT enable 2FA yet
+        // Store the secret but DO NOT enable 2FA yet
         // 2FA will only be enabled after user verifies the code in enable2FA
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
                 twoFactorSecret: encryptField(secret),
-                twoFactorBackupCodes: JSON.stringify(hashedBackupCodes),
                 isTwoFactorEnabled: false,
             },
         });
+
+        // Replace existing backup codes with new ones in dedicated table
+        await this.replaceBackupCodes(user.id, hashedBackupCodes);
 
         return buildResponse({
             message: "2FA setup initiated. Save your backup codes in a secure location. You won't be able to see them again.",
@@ -500,14 +516,9 @@ export class SettingService {
         });
 
         // Get backup codes count for response
-        const userData = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            select: { twoFactorBackupCodes: true },
+        const backupCodesCount = await this.prisma.twoFactorBackupCode.count({
+            where: { userId: user.id, usedAt: null },
         });
-
-        const backupCodesCount = userData?.twoFactorBackupCodes
-            ? JSON.parse(userData.twoFactorBackupCodes).length
-            : 0;
 
         return buildResponse({
             message: "Two-factor authentication has been enabled successfully",
@@ -554,14 +565,19 @@ export class SettingService {
             throw new UserForbiddenException("Invalid verification code", HttpStatus.FORBIDDEN);
         }
 
-        // Disable 2FA and clear secret
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                isTwoFactorEnabled: false,
-                twoFactorSecret: null,
-            },
-        });
+        // Disable 2FA, clear secret and backup codes
+        await this.prisma.$transaction([
+            this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    isTwoFactorEnabled: false,
+                    twoFactorSecret: null,
+                },
+            }),
+            this.prisma.twoFactorBackupCode.deleteMany({
+                where: { userId: user.id },
+            }),
+        ]);
 
         return buildResponse({
             message: "Two-factor authentication has been disabled successfully",
@@ -610,35 +626,38 @@ export class SettingService {
     async verifyBackupCode(userId: number, code: string): Promise<boolean> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: {
-                twoFactorBackupCodes: true,
-                isTwoFactorEnabled: true
-            },
+            select: { isTwoFactorEnabled: true },
         });
 
-        if (!user?.isTwoFactorEnabled || !user?.twoFactorBackupCodes) {
+        if (!user?.isTwoFactorEnabled) {
             return false;
         }
 
         try {
-            const hashedCodes = JSON.parse(user.twoFactorBackupCodes) as string[];
+            // Get unused backup codes from the dedicated table
+            const backupCodeRows = await this.prisma.twoFactorBackupCode.findMany({
+                where: { userId, usedAt: null },
+            });
+
+            if (backupCodeRows.length === 0) {
+                return false;
+            }
+
+            const hashedCodes = backupCodeRows.map(r => r.codeHash);
             const matchIndex = await verifyBackupCode(code, hashedCodes);
 
             if (matchIndex === -1) {
                 return false; // Code not found
             }
 
-            // Remove the used backup code
-            const updatedCodes = removeUsedBackupCode(hashedCodes, matchIndex);
-
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: {
-                    twoFactorBackupCodes: JSON.stringify(updatedCodes)
-                },
+            // Mark the used backup code (soft-delete via usedAt)
+            await this.prisma.twoFactorBackupCode.update({
+                where: { id: backupCodeRows[matchIndex].id },
+                data: { usedAt: new Date() },
             });
 
-            this.logger.log(`Backup code used for user ${userId}. ${updatedCodes.length} codes remaining.`);
+            const remaining = backupCodeRows.length - 1;
+            this.logger.log(`Backup code used for user ${userId}. ${remaining} codes remaining.`);
             return true;
         } catch (error) {
             this.logger.error(`Error verifying backup code for user ${userId}:`, error);
@@ -699,25 +718,27 @@ export class SettingService {
      * Get security preferences for the current user
      */
     async getSecurityPreferences(user: User) {
-        const userData = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            select: {
-                securityMethods: true,
-                requiredMethodCount: true,
-                twoFactorBackupCodes: true,
-                backupCodesGeneratedAt: true,
-                isTwoFactorEnabled: true,
-                isPhoneVerified: true,
-                isEmailVerified: true,
-                tradingPassword: true,
-                tier: true,
-            },
-        });
+        const [userData, backupCodeStats] = await Promise.all([
+            this.prisma.user.findUnique({
+                where: { id: user.id },
+                select: {
+                    securityMethods: true,
+                    requiredMethodCount: true,
+                    isTwoFactorEnabled: true,
+                    isPhoneVerified: true,
+                    isEmailVerified: true,
+                    tradingPassword: true,
+                    tier: true,
+                },
+            }),
+            this.prisma.twoFactorBackupCode.aggregate({
+                where: { userId: user.id, usedAt: null },
+                _count: true,
+                _max: { createdAt: true },
+            }),
+        ]);
 
         const securityMethods = (userData?.securityMethods as any) || this.getDefaultSecurityMethods();
-        const backupCodes = userData?.twoFactorBackupCodes
-            ? JSON.parse(userData.twoFactorBackupCodes)
-            : [];
 
         // Calculate tier-based minimum required methods
         const tierMinimums: Record<number, number> = {
@@ -756,8 +777,8 @@ export class SettingService {
                 requiredMethodCount: userData?.requiredMethodCount ?? 1,
                 minimumRequired,
                 tier: userData?.tier ?? 0,
-                backupCodesCount: backupCodes.length,
-                backupCodesGeneratedAt: userData?.backupCodesGeneratedAt,
+                backupCodesCount: backupCodeStats._count,
+                backupCodesGeneratedAt: backupCodeStats._max.createdAt,
             },
         });
     }
@@ -852,7 +873,6 @@ export class SettingService {
                 password: true,
                 tradingPassword: true,
                 securityMethods: true,
-                twoFactorBackupCodes: true,
             },
         });
 
@@ -882,25 +902,26 @@ export class SettingService {
         let backupCodes: string[] | null = null;
         let hashedBackupCodes: string[] | null = null;
 
-        if (isFirstAdvancedMethod && !userData?.twoFactorBackupCodes) {
-            backupCodes = generateBackupCodes(10);
-            hashedBackupCodes = await hashBackupCodes(backupCodes);
+        if (isFirstAdvancedMethod) {
+            const existingCount = await this.prisma.twoFactorBackupCode.count({
+                where: { userId: user.id, usedAt: null },
+            });
+            if (existingCount === 0) {
+                backupCodes = generateBackupCodes(5);
+                hashedBackupCodes = await hashBackupCodes(backupCodes);
+            }
         }
 
         // Update user
-        const updateData: any = {
-            tradingPassword: hashedTradingPassword,
-        };
-
-        if (hashedBackupCodes) {
-            updateData.twoFactorBackupCodes = JSON.stringify(hashedBackupCodes);
-            updateData.backupCodesGeneratedAt = new Date();
-        }
-
         await this.prisma.user.update({
             where: { id: user.id },
-            data: updateData,
+            data: { tradingPassword: hashedTradingPassword },
         });
+
+        // Store backup codes in dedicated table if generated
+        if (hashedBackupCodes) {
+            await this.replaceBackupCodes(user.id, hashedBackupCodes);
+        }
 
         const response: any = {
             message: userData?.tradingPassword
@@ -923,16 +944,10 @@ export class SettingService {
      * Generate new backup codes (replaces existing)
      */
     async generateNewBackupCodes(user: User) {
-        const backupCodes = generateBackupCodes(10);
+        const backupCodes = generateBackupCodes(5);
         const hashedBackupCodes = await hashBackupCodes(backupCodes);
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                twoFactorBackupCodes: JSON.stringify(hashedBackupCodes),
-                backupCodesGeneratedAt: new Date(),
-            },
-        });
+        await this.replaceBackupCodes(user.id, hashedBackupCodes);
 
         return buildResponse({
             message: "New backup codes generated successfully",
@@ -947,23 +962,17 @@ export class SettingService {
      * Get backup codes count (not the codes themselves)
      */
     async getBackupCodesCount(user: User) {
-        const userData = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            select: {
-                twoFactorBackupCodes: true,
-                backupCodesGeneratedAt: true,
-            },
+        const stats = await this.prisma.twoFactorBackupCode.aggregate({
+            where: { userId: user.id, usedAt: null },
+            _count: true,
+            _max: { createdAt: true },
         });
-
-        const backupCodes = userData?.twoFactorBackupCodes
-            ? JSON.parse(userData.twoFactorBackupCodes)
-            : [];
 
         return buildResponse({
             message: "Backup codes count retrieved",
             data: {
-                count: backupCodes.length,
-                generatedAt: userData?.backupCodesGeneratedAt,
+                count: stats._count,
+                generatedAt: stats._max.createdAt,
             },
         });
     }
@@ -986,7 +995,6 @@ export class SettingService {
             select: {
                 twoFactorSecret: true,
                 tradingPassword: true,
-                twoFactorBackupCodes: true,
                 phone: true,
                 email: true,
             },

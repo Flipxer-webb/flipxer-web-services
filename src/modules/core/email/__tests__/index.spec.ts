@@ -1,10 +1,17 @@
 import { MODULE_METADATA } from "@nestjs/common/constants";
 
-const sendMailClientCtor = jest.fn().mockImplementation((options) => ({ options }));
+const smtpMailClientCtor = jest.fn().mockImplementation(() => ({ kind: "smtp" }));
+const zeptoMailClientCtor = jest.fn().mockImplementation((options) => ({
+    kind: "zepto",
+    options,
+}));
 
-jest.mock("zeptomail", () => ({
-    SendMailClient: sendMailClientCtor,
-    __esModule: true,
+jest.mock("../clients/smtp-mail.client", () => ({
+    SmtpMailClient: smtpMailClientCtor,
+}));
+
+jest.mock("../clients/zeptomail.client", () => ({
+    ZeptoMailClient: zeptoMailClientCtor,
 }));
 
 jest.mock("@/config", () => ({
@@ -19,11 +26,19 @@ import { EmailModule } from "../index";
 import { EmailService } from "../services";
 
 describe("EmailModule", () => {
+    const originalMailDriver = process.env.MAIL_DRIVER;
+
     beforeEach(() => {
         jest.clearAllMocks();
     });
 
-    it("registers EmailService provider and builds it with SendMailClient", () => {
+    afterEach(() => {
+        process.env.MAIL_DRIVER = originalMailDriver;
+    });
+
+    it("registers EmailService provider and builds it with ZeptoMailClient", () => {
+        delete process.env.MAIL_DRIVER;
+
         const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, EmailModule) as Array<{
             provide: unknown;
             useFactory: () => unknown;
@@ -36,10 +51,25 @@ describe("EmailModule", () => {
 
         const service = providers[0].useFactory();
 
-        expect(sendMailClientCtor).toHaveBeenCalledWith({
+        expect(zeptoMailClientCtor).toHaveBeenCalledWith({
             url: "https://mail.example",
             token: "mail-token",
         });
+        expect(service).toBeInstanceOf(EmailService);
+    });
+
+    it("builds EmailService with SmtpMailClient when MAIL_DRIVER is smtp", () => {
+        process.env.MAIL_DRIVER = "smtp";
+
+        const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, EmailModule) as Array<{
+            provide: unknown;
+            useFactory: () => unknown;
+        }>;
+
+        const service = providers[0].useFactory();
+
+        expect(smtpMailClientCtor).toHaveBeenCalledTimes(1);
+        expect(zeptoMailClientCtor).not.toHaveBeenCalled();
         expect(service).toBeInstanceOf(EmailService);
     });
 });

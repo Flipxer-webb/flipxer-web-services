@@ -3,6 +3,10 @@
  * Extracts text from documents for validation of address and income documents
  */
 
+import { spawn } from "node:child_process";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import Tesseract from "tesseract.js";
 import { Logger } from "@nestjs/common";
 import {
@@ -21,9 +25,21 @@ const RECENCY_MONTHS = 3;
 // Jaro-Winkler threshold for name matching (consistent with BVN/NIN flow)
 const NAME_MATCH_THRESHOLD = 0.85;
 
+const PDF_FILE_SIGNATURE = "%PDF";
+const MAX_PDF_PAGES_FOR_OCR = 3;
+const PDF_RASTERIZE_STDIO_LIMIT = 10 * 1024 * 1024;
+const PDFTOPPM_BINARY_PATH = "/usr/bin/pdftoppm";
+
 export interface OCRResult {
     text: string;
     confidence: number;
+}
+
+export class OcrDocumentPreparationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "OcrDocumentPreparationError";
+    }
 }
 
 export interface DocumentValidationResult {
@@ -32,6 +48,7 @@ export interface DocumentValidationResult {
     extractedText: string;
     matchedName: boolean;
     matchedAddress?: boolean;
+    matchedResidentialAddress?: boolean | null;
     requiresManualReview: boolean;
     reason?: string;
     /** Most recent date found in document (ISO format), if any */
@@ -45,23 +62,164 @@ export interface DocumentValidationResult {
  * @param imageBuffer - Buffer containing the image data
  * @returns OCRResult with extracted text and confidence score
  */
-export async function extractTextFromDocument(
-    imageBuffer: Buffer
-): Promise<OCRResult> {
+function isPdfDocument(documentBuffer: Buffer, mimeType?: string): boolean {
+    if (mimeType?.toLowerCase().includes("pdf")) {
+        return true;
+    }
+
+    return documentBuffer.subarray(0, PDF_FILE_SIGNATURE.length).toString("utf8") === PDF_FILE_SIGNATURE;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
     try {
-        const result = await Tesseract.recognize(imageBuffer, "eng", {
-            logger: (m) => {
-                if (m.status === "recognizing text" && m.progress === 1) {
-                    logger.debug(`OCR complete`);
-                }
-            },
+        await access(filePath);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function rasterizePdfToImages(documentBuffer: Buffer, outputPrefix: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+        const child = spawn(
+            PDFTOPPM_BINARY_PATH,
+            ["-png", "-f", "1", "-l", String(MAX_PDF_PAGES_FOR_OCR), "-", outputPrefix],
+            { stdio: ["pipe", "pipe", "pipe"] },
+        );
+        let settled = false;
+        let stdoutSize = 0;
+        let stderrSize = 0;
+        let stderr = "";
+
+        const settle = (handler: () => void) => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            handler();
+        };
+
+        const fail = (error: Error) => {
+            settle(() => reject(error));
+        };
+
+        child.stdout?.on("data", (chunk: Buffer | string) => {
+            stdoutSize += Buffer.byteLength(chunk);
+
+            if (stdoutSize > PDF_RASTERIZE_STDIO_LIMIT) {
+                child.kill();
+                fail(new Error("pdftoppm stdout exceeded limit"));
+            }
         });
 
+        child.stderr?.on("data", (chunk: Buffer | string) => {
+            const text = chunk.toString();
+
+            stderr += text;
+            stderrSize += Buffer.byteLength(text);
+
+            if (stderrSize > PDF_RASTERIZE_STDIO_LIMIT) {
+                child.kill();
+                fail(new Error("pdftoppm stderr exceeded limit"));
+            }
+        });
+
+        child.once("error", fail);
+        child.once("close", (code) => {
+            if (code === 0) {
+                settle(resolve);
+                return;
+            }
+
+            fail(new Error(stderr || `pdftoppm exited with code ${code ?? "unknown"}`));
+        });
+        child.stdin?.once("error", fail);
+        child.stdin?.end(documentBuffer);
+    });
+}
+
+async function rasterizePdfPages(documentBuffer: Buffer): Promise<Buffer[]> {
+    const tempDir = await mkdtemp(join(tmpdir(), "flipxer-pdf-ocr-"));
+    const outputPrefix = join(tempDir, "page");
+
+    try {
+        await rasterizePdfToImages(documentBuffer, outputPrefix);
+
+        const rasterizedPages: Buffer[] = [];
+
+        for (let pageIndex = 1; pageIndex <= MAX_PDF_PAGES_FOR_OCR; pageIndex += 1) {
+            const pagePath = `${outputPrefix}-${pageIndex}.png`;
+            if (!(await fileExists(pagePath))) {
+                break;
+            }
+
+            rasterizedPages.push(await readFile(pagePath));
+        }
+
+        if (rasterizedPages.length === 0) {
+            throw new Error("PDF rasterization produced no images");
+        }
+
+        return rasterizedPages;
+    } catch (error) {
+        if (error instanceof OcrDocumentPreparationError) {
+            throw error;
+        }
+
+        logger.error("PDF rasterization failed:", error);
+        throw new OcrDocumentPreparationError(
+            "Unsupported or unreadable PDF document. Please upload a valid PDF or image file.",
+        );
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+}
+
+async function recognizeDocumentImage(imageBuffer: Buffer): Promise<OCRResult> {
+    const result = await Tesseract.recognize(imageBuffer, "eng", {
+        logger: (m) => {
+            if (m.status === "recognizing text" && m.progress === 1) {
+                logger.debug(`OCR complete`);
+            }
+        },
+    });
+
+    return {
+        text: result.data.text,
+        confidence: result.data.confidence,
+    };
+}
+
+export async function extractTextFromDocument(
+    imageBuffer: Buffer,
+    mimeType?: string,
+): Promise<OCRResult> {
+    try {
+        const ocrInputs = isPdfDocument(imageBuffer, mimeType)
+            ? await rasterizePdfPages(imageBuffer)
+            : [imageBuffer];
+        const results: OCRResult[] = [];
+
+        for (const ocrInput of ocrInputs) {
+            results.push(await recognizeDocumentImage(ocrInput));
+        }
+
         return {
-            text: result.data.text,
-            confidence: result.data.confidence,
+            text: results
+                .map((result) => result.text.trim())
+                .filter(Boolean)
+                .join("\n\n"),
+            confidence:
+                results.length > 0
+                    ? results.reduce((sum, result) => sum + result.confidence, 0) / results.length
+                    : 0,
         };
     } catch (error) {
+        if (error instanceof OcrDocumentPreparationError) {
+            throw error;
+        }
+
         logger.error("OCR extraction failed:", error);
         return {
             text: "",
@@ -215,6 +373,32 @@ export function checkAddressIndicators(extractedText: string): boolean {
     return matchedKeywords.length >= 2;
 }
 
+function checkResidentialAddressMatch(
+    extractedText: string,
+    residentialAddress?: string | null,
+): boolean | null {
+    const normalizedAddress = normalizeString(residentialAddress || "");
+    if (!normalizedAddress) {
+        return null;
+    }
+
+    const normalizedText = normalizeString(extractedText);
+    if (normalizedText.includes(normalizedAddress)) {
+        return true;
+    }
+
+    const addressTokens = normalizedAddress
+        .split(" ")
+        .filter((token) => token.length >= 3);
+
+    if (addressTokens.length === 0) {
+        return false;
+    }
+
+    const matchedTokens = addressTokens.filter((token) => normalizedText.includes(token));
+    return matchedTokens.length >= Math.max(2, Math.ceil(addressTokens.length * 0.6));
+}
+
 // ───────────────────── Document Recency ─────────────────────
 
 const MONTH_MAP: Record<string, number> = {
@@ -330,9 +514,11 @@ export function isDocumentRecent(documentDate: Date | null): boolean {
 export async function validateAddressDocument(
     imageBuffer: Buffer,
     firstName: string,
-    lastName: string
+    lastName: string,
+    residentialAddress?: string | null,
+    mimeType?: string,
 ): Promise<DocumentValidationResult> {
-    const ocrResult = await extractTextFromDocument(imageBuffer);
+    const ocrResult = await extractTextFromDocument(imageBuffer, mimeType);
 
     if (!ocrResult.text || ocrResult.confidence < 10) {
         return {
@@ -341,6 +527,7 @@ export async function validateAddressDocument(
             extractedText: ocrResult.text,
             matchedName: false,
             matchedAddress: false,
+            matchedResidentialAddress: null,
             requiresManualReview: true,
             reason: "Could not extract text from document. Please upload a clearer image.",
         };
@@ -348,6 +535,7 @@ export async function validateAddressDocument(
 
     const matchedName = checkNameInText(ocrResult.text, firstName, lastName);
     const matchedAddress = checkAddressIndicators(ocrResult.text);
+    const matchedResidentialAddress = checkResidentialAddressMatch(ocrResult.text, residentialAddress);
     const docDate = extractDocumentDate(ocrResult.text);
     const recent = isDocumentRecent(docDate);
 
@@ -356,6 +544,7 @@ export async function validateAddressDocument(
         ocrResult.confidence < MIN_CONFIDENCE_THRESHOLD ||
         !matchedName ||
         !matchedAddress ||
+        matchedResidentialAddress === false ||
         !recent;
 
     let reason: string | undefined;
@@ -369,6 +558,9 @@ export async function validateAddressDocument(
         }
         if (!matchedAddress) {
             issues.push("Address not clearly visible");
+        }
+        if (matchedResidentialAddress === false) {
+            issues.push("Residential address does not match the profile address");
         }
         if (!recent) {
             issues.push(
@@ -386,6 +578,7 @@ export async function validateAddressDocument(
         extractedText: ocrResult.text,
         matchedName,
         matchedAddress,
+        matchedResidentialAddress,
         requiresManualReview,
         reason,
         documentDate: docDate?.toISOString(),
@@ -403,9 +596,10 @@ export async function validateAddressDocument(
 export async function validateIncomeDocument(
     imageBuffer: Buffer,
     firstName: string,
-    lastName: string
+    lastName: string,
+    mimeType?: string,
 ): Promise<DocumentValidationResult> {
-    const ocrResult = await extractTextFromDocument(imageBuffer);
+    const ocrResult = await extractTextFromDocument(imageBuffer, mimeType);
 
     if (!ocrResult.text || ocrResult.confidence < 10) {
         return {

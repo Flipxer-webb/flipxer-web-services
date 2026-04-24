@@ -13,6 +13,19 @@ jest.mock("../../../authorize/guards/role.guard", () => ({
     __esModule: true,
 }));
 
+jest.mock("../../../authorize/decorator", () => ({
+    UserTypes: () => () => undefined,
+    ADMIN_USER_TYPES: ["SUPER_ADMIN"],
+    Permissions: () => () => undefined,
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/user/decorators", () => ({
+    User: () => () => undefined,
+    ClientData: () => () => undefined,
+    __esModule: true,
+}));
+
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
@@ -48,6 +61,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { SwapService } from "../../../trade/services/swap.service";
 import { BuyOrderService } from "../../../trade/services/buy-order.service";
 import { StuckOrderReconciliationService } from "../../../trade/services/stuck-order-reconciliation.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 function makePrisma() {
     return {
@@ -82,6 +96,7 @@ describe("AdminOrderController", () => {
                 { provide: SwapService, useValue: swapService },
                 { provide: BuyOrderService, useValue: buyOrderService },
                 { provide: StuckOrderReconciliationService, useValue: stuckOrderReconciliation },
+                { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
             ],
         }).compile();
 
@@ -123,7 +138,7 @@ describe("AdminOrderController", () => {
 
         const result = await controller.completePendingOrder(admin, "12");
 
-        expect(bankService.paymentSuccessHandler).toHaveBeenCalledWith("pay-ref-1");
+        expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith("pay-ref-1");
         expect(result.message).toContain("completed successfully");
     });
 

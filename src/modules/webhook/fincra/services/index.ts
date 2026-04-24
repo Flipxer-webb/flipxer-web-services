@@ -2,8 +2,18 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { BankService } from "@/modules/api/banks/services";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
-import { FincraWebhookPayload, FincraChargeData, FincraPayoutData } from "../interfaces";
-import { OrderStreamlinedStatus, TransactionStatus } from "@prisma/client";
+import { FincraWebhookPayload } from "../interfaces";
+import { TransactionStatus } from "@prisma/client";
+import { PaymentWebhookAdapterService } from "@/modules/factory/bank/services/payment-webhook-adapter.service";
+import {
+    SellPayoutReconciliationService,
+} from "@/modules/api/trade/services/sell-payout-reconciliation.service";
+import { NormalizedPaymentEvent } from "@/modules/api/banks/types/payment-event.interface";
+import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
+import {
+    BuyOrderWebhookPayment,
+    handleBuyOrderWebhookPayment,
+} from "@/modules/api/banks/services/buy-order-webhook-payment.util";
 
 @Injectable()
 export class FincraWebhookService {
@@ -12,35 +22,44 @@ export class FincraWebhookService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly bankService: BankService,
-        private readonly slackService: SlackWebhookService
+        private readonly slackService: SlackWebhookService,
+        private readonly paymentWebhookAdapterService: PaymentWebhookAdapterService,
+        private readonly sellPayoutReconciliationService: SellPayoutReconciliationService,
+        private readonly buyOrderService: BuyOrderService,
     ) { }
 
     async processWebhookEvent(payload: FincraWebhookPayload) {
-        const eventType = payload.event?.toLowerCase();
-        const reference = (payload.data as any)?.customerReference || (payload.data as any)?.merchantReference || (payload.data as any)?.reference;
+        const event = this.paymentWebhookAdapterService.normalizeFincraWebhook(payload);
+        const eventType = event.eventName;
+        const reference = event.reference;
 
         this.logger.log(`Processing Fincra webhook: event=${eventType}, reference=${reference}`);
         this.logger.debug(`Webhook data keys: ${Object.keys(payload?.data || {}).join(', ')}`);
 
         try {
-            // Handle payout/transfer events
-            if (eventType?.includes("payout") || eventType?.includes("disbursement")) {
-                await this.processPayoutEvent(payload.data as FincraPayoutData);
+            if (event.kind === "payout") {
+                await this.processPayoutEvent(event);
                 this.logger.log(`Successfully processed payout event for reference: ${reference}`);
                 return;
             }
 
-            // Handle charge/collection events
-            await this.processChargeEvent(payload.data as FincraChargeData);
-            this.logger.log(`Successfully processed charge event for reference: ${reference}`);
+            if (event.kind === "incoming_payment") {
+                await this.processChargeEvent(event);
+                this.logger.log(`Successfully processed charge event for reference: ${reference}`);
+                return;
+            }
+
+            this.logger.warn(`Ignoring unsupported Fincra webhook event: ${eventType}`);
         } catch (error) {
-            this.logger.error(`Failed to process webhook event=${eventType}, reference=${reference}: ${error.message}`, error.stack);
+            const message = error instanceof Error ? error.message : String(error);
+            const stack = error instanceof Error ? error.stack : undefined;
+            this.logger.error(`Failed to process webhook event=${eventType}, reference=${reference}: ${message}`, stack);
 
             // Send Slack alert for webhook failure
             await this.slackService.sendWebhookFailureAlert(
                 'fincra',
                 reference || 'unknown',
-                error.message,
+                message,
                 { eventType, payload }
             ).catch(alertErr => {
                 this.logger.error(`Failed to send Slack alert: ${alertErr.message}`);
@@ -51,19 +70,35 @@ export class FincraWebhookService {
         }
     }
 
-    private async processChargeEvent(data: FincraChargeData) {
-        const status = data.status?.toLowerCase();
-        const reference = data.merchantReference || data.reference;
+    private async processChargeEvent(event: NormalizedPaymentEvent) {
+        const status = event.status;
+        const reference = event.reference;
 
         if (!reference) return;
 
         switch (status) {
-            case "success":
-            case "successful":
+            case "successful": {
+                const payment = await this.prisma.payment.findUnique({
+                    where: { reference },
+                });
+
+                if (payment?.orderId) {
+                    await handleBuyOrderWebhookPayment({
+                        payment: payment as BuyOrderWebhookPayment,
+                        event,
+                        reference,
+                        provider: "fincra",
+                        prisma: this.prisma,
+                        buyOrderService: this.buyOrderService,
+                        slackWebhookService: this.slackService,
+                    });
+                    break;
+                }
+
                 await this.bankService.paymentSuccessHandler(reference);
                 break;
+            }
             case "failed":
-            case "cancelled":
                 await this.bankService.paymentFailedHandler(reference);
                 break;
             case "pending":
@@ -73,9 +108,9 @@ export class FincraWebhookService {
         }
     }
 
-    private async processPayoutEvent(data: FincraPayoutData) {
-        const status = data.status?.toLowerCase();
-        const reference = data.customerReference || data.reference;
+    private async processPayoutEvent(event: NormalizedPaymentEvent) {
+        const status = event.status;
+        const reference = event.reference;
 
         if (!reference) {
             this.logger.warn('Received payout event without reference, skipping');
@@ -99,19 +134,15 @@ export class FincraWebhookService {
         }
 
         // Determine the new transaction status
-        let transactionStatus: TransactionStatus | null = null;
-        let orderStreamlinedStatus: OrderStreamlinedStatus | null = null;
+        let transactionStatus: "SUCCESS" | "FAILED" | null = null;
 
         switch (status) {
             case "successful":
                 transactionStatus = TransactionStatus.SUCCESS;
-                orderStreamlinedStatus = OrderStreamlinedStatus.completed;
                 break;
             case "failed":
                 transactionStatus = TransactionStatus.FAILED;
-                orderStreamlinedStatus = OrderStreamlinedStatus.failed;
                 break;
-            case "processing":
             case "pending":
             default:
                 // Leave as pending, don't update
@@ -119,9 +150,7 @@ export class FincraWebhookService {
                 return;
         }
 
-        // Update both Payment and Order in a transaction
-        await this.prisma.$transaction(async (tx) => {
-            // Update payment status
+        const sellPayoutTransition = await this.prisma.$transaction(async (tx) => {
             await tx.payment.update({
                 where: { reference },
                 data: {
@@ -130,35 +159,37 @@ export class FincraWebhookService {
                 },
             });
 
-            // Update order if linked
-            if (payment.orderId) {
-                await tx.order.update({
-                    where: { id: payment.orderId },
-                    data: {
-                        paymentStatus: transactionStatus,
-                        streamlinedStatus: orderStreamlinedStatus,
-                    },
-                });
-                this.logger.log(`Updated order ${payment.orderId} paymentStatus to ${transactionStatus}`);
+            if (!payment.orderId) {
+                return null;
             }
+
+            return this.sellPayoutReconciliationService.reconcileSellPayoutState(tx, {
+                orderId: payment.orderId,
+                provider: "fincra",
+                reference,
+                status: transactionStatus,
+            });
         });
 
-        this.logger.log(`Updated payout status for ${reference} to ${transactionStatus}`);
+        if (sellPayoutTransition) {
+            await this.sellPayoutReconciliationService.executeSellPayoutSideEffects(
+                sellPayoutTransition,
+            );
+            return;
+        }
 
-        // Handle success notification
+        // Non-sell payout handling (legacy path)
         if (transactionStatus === TransactionStatus.SUCCESS) {
             await this.bankService.processAssetValueTransferToBankHandler({
                 paymentReference: reference,
-                transferToBankStatus: TransactionStatus.SUCCESS as any, // Type cast needed due to legacy enum mismatch
+                transferToBankStatus: TransactionStatus.SUCCESS as any,
             });
         }
 
-        // Handle failure - send alerts
         if (transactionStatus === TransactionStatus.FAILED) {
             const userEmail = payment.order?.user?.email || payment.user?.email;
             const orderId = payment.orderId;
 
-            // Send Slack alert for failed payout
             await this.slackService.sendWebhookFailureAlert(
                 'fincra',
                 reference,

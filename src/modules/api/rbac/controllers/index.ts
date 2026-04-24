@@ -19,6 +19,8 @@ import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { RbacService } from "../services";
+import { User } from "@/modules/api/user/decorators";
+import { User as UserModel } from "@prisma/client";
 import {
     CreateRoleDto,
     UpdateRoleDto,
@@ -37,6 +39,15 @@ import {
 @Controller({ path: "admin/rbac" })
 export class RbacController {
     constructor(private readonly rbacService: RbacService) {}
+
+    // ==================== PROFILE ====================
+
+    @ApiOperation({ summary: "Get current admin profile with permissions" })
+    @ApiBearerAuth("access-token")
+    @Get("me")
+    async getAdminProfile(@User() user: UserModel) {
+        return await this.rbacService.getAdminProfile(user.id);
+    }
 
     // ==================== ROLES ====================
 

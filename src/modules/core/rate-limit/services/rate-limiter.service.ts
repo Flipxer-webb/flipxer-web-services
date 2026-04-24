@@ -74,8 +74,30 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    if (this.client) {
+    if (!this.client) {
+      return;
+    }
+
+    this.isRedisConnected = false;
+
+    try {
+      const status = this.client.status ?? 'ready';
+
+      if (status !== 'ready') {
+        this.client.disconnect(false);
+        return;
+      }
+
       await this.client.quit();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (message.includes('Connection is closed')) {
+        this.client.disconnect(false);
+        return;
+      }
+
+      this.logger.warn(`Rate limiter shutdown error: ${message}`);
     }
   }
 

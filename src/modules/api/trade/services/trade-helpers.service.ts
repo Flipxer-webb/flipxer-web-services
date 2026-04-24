@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { NetworkTypes } from "@prisma/client";
 import {
     NETWORK_ALIAS_MAP,
@@ -189,5 +189,26 @@ export class TradeHelpersService {
         return JSON.stringify(data, (_, value) =>
             typeof value === "bigint" ? value.toString() : value
         );
+    }
+
+    validateMinimumAmountInUSDT(
+        amount: number,
+        asset: string,
+        minimumAmountInUsdt: number,
+        tradeType: "buy" | "sell"
+    ): void {
+        if (!Number.isFinite(minimumAmountInUsdt) || minimumAmountInUsdt <= 0) {
+            return;
+        }
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            throw new BadRequestException(`Invalid ${tradeType} amount for ${asset}`);
+        }
+
+        if (amount < minimumAmountInUsdt) {
+            throw new BadRequestException(
+                `Minimum ${tradeType} amount for ${asset.toUpperCase()} is ${minimumAmountInUsdt}`
+            );
+        }
     }
 }
