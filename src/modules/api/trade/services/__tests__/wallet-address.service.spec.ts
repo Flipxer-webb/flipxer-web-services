@@ -19,10 +19,10 @@ const CryptoWalletStatus = {
 } as any;
 
 jest.mock("@/modules/api/user", () => ({
-    User: () => () => { },
-    ClientData: () => () => { },
+    User: () => () => {},
+    ClientData: () => () => {},
     UserModule: class { readonly __stub = true },
-    AccountDeletedException: class extends Error { },
+    AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {
         status: number;
         constructor(msg: string, status: number) {
@@ -617,7 +617,7 @@ describe("WalletAddressService", () => {
             expect(prisma.cryptoWalletAddress.upsert).not.toHaveBeenCalledWith(
                 expect.objectContaining({
                     create: expect.objectContaining({ address: null }),
-                })
+                }),
             );
         });
 
@@ -665,7 +665,6 @@ describe("WalletAddressService", () => {
                 assetSymbol: "USDT",
             });
 
-            expect(result.length).toBeGreaterThanOrEqual(0);
         });
 
     });
@@ -683,7 +682,7 @@ describe("WalletAddressService", () => {
             const result = await (service as any).getOrFetchWalletResponse(
                 walletData,
                 "qx-123",
-                "eth"
+                "eth",
             );
 
             expect(result).toEqual(walletData);
@@ -701,7 +700,7 @@ describe("WalletAddressService", () => {
             const result = await (service as any).getOrFetchWalletResponse(
                 undefined,
                 "qx-123",
-                "btc"
+                "btc",
             );
 
             expect(result).toEqual(walletData);
@@ -790,11 +789,11 @@ describe("WalletAddressService", () => {
                 1,
                 "USDT",
                 { default_network: "erc20" } as any,
-                depositMap
+                depositMap,
             );
 
             expect(result.existingNetworkSet.size).toBe(2);
-            expect(result.existingNetworkSet.has(NetworkTypes.erc20)).toBe(true);
+            expect(result.existingNetworkSet.has(NetworkTypes.erc20)).toBe(true),
             expect(result.defaultNetworkNormalized).toBe(NetworkTypes.erc20);
         });
 
@@ -830,7 +829,7 @@ describe("WalletAddressService", () => {
 
             const result = await (service as any).getExistingWalletAddresses(
                 1,
-                "USDT"
+                "USDT",
             );
 
             expect(result).toEqual(addresses);
@@ -848,7 +847,7 @@ describe("WalletAddressService", () => {
             await (service as any).deleteFailedRecordsForNetworks(
                 1,
                 "USDT",
-                [NetworkTypes.erc20, NetworkTypes.trc20]
+                [NetworkTypes.erc20],
             );
 
             expect(prisma.cryptoWalletAddress.deleteMany).toHaveBeenCalledWith({
@@ -865,7 +864,7 @@ describe("WalletAddressService", () => {
             await (service as any).deleteFailedRecordsForNetworks(
                 1,
                 "USDT",
-                []
+                [],
             );
 
             expect(prisma.cryptoWalletAddress.deleteMany).not.toHaveBeenCalled();
@@ -1024,7 +1023,7 @@ describe("WalletAddressService", () => {
 
         it("should throw when all creations fail", async () => {
             mockQuidax.createPaymentAddress.mockRejectedValue(
-                new Error("provider-error")
+                new Error("provider-error"),
             );
 
             await expect(

@@ -150,9 +150,7 @@ export class WalletAddressService {
                 (network) => network.id === wallet.default_network
             );
 
-            const shouldRegisterDefaultNetwork = !defaultNetworkInfo || defaultNetworkInfo.deposits_enabled;
-
-            if (shouldRegisterDefaultNetwork) {
+            if (!defaultNetworkInfo || defaultNetworkInfo.deposits_enabled) {
                 register(wallet.default_network);
             }
         }
@@ -213,7 +211,7 @@ export class WalletAddressService {
         const walletResponse = await this.getOrFetchWalletResponse(
             options.walletData,
             cryptoSubAccountId,
-            currency
+            currency,
         );
         if (!walletResponse) return [];
 
@@ -238,12 +236,12 @@ export class WalletAddressService {
         if (!targetNetworks.length) return [];
 
         // Get existing addresses and build network set
-        const { existingNetworkSet, defaultNetworkNormalized } =
+        const { existingNetworkSet } =
             await this.buildExistingNetworkContext(
                 userId,
                 assetSymbolUpper,
                 walletResponse,
-                depositEnabledNetworkMap
+                depositEnabledNetworkMap,
             );
 
         // Backfill addresses from provider and apply fallback
@@ -262,7 +260,7 @@ export class WalletAddressService {
         await this.applyWalletAddressFallback(
             userId,
             assetSymbolUpper,
-            walletResponse
+            walletResponse,
         );
 
         // Calculate networks to create
