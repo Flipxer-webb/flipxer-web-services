@@ -1,11 +1,24 @@
+jest.mock("../../../auth/guard", () => ({
+    AuthGuard: class { isStub() { return true; } },
+    CountryBlockGuard: class { isStub() { return true; } },
+    EnabledAccountGuard: class { isStub() { return true; } },
+    FincraWebhookGuard: class { isStub() { return true; } },
+    NombaWebhookGuard: class { isStub() { return true; } },
+    QuidaxWebhookGuard: class { isStub() { return true; } },
+    SocketAuthGuard: class { isStub() { return true; } },
+    TransactionAmountGuard: class { isStub() { return true; } },
+    TwoFactorGuard: class { isStub() { return true; } },
+    __esModule: true,
+}));
+
 /**
- * NombaWebhookController Tests
+ * NormalizedPaymentWebhookController Tests
  *
  * Covers:
- * - Payload normalization (reference extraction for VA-credit, checkout, transfer events)
- * - Event type mapping for all NombaWebhookEventType values
+ * - Normalized payload reference extraction for VA-credit, checkout, and transfer events
+ * - Normalized event routing for provider webhook source events
  * - handleIncomingPayment: fulfillment routing, underpayment guard, missing reference
- * - handleWebhook: signature bypass in non-prod, test/verification requests
+ * - handleWebhook: normalized event delegation after guard verification
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -28,12 +41,19 @@ import { NombaWebhookController } from '../nomba-webhook.controller';
 import { PrismaService } from '@/modules/core/prisma/services';
 import { BuyOrderService } from '../../../trade/services/buy-order.service';
 import { SlackWebhookService } from '@/modules/api/operations/services/slack-webhook.service';
-import { TransactionStatus } from '@prisma/client';
+import { PaymentWebhookAdapterService } from '@/modules/factory/bank/services/payment-webhook-adapter.service';
+import {
+    OrderCategory,
+    OrderStatus,
+    OrderStreamlinedStatus,
+    TransactionStatus,
+} from '@prisma/client';
+import { SellPayoutReconciliationService } from '../../../trade/services/sell-payout-reconciliation.service';
 
 // ─── mock factories ─────────────────────────────────────────
 
 function mockPrisma() {
-    return {
+    const prisma = {
         payment: {
             findFirst: jest.fn(),
             findUnique: jest.fn(),
@@ -48,7 +68,18 @@ function mockPrisma() {
         webhookLog: {
             upsert: jest.fn(),
         },
+        $transaction: jest.fn(),
     };
+
+    prisma.$transaction.mockImplementation(async (callback: (tx: any) => Promise<unknown>) => (
+        callback({
+            payment: prisma.payment,
+            order: prisma.order,
+            webhookLog: prisma.webhookLog,
+        })
+    ));
+
+    return prisma;
 }
 
 function mockBuyOrderService() {
@@ -57,6 +88,33 @@ function mockBuyOrderService() {
 
 function mockSlackWebhookService() {
     return { sendWebhookFailureAlert: jest.fn() };
+}
+
+function mockSellPayoutReconciliationService() {
+    return {
+        reconcileSellPayoutState: jest.fn().mockResolvedValue(null),
+        executeSellPayoutSideEffects: jest.fn().mockResolvedValue(undefined),
+    };
+}
+
+function makeSellOrder(overrides: Record<string, any> = {}) {
+    return {
+        id: 9001,
+        orderCategory: OrderCategory.SELL,
+        status: OrderStatus.processing,
+        streamlinedStatus: OrderStreamlinedStatus.pending,
+        paymentStatus: TransactionStatus.PENDING,
+        transactionId: 'TXN-9001',
+        amount: 100,
+        currency: 'USDT',
+        totalToReceiveInFiat: 22000,
+        destinationBankName: 'Bank A',
+        destinationBankAccountNumber: '1234567890',
+        user: { id: 16, email: 'user@example.com' },
+        createdAt: new Date('2026-04-16T10:00:00.000Z'),
+        updatedAt: new Date('2026-04-16T10:00:00.000Z'),
+        ...overrides,
+    };
 }
 
 // ─── helpers ─────────────────────────────────────────────────
@@ -151,19 +209,21 @@ function paymentSuccessViaTransaction(accountRef: string, amount = 1500) {
 
 // ─── test suite ──────────────────────────────────────────────
 
-describe('NombaWebhookController', () => {
+describe('NormalizedPaymentWebhookController', () => {
     let controller: NombaWebhookController;
     let prisma: ReturnType<typeof mockPrisma>;
     let buyOrderService: ReturnType<typeof mockBuyOrderService>;
     let slackService: ReturnType<typeof mockSlackWebhookService>;
+    let sellPayoutReconciliationService: ReturnType<typeof mockSellPayoutReconciliationService>;
 
-    /** Default headers with a dummy signature so the !signature guard passes */
+    /** Representative webhook headers passed through after guard verification */
     const sigHeaders = { 'nomba-signature': 'test-sig', 'nomba-timestamp': '1234567890' };
 
     beforeEach(async () => {
         prisma = mockPrisma();
         buyOrderService = mockBuyOrderService();
         slackService = mockSlackWebhookService();
+        sellPayoutReconciliationService = mockSellPayoutReconciliationService();
 
         const module: TestingModule = await Test.createTestingModule({
             controllers: [NombaWebhookController],
@@ -171,13 +231,12 @@ describe('NombaWebhookController', () => {
                 { provide: PrismaService, useValue: prisma },
                 { provide: BuyOrderService, useValue: buyOrderService },
                 { provide: SlackWebhookService, useValue: slackService },
+                PaymentWebhookAdapterService,
+                { provide: SellPayoutReconciliationService, useValue: sellPayoutReconciliationService },
             ],
         }).compile();
 
         controller = module.get(NombaWebhookController);
-
-        // Bypass signature verification in tests (private method)
-        jest.spyOn(controller as any, 'verifySignature').mockReturnValue(true);
     });
 
     it('should return active status from verify endpoint', () => {
@@ -276,15 +335,14 @@ describe('NombaWebhookController', () => {
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: 'account-ref-fallback' } });
         });
 
-        it('should throw when no reference can be extracted from a payment event', async () => {
+        it('should return success when no reference can be extracted from a payment event', async () => {
             const body = {
                 event_type: 'virtual_account.credited',
                 data: { amount: 500 }, // no reference fields at all
             };
 
-            await expect(controller.handleWebhook(body, sigHeaders)).rejects.toThrow(
-                'Cannot process payment webhook: no reference could be extracted from the payload'
-            );
+            const result = await controller.handleWebhook(body, sigHeaders);
+            expect(result).toEqual({ success: true, message: "Webhook processed" });
         });
 
         it('should extract transaction.accountRef from payment_success webhooks (prod shape)', async () => {
@@ -297,6 +355,47 @@ describe('NombaWebhookController', () => {
 
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
+        });
+
+        it('should resolve accountRef-only payment_success webhooks via providerAccountReference fallback', async () => {
+            const providerAccountRef = 'fallback-va-ref';
+            const internalReference = 'local-buy-ref';
+            const payment = {
+                id: 52,
+                orderId: 502,
+                totalAmount: 1500,
+                reference: internalReference,
+                providerAccountReference: providerAccountRef,
+                userId: 11,
+            };
+            prisma.payment.findFirst
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce(payment);
+            buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
+
+            await controller.handleWebhook(paymentSuccessViaTransaction(providerAccountRef, 1500), sigHeaders);
+
+            expect(prisma.payment.findFirst).toHaveBeenNthCalledWith(1, {
+                where: { reference: providerAccountRef },
+            });
+            expect(prisma.payment.findFirst).toHaveBeenNthCalledWith(2, {
+                where: {
+                    providerAccountReference: providerAccountRef,
+                    paymentMethod: 'NOMBA',
+                    type: 'P2P_PAYMENT',
+                    orderId: { not: null },
+                    status: {
+                        in: [
+                            TransactionStatus.PENDING,
+                            TransactionStatus.APPROVED,
+                            TransactionStatus.FAILED,
+                        ],
+                    },
+                    totalAmount: 1500,
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(internalReference);
         });
 
         it('should extract transaction.reference when accountRef is absent', async () => {
@@ -313,95 +412,6 @@ describe('NombaWebhookController', () => {
             await controller.handleWebhook(body, sigHeaders);
 
             expect(prisma.payment.findFirst).toHaveBeenCalledWith({ where: { reference: ref } });
-        });
-    });
-
-    describe('verifySignature', () => {
-        it('should return false when webhook secret is not configured', () => {
-            const configModule = require('@/config');
-            const oldOptions = configModule.nombaOptions;
-            configModule.nombaOptions = { ...oldOptions, webhookSecret: undefined };
-
-            const verifySignature = (NombaWebhookController as any).prototype.verifySignature;
-            const result = verifySignature.call(controller, { event_type: 'payment_success', data: {} }, 'sig', '123');
-
-            expect(result).toBe(false);
-            configModule.nombaOptions = oldOptions;
-        });
-
-        it('should return false on signature length mismatch', () => {
-            const configModule = require('@/config');
-            const oldOptions = configModule.nombaOptions;
-            configModule.nombaOptions = { ...oldOptions, webhookSecret: 'secret' };
-
-            const hmacSpy = jest.spyOn(require('node:crypto'), 'createHmac').mockReturnValue({
-                update: jest.fn().mockReturnThis(),
-                digest: jest.fn().mockReturnValue('expected-signature-base64'),
-            } as any);
-
-            const verifySignature = (NombaWebhookController as any).prototype.verifySignature;
-            const result = verifySignature.call(
-                controller,
-                {
-                    event_type: 'payment_success',
-                    requestId: 'r1',
-                    data: {
-                        merchant: { userId: 'u1', walletId: 'w1' },
-                        transaction: {
-                            transactionId: 't1',
-                            type: 'vact_transfer',
-                            time: 'now',
-                            responseCode: 'null',
-                        },
-                    },
-                },
-                'short',
-                'ts1'
-            );
-
-            expect(result).toBe(false);
-            hmacSpy.mockRestore();
-            configModule.nombaOptions = oldOptions;
-        });
-
-        it('should return true when timing-safe check passes', () => {
-            const configModule = require('@/config');
-            const oldOptions = configModule.nombaOptions;
-            configModule.nombaOptions = { ...oldOptions, webhookSecret: 'secret' };
-
-            const expectedSig = '1234567890123456';
-            const hmacSpy = jest.spyOn(require('node:crypto'), 'createHmac').mockReturnValue({
-                update: jest.fn().mockReturnThis(),
-                digest: jest.fn().mockReturnValue(expectedSig),
-            } as any);
-            const timingSpy = jest.spyOn(require('node:crypto'), 'timingSafeEqual').mockReturnValue(true);
-
-            const verifySignature = (NombaWebhookController as any).prototype.verifySignature;
-            const result = verifySignature.call(
-                controller,
-                {
-                    event_type: 'payment_success',
-                    requestId: 'rid',
-                    data: {
-                        merchant: { userId: 'u1', walletId: 'w1' },
-                        transaction: {
-                            transactionId: 't1',
-                            type: 'vact_transfer',
-                            time: '2026-03-29T00:00:00Z',
-                            responseCode: '',
-                        },
-                    },
-                },
-                expectedSig,
-                '12345'
-            );
-
-            expect(result).toBe(true);
-            expect(timingSpy).toHaveBeenCalled();
-
-            hmacSpy.mockRestore();
-            timingSpy.mockRestore();
-            configModule.nombaOptions = oldOptions;
         });
     });
 
@@ -564,6 +574,46 @@ describe('NombaWebhookController', () => {
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
 
+        it('should store providerReference on buy-order payment before fulfillment', async () => {
+            const ref = 'buy-prov-ref';
+            const payment = { id: 36, orderId: 360, totalAmount: 1000, reference: ref, userId: 9 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+            prisma.payment.update.mockResolvedValue(payment);
+            buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
+
+            // vaPaymentSuccess includes a transactionId as the provider reference
+            await controller.handleWebhook(vaPaymentSuccess(ref, 1000), sigHeaders);
+
+            expect(prisma.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 36 },
+                    data: expect.objectContaining({
+                        externalReference: expect.any(String),
+                    }),
+                }),
+            );
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
+        });
+
+        it('should resolve provider accountRef to internal payment reference', async () => {
+            const providerRef = 'provider-account-ref';
+            const internalRef = 'internal-payment-ref';
+            const payment = { id: 37, orderId: null, totalAmount: 500, reference: internalRef, userId: 10 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+
+            await controller.handleWebhook(vaCredit(providerRef, 500), sigHeaders);
+
+            // Should use the internal reference (payment.reference), not the provider ref
+            expect(prisma.payment.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 37 },
+                    data: expect.objectContaining({
+                        status: TransactionStatus.SUCCESS,
+                    }),
+                }),
+            );
+        });
+
         it('should warn but not throw when no payment found for reference', async () => {
             const ref = 'orphan-ref';
             prisma.payment.findFirst.mockResolvedValue(null);
@@ -579,12 +629,12 @@ describe('NombaWebhookController', () => {
     describe('handleWebhook — entry guards', () => {
         it('should return ok for empty/verification body', async () => {
             const result = await controller.handleWebhook({}, sigHeaders);
-            expect(result).toEqual({ status: 'ok', message: 'Webhook received' });
+            expect(result).toEqual({ success: true, message: 'Webhook processed' });
         });
 
         it('should return ok for null body', async () => {
             const result = await controller.handleWebhook(null, sigHeaders);
-            expect(result).toEqual({ status: 'ok', message: 'Webhook received' });
+            expect(result).toEqual({ success: true, message: 'Webhook processed' });
         });
 
         it('should accept body with legacy "event" field', async () => {
@@ -602,21 +652,15 @@ describe('NombaWebhookController', () => {
             expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
 
-        it('should reject when signature header is missing', async () => {
-            await expect(
-                controller.handleWebhook({ event_type: 'payment_success', data: { reference: 'r1' } }, {})
-            ).rejects.toThrow('Missing webhook signature');
-        });
+        it('should rely on the guard layer for signature verification', async () => {
+            const ref = 'guard-verified-ref';
+            const payment = { id: 41, orderId: 401, totalAmount: 100, reference: ref, userId: 7 };
+            prisma.payment.findFirst.mockResolvedValue(payment);
+            buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
-        it('should reject when signature verification fails', async () => {
-            (controller as any).verifySignature.mockReturnValueOnce(false);
+            await controller.handleWebhook({ event_type: 'payment_success', data: { accountRef: ref, amount: 100 } }, {});
 
-            await expect(
-                controller.handleWebhook(
-                    { event_type: 'payment_success', data: { reference: 'r1' } },
-                    { 'nomba-signature': 'bad', 'nomba-timestamp': '1' }
-                )
-            ).rejects.toThrow('Invalid webhook signature');
+            expect(buyOrderService.fulfillBuyOrder).toHaveBeenCalledWith(ref);
         });
     });
 
@@ -641,34 +685,104 @@ describe('NombaWebhookController', () => {
             expect(prisma.payment.updateMany).not.toHaveBeenCalled();
         });
 
-        it('should propagate failed SELL payout to order payment status and slack', async () => {
+        it('should delegate transfer.successful SELL payouts to the shared reconciler', async () => {
+            const ref = 'sell-success-ref';
+            prisma.payment.findFirst.mockResolvedValue({ id: 70, orderId: 9001, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 70, orderId: 9001, reference: ref });
+            sellPayoutReconciliationService.reconcileSellPayoutState.mockResolvedValue({
+                order: { id: 9001 },
+                provider: 'nomba',
+                reference: ref,
+                status: TransactionStatus.SUCCESS,
+            });
+
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
+
+            expect(prisma.$transaction).toHaveBeenCalled();
+            expect(prisma.payment.update).toHaveBeenCalledWith({
+                where: { id: 70 },
+                data: expect.objectContaining({
+                    status: TransactionStatus.SUCCESS,
+                    paymentStatus: TransactionStatus.SUCCESS,
+                }),
+            });
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).toHaveBeenCalledWith(
+                expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
+                {
+                orderId: 9001,
+                provider: 'nomba',
+                reference: ref,
+                status: TransactionStatus.SUCCESS,
+                },
+            );
+            expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: 'nomba',
+                    reference: ref,
+                    status: TransactionStatus.SUCCESS,
+                }),
+            );
+        });
+
+        it('should stop after updating the payment when transfer.successful has no linked order', async () => {
+            const ref = 'sell-success-no-order-ref';
+            prisma.payment.findFirst.mockResolvedValue({ id: 74, orderId: null, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 74, orderId: null, reference: ref });
+
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
+
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).not.toHaveBeenCalled();
+            expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).not.toHaveBeenCalled();
+        });
+
+        it('should delegate transfer.failed SELL payouts to the shared reconciler', async () => {
             const ref = 'sell-failed-ref';
             prisma.payment.findMany.mockResolvedValue([{ id: 71, orderId: 9001, userId: 16, totalAmount: 22000 }]);
             prisma.payment.updateMany.mockResolvedValue({ count: 1 });
-            prisma.order.findUnique.mockResolvedValue({
-                id: 9001,
-                orderCategory: 'SELL',
-                status: 'done',
-                transactionId: 'TXN-9001',
-                totalToReceiveInFiat: 22000,
-                destinationBankName: 'Bank A',
-                destinationBankAccountNumber: '1234567890',
-                user: { id: 16, email: 'user@example.com' },
+            sellPayoutReconciliationService.reconcileSellPayoutState.mockResolvedValue({
+                order: { id: 9001 },
+                provider: 'nomba',
+                reference: ref,
+                status: TransactionStatus.FAILED,
             });
-            prisma.order.update.mockResolvedValue({ id: 9001 });
 
             await controller.handleWebhook(transferFailed(ref), sigHeaders);
 
-            expect(prisma.order.update).toHaveBeenCalledWith({
-                where: { id: 9001 },
-                data: { paymentStatus: TransactionStatus.FAILED },
+            expect(prisma.$transaction).toHaveBeenCalled();
+            expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+                where: { reference: ref },
+                data: {
+                    status: TransactionStatus.FAILED,
+                    paymentStatus: TransactionStatus.FAILED,
+                },
             });
-            expect(slackService.sendWebhookFailureAlert).toHaveBeenCalledWith(
-                'nomba',
-                ref,
-                expect.stringContaining('payout FAILED'),
-                expect.objectContaining({ orderId: 9001, userId: 16, amount: 22000 }),
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).toHaveBeenCalledWith(
+                expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
+                {
+                orderId: 9001,
+                provider: 'nomba',
+                reference: ref,
+                status: TransactionStatus.FAILED,
+                },
             );
+            expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: 'nomba',
+                    reference: ref,
+                    status: TransactionStatus.FAILED,
+                }),
+            );
+        });
+
+        it('should skip payout reconciliation when transfer.failed has no linked SELL order', async () => {
+            const ref = 'sell-failure-no-order-ref';
+            prisma.payment.findMany.mockResolvedValue([{ id: 77, orderId: null, userId: 16, totalAmount: 22000 }]);
+            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+            await controller.handleWebhook(transferFailed(ref), sigHeaders);
+
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).not.toHaveBeenCalled();
+            expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).not.toHaveBeenCalled();
         });
     });
 });

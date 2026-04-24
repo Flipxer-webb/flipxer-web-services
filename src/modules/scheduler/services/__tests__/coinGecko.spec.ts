@@ -3,6 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { PriceCacheSchedulerService } from "../coinGecko";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { WsGateway } from "@/modules/api/trade/gateway/v1";
 
 describe("PriceCacheSchedulerService", () => {
     let service: PriceCacheSchedulerService;
@@ -13,6 +14,7 @@ describe("PriceCacheSchedulerService", () => {
     };
     let coinCapService: { getBatchMarketData: jest.Mock };
     let redisCacheService: { set: jest.Mock };
+    let wsGateway: { broadcastPriceUpdate: jest.Mock };
 
     beforeEach(async () => {
         liveCoinWatchService = {
@@ -22,6 +24,7 @@ describe("PriceCacheSchedulerService", () => {
         };
         coinCapService = { getBatchMarketData: jest.fn() };
         redisCacheService = { set: jest.fn().mockResolvedValue(undefined) };
+        wsGateway = { broadcastPriceUpdate: jest.fn() };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -29,6 +32,7 @@ describe("PriceCacheSchedulerService", () => {
                 { provide: TradingInjectionToken.LIVECOINWATCH, useValue: liveCoinWatchService },
                 { provide: TradingInjectionToken.COINCAP, useValue: coinCapService },
                 { provide: RedisCacheService, useValue: redisCacheService },
+                { provide: WsGateway, useValue: wsGateway },
             ],
         }).compile();
 

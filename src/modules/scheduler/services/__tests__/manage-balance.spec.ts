@@ -21,6 +21,7 @@ describe("AssetBalanceSchedulerService", () => {
         },
         cryptoWalletAddress: {
             findMany: jest.fn(),
+            update: jest.fn(),
         },
     };
 
@@ -87,12 +88,14 @@ describe("AssetBalanceSchedulerService", () => {
                 id: 11,
                 walletAddressId: "addr-1",
                 assetSymbol: "BTC",
+                updatedAt: new Date("2026-04-21T17:00:00Z"),
                 user: { cryptoSubAccountId: "sub-1" },
             },
             {
                 id: 12,
                 walletAddressId: "addr-2",
                 assetSymbol: "ETH",
+                updatedAt: new Date("2026-04-21T17:00:00Z"),
                 user: { cryptoSubAccountId: null },
             },
         ]);
@@ -118,7 +121,45 @@ describe("AssetBalanceSchedulerService", () => {
             totalPayments: 2,
             destination_tag: "memo",
         });
+        expect(prisma.cryptoWalletAddress.update).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("syncWalletAddress marks long-lived null provider addresses as failed", async () => {
+        const release = jest.fn();
+        const nowSpy = jest.spyOn(Date, "now").mockReturnValue(
+            new Date("2026-04-21T18:00:00Z").getTime()
+        );
+        (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
+
+        prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+            {
+                id: 13,
+                walletAddressId: "addr-3",
+                assetSymbol: "USDC",
+                updatedAt: new Date("2026-04-21T17:20:00Z"),
+                user: { cryptoSubAccountId: "sub-3" },
+            },
+        ]);
+
+        tradingService.getGeneratedWalletAddress.mockResolvedValue({
+            data: {
+                address: null,
+                total_payments: 0,
+                destination_tag: null,
+            },
+        });
+
+        await service.syncWalletAddress();
+
+        expect(prisma.cryptoWalletAddress.update).toHaveBeenCalledWith({
+            where: { id: 13 },
+            data: { status: CryptoWalletStatus.FAILED },
+        });
+        expect(tradingService.walletAddressCreatedSuccessHandler).not.toHaveBeenCalled();
+        expect(release).toHaveBeenCalledTimes(1);
+
+        nowSpy.mockRestore();
     });
 
     it("syncWalletAddress exits early when there are no pending addresses", async () => {

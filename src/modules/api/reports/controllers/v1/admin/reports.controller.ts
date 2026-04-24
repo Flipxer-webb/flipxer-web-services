@@ -11,7 +11,8 @@ import { ReportsService } from "../../../services/reports.service";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { ReportConfig, ReportFilters } from "../../../types";
 import { buildResponse } from "@/utils/api-response-util";
 
@@ -24,6 +25,7 @@ export class AdminReportsController {
     /**
      * Get available report types
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Get()
     getAvailableReports() {
         const reports = this.reportsService.getAvailableReports();
@@ -36,6 +38,7 @@ export class AdminReportsController {
     /**
      * Preview a report (returns summary and sample data)
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Post("preview")
     async previewReport(@Body() config: ReportConfig) {
         // Parse date strings to Date objects if present
@@ -56,6 +59,7 @@ export class AdminReportsController {
     /**
      * Generate and download a report (main endpoint for frontend)
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Post()
     async downloadReport(
         @Body() config: ReportConfig,
@@ -83,6 +87,7 @@ export class AdminReportsController {
     /**
      * Generate and download a report (alternate endpoint)
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Post("generate")
     async generateReport(
         @Body() config: ReportConfig,
@@ -110,6 +115,7 @@ export class AdminReportsController {
     /**
      * Generate transaction report
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Post("transactions")
     async generateTransactionReport(
         @Body() body: { filters: ReportFilters; format?: "csv" | "json" },
@@ -143,6 +149,7 @@ export class AdminReportsController {
     /**
      * Generate user report
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Post("users")
     async generateUserReport(
         @Body() body: { filters: ReportFilters; format?: "csv" | "json" },
@@ -176,6 +183,7 @@ export class AdminReportsController {
     /**
      * Generate revenue report
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Post("revenue")
     async generateRevenueReport(
         @Body() body: { filters: ReportFilters; format?: "csv" | "json" },
@@ -209,6 +217,7 @@ export class AdminReportsController {
     /**
      * Generate tax report
      */
+    @Permissions([PermissionName.ANALYTICS_EXPORT])
     @Post("tax")
     async generateTaxReport(
         @Body() body: { filters: ReportFilters; format?: "csv" | "json" },

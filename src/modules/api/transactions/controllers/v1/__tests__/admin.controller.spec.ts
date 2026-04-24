@@ -45,6 +45,7 @@ import { AdminTransactionController } from "../admin";
 import { TransactionService } from "../../../services";
 import { AdminTransactionService } from "../../../services/admin-transaction.service";
 import { TradingService } from "@/modules/api/trade/services";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 describe("AdminTransactionController", () => {
     let controller: AdminTransactionController;
@@ -66,6 +67,8 @@ describe("AdminTransactionController", () => {
         exportTransactions: jest.Mock;
     };
     let tradingService: { syncUserDeposits: jest.Mock; debugUserWallet: jest.Mock };
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    const mockReq = { ip: '127.0.0.1', headers: { 'user-agent': 'test' }, user: { id: 1 } } as any;
 
     beforeEach(async () => {
         transactionService = {
@@ -93,6 +96,7 @@ describe("AdminTransactionController", () => {
                 { provide: TransactionService, useValue: transactionService },
                 { provide: AdminTransactionService, useValue: adminTransactionService },
                 { provide: TradingService, useValue: tradingService },
+                { provide: AuditLogService, useValue: mockAuditLogService },
             ],
         }).compile();
 
@@ -170,7 +174,7 @@ describe("AdminTransactionController", () => {
         tradingService.syncUserDeposits.mockResolvedValue({ message: "synced" });
         tradingService.debugUserWallet.mockResolvedValue({ data: { currency: "BTC" } });
 
-        const syncResult = await controller.syncUserDeposits(15);
+        const syncResult = await controller.syncUserDeposits(15, mockReq);
         const debugResult = await controller.debugWallet(15, "BTC");
 
         expect(tradingService.syncUserDeposits).toHaveBeenCalledWith(15);

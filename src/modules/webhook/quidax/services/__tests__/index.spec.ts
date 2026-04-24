@@ -258,8 +258,9 @@ describe("QuidaxWebhookService", () => {
     // ==================== Timestamp validation ====================
 
     describe("processWebhookEvent – timestamp validation", () => {
-        it("rejects stale events older than 5 min", async () => {
-            const staleDate = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        it("rejects stale events older than effective max age", async () => {
+            // Effective max age = MAX_WEBHOOK_AGE_MS (300s) + CLOCK_SKEW_ALLOWANCE_MS (3700s) = 4000s
+            const staleDate = new Date(Date.now() - 70 * 60 * 1000).toISOString();
 
             await expect(
                 service.processWebhookEvent({

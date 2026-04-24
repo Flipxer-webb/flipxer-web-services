@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>Verification Escalated - Flipxer</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            supported-color-schemes: light dark;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .wrapper {
+                background-color: #1a1a1a !important;
+            }
+
+            .container {
+                background-color: #2d2d2d !important;
+            }
+
+            .summary-box {
+                background-color: #3d3d3d !important;
+                border-color: #4d4d4d !important;
+            }
+
+            .heading,
+            .meta-value {
+                color: #ffffff !important;
+            }
+
+            .text,
+            .meta-label,
+            .footer-text {
+                color: #b3b3b3 !important;
+            }
+
+            .cta-button {
+                color: #ffffff !important;
+            }
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f5;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #020202;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        .wrapper {
+            width: 100%;
+            background-color: #f4f4f5;
+            padding: 40px 16px;
+        }
+
+        .container {
+            max-width: 595px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);
+        }
+
+        .header {
+            text-align: center;
+            padding: 32px 24px 24px;
+            border-bottom: 3px solid #305DC9;
+        }
+
+        .logo {
+            width: 140px;
+            height: auto;
+        }
+
+        .content {
+            padding: 28px;
+        }
+
+        .summary-box {
+            background-color: #f4f4f5;
+            border: 2px solid #e1e4ea;
+            border-radius: 12px;
+            padding: 28px;
+            margin-bottom: 24px;
+        }
+
+        .status-tag {
+            color: #aaabac;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        .heading {
+            font-size: 22px;
+            font-weight: 700;
+            color: #020202;
+            margin: 0 0 10px;
+            text-align: center;
+        }
+
+        .text {
+            color: #5a5b5b;
+            font-size: 14px;
+            margin: 0 0 12px;
+            line-height: 1.6;
+            text-align: center;
+        }
+
+        .meta {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0 8px;
+            font-size: 13px;
+        }
+
+        .meta td {
+            padding: 8px 0;
+            border-bottom: 1px solid #e9e9ec;
+        }
+
+        .meta-label {
+            color: #aaabac;
+        }
+
+        .meta-value {
+            color: #020202;
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .cta-wrap {
+            text-align: center;
+            margin-top: 22px;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background-color: #305DC9;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .fine-print {
+            color: #aaabac;
+            font-size: 12px;
+            margin: 14px 0 0;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .footer {
+            border-top: 3px solid #305DC9;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .footer-logo {
+            width: 90px;
+            height: auto;
+            margin-bottom: 12px;
+        }
+
+        .footer-text {
+            color: #5a5b5b;
+            font-size: 12px;
+            margin: 0 0 6px;
+        }
+
+        .footer-copyright {
+            color: #aaabac;
+            font-size: 11px;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrapper" style="width: 100%; background-color: #f4f4f5; padding: 40px 16px;">
+        <div class="container"
+            style="max-width: 595px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);">
+            <div class="header" style="text-align: center; padding: 32px 24px 24px; border-bottom: 3px solid #305DC9;">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer" class="logo" style="width: 140px; height: auto;" width="140">
+            </div>
+            <div class="content" style="padding: 28px;">
+                <div class="summary-box"
+                    style="background-color: #f4f4f5; border: 2px solid #e1e4ea; border-radius: 12px; padding: 28px; margin-bottom: 24px;">
+                    <p class="status-tag"
+                        style="color: #aaabac; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; text-align: center;">
+                        Verification Update</p>
+                    <h1 class="heading"
+                        style="font-size: 22px; font-weight: 700; color: #020202; margin: 0 0 10px; text-align: center;">
+                        Hi {{name}}, Additional Review Required</h1>
+                    <p class="text"
+                        style="color: #5a5b5b; font-size: 14px; margin: 0 0 12px; line-height: 1.6; text-align: center;">
+                        Your {{document_type}} verification has been escalated to a senior reviewer for a more thorough
+                        assessment. This is a routine step and does not necessarily indicate a problem with your
+                        submission.</p>
+                    <table class="meta"
+                        style="width: 100%; border-collapse: collapse; margin: 16px 0 8px; font-size: 13px;">
+                        <tbody>
+                            <tr>
+                                <td class="meta-label"
+                                    style="color: #aaabac; padding: 8px 0; border-bottom: 1px solid #e9e9ec;">Document
+                                    Type</td>
+                                <td class="meta-value"
+                                    style="color: #020202; font-weight: 600; text-align: right; padding: 8px 0; border-bottom: 1px solid #e9e9ec;">
+                                    {{document_type}}</td>
+                            </tr>
+                            <tr>
+                                <td class="meta-label"
+                                    style="color: #aaabac; padding: 8px 0; border-bottom: 1px solid #e9e9ec;">Status</td>
+                                <td class="meta-value"
+                                    style="color: #020202; font-weight: 600; text-align: right; padding: 8px 0; border-bottom: 1px solid #e9e9ec;">
+                                    Escalated for Review</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="cta-wrap" style="text-align: center; margin-top: 22px;">
+                        <a href="https://app.flipxer.com/dashboard" class="cta-button"
+                            style="display: inline-block; background-color: #305DC9; color: #ffffff !important; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 14px;"
+                            target="_blank"> Go to Dashboard </a>
+                    </div>
+                    <p class="fine-print"
+                        style="color: #aaabac; font-size: 12px; margin: 14px 0 0; text-align: center; line-height: 1.5;">
+                        The review may take a bit longer than usual. We'll notify you by email as soon as a decision has
+                        been reached. No further action is needed from you.</p>
+                </div>
+            </div>
+            <div class="footer" style="border-top: 3px solid #305DC9; padding: 24px; text-align: center;">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer" class="footer-logo" style="width: 90px; height: auto; margin-bottom: 12px;" width="90">
+                <p class="footer-text" style="color: #5a5b5b; font-size: 12px; margin: 0 0 6px;">hello@flipxer.com •
+                    flipxer.com</p>
+                <p class="footer-copyright" style="color: #aaabac; font-size: 11px; margin: 0;">© 2026 Flipxer. All
+                    rights reserved.</p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

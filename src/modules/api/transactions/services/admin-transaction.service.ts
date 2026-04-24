@@ -29,6 +29,7 @@ import { shapeTransaction } from "../types";
 import { BuyOrderService } from "@/modules/api/trade/services/buy-order.service";
 import { SwapService } from "@/modules/api/trade/services/swap.service";
 import { WithdrawalWebhookHandler } from "@/modules/api/trade/services/webhook-handlers/withdrawal-webhook.handler";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { Decimal } from "@prisma/client/runtime/library";
 
 @Injectable()
@@ -42,6 +43,7 @@ export class AdminTransactionService {
         private readonly buyOrderService: BuyOrderService,
         private readonly swapService: SwapService,
         private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
+        private readonly auditLogService: AuditLogService,
     ) { }
 
     // ==================== PENDING/FAILED TRANSACTIONS ====================
@@ -298,18 +300,16 @@ export class AdminTransactionService {
         });
 
         // Create audit log
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "UPDATE_TRANSACTION_STATUS",
-                resource: "transaction",
-                resourceId: transactionId,
-                details: {
-                    previousStatus,
-                    newStatus: dto.status,
-                    reason: dto.reason,
-                    note: dto.note,
-                },
+        await this.auditLogService.log({
+            adminId,
+            action: "UPDATE_TRANSACTION_STATUS",
+            resource: "transaction",
+            resourceId: transactionId,
+            details: {
+                previousStatus,
+                newStatus: dto.status,
+                reason: dto.reason,
+                note: dto.note,
             },
         });
 
@@ -412,19 +412,17 @@ export class AdminTransactionService {
         });
 
         // Create audit log
-        await this.prisma.auditLog.create({
-            data: {
-                adminId: admin.id,
-                action: "MANUAL_APPROVE_TRANSACTION",
-                resource: "transaction",
-                resourceId: transactionId,
-                details: {
-                    verificationNote: dto.verificationNote,
-                    overrideAmount: dto.overrideAmount,
-                    originalAmount: transaction.amountInFiat,
-                    ledgerEntryId: creditResult?.entryId,
-                    orderCategory: transaction.orderCategory,
-                },
+        await this.auditLogService.log({
+            adminId: admin.id,
+            action: "MANUAL_APPROVE_TRANSACTION",
+            resource: "transaction",
+            resourceId: transactionId,
+            details: {
+                verificationNote: dto.verificationNote,
+                overrideAmount: dto.overrideAmount,
+                originalAmount: transaction.amountInFiat,
+                ledgerEntryId: creditResult?.entryId,
+                orderCategory: transaction.orderCategory,
             },
         });
 
@@ -548,19 +546,17 @@ export class AdminTransactionService {
         });
 
         // Create audit log
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "REFUND_TRANSACTION",
-                resource: "transaction",
-                resourceId: transactionId,
-                details: {
-                    reason: dto.reason,
-                    refundAmount: refundAmount.toString(),
-                    currency: transaction.currency,
-                    ledgerEntryId: creditResult.entryId,
-                    originalAmount: transaction.amount,
-                },
+        await this.auditLogService.log({
+            adminId,
+            action: "REFUND_TRANSACTION",
+            resource: "transaction",
+            resourceId: transactionId,
+            details: {
+                reason: dto.reason,
+                refundAmount: refundAmount.toString(),
+                currency: transaction.currency,
+                ledgerEntryId: creditResult.entryId,
+                originalAmount: transaction.amount,
             },
         });
 
@@ -634,16 +630,14 @@ export class AdminTransactionService {
         });
 
         // Create audit log - before execution to capture intent
-        await this.prisma.auditLog.create({
-            data: {
-                adminId,
-                action: "RETRY_TRANSACTION",
-                resource: "transaction",
-                resourceId: transactionId,
-                details: {
-                    previousStatus: transaction.streamlinedStatus,
-                    previousReason: transaction.reason
-                },
+        await this.auditLogService.log({
+            adminId,
+            action: "RETRY_TRANSACTION",
+            resource: "transaction",
+            resourceId: transactionId,
+            details: {
+                previousStatus: transaction.streamlinedStatus,
+                previousReason: transaction.reason
             },
         });
 

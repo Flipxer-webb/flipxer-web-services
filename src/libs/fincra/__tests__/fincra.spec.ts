@@ -115,6 +115,13 @@ describe("FincraLib", () => {
         );
     });
 
+    it("should reject invalid reference path segments before verifying payment", async () => {
+        const lib = new FincraLib(baseOptions);
+
+        await expect(lib.verifyPayment("../bad-ref")).rejects.toThrow("Invalid reference");
+        expect(mockAxiosInstance).not.toHaveBeenCalled();
+    });
+
     it("should fetch banks with default and custom country mapping", async () => {
         mockAxiosInstance.mockResolvedValue({ data: { success: true, message: "ok", data: [] } });
 
@@ -239,5 +246,33 @@ describe("FincraLib", () => {
             message: "request failed hard",
             status: 502,
         });
+    });
+
+    it("should fetch wallets with business ID", async () => {
+        mockAxiosInstance.mockResolvedValue({
+            data: {
+                status: true,
+                data: [{ currency: "NGN", availableBalance: 500000 }],
+            },
+        });
+
+        const lib = new FincraLib(baseOptions);
+        const result = await lib.getWallets();
+
+        expect(result.status).toBe(true);
+        expect(result.data).toHaveLength(1);
+        expect(mockAxiosInstance).toHaveBeenCalledWith(
+            expect.objectContaining({
+                method: "GET",
+                url: "/wallets",
+                params: { businessID: "biz-1" },
+            }),
+        );
+    });
+
+    it("should throw when businessId is missing for getWallets", async () => {
+        const lib = new FincraLib({ ...baseOptions, businessId: "" });
+
+        await expect(lib.getWallets()).rejects.toThrow("Business ID is required");
     });
 });

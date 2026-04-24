@@ -29,6 +29,7 @@ import { SweepService } from "../../services/ledger/sweep.service";
 import { OrphanedHoldService } from "../../services/ledger/orphaned-hold.service";
 import { DepositReviewService } from "../../services/ledger/deposit-review.service";
 import { SolvencyService } from "../../services/ledger/solvency.service";
+import { AuditLogService } from "@/modules/api/audit-log";
 import { buildResponse } from "@/utils/api-response-util";
 
 /**
@@ -65,7 +66,8 @@ export class AdminLedgerController {
         private readonly sweepService: SweepService,
         private readonly orphanedHoldService: OrphanedHoldService,
         private readonly depositReviewService: DepositReviewService,
-        private readonly solvencyService: SolvencyService
+        private readonly solvencyService: SolvencyService,
+        private readonly auditLogService: AuditLogService,
     ) { }
 
     // =========================================================================
@@ -85,9 +87,15 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Run reconciliation check now" })
     @Post("reconciliation/run")
-    async runReconciliation() {
+    async runReconciliation(@User() admin: UserEntity) {
         this.logger.log("Admin triggering manual reconciliation");
         const result = await this.reconciliationService.runReconciliation();
+        await this.auditLogService.log({
+            action: "RUN_RECONCILIATION",
+            resource: "ledger",
+            details: { result },
+            adminId: admin.id,
+        });
         return buildResponse({
             message: "Reconciliation completed",
             data: result,
@@ -108,6 +116,12 @@ export class AdminLedgerController {
             user.id,
             body.reason
         );
+        await this.auditLogService.log({
+            action: "ACKNOWLEDGE_DISCREPANCY",
+            resource: "ledger",
+            details: { currency: body.currency, reason: body.reason },
+            adminId: user.id,
+        });
         return buildResponse({
             message: "Discrepancy acknowledged and processing resumed",
         });
@@ -138,9 +152,15 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Pause withdrawal queue processing" })
     @Post("withdrawal-queue/pause")
-    async pauseWithdrawalQueue(@Body() body: { reason: string }) {
+    async pauseWithdrawalQueue(@User() admin: UserEntity, @Body() body: { reason: string }) {
         this.logger.log(`Admin pausing withdrawal queue: ${body.reason}`);
         await this.withdrawalQueueService.pauseProcessing(body.reason);
+        await this.auditLogService.log({
+            action: "PAUSE_WITHDRAWAL_QUEUE",
+            resource: "withdrawal_queue",
+            details: { reason: body.reason },
+            adminId: admin.id,
+        });
         return buildResponse({
             message: "Withdrawal queue processing paused",
         });
@@ -148,9 +168,14 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Resume withdrawal queue processing" })
     @Post("withdrawal-queue/resume")
-    async resumeWithdrawalQueue() {
+    async resumeWithdrawalQueue(@User() admin: UserEntity) {
         this.logger.log("Admin resuming withdrawal queue");
         await this.withdrawalQueueService.resumeProcessing();
+        await this.auditLogService.log({
+            action: "RESUME_WITHDRAWAL_QUEUE",
+            resource: "withdrawal_queue",
+            adminId: admin.id,
+        });
         return buildResponse({
             message: "Withdrawal queue processing resumed",
         });
@@ -283,9 +308,15 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Process pending sweeps now" })
     @Post("sweeps/process")
-    async processPendingSweeps() {
+    async processPendingSweeps(@User() admin: UserEntity) {
         this.logger.log("Admin triggering sweep processing");
         const processedCount = await this.sweepService.processPendingSweeps();
+        await this.auditLogService.log({
+            action: "PROCESS_SWEEPS",
+            resource: "sweep",
+            details: { processedCount },
+            adminId: admin.id,
+        });
         return buildResponse({
             message: "Sweep processing completed",
             data: { processedCount },
@@ -315,6 +346,13 @@ export class AdminLedgerController {
             id,
             reason || `manually resolved by admin ${admin.id}`
         );
+        await this.auditLogService.log({
+            action: "RESOLVE_SWEEP",
+            resource: "sweep",
+            resourceId: id,
+            details: { resolution: "NOT_APPLICABLE", reason },
+            adminId: admin.id,
+        });
         return buildResponse({
             message: "Sweep resolved as NOT_APPLICABLE",
             data: { ledgerEntryId: id },
@@ -323,9 +361,15 @@ export class AdminLedgerController {
 
     @ApiOperation({ summary: "Retry failed sweeps now" })
     @Post("sweeps/retry")
-    async retryFailedSweeps() {
+    async retryFailedSweeps(@User() admin: UserEntity) {
         this.logger.log("Admin triggering failed sweep retry");
         const retriedCount = await this.sweepService.retryFailedSweeps();
+        await this.auditLogService.log({
+            action: "RETRY_FAILED_SWEEPS",
+            resource: "sweep",
+            details: { retriedCount },
+            adminId: admin.id,
+        });
         return buildResponse({
             message: "Failed sweep retry completed",
             data: { retriedCount },
@@ -387,6 +431,14 @@ export class AdminLedgerController {
             user.id,
             body.notes
         );
+
+        await this.auditLogService.log({
+            action: "RESOLVE_ORPHANED_HOLD",
+            resource: "orphaned_hold",
+            resourceId: id,
+            details: { resolution: body.resolution, notes: body.notes },
+            adminId: user.id,
+        });
 
         if (!result.success) {
             return buildResponse({
@@ -575,6 +627,13 @@ export class AdminLedgerController {
     ) {
         this.logger.log(`Admin ${admin.id} approving deposit ${id}`);
         const result = await this.depositReviewService.approveDeposit(id, admin.id, notes);
+        await this.auditLogService.log({
+            action: "APPROVE_DEPOSIT",
+            resource: "deposit_review",
+            resourceId: id,
+            details: { notes },
+            adminId: admin.id,
+        });
         if (!result.success) {
             return buildResponse({
                 message: result.error || "Failed to approve deposit",
@@ -596,6 +655,13 @@ export class AdminLedgerController {
     ) {
         this.logger.log(`Admin ${admin.id} rejecting deposit ${id}`);
         const result = await this.depositReviewService.rejectDeposit(id, admin.id, notes);
+        await this.auditLogService.log({
+            action: "REJECT_DEPOSIT",
+            resource: "deposit_review",
+            resourceId: id,
+            details: { notes },
+            adminId: admin.id,
+        });
         if (!result.success) {
             return buildResponse({
                 message: result.error || "Failed to reject deposit",

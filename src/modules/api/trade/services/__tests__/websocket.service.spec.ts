@@ -65,18 +65,21 @@ describe("WsService", () => {
         expect(Logger.log).toHaveBeenCalledWith("Client connected: socket-1");
     });
 
-    it("registers socket mapping and joins user/admin rooms", async () => {
-        const adminClient = makeClient({
-            id: "socket-admin",
-            data: { user: { id: 99, userType: UserType.ADMIN } },
-        });
+    it.each([UserType.ADMIN, UserType.SUPER_ADMIN])(
+        "registers socket mapping and joins the admin room for %s users",
+        async (userType) => {
+            const adminClient = makeClient({
+                id: "socket-admin",
+                data: { user: { id: 99, userType } },
+            });
 
-        const result = await service.handlePostConnection(adminClient as any);
+            const result = await service.handlePostConnection(adminClient as any);
 
-        expect(adminClient.join).toHaveBeenCalledWith("user:99");
-        expect(adminClient.join).toHaveBeenCalledWith("admin");
-        expect(result.message).toBe("post connection successful");
-    });
+            expect(adminClient.join).toHaveBeenCalledWith("user:99");
+            expect(adminClient.join).toHaveBeenCalledWith("admin");
+            expect(result.message).toBe("post connection successful");
+        }
+    );
 
     it("emits events to admins room", () => {
         const server = makeServer();
@@ -95,7 +98,7 @@ describe("WsService", () => {
         service.emitNotificationToUser(7, { title: "n" } as any, server as any);
         service.emitTransactionUpdateToUser(7, { transactionId: "tx-1" } as any, server as any);
 
-        expect(server.to).toHaveBeenCalledWith("socket-1");
+        expect(server.to).toHaveBeenCalledWith("user:7");
         expect(server.emit).toHaveBeenCalledWith(
             "notification",
             expect.objectContaining({ message: "new Notification" })
@@ -115,6 +118,26 @@ describe("WsService", () => {
         expect(Logger.warn).toHaveBeenCalled();
     });
 
+    it("keeps active sockets mapped when another socket for the same user disconnects", async () => {
+        const firstClient = makeClient({ id: "socket-1" });
+        const secondClient = makeClient({ id: "socket-2" });
+
+        await service.handlePostConnection(firstClient as any);
+        await service.handlePostConnection(secondClient as any);
+
+        service.handleDisconnect(firstClient as any);
+
+        const server = makeServer();
+        service.emitNotificationToUser(7, { title: "still-connected" } as any, server as any);
+
+        expect(server.to).toHaveBeenCalledWith("user:7");
+        expect(server.emit).toHaveBeenCalledWith(
+            "notification",
+            expect.objectContaining({ message: "new Notification" })
+        );
+        expect((service as any).userSocketMap.get("7")).toEqual(new Set(["socket-2"]));
+    });
+
     it("emits wallet updates and handles wallet fetch errors", async () => {
         const client = makeClient();
         await service.handlePostConnection(client as any);
@@ -123,6 +146,7 @@ describe("WsService", () => {
         await service.emitWalletUpdateToUser(7, server as any);
 
         expect(userService.getUserWallets).toHaveBeenCalledWith(7, {});
+        expect(server.to).toHaveBeenCalledWith("user:7");
         expect(server.emit).toHaveBeenCalledWith(
             "walletAssetsUpdate",
             expect.objectContaining({ message: "wallet assets update" })
@@ -155,8 +179,8 @@ describe("WsService", () => {
         const noServerResult = await service.broadcastWalletUpdates(undefined as any);
         expect(noServerResult).toBeUndefined();
 
-        (service as any).userSocketMap.set("7", "socket-1");
-        (service as any).userSocketMap.set("8", "socket-2");
+        (service as any).userSocketMap.set("7", new Set(["socket-1"]));
+        (service as any).userSocketMap.set("8", new Set(["socket-2"]));
 
         userService.getUserWallets
             .mockResolvedValueOnce({ data: [{ asset: "BTC" }] })
@@ -165,7 +189,7 @@ describe("WsService", () => {
         const server = makeServer();
         await service.broadcastWalletUpdates(server as any);
 
-        expect(server.to).toHaveBeenCalledWith("socket-1");
+        expect(server.to).toHaveBeenCalledWith("user:7");
         expect(Logger.error).toHaveBeenCalled();
     });
 

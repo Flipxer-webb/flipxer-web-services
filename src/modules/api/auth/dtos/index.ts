@@ -194,6 +194,14 @@ export class SignUpDto {
     dateOfBirth: string;
 
     @ApiProperty({
+        description: "Residential address for address verification matching",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    residentialAddress?: string;
+
+    @ApiProperty({
         description: "Optional business name for business accounts",
         required: false,
     })
@@ -299,6 +307,14 @@ export class OnboardIndividualDto {
             "Date of Birth must be in YYYY-MM-DD format (e.g., 2024-06-01)",
     })
     dateOfBirth: string;
+
+    @ApiProperty({
+        description: "Residential address used for address-verification matching",
+        example: "10 Main Street, Ikeja, Lagos",
+    })
+    @IsNotEmpty()
+    @IsString()
+    residentialAddress: string;
 }
 
 export class SignInDto {

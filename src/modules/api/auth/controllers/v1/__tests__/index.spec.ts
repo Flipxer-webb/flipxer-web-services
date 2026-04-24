@@ -186,8 +186,10 @@ describe("AuthController", () => {
         ).resolves.toEqual({ data: { name: "John" } });
     });
 
-    it("delegates Dojah and business submission routes", async () => {
-        authService.submitDojahWidgetVerification.mockResolvedValue({ ok: "dojah" });
+    it("returns retired response for Dojah widget route and still delegates business routes", async () => {
+        authService.submitDojahWidgetVerification.mockRejectedValue(
+            new Error("Dojah widget verification has been retired. Use the document upload flow instead."),
+        );
         authService.submitBusinessRecord.mockResolvedValue({ ok: "record" });
         authService.submitBusinessDocumentsFromUrls.mockResolvedValue({ ok: "urls" });
 
@@ -196,7 +198,7 @@ describe("AuthController", () => {
                 user,
                 { verificationId: "v1", referenceId: "r1", idData: { firstName: "A" } } as never,
             ),
-        ).resolves.toEqual({ ok: "dojah" });
+        ).rejects.toThrow("Dojah widget verification has been retired");
 
         await expect(controller.submitBusinessRecord(user, {} as never)).resolves.toEqual({ ok: "record" });
         await expect(controller.submitBusinessDocuments(user, {} as never)).resolves.toEqual({ ok: "urls" });

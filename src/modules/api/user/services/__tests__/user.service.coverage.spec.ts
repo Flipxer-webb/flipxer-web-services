@@ -44,6 +44,9 @@ describe("UserService coverage wave", () => {
     };
 
     const prisma = {
+        limitOverride: {
+            findUnique: jest.fn(),
+        },
         order: {
             findMany: jest.fn(),
         },
@@ -147,6 +150,7 @@ describe("UserService coverage wave", () => {
             { amount: 2, currency: "BTC", orderCategory: "BUY" },
             { amount: 3, currency: "ETH", orderCategory: "SELL" },
         ]);
+        prisma.limitOverride.findUnique.mockResolvedValue(null);
         liveCoinWatchService.getPriceInUSD
             .mockResolvedValueOnce(10)
             .mockResolvedValueOnce(5);
@@ -162,11 +166,32 @@ describe("UserService coverage wave", () => {
 
     it("handles rate fetch failures in withdrawal usage", async () => {
         prisma.order.findMany.mockResolvedValue([{ amount: 2, currency: "BTC", orderCategory: "BUY" }]);
+        prisma.limitOverride.findUnique.mockResolvedValue(null);
         liveCoinWatchService.getPriceInUSD.mockRejectedValue(new Error("rate-api-failed"));
         tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
 
         const result = await service.getWithdrawalUsage(user);
         expect(result.data.buy.usedToday).toBe(0);
+    });
+
+    it("uses the active daily limit override for all operations", async () => {
+        prisma.order.findMany.mockResolvedValue([{ amount: 2, currency: "BTC", orderCategory: "BUY" }]);
+        prisma.limitOverride.findUnique.mockResolvedValue({
+            userId: user.id,
+            dailyLimitUSD: 250,
+            expiresAt: null,
+        });
+        liveCoinWatchService.getPriceInUSD.mockResolvedValueOnce(10);
+        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+
+        const result = await service.getWithdrawalUsage(user);
+
+        expect(result.data.buy.usedToday).toBe(20);
+        expect(result.data.buy.dailyLimit).toBe(250);
+        expect(result.data.buy.remainingToday).toBe(230);
+        expect(result.data.sell.dailyLimit).toBe(250);
+        expect(result.data.swap.dailyLimit).toBe(250);
+        expect(result.data.send.dailyLimit).toBe(250);
     });
 
     it("returns paginated user list", async () => {
@@ -456,5 +481,27 @@ describe("UserService coverage wave", () => {
         await expect(service.getUserByEmail("missing@flipxer.dev")).rejects.toThrow(
             "User not found"
         );
+    });
+
+    it("returns null for expired limit override", async () => {
+        prisma.order.findMany.mockResolvedValue([]);
+        prisma.limitOverride.findUnique.mockResolvedValue({
+            userId: user.id,
+            dailyLimitUSD: 500,
+            expiresAt: new Date("2020-01-01"),
+        });
+        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+
+        const result = await service.getWithdrawalUsage(user);
+        expect(result.data.buy.dailyLimit).toBe(100);
+    });
+
+    it("falls back to tier defaults when limitOverride query throws", async () => {
+        prisma.order.findMany.mockResolvedValue([]);
+        prisma.limitOverride.findUnique.mockRejectedValue(new Error("db error"));
+        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+
+        const result = await service.getWithdrawalUsage(user);
+        expect(result.data.buy.dailyLimit).toBe(100);
     });
 });

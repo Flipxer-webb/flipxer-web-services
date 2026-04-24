@@ -56,6 +56,9 @@ describe("AdminAuthController", () => {
     let authService: { adminSignIn: jest.Mock; reset2FARateLimit: jest.Mock };
     let tierService: { updateAllUserTiers: jest.Mock };
 
+    const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    const mockReq = { ip: '127.0.0.1', headers: { 'user-agent': 'test' }, user: { id: 1 } } as any;
+
     beforeEach(() => {
         authService = {
             adminSignIn: jest.fn(),
@@ -65,7 +68,7 @@ describe("AdminAuthController", () => {
             updateAllUserTiers: jest.fn(),
         };
 
-        controller = new AdminAuthController(authService as never, tierService as never);
+        controller = new AdminAuthController(authService as never, tierService as never, mockAuditLogService as never);
         jest.clearAllMocks();
     });
 
@@ -85,14 +88,17 @@ describe("AdminAuthController", () => {
     it("delegates reset2FARateLimit", async () => {
         authService.reset2FARateLimit.mockResolvedValue({ ok: true });
 
-        await expect(controller.reset2FARateLimit({ userId: 7 } as never)).resolves.toEqual({ ok: true });
+        await expect(controller.reset2FARateLimit({ userId: 7 } as never, mockReq as never)).resolves.toEqual({ ok: true });
         expect(authService.reset2FARateLimit).toHaveBeenCalledWith({ userId: 7 });
+        expect(mockAuditLogService.log).toHaveBeenCalledWith(
+            expect.objectContaining({ action: "RESET_2FA_RATE_LIMIT", resource: "user" }),
+        );
     });
 
     it("updates all user tiers and builds response", async () => {
         tierService.updateAllUserTiers.mockResolvedValue({ updated: 4, unchanged: 3, errors: 1 });
 
-        await expect(controller.updateAllUserTiers()).resolves.toEqual(
+        await expect(controller.updateAllUserTiers(mockReq as never)).resolves.toEqual(
             expect.objectContaining({
                 message: "Updated 4 user tiers. 3 unchanged, 1 errors.",
                 data: { updated: 4, unchanged: 3, errors: 1 },
@@ -103,5 +109,8 @@ describe("AdminAuthController", () => {
             message: "Updated 4 user tiers. 3 unchanged, 1 errors.",
             data: { updated: 4, unchanged: 3, errors: 1 },
         });
+        expect(mockAuditLogService.log).toHaveBeenCalledWith(
+            expect.objectContaining({ action: "UPDATE_ALL_USER_TIERS", resource: "user" }),
+        );
     });
 });

@@ -13,7 +13,7 @@ import { Request } from "express";
 import {
     AccountDeletedException,
     UserNotFoundException,
-} from "@/modules/api/user";
+} from "@/modules/api/user/errors";
 import {
     AuthTokenValidationException,
     InvalidAuthTokenException,
@@ -55,6 +55,9 @@ import {
     quidaxConfig,
 } from "@/config";
 import { SessionService } from "@/modules/api/session/services";
+import { PaymentWebhookVerifier } from "@/modules/factory/bank/services/payment-webhook-verifier";
+
+type GuardActivationResult = boolean | Promise<boolean> | Observable<boolean>;
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -181,7 +184,7 @@ export class QuidaxWebhookGuard implements CanActivate {
 
     canActivate(
         context: ExecutionContext
-    ): boolean | Promise<boolean> | Observable<boolean> {
+    ): GuardActivationResult {
         const request = context.switchToHttp().getRequest<RequestFromQuidax>();
 
         if (!quidaxConfig.webhook_key) {
@@ -284,66 +287,39 @@ export class FincraWebhookGuard implements CanActivate {
 
     canActivate(
         context: ExecutionContext
-    ): boolean | Promise<boolean> | Observable<boolean> {
+    ): GuardActivationResult {
         const request = context
             .switchToHttp()
             .getRequest<Request>();
-        // Fincra uses "signature" header (per their documentation), not "x-fincra-signature"
-        const signatureHeader = request.headers["signature"] ?? request.headers["x-fincra-signature"];
-        const signature = Array.isArray(signatureHeader)
-            ? signatureHeader[0]
-            : signatureHeader;
-        const secret = process.env.FINCRA_WEBHOOK_SECRET;
         const webhookEvent = getWebhookEventName(request.body);
 
         this.logger.log(`Received Fincra webhook request`);
         this.logger.debug(`Event: ${webhookEvent ?? "unknown"}`);
 
-        // Require signature for security
-        if (!signature) {
-            this.logger.error('SECURITY: Fincra webhook rejected - no signature header');
-            return false;
-        }
+        return PaymentWebhookVerifier.verifyFincraRequest(request, this.logger);
+    }
+}
 
-        // Require secret to be configured
-        if (!secret) {
-            this.logger.error('SECURITY: FINCRA_WEBHOOK_SECRET not configured - rejecting webhook');
-            return false;
-        }
+@Injectable()
+export class NombaWebhookGuard implements CanActivate {
+    private readonly logger = new Logger("NombaWebhookGuard");
 
-        const rawBody = (request as any).rawBody;
-        let bodyBuffer: Buffer;
-        if (rawBody) {
-            bodyBuffer = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody);
-        } else {
-            bodyBuffer = Buffer.from(JSON.stringify(request.body));
-        }
+    canActivate(
+        context: ExecutionContext,
+    ): GuardActivationResult {
+        const request = context
+            .switchToHttp()
+            .getRequest<Request>();
+        const webhookEvent = getWebhookEventName(request.body);
 
-        const computed = createHmac("sha512", secret)
-            .update(bodyBuffer)
-            .digest("hex");
+        this.logger.log("Received Nomba webhook request");
+        this.logger.debug(`Event: ${webhookEvent ?? "unknown"}`);
 
-        // Use timing-safe comparison to prevent timing attacks
-        let isValid = false;
-        try {
-            // Both strings must be same length for timingSafeEqual
-            if (computed.length === signature.length) {
-                isValid = timingSafeEqual(
-                    Buffer.from(computed, 'utf8'),
-                    Buffer.from(signature, 'utf8')
-                );
-            }
-        } catch {
-            isValid = false;
-        }
-
-        if (isValid) {
-            this.logger.log(`Signature verified for event: ${webhookEvent ?? "unknown"}`);
-        } else {
-            this.logger.error(`SECURITY: Fincra webhook rejected - invalid signature`);
-        }
-
-        return isValid;
+        return PaymentWebhookVerifier.verifyNombaRequest(
+            request.body,
+            request.headers,
+            this.logger,
+        );
     }
 }
 
@@ -354,8 +330,13 @@ const GEOIP_MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in memory
 const GEOIP_MEMORY_CACHE_MAX_SIZE = 500;
 
 const getWebhookEventName = (body: unknown): string | undefined => {
-    if (!body || typeof body !== "object" || !('event' in body)) {
+    if (!body || typeof body !== "object") {
         return undefined;
+    }
+
+    const eventType = (body as { event_type?: unknown }).event_type;
+    if (typeof eventType === "string") {
+        return eventType;
     }
 
     const event = (body as { event?: unknown }).event;
@@ -436,55 +417,87 @@ export class CountryBlockGuard implements CanActivate {
 export class SocketAuthGuard implements CanActivate {
     constructor(
         private readonly jwtService: JwtService,
-        private readonly prisma: PrismaService
+        private readonly prisma: PrismaService,
+        private readonly sessionService: SessionService
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const client: Socket = context.switchToWs().getClient<Socket>();
+        await this.authenticateClient(client);
+        return true;
+    }
+
+    async authenticateClient(client: Socket): Promise<void> {
         const token = this.extractTokenFromHandshake(client);
 
         if (!token) {
             throw new WsMissingAuthorizationToken(
-                "Your Session is unauthorized"
+                "Your session is unauthorized"
             );
         }
 
         try {
             const payload: DataStoredInToken =
                 await this.jwtService.verifyAsync(token, {
-                    secret: process.env.JWT_SECRET,
+                    secret: jwtSecret,
                 });
 
             const user = await this.prisma.user.findUnique({
                 where: { id: +payload.sub },
+                include: { role: { select: { name: true, slug: true } } },
             });
 
-            if (!user) {
+            if (!user || user.isDeleted) {
                 throw new WsUserNotFoundException(
                     "Your session is unauthorized"
                 );
             }
 
-            client.data.user = user;
-        } catch (error) {
-            if (error instanceof WsUserNotFoundException) {
-                throw error;
-            } else if (error.name === "PrismaClientKnownRequestError") {
-                throw new WsPrismaNetworkException(
-                    "Unable to process request. Please try again"
+            if (payload.sessionId) {
+                const isSessionValid = await this.sessionService.validateSession(
+                    payload.sessionId
                 );
-            } else {
-                throw new WsAuthTokenValidationException(
-                    "Your session is unauthorized"
-                );
+
+                if (!isSessionValid) {
+                    throw new WsAuthTokenValidationException(
+                        "Your session is unauthorized or expired"
+                    );
+                }
+
+                await this.sessionService.touchSessionActivity(payload.sessionId);
             }
+
+            client.data.user = user;
+            client.data.sessionId = payload.sessionId;
+        } catch (error) {
+            this.handleSocketAuthError(error);
         }
-        return true;
     }
 
     private extractTokenFromHandshake(client: Socket): string | undefined {
         const token = client.handshake.query.token as string;
         return token;
+    }
+
+    private handleSocketAuthError(error: any): never {
+        if (
+            error instanceof WsMissingAuthorizationToken ||
+            error instanceof WsAuthTokenValidationException ||
+            error instanceof WsUserNotFoundException ||
+            error instanceof WsPrismaNetworkException
+        ) {
+            throw error;
+        }
+
+        if (error.name === "PrismaClientKnownRequestError") {
+            throw new WsPrismaNetworkException(
+                "Unable to process request. Please try again"
+            );
+        }
+
+        throw new WsAuthTokenValidationException(
+            "Your session is unauthorized"
+        );
     }
 }
 

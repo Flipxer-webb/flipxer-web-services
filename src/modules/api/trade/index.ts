@@ -8,6 +8,7 @@ import { SwapService } from "./services/swap.service";
 import { AdminSwapService } from "./services/admin-swap.service";
 import { SendService } from "./services/send.service";
 import { RateService } from "./services/rate.service";
+import { SellPayoutReconciliationService } from "./services/sell-payout-reconciliation.service";
 import { FailedRollbackQueueService } from "./services/failed-rollback-queue.service";
 import { WebhookHandlerService } from "./services/webhook-handler.service";
 import { DepositWebhookHandler } from "./services/webhook-handlers/deposit-webhook.handler";
@@ -90,6 +91,7 @@ export * from "./errors";
         AdminSwapService,
         SendService,
         RateService,
+        SellPayoutReconciliationService,
         WebhookHandlerService,
         DepositWebhookHandler,
         SwapWebhookHandler,
@@ -145,6 +147,7 @@ export * from "./errors";
         SwapService,
         SendService,
         RateService,
+        SellPayoutReconciliationService,
         WebhookHandlerService,
         LedgerService,
         WithdrawalQueueService,

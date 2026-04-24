@@ -14,9 +14,11 @@ import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from 
 import { generateRandomNum } from "@/utils";
 import { EmailService } from "@/modules/core/email/services";
 import {
+    isPdfFile,
     validateDocumentFile,
 } from "@/core/validators/file-validator";
 import {
+    OcrDocumentPreparationError,
     validateAddressDocument,
     validateIncomeDocument,
 } from "@/libs/ocr";
@@ -49,6 +51,45 @@ export class TierVerificationService {
         });
     }
 
+    private ensureAddressVerificationPrerequisites(user: User): void {
+        if (user.isDocumentVerified) {
+            return;
+        }
+
+        if (
+            (user as any).documentVerificationStatus ===
+            DocumentVerificationStatus.PENDING
+        ) {
+            throw new HttpException(
+                "Document verification is pending review",
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        throw new HttpException(
+            "Complete identity document verification before submitting address verification.",
+            HttpStatus.FORBIDDEN,
+        );
+    }
+
+    private ensureIncomeVerificationPrerequisites(user: User): void {
+        if (user.isAddressVerified) {
+            return;
+        }
+
+        if ((user as any).addressVerificationStatus === DocumentVerificationStatus.PENDING) {
+            throw new HttpException(
+                "Address verification is pending review",
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        throw new HttpException(
+            "Complete address verification before submitting income verification.",
+            HttpStatus.FORBIDDEN,
+        );
+    }
+
     /**
      * Upload and validate address document for Tier 2 verification
      */
@@ -61,6 +102,16 @@ export class TierVerificationService {
             return buildResponse({
                 message: "Address is already verified",
             });
+        }
+
+        this.ensureAddressVerificationPrerequisites(user);
+
+        // Block re-submission while a review is already in progress
+        if ((user as any).addressVerificationStatus === DocumentVerificationStatus.PENDING) {
+            throw new HttpException(
+                "Address verification is pending review",
+                HttpStatus.BAD_REQUEST
+            );
         }
 
         // Validate file
@@ -86,104 +137,72 @@ export class TierVerificationService {
         const ocrResult = await validateAddressDocument(
             file.buffer,
             user.firstName || "",
-            user.lastName || ""
-        );
+            user.lastName || "",
+            user.residentialAddress || null,
+            file.mimetype,
+        ).catch((error: unknown) => this.handleDocumentProcessingError(error));
 
         this.logger.log(
-            `Address OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, matchedAddress=${ocrResult.matchedAddress}`
+            `Address OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, matchedAddress=${ocrResult.matchedAddress}, matchedResidentialAddress=${ocrResult.matchedResidentialAddress}`
         );
 
-        if (ocrResult.requiresManualReview) {
-            // Flag for manual review
-            await this.prisma.user.update({
-                where: { id: user.id },
-                data: {
-                    addressDocumentUrl: documentUrl,
-                    addressVerificationStatus: DocumentVerificationStatus.PENDING,
-                },
-            });
-
-            // Create KycVerification record for audit trail
-            await this.prisma.kycVerification.create({
-                data: {
-                    userId: user.id,
-                    verificationType: "ADDRESS",
-                    status: "PENDING",
-                    documentUrl,
-                },
-            });
-
-            // In-app notification for pending review
-            await this.notificationDispatcher.notify({
-                userId: user.id,
-                title: "Document Submitted",
-                body: "Your address document has been submitted for review. We'll notify you once it's processed.",
-                category: "security",
-            });
-
-            return buildResponse({
-                message:
-                    "Document uploaded successfully. It will be reviewed by our team.",
-                data: {
-                    status: "PENDING",
-                    reason: ocrResult.reason,
-                },
-            });
-        }
-
-        // Auto-approve
+        // Always route to manual review — address verification is never auto-approved
         await this.prisma.user.update({
             where: { id: user.id },
             data: {
                 addressDocumentUrl: documentUrl,
-                addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
-                isAddressVerified: true,
+                addressVerificationStatus: DocumentVerificationStatus.PENDING,
             },
         });
 
-        // Create KycVerification record for auto-approved
+        // Create KycVerification record for manual review queue
         await this.prisma.kycVerification.create({
             data: {
                 userId: user.id,
                 verificationType: "ADDRESS",
-                status: "APPROVED",
+                status: "PENDING",
                 documentUrl,
-                reviewedAt: new Date(),
-                reviewNote: "Auto-approved via OCR verification",
+                providerRawResponse: {
+                    confidence: ocrResult.confidence,
+                    matchedName: ocrResult.matchedName,
+                    matchedAddress: ocrResult.matchedAddress,
+                    matchedResidentialAddress: ocrResult.matchedResidentialAddress,
+                    residentialAddressPresent: Boolean(user.residentialAddress),
+                    reason: ocrResult.reason,
+                },
             },
         });
 
-        // Sync tier & flush cache
+        // Invalidate profile cache so frontend sees WAIT_FOR_VERIFICATION
         await this.tierService.syncTierAndCache(user.id);
 
-        // Email + in-app notification + WS push on auto-approval
-        if (emailTemplateConfig.document_approved) {
+        // In-app notification for pending review
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Document Submitted",
+            body: "Your address document has been submitted for review. We'll notify you once it's processed.",
+            category: "security",
+        });
+
+        // Email notification for pending review
+        if (user.email && emailTemplateConfig.document_pending_review) {
             this.emailService.sendMailWithTemplate({
                 from: { address: mailConfig.senderMail },
                 to: [{ email_address: { address: user.email } }],
-                template_key: emailTemplateConfig.document_approved,
+                template_key: emailTemplateConfig.document_pending_review,
                 merge_info: {
-                    first_name: user.firstName || "User",
-                    document_type: "Address",
+                    name: user.firstName || "User",
+                    document_type: "Address Document",
                     company_name: COMPANY_NAME,
-                    rejection_reason: "",
-                    status: "Approved",
                 },
-            }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send approval email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
         }
-        this.notificationDispatcher.notify({
-            userId: user.id,
-            title: "Address Verified",
-            body: "Your address verification has been approved.",
-            category: "security",
-            enablePush: true,
-        }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send notification for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
-        this.wsGateway.notifyProfileUpdate(user.id);
 
         return buildResponse({
-            message: "Address verified successfully",
+            message: "Document uploaded successfully. It will be reviewed by our team.",
             data: {
-                status: "VERIFIED",
+                status: "PENDING",
+                reason: ocrResult.reason,
             },
         });
     }
@@ -201,6 +220,8 @@ export class TierVerificationService {
                 message: "Income is already verified",
             });
         }
+
+        this.ensureIncomeVerificationPrerequisites(user);
 
         // Validate file
         const fileValidation = validateDocumentFile({
@@ -225,8 +246,9 @@ export class TierVerificationService {
         const ocrResult = await validateIncomeDocument(
             file.buffer,
             user.firstName || "",
-            user.lastName || ""
-        );
+            user.lastName || "",
+            file.mimetype,
+        ).catch((error: unknown) => this.handleDocumentProcessingError(error));
 
         this.logger.log(
             `Income OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}`
@@ -259,6 +281,20 @@ export class TierVerificationService {
                 body: "Your income document has been submitted for review. We'll notify you once it's processed.",
                 category: "security",
             });
+
+            // Email notification for pending review
+            if (user.email && emailTemplateConfig.document_pending_review) {
+                this.emailService.sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: user.email } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: user.firstName || "User",
+                        document_type: "Income Document",
+                        company_name: COMPANY_NAME,
+                    },
+                }).catch((e) => this.logger.error(`[KYC][INCOME] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            }
 
             return buildResponse({
                 message:
@@ -422,16 +458,52 @@ export class TierVerificationService {
         type: "address" | "income"
     ) {
         const date = Date.now();
-        const result = await this.uploadService.uploadCompressedImage({
-            dir: `${storageDirConfig.document}/${type}`,
-            name: `${type}-doc-${date}-${generateRandomNum(5)}`,
-            format: "webp",
-            body: file.buffer,
-            quality: 100,
-            width: 1200,
-        });
+        const documentDir = `${storageDirConfig.document}/${type}`;
+        const documentName = `${type}-doc-${date}-${generateRandomNum(5)}`;
 
-        return result;
+        try {
+            if (isPdfFile(file.mimetype)) {
+                if (this.uploadService instanceof CloudinaryService) {
+                    throw new HttpException(
+                        "PDF document uploads are not supported by the active storage provider",
+                        HttpStatus.BAD_REQUEST,
+                    );
+                }
+
+                return await this.uploadService.uploadImage({
+                    dir: documentDir,
+                    name: `${documentName}.pdf`,
+                    body: file.buffer,
+                    format: "png",
+                });
+            }
+
+            return await this.uploadService.uploadCompressedImage({
+                dir: documentDir,
+                name: `${documentName}.webp`,
+                format: "webp",
+                body: file.buffer,
+                quality: 100,
+                width: 1200,
+            });
+        } catch (error) {
+            if (error instanceof Error && error.name === "ImageCompressionError") {
+                throw new HttpException(
+                    "Unsupported document format. Please upload a JPEG, PNG, or PDF file.",
+                    HttpStatus.BAD_REQUEST,
+                );
+            }
+
+            throw error;
+        }
+    }
+
+    private handleDocumentProcessingError(error: unknown): never {
+        if (error instanceof OcrDocumentPreparationError) {
+            throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+        }
+
+        throw error;
     }
 
     /**
