@@ -208,6 +208,8 @@ export interface EMailTemplateConfig {
     transaction_failed: string;
     document_approved: string;
     document_rejected: string;
+    document_pending_review: string;
+    document_escalated: string;
     admin_invite: string;
     transaction_otp: string;
 }
@@ -221,6 +223,8 @@ export const emailTemplateConfig: EMailTemplateConfig = {
     transaction_failed: process.env.FAILED_TRANSACTION_TEMPLATE,
     document_approved: process.env.DOCUMENT_APPROVED_TEMPLATE || "",
     document_rejected: process.env.DOCUMENT_REJECTED_TEMPLATE || "",
+    document_pending_review: process.env.DOCUMENT_PENDING_REVIEW_TEMPLATE || "",
+    document_escalated: process.env.DOCUMENT_ESCALATED_TEMPLATE || "",
     admin_invite: process.env.ADMIN_INVITE_TEMPLATE || "",
     transaction_otp: process.env.TRANSACTION_OTP_TEMPLATE || "",
 };
@@ -370,6 +374,36 @@ export const fincraOptions: FincraOptions = {
     proxyUrl: process.env.FINCRA_PROXY_URL || "", // e.g., http://user:pass@proxy.quotaguard.com:9293
 };
 
+export const sellPayoutProviders = ["fincra", "nomba"] as const;
+export type SellPayoutProvider = (typeof sellPayoutProviders)[number];
+
+const rawSellPayoutProvider = (process.env.SELL_PAYOUT_PROVIDER || "fincra")
+    .trim()
+    .toLowerCase();
+
+if (!sellPayoutProviders.includes(rawSellPayoutProvider as SellPayoutProvider)) {
+    throw new Error(
+        `Invalid SELL_PAYOUT_PROVIDER: ${rawSellPayoutProvider}. Expected one of: ${sellPayoutProviders.join(", ")}`
+    );
+}
+
+export const sellPayoutProvider = rawSellPayoutProvider as SellPayoutProvider;
+
+export const buyPaymentProviders = ["nomba", "fincra"] as const;
+export type BuyPaymentProvider = (typeof buyPaymentProviders)[number];
+
+const rawBuyPaymentProvider = (process.env.BUY_PAYMENT_PROVIDER || "nomba")
+    .trim()
+    .toLowerCase();
+
+if (!buyPaymentProviders.includes(rawBuyPaymentProvider as BuyPaymentProvider)) {
+    throw new Error(
+        `Invalid BUY_PAYMENT_PROVIDER: ${rawBuyPaymentProvider}. Expected one of: ${buyPaymentProviders.join(", ")}`
+    );
+}
+
+export const buyPaymentProvider = rawBuyPaymentProvider as BuyPaymentProvider;
+
 export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
     ? process.env.BLOCKED_COUNTRIES.split(",").map((c) =>
         c.trim().toUpperCase()
@@ -415,6 +449,8 @@ export interface Configuration {
     mailConfig: EMailConfig;
     emailTemplateConfig: EMailTemplateConfig;
     fincraConfig: FincraOptions;
+    sellPayoutProvider: SellPayoutProvider;
+    buyPaymentProvider: BuyPaymentProvider;
 }
 
 // Nomba (optional - alternative fiat gateway alongside Fincra)
@@ -432,6 +468,19 @@ export const nombaOptions: NombaOptions = {
     clientSecret: process.env.NOMBA_CLIENT_SECRET || "",
     accountId: process.env.NOMBA_ACCOUNT_ID || "",
     webhookSecret: process.env.NOMBA_WEBHOOK_SECRET || "",
+};
+
+// AMLBot (optional - AML/KYT compliance checks will not work without credentials)
+export interface AmlBotConfig {
+    baseUrl: string;
+    accessKey: string;
+    accessId: string;
+}
+
+export const amlBotConfig: AmlBotConfig = {
+    baseUrl: process.env.AMLBOT_BASE_URL || "https://extrnlapiendpoint.silencatech.com",
+    accessKey: process.env.AMLBOT_ACCESS_KEY || "",
+    accessId: process.env.AMLBOT_ACCESS_ID || "",
 };
 
 // Slack webhook for payout failure alerts (optional)

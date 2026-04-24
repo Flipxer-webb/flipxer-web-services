@@ -268,6 +268,7 @@ export class WalletAddressService {
                 where: {
                     userId,
                     assetSymbol: assetSymbolUpper,
+                    status: { not: CryptoWalletStatus.FAILED },
                 },
                 select: {
                     network: true,
@@ -291,6 +292,11 @@ export class WalletAddressService {
             providerAddressMap, targetNetworks, existingNetworkSet, userId, assetSymbolUpper,
         });
 
+        // Fallback: use wallet's deposit_address to fill PENDING records for the default network
+        await this.applyWalletAddressFallback(
+            userId, assetSymbolUpper, walletResponse,
+        );
+
         targetNetworks = targetNetworks.filter(
             (network) => !existingNetworkSet.has(network)
         );
@@ -302,6 +308,19 @@ export class WalletAddressService {
         this.logWalletFlow("ensureWalletPaymentAddresses:networks_to_create", {
             networksToCreate,
         });
+
+        // Remove FAILED records for networks we are about to re-create
+        // to avoid unique constraint violation on [userId, assetSymbol, network]
+        if (networksToCreate.length) {
+            await this.prisma.cryptoWalletAddress.deleteMany({
+                where: {
+                    userId,
+                    assetSymbol: assetSymbolUpper,
+                    network: { in: networksToCreate },
+                    status: CryptoWalletStatus.FAILED,
+                },
+            });
+        }
 
         if (!networksToCreate.length) {
             this.logWalletFlow(
@@ -555,6 +574,48 @@ export class WalletAddressService {
         return backfilledAddresses;
     }
 
+    /**
+     * Fallback: if Quidax's wallet object has a deposit_address but the
+     * payment-address APIs returned null, update any PENDING records on
+     * the wallet's default network with the known address.
+     */
+    private async applyWalletAddressFallback(
+        userId: number,
+        assetSymbolUpper: string,
+        walletResponse: GetUserWalletResponse,
+    ): Promise<void> {
+        if (!walletResponse.deposit_address) return;
+
+        const defaultNetwork = this.tradeHelpers.normalizeNetworkInput(
+            walletResponse.default_network,
+        );
+        if (!defaultNetwork) return;
+
+        const result = await this.prisma.cryptoWalletAddress.updateMany({
+            where: {
+                userId,
+                assetSymbol: assetSymbolUpper,
+                network: defaultNetwork,
+                status: CryptoWalletStatus.PENDING,
+                address: null,
+            },
+            data: {
+                address: walletResponse.deposit_address,
+                destination_tag: walletResponse.destination_tag,
+                status: CryptoWalletStatus.ACTIVE,
+                lastSyncedAt: new Date(),
+            },
+        });
+
+        if (result.count > 0) {
+            this.logWalletFlow("applyWalletAddressFallback:updated", {
+                network: defaultNetwork,
+                updatedCount: result.count,
+                depositAddress: walletResponse.deposit_address,
+            });
+        }
+    }
+
     private async persistCreatedAddresses(options: {
         successfulCreations: PromiseFulfilledResult<{
             walletAddressId: string;
@@ -698,16 +759,41 @@ export class WalletAddressService {
     }
 
     /**
-     * Gets all wallet addresses for a user and specific asset
+     * Gets all wallet addresses for a user and specific asset.
+     * Automatically triggers address creation for any missing or failed networks.
      * 
      * @param userId - The user's database ID
      * @param dto - Query parameters (asset)
      */
     async getWalletAddresses(userId: number, dto: GetWalletAddressesDto) {
+        const assetSymbol = dto.asset.toUpperCase();
+
+        // Ensure wallet addresses exist (handles FAILED cleanup + creation)
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: { cryptoSubAccountId: true },
+            });
+
+            if (user?.cryptoSubAccountId) {
+                await this.ensureWalletPaymentAddresses({
+                    userId,
+                    cryptoSubAccountId: user.cryptoSubAccountId,
+                    assetSymbol,
+                });
+            }
+        } catch (error) {
+            this.logger.warn(
+                `getWalletAddresses: failed to ensure addresses for ${assetSymbol}: ${error.message}`
+            );
+        }
+
         const wallets = await this.prisma.cryptoWalletAddress.findMany({
             where: {
                 userId,
-                assetSymbol: dto.asset.toUpperCase(),
+                assetSymbol,
+                status: CryptoWalletStatus.ACTIVE,
+                address: { not: null },
             },
             orderBy: { createdAt: "desc" },
         });

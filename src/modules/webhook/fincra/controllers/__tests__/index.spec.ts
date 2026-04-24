@@ -21,7 +21,7 @@ jest.mock("@/modules/api/auth", () => ({}));
 
 import { FincraWebhookController } from "../index";
 
-describe("FincraWebhookController", () => {
+describe("PaymentWebhookController", () => {
     it("processes webhook and responds with 200", async () => {
         const fincraWebhookService = {
             processWebhookEvent: jest.fn().mockResolvedValue(undefined),

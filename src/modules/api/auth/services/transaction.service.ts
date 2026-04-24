@@ -427,6 +427,63 @@ export class TransactionService {
         });
     }
 
+    async releaseDailyLimitReservationForOrder(order: {
+        userId: number;
+        orderCategory: OrderCategory;
+        currency: string | null;
+        amount: number | null;
+        createdAt: Date | null;
+    }): Promise<void> {
+        if (!order.currency || !order.amount || !order.createdAt) {
+            return;
+        }
+
+        const amountInUSD = await this.getAmountInUSD(order.currency, Number(order.amount));
+        if (!amountInUSD?.amount) {
+            this.logger.warn(
+                `Unable to release reserved ${order.orderCategory.toLowerCase()} limit for user ${order.userId}: USD conversion failed`,
+            );
+            return;
+        }
+
+        const opKey = getOperationKey(order.orderCategory);
+        const dateStr = order.createdAt.toISOString().slice(0, 10);
+        const dailyKey = `limits:user:${order.userId}:daily:${opKey}:${dateStr}`;
+        const currentDailyTotal = await this.redisCacheService.getCounter(dailyKey);
+
+        if (currentDailyTotal === null) {
+            this.logger.warn(
+                `Redis unavailable while reading reserved ${opKey} limit for user ${order.userId}`,
+            );
+            return;
+        }
+
+        if (currentDailyTotal <= 0) {
+            return;
+        }
+
+        const decrement = Math.min(currentDailyTotal, amountInUSD.amount);
+        const newDailyTotal = await this.redisCacheService.decrbyfloat(dailyKey, decrement);
+
+        if (newDailyTotal === null) {
+            this.logger.warn(
+                `Redis unavailable while releasing reserved ${opKey} limit for user ${order.userId}`,
+            );
+            return;
+        }
+
+        if (newDailyTotal < 0) {
+            const endOfDay = new Date(order.createdAt);
+            endOfDay.setUTCHours(23, 59, 59, 999);
+            const ttlSeconds = Math.max(1, Math.ceil((endOfDay.getTime() - Date.now()) / 1000));
+            await this.redisCacheService.set(dailyKey, 0, ttlSeconds);
+        }
+
+        this.logger.debug(
+            `Released reserved daily ${opKey} limit for user ${order.userId}: ${decrement.toFixed(2)} USD, new total ${Math.max(newDailyTotal, 0).toFixed(2)}`,
+        );
+    }
+
     private async sendFlaggedEmail(user: User, reason: string, transactionId: string): Promise<void> {
         const team = COMPANY_NAME;
 

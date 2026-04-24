@@ -27,6 +27,7 @@ function makePrisma() {
     return {
         bankDetail: { findFirst: jest.fn() },
         assetWallet: { findFirst: jest.fn() },
+        cryptoWalletAddress: { findFirst: jest.fn() },
         order: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     };
 }
@@ -60,10 +61,18 @@ describe("SellOrderService", () => {
             notifyTransactionUpdate: jest.fn(),
             notifyWalletUpdate: jest.fn(),
         };
-        const mockTradeHelpers = { calculateFee: jest.fn() };
+        const mockTradeHelpers = {
+            calculateFee: jest.fn(),
+            normalizeNetworkInput: jest.fn((network?: string | null) =>
+                network?.trim().toLowerCase() ?? null,
+            ),
+        };
         const mockWallet = { syncWallet: jest.fn().mockResolvedValue(undefined) };
         const mockWalletMgmt = { invalidateWalletCache: jest.fn() };
-        const mockWithdrawalHandler = { handle: jest.fn().mockResolvedValue(undefined) };
+        const mockWithdrawalHandler = {
+            handle: jest.fn().mockResolvedValue(undefined),
+            initiateFiatPayout: jest.fn().mockResolvedValue(undefined),
+        };
         const mockLedger = {
             hold: jest.fn().mockResolvedValue({ success: true, entry: { id: 1 } }),
             releaseHold: jest.fn().mockResolvedValue({ success: true }),
@@ -147,6 +156,29 @@ describe("SellOrderService", () => {
             await expect(
                 service.calculateSellQuote(mockUser, { asset: "xyz", amount: 1 } as any),
             ).rejects.toThrow("not found");
+        });
+
+        it("should use the active child address when the parent deposit address is null", async () => {
+            prisma.bankDetail.findFirst.mockResolvedValue({
+                accountName: "Test User",
+                accountNumber: "1234567890",
+                bankName: "GTBank",
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: null,
+                defaultNetwork: "btc",
+            });
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "bc1childaddress",
+                network: "btc",
+            });
+
+            await expect(
+                service.calculateSellQuote(mockUser, { asset: "btc", amount: 0.1 } as any),
+            ).resolves.toMatchObject({
+                sellRate: 70000000,
+                cryptoSellAmount: 0.1,
+            });
         });
 
         it("should throw when no bank detail for non-internal call", async () => {
@@ -266,16 +298,19 @@ describe("SellOrderService", () => {
             });
             prisma.order.findUnique.mockResolvedValue({
                 id: 1,
-                status: "completed",
+                status: "processing",
+                streamlinedStatus: "processing",
             });
 
             const result = await service.sellCryptoOrder(mockUser, dto);
+            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
 
             expect(ledgerService.hold).toHaveBeenCalled();
             expect(ledgerService.releaseHoldWithPlatformEntry).toHaveBeenCalledWith(
                 expect.objectContaining({ settle: true }),
             );
             expect(prisma.order.create).toHaveBeenCalled();
+            expect(withdrawalHandler.initiateFiatPayout).toHaveBeenCalled();
             expect(result.message).toContain("Order placed");
         });
 
@@ -289,6 +324,111 @@ describe("SellOrderService", () => {
             await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
 
             expect(ledgerService.releaseHold).toHaveBeenCalled();
+        });
+
+        // ── WebSocket state emission ──────────────────────────────
+
+        it("emits processing status via WebSocket immediately after order creation", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 5,
+                transactionId: "TX-WS-PROC",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.findUnique.mockResolvedValue(createdOrder);
+
+            const wsGateway = service["wsGateway"] as any;
+
+            await service.sellCryptoOrder(mockUser, dto);
+
+            expect(wsGateway.notifyTransactionUpdate).toHaveBeenCalledWith(
+                mockUser.id,
+                expect.objectContaining({
+                    type: "transaction_update",
+                    transaction: expect.objectContaining({
+                        transactionId: "TX-WS-PROC",
+                        streamlinedStatus: "processing",
+                        status: "processing",
+                    }),
+                }),
+            );
+        });
+
+        it("emits failed status via WebSocket when payout initiation fails", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 6,
+                transactionId: "TX-WS-FAIL",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.update.mockResolvedValue({
+                ...createdOrder,
+                status: "failed",
+                streamlinedStatus: "failed",
+            });
+
+            // Payout handler throws
+            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
+            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(new Error("Nomba unavailable"));
+
+            // Refund succeeds so we get to the WebSocket emit
+            ledgerService.pairedCredit.mockResolvedValue({ success: true, userEntry: { id: 88 } });
+
+            const wsGateway = service["wsGateway"] as any;
+
+            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+
+            // First call = processing, second call = failed
+            const calls = wsGateway.notifyTransactionUpdate.mock.calls;
+            const failedCall = calls.find(
+                ([_uid, payload]: [number, any]) =>
+                    payload?.transaction?.streamlinedStatus === "failed",
+            );
+            expect(failedCall).toBeDefined();
+            expect(failedCall[0]).toBe(mockUser.id);
+            expect(failedCall[1].transaction.status).toBe("failed");
+            expect(failedCall[1].transaction.transactionId).toBe("TX-WS-FAIL");
+        });
+
+        it("does not emit failed WebSocket when sell order succeeds end-to-end", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 7,
+                transactionId: "TX-WS-OK",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.findUnique.mockResolvedValue(createdOrder);
+
+            const wsGateway = service["wsGateway"] as any;
+
+            await service.sellCryptoOrder(mockUser, dto);
+
+            const failedEmit = wsGateway.notifyTransactionUpdate.mock.calls.find(
+                ([_uid, payload]: [number, any]) =>
+                    payload?.transaction?.streamlinedStatus === "failed",
+            );
+            expect(failedEmit).toBeUndefined();
         });
     });
 

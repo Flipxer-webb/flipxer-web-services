@@ -13,24 +13,30 @@ import { LiquidityAlertService } from "../../../services/liquidity-alert.service
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES } from "@/modules/api/authorize/decorator";
-import { User } from "@/modules/api/user";
+import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import { PermissionName } from "@/modules/api/authorize/enums/role";
+import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 import { 
     CreateLiquidityAlertDto, 
     ResolveLiquidityAlertDto, 
     LiquidityAlertFilters 
 } from "../../../types";
+import { AuditLogService } from "@/modules/api/audit-log";
 
 @Controller("admin/liquidity-alerts")
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
 export class AdminLiquidityAlertController {
-    constructor(private readonly alertService: LiquidityAlertService) {}
+    constructor(
+        private readonly alertService: LiquidityAlertService,
+        private readonly auditLogService: AuditLogService,
+    ) {}
 
     /**
      * Get all liquidity alerts with filters
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get()
     async getAlerts(
         @Query("status") status?: string,
@@ -57,6 +63,7 @@ export class AdminLiquidityAlertController {
     /**
      * Get pending alerts summary
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("summary/pending")
     async getPendingAlertsSummary() {
         return this.alertService.getPendingAlertsSummary();
@@ -65,6 +72,7 @@ export class AdminLiquidityAlertController {
     /**
      * Get alert statistics
      */
+    @Permissions([PermissionName.SETTINGS_READ])
     @Get("statistics")
     async getAlertStatistics(
         @Query("days", new ParseIntPipe({ optional: true })) days?: number
@@ -75,47 +83,90 @@ export class AdminLiquidityAlertController {
     /**
      * Create a new liquidity alert manually
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post()
-    async createAlert(@Body() dto: CreateLiquidityAlertDto) {
-        return this.alertService.createAlert(dto);
+    async createAlert(@Body() dto: CreateLiquidityAlertDto, @User() user: UserModel) {
+        const result = await this.alertService.createAlert(dto);
+        await this.auditLogService.log({
+            action: "CREATE_LIQUIDITY_ALERT",
+            resource: "liquidity_alert",
+            details: { ...dto },
+            adminId: user.id,
+        });
+        return result;
     }
 
     /**
      * Run automated liquidity check
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post("check")
-    async runLiquidityCheck() {
-        return this.alertService.runLiquidityCheck();
+    async runLiquidityCheck(@User() user: UserModel) {
+        const result = await this.alertService.runLiquidityCheck();
+        await this.auditLogService.log({
+            action: "RUN_LIQUIDITY_CHECK",
+            resource: "liquidity_alert",
+            adminId: user.id,
+        });
+        return result;
     }
 
     /**
      * Acknowledge an alert
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Put(":id/acknowledge")
     async acknowledgeAlert(
         @Param("id", ParseIntPipe) id: number,
         @User() user: UserModel
     ) {
-        return this.alertService.acknowledgeAlert(id, user.id);
+        const result = await this.alertService.acknowledgeAlert(id, user.id);
+        await this.auditLogService.log({
+            action: "ACKNOWLEDGE_LIQUIDITY_ALERT",
+            resource: "liquidity_alert",
+            resourceId: id.toString(),
+            adminId: user.id,
+        });
+        return result;
     }
 
     /**
      * Resolve an alert
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Put(":id/resolve")
     async resolveAlert(
         @Param("id", ParseIntPipe) id: number,
         @User() user: UserModel,
         @Body() dto: ResolveLiquidityAlertDto
     ) {
-        return this.alertService.resolveAlert(id, user.id, dto);
+        const result = await this.alertService.resolveAlert(id, user.id, dto);
+        await this.auditLogService.log({
+            action: "RESOLVE_LIQUIDITY_ALERT",
+            resource: "liquidity_alert",
+            resourceId: id.toString(),
+            details: { ...dto },
+            adminId: user.id,
+        });
+        return result;
     }
 
     /**
      * Escalate an alert
      */
+    @Permissions([PermissionName.SETTINGS_UPDATE])
     @Put(":id/escalate")
-    async escalateAlert(@Param("id", ParseIntPipe) id: number) {
-        return this.alertService.escalateAlert(id);
+    async escalateAlert(
+        @Param("id", ParseIntPipe) id: number,
+        @User() user: UserModel
+    ) {
+        const result = await this.alertService.escalateAlert(id);
+        await this.auditLogService.log({
+            action: "ESCALATE_LIQUIDITY_ALERT",
+            resource: "liquidity_alert",
+            resourceId: id.toString(),
+            adminId: user.id,
+        });
+        return result;
     }
 }

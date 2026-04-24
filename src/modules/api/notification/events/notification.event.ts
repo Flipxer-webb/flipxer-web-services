@@ -31,14 +31,28 @@ export class NotificationEvent extends EventEmitter {
 
     async sendTransactionNotification(options: t.SendTransactionNotification) {
         try {
-            // Format transaction type for display
-            const transactionTypeLabels: Record<t.TransactionType, string> = {
-                deposit: 'Deposit Received',
-                withdrawal: 'Withdrawal Processed',
-                swap: 'Swap Completed',
-                buy: 'Purchase Completed',
-                sell: 'Sale Completed',
+            // Base labels per transaction type
+            const transactionTypeBase: Record<t.TransactionType, string> = {
+                deposit: 'Deposit',
+                withdrawal: 'Withdrawal',
+                swap: 'Swap',
+                buy: 'Purchase',
+                sell: 'Sale',
             };
+
+            // Status suffixes
+            const statusSuffix: Record<string, string> = {
+                completed: 'Completed',
+                failed: 'Failed',
+                cancelled: 'Cancelled',
+                reversed: 'Reversed',
+                pending: 'Pending',
+                processing: 'Processing',
+            };
+
+            const base = transactionTypeBase[options.transactionType] || 'Transaction';
+            const suffix = statusSuffix[options.status?.toLowerCase()] || 'Notification';
+            const transactionTypeLabels = { [options.transactionType]: `${base} ${suffix}` } as Record<t.TransactionType, string>;
 
             await this.emailService.sendMailWithTemplate({
                 from: { address: cf.mailConfig.senderMail },

@@ -16,9 +16,12 @@ import { HealthModule } from "./health";
 import { OperationsModule } from "./operations";
 import { ReportsModule } from "./reports";
 import { SystemConfigModule } from "./system-config";
+import { AmlModule } from "./aml";
+import { AuditLogModule } from "./audit-log";
 
 @Module({
     imports: [
+        AuditLogModule,
         WebExtension,
         UserModule,
         AuthModule,
@@ -36,6 +39,7 @@ import { SystemConfigModule } from "./system-config";
         OperationsModule,
         ReportsModule,
         SystemConfigModule,
+        AmlModule,
     ],
 })
 export class APIModule {}

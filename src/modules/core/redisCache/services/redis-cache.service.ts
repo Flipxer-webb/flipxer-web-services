@@ -7,6 +7,17 @@ interface CacheEntry<T> {
     expiresAt: number;
 }
 
+interface RedisClientStreamState {
+    writable?: boolean;
+    destroyed?: boolean;
+}
+
+interface RedisClientWithStreamState {
+    connector?: {
+        stream?: RedisClientStreamState;
+    };
+}
+
 @Injectable()
 export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
     private client: Redis | null = null;
@@ -78,8 +89,12 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         });
 
         this.client.on("connect", () => {
-            this.isConnected = true;
             this.logger.log("Redis cache connected");
+        });
+
+        this.client.on("ready", () => {
+            this.isConnected = true;
+            this.logger.log("Redis cache ready");
         });
 
         this.client.on("close", () => {
@@ -88,7 +103,13 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         });
 
         this.client.on("reconnecting", () => {
+            this.isConnected = false;
             this.logger.log("Redis cache reconnecting...");
+        });
+
+        this.client.on("end", () => {
+            this.isConnected = false;
+            this.logger.warn("Redis cache connection ended");
         });
 
         // Cleanup expired entries from fallback cache every 60 seconds
@@ -180,6 +201,25 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         this.consecutiveFailures = 0;
     }
 
+    private isRedisWritable(): boolean {
+        if (!this.client || !this.isConnected) {
+            return false;
+        }
+
+        if (this.client.status !== "ready") {
+            this.isConnected = false;
+            return false;
+        }
+
+        const stream = (this.client as unknown as RedisClientWithStreamState).connector?.stream;
+        if (stream && (stream.writable === false || stream.destroyed === true)) {
+            this.isConnected = false;
+            return false;
+        }
+
+        return true;
+    }
+
     async get<T = any>(key: string): Promise<T | null> {
         // If Redis is disabled, use fallback only
         if (this.REDIS_DISABLED || !this.client) {
@@ -192,7 +232,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            if (!this.isConnected) {
+            if (!this.isRedisWritable()) {
                 this.logger.debug(`Redis unavailable, using fallback for GET: ${key}`);
                 return this.getFallback<T>(key);
             }
@@ -231,7 +271,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            if (!this.isConnected) {
+            if (!this.isRedisWritable()) {
                 const value = this.getFallback<T>(key);
                 if (value) this.fallbackCache.delete(key);
                 return value;
@@ -279,7 +319,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            if (!this.isConnected) {
+            if (!this.isRedisWritable()) {
                 this.logger.debug(`Redis unavailable, using fallback for SET: ${key}`);
                 return;
             }
@@ -302,7 +342,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            if (!this.isConnected) return;
+            if (!this.isRedisWritable()) return;
             await this.client.del(key);
         } catch (error) {
             this.logger.error(`Redis DEL error for ${key}: ${error.message}`);
@@ -316,7 +356,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            if (!this.isConnected) {
+            if (!this.isRedisWritable()) {
                 return this.fallbackCache.has(key);
             }
             const exists = await this.client.exists(key);
@@ -331,9 +371,9 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
      * Health check for Redis connection
      */
     async isHealthy(): Promise<{ healthy: boolean; latencyMs?: number; usingFallback: boolean }> {
-        const usingFallback = !this.isConnected;
+        const usingFallback = !this.isRedisWritable();
 
-        if (!this.isConnected) {
+        if (usingFallback) {
             return {
                 healthy: this.FALLBACK_ENABLED,
                 usingFallback: true
@@ -390,7 +430,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            if (!this.isConnected) {
+            if (!this.isRedisWritable()) {
                 this.logger.debug(`Redis not connected for INCRBYFLOAT on ${key} - signaling DB fallback`);
                 return null;
             }
@@ -439,7 +479,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            if (!this.isConnected) return null;
+            if (!this.isRedisWritable()) return null;
 
             const value = await this.client.get(key);
             this.recordSuccess();

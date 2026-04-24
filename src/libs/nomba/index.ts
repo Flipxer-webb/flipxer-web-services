@@ -162,6 +162,17 @@ export interface NombaCheckoutStatusResponse {
     };
 }
 
+// Account balance types
+export interface NombaAccountBalanceResponse {
+    code: string;
+    description: string;
+    data: {
+        amount: string;
+        currency: string;
+        timeCreated: string;
+    };
+}
+
 interface TokenCache {
     accessToken: string;
     refreshToken: string;
@@ -173,6 +184,13 @@ export class NombaLib {
     private tokenCache: TokenCache | null = null;
     private readonly tokenMutex = new Mutex();
     private readonly logger = new Logger('NombaLib');
+
+    /**
+     * Returns true when the configured base URL points to the Nomba sandbox.
+     */
+    get isSandbox(): boolean {
+        return this.options.baseUrl.includes("sandbox");
+    }
 
     constructor(private readonly options: NombaOptions) {
         this.axios = Axios.create({
@@ -467,6 +485,46 @@ export class NombaLib {
     }
 
     /**
+     * Delete a virtual account by its accountRef.
+     * Returns true if deleted successfully, false if already gone (404).
+     */
+    async deleteVirtualAccount(accountRef: string): Promise<boolean> {
+        try {
+            const { data } = await this.axios.delete<{ code: string; status: boolean }>(
+                `/v1/accounts/virtual/${accountRef}`
+            );
+            return data?.code === "00";
+        } catch (error) {
+            const axiosError = error as AxiosError;
+            if (axiosError.response?.status === 404) {
+                return false;
+            }
+            this.handleError(axiosError);
+            throw error;
+        }
+    }
+
+    /**
+     * Update an existing virtual account (e.g. refresh its expiry).
+     * Used as a sandbox fallback when the VA creation quota is exhausted.
+     */
+    async updateVirtualAccount(
+        accountRef: string,
+        updates: { accountName?: string; expiryDate?: string },
+    ): Promise<NombaVirtualAccountResponse> {
+        try {
+            const { data } = await this.axios.put<NombaVirtualAccountResponse>(
+                `/v1/accounts/virtual/${accountRef}`,
+                updates,
+            );
+            return data;
+        } catch (error) {
+            this.handleError(error as AxiosError);
+            throw error;
+        }
+    }
+
+    /**
      * Initiate bank transfer (payout)
      */
     async initiateBankTransfer(
@@ -561,6 +619,21 @@ export class NombaLib {
                         id: orderReference
                     }
                 }
+            );
+            return data;
+        } catch (error) {
+            this.handleError(error as AxiosError);
+            throw error;
+        }
+    }
+
+    /**
+     * Get parent account balance
+     */
+    async getAccountBalance(): Promise<NombaAccountBalanceResponse> {
+        try {
+            const { data } = await this.axios.get<NombaAccountBalanceResponse>(
+                `/v1/accounts/balance`
             );
             return data;
         } catch (error) {

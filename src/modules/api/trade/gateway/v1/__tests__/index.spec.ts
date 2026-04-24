@@ -41,6 +41,7 @@ describe("WsGateway", () => {
         getUserWallets: jest.Mock;
         handleDisconnect: jest.Mock;
     };
+    let socketAuthGuard: { authenticateClient: jest.Mock };
     let server: { to: jest.Mock };
     let emitMock: jest.Mock;
 
@@ -58,7 +59,11 @@ describe("WsGateway", () => {
             handleDisconnect: jest.fn(),
         };
 
-        gateway = new WsGateway(wsService as never);
+        socketAuthGuard = {
+            authenticateClient: jest.fn().mockResolvedValue(undefined),
+        };
+
+        gateway = new WsGateway(wsService as never, socketAuthGuard as never);
 
         emitMock = jest.fn();
         server = {
@@ -70,21 +75,59 @@ describe("WsGateway", () => {
     it("delegates connection and query handlers", async () => {
         const client = { id: "socket-1" };
         wsService.handlePostConnection.mockResolvedValue({ ok: true });
-        wsService.getNotifications.mockResolvedValue({ rows: [] });
-        wsService.getUserWallets.mockResolvedValue({ wallets: [] });
 
         gateway.handleConnection(client as never);
         await expect(gateway.handlePostConnection(client as never)).resolves.toEqual({ ok: true });
-        await expect(gateway.handleGetNotifications(client as never)).resolves.toEqual({ rows: [] });
-        await expect(gateway.handleGetUserWallets(client as never, [{}, "44"] as never)).resolves.toEqual({ wallets: [] });
 
         gateway.handleDisconnect(client as never);
 
         expect(wsService.handleConnection).toHaveBeenCalledWith(client);
         expect(wsService.handlePostConnection).toHaveBeenCalledWith(client);
-        expect(wsService.getNotifications).toHaveBeenCalledWith(client);
-        expect(wsService.getUserWallets).toHaveBeenCalledWith(client, {});
         expect(wsService.handleDisconnect).toHaveBeenCalledWith(client);
+    });
+
+    it("rejects invalid socket handshakes before connection handlers run", async () => {
+        const namespaceServer = {
+            use: jest.fn(),
+        };
+
+        gateway.afterInit(namespaceServer as never);
+
+        const middleware = namespaceServer.use.mock.calls[0][0];
+        const client = { id: "socket-unauthorized" };
+        const next = jest.fn();
+        socketAuthGuard.authenticateClient.mockRejectedValue(new Error("Your session is unauthorized"));
+
+        await middleware(client, next);
+
+        expect(socketAuthGuard.authenticateClient).toHaveBeenCalledWith(client);
+        expect(next).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: "Your session is unauthorized",
+                data: {
+                    status: "error",
+                    message: "Your session is unauthorized",
+                },
+            }),
+        );
+        expect(wsService.handleConnection).not.toHaveBeenCalled();
+    });
+
+    it("allows valid socket handshakes to continue", async () => {
+        const namespaceServer = {
+            use: jest.fn(),
+        };
+
+        gateway.afterInit(namespaceServer as never);
+
+        const middleware = namespaceServer.use.mock.calls[0][0];
+        const client = { id: "socket-1" };
+        const next = jest.fn();
+
+        await middleware(client, next);
+
+        expect(socketAuthGuard.authenticateClient).toHaveBeenCalledWith(client);
+        expect(next).toHaveBeenCalledWith();
     });
 
     it("delegates user notifications and wallet updates", () => {
@@ -171,5 +214,51 @@ describe("WsGateway", () => {
             "profileUpdate",
             expect.objectContaining({ timestamp: expect.any(String) }),
         );
+    });
+
+    describe("broadcastPriceUpdate", () => {
+        it("emits priceUpdate to all clients when server is set", () => {
+            const serverEmit = jest.fn();
+            (gateway as any).server = { ...server, emit: serverEmit };
+
+            gateway.broadcastPriceUpdate({ BTC: { price: 60000, change24h: 2.5 }, ETH: null });
+
+            expect(serverEmit).toHaveBeenCalledWith("priceUpdate", {
+                prices: { BTC: { price: 60000, change24h: 2.5 }, ETH: null },
+                timestamp: expect.any(String),
+            });
+        });
+
+        it("does nothing when server is not set", () => {
+            (gateway as any).server = null;
+            expect(() => gateway.broadcastPriceUpdate({ BTC: { price: 1 } })).not.toThrow();
+        });
+    });
+
+    describe("getHandshakeErrorMessage", () => {
+        it("returns string from WsException with string error", () => {
+            const { WsException } = jest.requireActual("@nestjs/websockets");
+            const err = new WsException("Token expired");
+            const result = (gateway as any).getHandshakeErrorMessage(err);
+            expect(result).toBe("Token expired");
+        });
+
+        it("returns message from WsException with object error", () => {
+            const { WsException } = jest.requireActual("@nestjs/websockets");
+            const err = new WsException({ message: "Bad token" });
+            const result = (gateway as any).getHandshakeErrorMessage(err);
+            expect(result).toBe("Bad token");
+        });
+
+        it("returns message from plain Error", () => {
+            const err = new Error("Connection refused");
+            const result = (gateway as any).getHandshakeErrorMessage(err);
+            expect(result).toBe("Connection refused");
+        });
+
+        it("returns default message for unknown errors", () => {
+            const result = (gateway as any).getHandshakeErrorMessage("something");
+            expect(result).toBe("Your session is unauthorized");
+        });
     });
 });

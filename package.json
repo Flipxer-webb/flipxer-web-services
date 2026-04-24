@@ -95,7 +95,7 @@
     },
     "scripts": {
         "postinstall": "npx prisma generate",
-        "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "prebuild": "node -e \"const fs=require('node:fs'),p=require('node:path');try{fs.rmSync('dist',{recursive:true,force:true})}catch(e){if(e.code==='EBUSY'){for(const f of fs.readdirSync('dist'))fs.rmSync(p.join('dist',f),{recursive:true,force:true})}else throw e}\"",
         "build": "webpack --mode production",
         "format": "prettier --write \"src/**/*.ts\"",
         "watch": "webpack --mode development --watch",
@@ -117,6 +117,7 @@
         "db:backup:list": "node scripts/backup-utils.js list",
         "db:backup:restore": "node scripts/backup-utils.js restore",
         "db:backup:help": "node scripts/backup-utils.js help",
+        "nomba:replay:local": "node scripts/replay-local-nomba-webhook.js",
         "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts",
         "db:staging:up": "docker compose -f docker-compose.staging.yml up -d",
         "db:staging:down": "docker compose -f docker-compose.staging.yml down",
@@ -257,6 +258,11 @@
         ],
         "coverageDirectory": "../coverage",
         "testEnvironment": "node",
+        "globals": {
+            "ts-jest": {
+                "diagnostics": false
+            }
+        },
         "moduleNameMapper": {
             "^@/(.*)$": "<rootDir>/$1"
         }
