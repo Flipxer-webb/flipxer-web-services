@@ -316,8 +316,12 @@ export class WalletAddressService {
                 where: {
                     userId,
                     assetSymbol: assetSymbolUpper,
-                    network: { in: networksToCreate },
                     status: CryptoWalletStatus.FAILED,
+                    OR: [
+                        { network: { in: networksToCreate } },
+                        { network: null },
+                        { address: null }, //remove if address is null
+                    ],
                 },
             });
         }
@@ -523,6 +527,14 @@ export class WalletAddressService {
 
         for (const [network, providerAddress] of providerAddressMap.entries()) {
             if (!targetNetworks.includes(network) || existingNetworkSet.has(network)) {
+                continue;
+            }
+
+            // Guard: never persist a record with null network or null address
+            if (!providerAddress.address || !network) {
+                this.logger.warn(
+                    `[ProviderGuard] Skipping persist incomplete data from Quidax, User: ${userId}, Asset: ${assetSymbolUpper}, HasAddress: ${!!providerAddress.address}, HasNetwork: ${!!network}`
+                );
                 continue;
             }
 
