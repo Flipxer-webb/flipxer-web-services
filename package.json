@@ -103,7 +103,7 @@
         "start:prod": "node dist/server",
         "start:debug": "nest start --watch",
         "lint": "eslint \"{src,test}/**/*.ts\" --fix",
-        "husky:install": "husky install",
+        "husky:install": "husky",
         "prisma:init": "npx prisma init",
         "prisma:generate": "npx prisma generate",
         "migration:generate": "npx prisma migrate dev --create-only --name",
