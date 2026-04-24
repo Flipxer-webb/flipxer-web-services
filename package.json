@@ -22,7 +22,7 @@
         "@nestjs/platform-express": "^10.4.16",
         "@nestjs/platform-socket.io": "^10.4.16",
         "@nestjs/websockets": "^10.4.16",
-        "axios": "^1.13.5",
+        "axios": "^1.15.0",
         "brace-expansion": "~2.0.3",
         "cloudinary": "^2.7.0",
         "fast-xml-parser@4": "4.5.5",
@@ -53,7 +53,7 @@
     },
     "pnpm": {
         "overrides": {
-            "axios": "^1.13.5",
+            "axios": "^1.15.0",
             "@tootallnate/once": "3.0.1",
             "form-data": ">=4.0.4",
             "path-to-regexp": "3.3.0",
@@ -144,7 +144,7 @@
         "@types/multer": "^1.4.12",
         "@types/request-ip": "^0.0.41",
         "async-mutex": "^0.5.0",
-        "axios": "^1.13.5",
+        "axios": "^1.15.0",
         "axios-retry": "^4.5.0",
         "bcryptjs": "^2.4.3",
         "bull": "^4.12.4",
