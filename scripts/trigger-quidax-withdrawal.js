@@ -10,12 +10,18 @@
  *   QUIDAX_API_SECRET=your_secret node trigger-quidax-withdrawal.js
  */
 
-const https = require('https');
+require('dotenv').config();
+const { request } = require('node:https');
 const { Client } = require('pg');
 
-const DATABASE_URL = 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d575e4mr433s73egl6p0-a.oregon-postgres.render.com/resolve_db_4a8l_b6ra';
+const DATABASE_URL = process.env.DATABASE_URL;
 const QUIDAX_API_SECRET = process.env.QUIDAX_API_SECRET;
 const ORDER_ID = 12;
+
+if (!DATABASE_URL) {
+    console.error('ERROR: DATABASE_URL environment variable not set');
+    process.exit(1);
+}
 
 if (!QUIDAX_API_SECRET) {
     console.error('ERROR: QUIDAX_API_SECRET environment variable not set');
@@ -77,7 +83,7 @@ async function createWithdrawal(subAccountId, currency, amount, address, destina
         console.log('Path:', options.path);
         console.log('Data:', data);
 
-        const req = https.request(options, (res) => {
+        const req = request(options, (res) => {
             let body = '';
             res.on('data', chunk => body += chunk);
             res.on('end', () => {

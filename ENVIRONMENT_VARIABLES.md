@@ -21,9 +21,11 @@ Complete reference for all environment variables used in Flipxer Web Services.
    cp .env.example .env
    ```
 
-2. Fill in required values (marked with ⚠️ below)
-3. Generate secure secrets for production
-4. Never commit `.env` to version control!
+2. If you run the backend through Docker Compose, use the same `.env` file. The checked-in `docker-compose.yml` reads `.env` via `env_file`, so there is no tracked `.env.test` or `.env.docker.local` template to copy.
+
+3. Fill in required values (marked with ⚠️ below)
+4. Generate secure secrets for production
+5. Never commit `.env` to version control!
 
 ---
 

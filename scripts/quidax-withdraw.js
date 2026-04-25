@@ -1,6 +1,12 @@
-const https = require('https');
+require('dotenv').config();
+const { request } = require('node:https');
 
-const QUIDAX_API_SECRET = 'ZCEF3SPNO1GGZrV91pgJNz32wVEFdQKiTVO2N69l';
+const QUIDAX_API_SECRET = process.env.QUIDAX_API_SECRET;
+
+if (!QUIDAX_API_SECRET) {
+    console.error('Missing QUIDAX_API_SECRET environment variable.');
+    process.exit(1);
+}
 
 const data = JSON.stringify({
     currency: 'usdt',
@@ -28,7 +34,7 @@ console.log('Recipient: 0xa4321E0503EE7Ed12864F2E81C65FCe3B96579fa');
 console.log('URL:', `https://${options.hostname}${options.path}`);
 console.log('');
 
-const req = https.request(options, (res) => {
+const req = request(options, (res) => {
     let body = '';
     res.on('data', chunk => body += chunk);
     res.on('end', () => {
