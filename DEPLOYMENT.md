@@ -15,7 +15,7 @@
 
 Before deploying, ensure you have:
 
-- **Node.js**: v20.x (specified in package.json)
+- **Node.js**: v24.x (specified in package.json)
 - **pnpm**: Installed globally (`npm install -g pnpm`)
 - **PostgreSQL**: v13+ database instance
 - **Redis**: v6+ for caching and job queues
@@ -155,8 +155,8 @@ pnpm db:studio
 # SSH into your server
 ssh user@your-server-ip
 
-# Install Node.js 20.x
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# Install Node.js 24.x
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Install pnpm
