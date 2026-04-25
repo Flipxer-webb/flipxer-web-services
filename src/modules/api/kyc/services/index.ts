@@ -1243,7 +1243,7 @@ export class KycService {
         });
 
         // Send notification to user about KYC status
-        const notificationType = verificationType ? `${verificationType.toLowerCase()} ` : "";
+        const notificationType = `${verificationType.toLowerCase()} `;
 
         let title: string;
         if (action === "APPROVE") {

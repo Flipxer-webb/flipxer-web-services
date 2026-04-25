@@ -1,19 +1,7 @@
 // Script to update transaction status via admin API
 const https = require('https');
 
-const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
-
-if (!ACCESS_TOKEN) {
-  console.error('Missing ADMIN_ACCESS_TOKEN environment variable.');
-  process.exit(1);
-}
-
-// Transaction IDs from the sync (these are the deposit IDs from Quidax)
-const depositIds = [
-  '94c290f3-7eee-40c1-b2e1-9ca944216542',
-  '13d52998-cc7b-4fda-8086-4476a03356ee',
-  'd93f0388-2fcf-4969-8d52-a6976ae0baa5'
-];
+const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
 
 async function getTransactions() {
   return new Promise((resolve, reject) => {

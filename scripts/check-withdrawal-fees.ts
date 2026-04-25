@@ -48,7 +48,6 @@ async function main() {
     }
 
     // Check sub-account balance for user 7
-    const subAccountId = "f9e3c8e7-4b5a-4c6d-8e7f-1a2b3c4d5e6f"; // This is a placeholder
     console.log("\n\n📊 User 7 sub-account USDT details:");
     
     // First get user 7's sub-account ID from database

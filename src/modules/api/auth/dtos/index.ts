@@ -22,11 +22,6 @@ import {
 } from "class-validator";
 import { Type } from "class-transformer";
 
-enum Gender {
-    MALE = "MALE",
-    FEMALE = "FEMALE",
-}
-
 export class SendEmailVerificationCodeDto {
     @ApiProperty()
     @IsNotEmpty()

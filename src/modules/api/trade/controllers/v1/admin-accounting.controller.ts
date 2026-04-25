@@ -176,7 +176,7 @@ export class AdminAccountingController {
                         const totalDebit = Number(creditDebit._sum.debit ?? 0);
 
                         // Get USDT price for this currency
-                        let usdtPrice = 1;
+                        let usdtPrice: number;
                         try {
                             usdtPrice = await this.rateService.getAssetUsdtPrice(entry.currency);
                         } catch {

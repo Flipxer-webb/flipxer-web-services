@@ -19,38 +19,6 @@ async function main() {
 
     // 2. Create Refunds
     await prisma.$transaction(async (tx) => {
-        // Refund 1
-        const entry1 = await tx.ledgerEntry.create({
-            data: {
-                userId: user.id,
-                currency: 'USDT',
-                type: LedgerType.REFUND,
-                debit: 0,
-                credit: amount1,
-                balanceAfter: 0, // Will update below or trust created value if logic existed? 
-                // Prisma doesn't auto-calc balanceAfter. We must fetch last.
-                // But for a script, we can cheat a bit or do it right.
-                // Let's do it right(-ish) by fetching current balance first.
-                status: EntryStatus.SETTLED,
-                reference: `refund:${ref1}`,
-                description: `Refund for failed swap ${ref1}`
-            }
-        });
-
-        // Manual Balance Calculation is tricky in script without properly locking.
-        // BETTER APPROACH: Use the same `balanceAfter` logic from `LedgerService`.
-        // Fetch last entry, add amount.
-        const lastEntry = await tx.ledgerEntry.findFirst({
-            where: { userId: user.id, currency: 'USDT' },
-            orderBy: { createdAt: 'desc' },
-            skip: 1 // Skip the one we just created! Wait, create returns it.
-        });
-
-        // Actually, let's fetch first, then create.
-    });
-
-    // Re-doing transaction block for safety
-    await prisma.$transaction(async (tx) => {
         // --- Refund 1 ---
         const last1 = await tx.ledgerEntry.findFirst({
             where: { userId: user.id, currency: 'USDT' },

@@ -43,9 +43,6 @@ import { BuyOrderService } from '../../../trade/services/buy-order.service';
 import { SlackWebhookService } from '@/modules/api/operations/services/slack-webhook.service';
 import { PaymentWebhookAdapterService } from '@/modules/factory/bank/services/payment-webhook-adapter.service';
 import {
-    OrderCategory,
-    OrderStatus,
-    OrderStreamlinedStatus,
     TransactionStatus,
 } from '@prisma/client';
 import { SellPayoutReconciliationService } from '../../../trade/services/sell-payout-reconciliation.service';
@@ -94,26 +91,6 @@ function mockSellPayoutReconciliationService() {
     return {
         reconcileSellPayoutState: jest.fn().mockResolvedValue(null),
         executeSellPayoutSideEffects: jest.fn().mockResolvedValue(undefined),
-    };
-}
-
-function makeSellOrder(overrides: Record<string, any> = {}) {
-    return {
-        id: 9001,
-        orderCategory: OrderCategory.SELL,
-        status: OrderStatus.processing,
-        streamlinedStatus: OrderStreamlinedStatus.pending,
-        paymentStatus: TransactionStatus.PENDING,
-        transactionId: 'TXN-9001',
-        amount: 100,
-        currency: 'USDT',
-        totalToReceiveInFiat: 22000,
-        destinationBankName: 'Bank A',
-        destinationBankAccountNumber: '1234567890',
-        user: { id: 16, email: 'user@example.com' },
-        createdAt: new Date('2026-04-16T10:00:00.000Z'),
-        updatedAt: new Date('2026-04-16T10:00:00.000Z'),
-        ...overrides,
     };
 }
 

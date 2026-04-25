@@ -3,26 +3,6 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
-// Based on Test User's 3 USDT deposits from Quidax
-// We need to set the correct timestamps from the Quidax deposit data
-const DEPOSIT_CORRECTIONS = [
-    {
-        providerOrderId: "a09cb2e6-9e6b-4ac9-bd7b-9ad5ede1ef5b",
-        created_at: "2024-12-14T09:18:36.000Z", // First deposit - adjust based on actual Quidax data
-        done_at: "2024-12-14T09:19:12.000Z",
-    },
-    {
-        providerOrderId: "c273d1ea-4d3c-45ae-9aad-0cae96d76c94",
-        created_at: "2024-12-14T10:45:22.000Z", // Second deposit
-        done_at: "2024-12-14T10:46:05.000Z",
-    },
-    {
-        providerOrderId: "f8e24a71-28c6-4f63-92af-9e1c7b3d8e42",
-        created_at: "2024-12-14T14:22:18.000Z", // Third deposit
-        done_at: "2024-12-14T14:23:02.000Z",
-    },
-];
-
 async function fixTimestamps() {
     console.log("Fetching existing deposits...\n");
 

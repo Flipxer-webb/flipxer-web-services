@@ -108,37 +108,6 @@ async function generateReport(stuckPayments) {
     console.log('');
 }
 
-async function retryFulfillment(payment) {
-    const order = payment.order;
-    const user = payment.user;
-    
-    console.log(`\n🔄 Retrying fulfillment for Order ${order.transactionId}...`);
-
-    if (!user.cryptoSubAccountId) {
-        console.log(`   ❌ SKIPPED: User ${user.id} has no crypto sub-account`);
-        return { success: false, reason: 'No crypto sub-account' };
-    }
-
-    if (DRY_RUN) {
-        console.log(`   🔹 [DRY RUN] Would attempt Quidax transfer:`);
-        console.log(`      From: Main Account`);
-        console.log(`      To:   Sub-Account ${user.cryptoSubAccountId}`);
-        console.log(`      Amount: ${order.amount} ${order.currency}`);
-        return { success: true, dryRun: true };
-    }
-
-    // NOTE: In production, you would:
-    // 1. Initialize QuidaxService
-    // 2. Call createWithdrawerRequest to transfer funds
-    // 3. Update order status on success
-    // 
-    // For safety, this script only generates the report.
-    // Actual fulfillment should be done via the API or a more controlled process.
-    
-    console.log(`   ⚠️  Manual fulfillment required - use admin API or direct Quidax console`);
-    return { success: false, reason: 'Manual intervention required' };
-}
-
 async function main() {
     console.log('\n' + '🚀 Stuck Buy Orders Recovery Tool'.toUpperCase());
     console.log(`Mode: ${DRY_RUN ? '🔹 DRY RUN (no changes)' : '🔴 EXECUTE MODE'}\n`);

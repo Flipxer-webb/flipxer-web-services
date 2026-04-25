@@ -152,7 +152,9 @@ async function main() {
             });
         }
     }
-console.log("combinations",{combinations})
+
+    console.log("combinations", { combinations });
+
     if (!combinations.length) {
         console.log("No wallet combinations found that match the provided filters.");
         await prisma.$disconnect();
@@ -183,7 +185,7 @@ console.log("combinations",{combinations})
 
         if (options.dryRun) {
             console.log(`[DRY-RUN] ${contextLabel}`);
-            console.log("comb", {combo})
+            console.log("comb", { combo });
             continue;
         }
 
@@ -193,7 +195,9 @@ console.log("combinations",{combinations})
                 cryptoSubAccountId: combo.cryptoSubAccountId,
                 assetSymbol: combo.assetSymbol,
             });
-console.log("created", {created})
+
+            console.log("created", { created });
+
             if (created.length) {
                 createdCount += created.length;
                 console.log(

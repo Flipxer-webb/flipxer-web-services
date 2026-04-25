@@ -89,29 +89,6 @@ async function getSubAccountBalances(): Promise<SubAccountBalance[]> {
     return balances;
 }
 
-async function executeInternalTransfer(
-    fromSubAccountId: string,
-    currency: string,
-    amount: number
-): Promise<{ success: boolean; transactionId?: string; error?: string }> {
-    try {
-        // Use Quidax internal transfer API
-        const response = await quidaxApi.post("/users/me/internal_transfers", {
-            recipient_id: fromSubAccountId,  // Actually we want TO main, so we reverse
-            currency: currency.toLowerCase(),
-            amount: amount.toString(),
-            reason: "Sweep to main wallet for omnibus model",
-        });
-
-        // Wait - internal_transfer is FROM main TO sub. We need sub TO main.
-        // For sub-to-main, we use withdrawal to main wallet address
-
-        return { success: false, error: "Internal transfer direction issue - see comment" };
-    } catch (error: any) {
-        return { success: false, error: error.response?.data?.message || error.message };
-    }
-}
-
 async function getMainWalletAddress(currency: string): Promise<string | null> {
     try {
         const response = await quidaxApi.get(`/users/me/wallets/${currency.toLowerCase()}`);

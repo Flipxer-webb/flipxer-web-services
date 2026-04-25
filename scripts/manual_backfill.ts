@@ -24,7 +24,7 @@ async function main() {
 
         let count = 0;
         for (const entry of entries) {
-            let action: AuditAction = AuditAction.CREATED;
+            let action: AuditAction;
 
             if (entry.status === EntryStatus.HOLD) {
                 action = AuditAction.HOLD_PLACED;
