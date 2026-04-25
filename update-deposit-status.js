@@ -1,9 +1,9 @@
 // Script to update transaction status via admin API
-const https = require('https');
+const https = require('node:https');
 
-const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
+const adminAccessToken = process.env.ADMIN_ACCESS_TOKEN;
 
-if (!ACCESS_TOKEN) {
+if (!adminAccessToken) {
   console.error('Missing ADMIN_ACCESS_TOKEN environment variable.');
   process.exit(1);
 }
@@ -15,7 +15,7 @@ async function getTransactions() {
       path: '/api/v1/admin/transactions?userId=6',
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${adminAccessToken}`,
         'Content-Type': 'application/json'
       }
     };
@@ -26,7 +26,7 @@ async function getTransactions() {
       res.on('end', () => {
         try {
           resolve(JSON.parse(data));
-        } catch (e) {
+        } catch {
           resolve(data);
         }
       });
@@ -46,7 +46,7 @@ async function updateTransactionStatus(transactionId, status) {
       path: `/api/v1/admin/transactions/${transactionId}/status`,
       method: 'PATCH',
       headers: {
-        'Authorization': `Bearer ${ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${adminAccessToken}`,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload)
       }
@@ -58,7 +58,7 @@ async function updateTransactionStatus(transactionId, status) {
       res.on('end', () => {
         try {
           resolve({ status: res.statusCode, data: JSON.parse(data) });
-        } catch (e) {
+        } catch {
           resolve({ status: res.statusCode, data: data });
         }
       });
