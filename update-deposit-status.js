@@ -20,7 +20,7 @@ if (!/^\d+$/.test(String(userId))) {
   process.exit(1);
 }
 
-async function getTransactions(userId) {
+function getTransactions(userId) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: apiHostname,
@@ -38,7 +38,8 @@ async function getTransactions(userId) {
       res.on('end', () => {
         try {
           resolve(JSON.parse(data));
-        } catch {
+        } catch (error) {
+          console.warn(`Failed to parse transactions response as JSON: ${error.message}`);
           resolve(data);
         }
       });
@@ -49,7 +50,7 @@ async function getTransactions(userId) {
   });
 }
 
-async function updateTransactionStatus(transactionId, status) {
+function updateTransactionStatus(transactionId, status) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({ status: status });
     
@@ -70,7 +71,8 @@ async function updateTransactionStatus(transactionId, status) {
       res.on('end', () => {
         try {
           resolve({ status: res.statusCode, data: JSON.parse(data) });
-        } catch {
+        } catch (err) {
+          console.error(`Failed to parse updateTransactionStatus response as JSON (status: ${res.statusCode}): ${err.message}`);
           resolve({ status: res.statusCode, data: data });
         }
       });
@@ -101,7 +103,7 @@ async function main() {
     
     // Find RECEIVE transactions that are pending
     const pendingReceives = allTxs.filter(tx => {
-      const streamlinedStatus = tx.streamLinedStatus ?? tx.streamlinedStatus;
+      const streamlinedStatus = tx.streamlinedStatus;
       return (
         tx.transactionType === 'RECEIVE' &&
         (streamlinedStatus === 'pending' || tx.status === 'pending')
