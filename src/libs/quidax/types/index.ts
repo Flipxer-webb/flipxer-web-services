@@ -255,7 +255,6 @@ export interface WithdrawerDetailOptions {
 export type WithdrawerDetailResponse = IQuidaxTransaction;
 
 export type WithdrawalDetailOptions = WithdrawerDetailOptions;
-export type WithdrawalDetailResponse = WithdrawerDetailResponse;
 
 export interface WithdrawerRecordByReferenceOptions {
     user_id: string;

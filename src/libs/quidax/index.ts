@@ -655,7 +655,7 @@ export class QuidaxLib {
      */
     async getWithdrawalDetail(
         options: t.WithdrawalDetailOptions
-    ): Promise<t.QuidaxResponse<t.WithdrawalDetailResponse>> {
+    ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
         this.validateUserId(options.user_id, "getWithdrawalDetail");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
@@ -664,7 +664,7 @@ export class QuidaxLib {
                 method: "GET",
             };
             const resp = await this.mainAxios<
-                t.QuidaxResponse<t.WithdrawalDetailResponse>
+                t.QuidaxResponse<t.WithdrawerDetailResponse>
             >(requestOptions);
 
             if (!resp.data) {
