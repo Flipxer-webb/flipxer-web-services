@@ -1,9 +1,13 @@
 // Script to fix deposit timestamps via the deployed API
 // First, we need to delete the existing incorrect deposits and re-sync
-const https = require('https');
+const https = require('node:https');
 
-// Use a valid admin token (you'll need to provide a fresh one)
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
+
+if (!ACCESS_TOKEN) {
+  console.error('Missing ADMIN_ACCESS_TOKEN environment variable.');
+  process.exit(1);
+}
 
 // User ID for test user
 const USER_ID = 6;
@@ -28,21 +32,19 @@ const historyReq = https.request(historyOptions, (res) => {
     console.log('History response status:', res.statusCode);
     try {
       const result = JSON.parse(data);
-      console.log('Found transactions:', result.data?.length || 0);
+      console.log('Transaction history parsed successfully.');
       
       if (result.data) {
-        result.data.forEach(tx => {
-          console.log(`  - ${tx.orderCategory}: ${tx.amount} ${tx.currency} | Status: ${tx.status} | Created: ${tx.createdAt}`);
-        });
+        console.log('Transaction records were returned.');
       }
-    } catch (e) {
-      console.log('Raw response:', data);
+    } catch {
+      console.log('Transaction history response was not valid JSON.');
     }
   });
 });
 
-historyReq.on('error', (e) => {
-  console.error('Error:', e.message);
+historyReq.on('error', () => {
+  console.error('Transaction history request failed.');
 });
 
 historyReq.end();

@@ -1,9 +1,14 @@
 // Test debug-wallet endpoint
-const https = require('https');
+const https = require('node:https');
 
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
 const USER_ID = 6;
 const CURRENCY = 'usdt';
+
+if (!ACCESS_TOKEN) {
+  console.error('Missing ADMIN_ACCESS_TOKEN environment variable.');
+  process.exit(1);
+}
 
 console.log(`Fetching wallet debug info for user ${USER_ID}, currency ${CURRENCY}...`);
 
@@ -23,14 +28,13 @@ const req = https.request(options, (res) => {
   res.on('end', () => {
     console.log('Status:', res.statusCode);
     try {
-      const result = JSON.parse(data);
-      console.log('\n=== DEBUG WALLET INFO ===\n');
-      console.log(JSON.stringify(result, null, 2));
-    } catch (e) {
-      console.log('Raw:', data);
+      JSON.parse(data);
+      console.log('Wallet debug payload parsed successfully.');
+    } catch {
+      console.log('Wallet debug response was not valid JSON.');
     }
   });
 });
 
-req.on('error', (e) => console.error('Error:', e.message));
+req.on('error', () => console.error('Wallet debug request failed.'));
 req.end();

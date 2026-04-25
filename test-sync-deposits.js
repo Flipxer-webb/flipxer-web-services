@@ -1,10 +1,14 @@
 // Test the sync deposits endpoint
-const https = require('https');
+const https = require('node:https');
 
 const USER_ID = 6;
 
-// Use the token directly
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
+
+if (!ACCESS_TOKEN) {
+  console.error('Missing ADMIN_ACCESS_TOKEN environment variable.');
+  process.exit(1);
+}
 
 // Call sync deposits endpoint directly
 console.log(`Calling sync-deposits for user ${USER_ID}...`);
@@ -25,16 +29,16 @@ const syncReq = https.request(syncOptions, (res) => {
   res.on('end', () => {
     console.log('Sync response status:', res.statusCode);
     try {
-      const result = JSON.parse(data);
-      console.log('Sync response:', JSON.stringify(result, null, 2));
-    } catch (e) {
-      console.log('Raw response:', data);
+      JSON.parse(data);
+      console.log('Sync response parsed successfully.');
+    } catch {
+      console.log('Sync response was not valid JSON.');
     }
   });
 });
 
-syncReq.on('error', (e) => {
-  console.error('Error:', e.message);
+syncReq.on('error', () => {
+  console.error('Sync request failed.');
 });
 
 syncReq.end();

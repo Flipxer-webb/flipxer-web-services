@@ -7,8 +7,8 @@
  *   node trigger-payment-webhook.js 234b973aaca7h9bfege693
  */
 
-const crypto = require('crypto');
-const https = require('https');
+const crypto = require('node:crypto');
+const https = require('node:https');
 
 const paymentReference = process.argv[2] || '234b973aaca7h9bfege693';
 
@@ -19,8 +19,7 @@ if (!webhookSecret) {
     console.error('ERROR: FINCRA_WEBHOOK_SECRET environment variable is not set');
     console.error('This script must be run on the server where the env var is available');
     console.error('');
-    console.error('If you have the secret, you can run:');
-    console.error('  FINCRA_WEBHOOK_SECRET=your_secret_here node trigger-payment-webhook.js ' + paymentReference);
+    console.error('Set FINCRA_WEBHOOK_SECRET and rerun the script with an optional payment reference argument.');
     process.exit(1);
 }
 
@@ -47,8 +46,8 @@ const signature = crypto
     .digest('hex');
 
 console.log('=== Fincra Webhook Simulation ===');
-console.log('Payment Reference:', paymentReference);
-console.log('Signature:', signature.substring(0, 40) + '...');
+console.log('Payment reference received from CLI input.');
+console.log('Signature generated.');
 console.log('');
 
 // Make the webhook call
@@ -77,7 +76,7 @@ const req = https.request(options, (res) => {
     res.on('end', () => {
         console.log('=== Response ===');
         console.log('Status:', res.statusCode);
-        console.log('Body:', data);
+        console.log('Webhook response body received.');
         console.log('');
 
         if (res.statusCode === 200) {
@@ -89,8 +88,8 @@ const req = https.request(options, (res) => {
     });
 });
 
-req.on('error', (e) => {
-    console.error('Request error:', e.message);
+req.on('error', () => {
+    console.error('Webhook request failed.');
 });
 
 req.write(payloadString);

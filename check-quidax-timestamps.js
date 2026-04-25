@@ -3,6 +3,8 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
+const sanitizeForLog = (value) => String(value).replaceAll(/[\r\n\t]/g, ' ');
+
 // This uses the NestJS Quidax service indirectly via a raw API call
 // to see exactly what timestamps Quidax returns
 
@@ -15,7 +17,7 @@ async function checkQuidaxTimestamps() {
         select: { id: true, email: true, cryptoSubAccountId: true },
     });
     
-    if (!user || !user.cryptoSubAccountId) {
+    if (!user?.cryptoSubAccountId) {
         console.log("User not found or no crypto sub-account");
         return;
     }
@@ -27,7 +29,7 @@ async function checkQuidaxTimestamps() {
     const QUIDAX_API_SECRET = process.env.QUIDAX_API_SECRET;
     
     console.log(`Base URL: ${QUIDAX_BASE_URL}`);
-    console.log(`API Secret: ${QUIDAX_API_SECRET ? QUIDAX_API_SECRET.substring(0, 10) + '...' : 'NOT SET'}\n`);
+    console.log(`API Secret configured: ${QUIDAX_API_SECRET ? 'yes' : 'no'}\n`);
 
     try {
         const response = await axios.get(
@@ -52,14 +54,18 @@ async function checkQuidaxTimestamps() {
                 console.log("Amount:", deposit.amount);
                 console.log("Status:", deposit.status);
                 console.log("State:", deposit.state);
-                console.log("created_at:", deposit.created_at);
-                console.log("done_at:", deposit.done_at);
-                console.log("completed_at:", deposit.completed_at);
-                console.log("Full object keys:", Object.keys(deposit).join(", "));
+                console.log("created_at:", sanitizeForLog(deposit.created_at));
+                console.log("done_at:", sanitizeForLog(deposit.done_at));
+                console.log("completed_at:", sanitizeForLog(deposit.completed_at));
+                console.log("Full object keys:", sanitizeForLog(Object.keys(deposit).join(", ")));
             }
         }
     } catch (error) {
-        console.error("Error:", error.response?.status, error.response?.data || error.message);
+        console.error(
+            "Error:",
+            error.response?.status,
+            sanitizeForLog(JSON.stringify(error.response?.data || error.message))
+        );
     }
 }
 

@@ -1,9 +1,16 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
-const connectionString = 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d575e4mr433s73egl6p0-a.oregon-postgres.render.com/resolve_db_4a8l_b6ra';
+const connectionString = process.env.DATABASE_URL;
+const useSsl = connectionString && !/localhost|127\.0\.0\.1/.test(connectionString);
+
+if (!connectionString) {
+    console.error('Missing DATABASE_URL environment variable.');
+    process.exit(1);
+}
 
 async function findPendingOrders() {
-    const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
+    const client = new Client({ connectionString, ssl: useSsl ? { rejectUnauthorized: false } : false });
 
     try {
         await client.connect();

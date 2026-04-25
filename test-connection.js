@@ -1,8 +1,17 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
+const connectionString = process.env.DATABASE_URL;
+const useSsl = connectionString && !/localhost|127\.0\.0\.1/.test(connectionString);
+
+if (!connectionString) {
+  console.error('Missing DATABASE_URL environment variable.');
+  process.exit(1);
+}
+
 const client = new Client({
-  connectionString: 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d538qter433s73c6evk0-a.oregon-postgres.render.com/resolve_db_4a8l',
-  ssl: { rejectUnauthorized: false }
+  connectionString,
+  ssl: useSsl ? { rejectUnauthorized: false } : false
 });
 
 async function main() {

@@ -9,9 +9,12 @@ dotenv.config();
 const QUIDAX_API_URL = process.env.QUIDAX_BASE_URL || "https://www.quidax.com/api/v1";
 const QUIDAX_SECRET_KEY = process.env.QUIDAX_API_SECRET;
 
+const sanitizeForLog = (value: unknown): string =>
+    String(value).replaceAll(/[\r\n\t]/g, " ");
+
 console.log("=== Quidax API Debug ===\n");
 console.log(`API URL: ${QUIDAX_API_URL}`);
-console.log(`API Key: ${QUIDAX_SECRET_KEY ? QUIDAX_SECRET_KEY.slice(0, 10) + "..." : "NOT SET"}\n`);
+console.log(`API Key configured: ${QUIDAX_SECRET_KEY ? "yes" : "no"}\n`);
 
 async function testEndpoints() {
     const endpoints = [
@@ -29,9 +32,13 @@ async function testEndpoints() {
                     Authorization: `Bearer ${QUIDAX_SECRET_KEY}`,
                 },
             });
-            console.log(`  ✅ ${response.status} - ${JSON.stringify(response.data).slice(0, 100)}...\n`);
+            console.log(
+                `  ✅ ${response.status} - response received (${sanitizeForLog(JSON.stringify(response.data)).length} chars)\n`
+            );
         } catch (error: any) {
-            console.log(`  ❌ ${error.response?.status || "ERR"} - ${error.message}\n`);
+            console.log(
+                `  ❌ ${error.response?.status || "ERR"} - ${sanitizeForLog(error.message)}\n`
+            );
         }
     }
 }

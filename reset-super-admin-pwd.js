@@ -2,7 +2,8 @@ require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
-const NEW_PASSWORD = 'FlipxerAdmin2025!';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@flipxer.com';
+const adminNewPassword = process.env.ADMIN_NEW_PASSWORD;
 
 async function main() {
     const prisma = new PrismaClient();
@@ -10,12 +11,17 @@ async function main() {
     try {
         console.log('🔐 Resetting Super Admin Password...\n');
 
+        if (!adminNewPassword) {
+            console.error('❌ ADMIN_NEW_PASSWORD environment variable is required.');
+            process.exit(1);
+        }
+
         // Hash the new password
-        const hashedPassword = await bcrypt.hash(NEW_PASSWORD, 10);
+        const hashedPassword = await bcrypt.hash(adminNewPassword, 10);
 
         // Update the admin password
         const admin = await prisma.user.update({
-            where: { email: 'hello@flipxer.com' },
+            where: { email: ADMIN_EMAIL },
             data: { password: hashedPassword },
             select: { id: true, email: true, firstName: true, lastName: true }
         });
@@ -24,7 +30,7 @@ async function main() {
         console.log('================================');
         console.log('📧 Email:', admin.email);
         console.log('👤 Name:', admin.firstName, admin.lastName);
-        console.log('🔑 New Password:', NEW_PASSWORD);
+        console.log('🔑 Password source: ADMIN_NEW_PASSWORD');
         console.log('================================\n');
 
     } catch (error) {

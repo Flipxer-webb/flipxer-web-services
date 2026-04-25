@@ -1,8 +1,13 @@
 // Check wallet addresses and deposits via API
-const https = require('https');
+const https = require('node:https');
 
 const USER_ID = 6;
-const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInBsYXRmb3JtIjoiQURNSU4iLCJpYXQiOjE3NjU3MzUzMzcsImV4cCI6MTc2NTkwODEzN30.gd_k3VvNUWoa32gP0aJwfj06ujgMK0xpyhZiSaxZrlo';
+const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
+
+if (!ACCESS_TOKEN) {
+  console.error('Missing ADMIN_ACCESS_TOKEN environment variable.');
+  process.exit(1);
+}
 
 // First get user transactions
 console.log(`Fetching transactions for user ${USER_ID}...`);
@@ -26,29 +31,22 @@ const req = https.request(options, (res) => {
       const result = JSON.parse(data);
       if (result.data?.transactions) {
         const deposits = result.data.transactions.filter(t => t.orderCategory === 'RECEIVE');
-        console.log(`\nFound ${deposits.length} deposit transactions:`);
-        deposits.forEach((t, i) => {
-          console.log(`${i + 1}. ${t.currency}: ${t.amount}`);
-          console.log(`   Status: ${t.status}, ID: ${t.transactionId}`);
-          console.log(`   Created: ${t.createdAt}`);
-          console.log('');
-        });
+        console.log(`\nFound ${deposits.length} deposit transactions.`);
         
         if (deposits.length === 0) {
           console.log('No deposit transactions found for this user.');
         }
       } else {
-        console.log('Response:', JSON.stringify(result, null, 2));
+        console.log('Transactions response parsed without a transaction list.');
       }
-    } catch (e) {
-      console.log('Parse error:', e.message);
-      console.log('Raw response:', data.substring(0, 500));
+    } catch {
+      console.log('Could not parse the transaction response JSON.');
     }
   });
 });
 
-req.on('error', (e) => {
-  console.error('Error:', e.message);
+req.on('error', () => {
+  console.error('Transaction history request failed.');
 });
 
 req.end();

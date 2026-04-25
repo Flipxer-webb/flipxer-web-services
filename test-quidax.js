@@ -6,10 +6,12 @@ const QUIDAX_BASE_URL = process.env.QUIDAX_BASE_URL;
 const QUIDAX_API_SECRET = process.env.QUIDAX_API_SECRET;
 const QUIDAX_API_PUBLIC = process.env.QUIDAX_API_PUBLIC;
 
+const sanitizeForLog = (value) => String(value).replaceAll(/[\r\n\t]/g, ' ');
+
 console.log('=== Quidax API Configuration Test ===');
 console.log('QUIDAX_BASE_URL:', QUIDAX_BASE_URL || 'NOT SET');
-console.log('QUIDAX_API_PUBLIC:', QUIDAX_API_PUBLIC ? `${QUIDAX_API_PUBLIC.substring(0, 10)}...` : 'NOT SET');
-console.log('QUIDAX_API_SECRET:', QUIDAX_API_SECRET ? `${QUIDAX_API_SECRET.substring(0, 10)}...` : 'NOT SET');
+console.log('QUIDAX_API_PUBLIC configured:', QUIDAX_API_PUBLIC ? 'yes' : 'no');
+console.log('QUIDAX_API_SECRET configured:', QUIDAX_API_SECRET ? 'yes' : 'no');
 console.log('');
 
 if (!QUIDAX_BASE_URL || !QUIDAX_API_SECRET) {
@@ -59,7 +61,7 @@ async function testQuidaxConnection() {
         } catch (createError) {
             console.log('✗ Sub-account creation failed:');
             console.log('  Status:', createError.response?.status);
-            console.log('  Message:', createError.response?.data?.message || createError.message);
+            console.log('  Message:', sanitizeForLog(createError.response?.data?.message || createError.message));
         }
         
         console.log('\n=== Test Complete ===');
@@ -67,8 +69,8 @@ async function testQuidaxConnection() {
     } catch (error) {
         console.error('✗ Quidax API Error:');
         console.error('  Status:', error.response?.status);
-        console.error('  Message:', error.response?.data?.message || error.message);
-        console.error('  Full response:', JSON.stringify(error.response?.data, null, 2));
+        console.error('  Message:', sanitizeForLog(error.response?.data?.message || error.message));
+        console.error('  Response preview:', sanitizeForLog(JSON.stringify(error.response?.data || {})).slice(0, 300));
     }
 }
 

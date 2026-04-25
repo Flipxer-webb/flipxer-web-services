@@ -8,6 +8,7 @@ const prisma = new PrismaClient({
 });
 const SALT_ROUNDS = 10;
 const generateIdentifier = customAlphabet("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 16);
+const FIXTURE_PASSWORD_SUFFIX = "@2024!";
 
 interface TestUser {
     email: string;
@@ -28,11 +29,15 @@ interface TestUser {
     nin?: string;
 }
 
+function buildFixturePassword(label: string): string {
+    return `${label}${FIXTURE_PASSWORD_SUFFIX}`;
+}
+
 const testUsers: TestUser[] = [
     {
         email: "tier0.test@flipxer.local",
         legacyEmail: "tier0.test@flipxer.com",
-        password: "TierZero@2024!",
+        password: buildFixturePassword("TierZero"),
         firstName: "Tier0",
         lastName: "TestUser",
         phone: "09088880000",
@@ -48,7 +53,7 @@ const testUsers: TestUser[] = [
     {
         email: "tier1.test@flipxer.local",
         legacyEmail: "tier1.test@flipxer.com",
-        password: "TierOne@2024!",
+        password: buildFixturePassword("TierOne"),
         firstName: "Tier1",
         lastName: "TestUser",
         phone: "09088881111",
@@ -65,7 +70,7 @@ const testUsers: TestUser[] = [
     {
         email: "tier2.test@flipxer.local",
         legacyEmail: "tier2.test@flipxer.com",
-        password: "TierTwo@2024!",
+        password: buildFixturePassword("TierTwo"),
         firstName: "Tier2",
         lastName: "TestUser",
         phone: "09088882222",
@@ -181,7 +186,7 @@ async function main() {
             });
 
             console.log(`✓ Tier ${user.tier}: ${user.email}`);
-            console.log(`  Password: ${user.password}`);
+            console.log("  Password source: tier-user seed fixture");
             console.log(`  User ID: ${created.id}`);
             console.log("");
         } catch (error) {
@@ -193,7 +198,9 @@ async function main() {
     console.log("TEST USER CREDENTIALS SUMMARY");
     console.log("========================================");
     for (const user of testUsers) {
-        console.log(`Tier ${user.tier}: ${user.email} / ${user.password}`);
+        console.log(
+            `Tier ${user.tier}: ${user.email} / password source: tier-user seed fixture`
+        );
     }
     console.log("========================================\n");
 }

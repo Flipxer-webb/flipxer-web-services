@@ -963,9 +963,14 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>> {
         this.validateUserId(options.user_id, "confirmInstantSwap");
         try {
+            const safeUserId = this.encodePathSegment(options.user_id, "user_id");
+            const safeQuotationId = this.encodePathSegment(
+                options.quotation_id,
+                "quotation_id"
+            );
             const requestOptions: AxiosRequestConfig<t.ConfirmInstantSwapOptions> =
             {
-                url: `/users/${options.user_id}/swap_quotation/${options.quotation_id}/confirm`,
+                url: `/users/${safeUserId}/swap_quotation/${safeQuotationId}/confirm`,
                 method: "POST",
             };
             const resp = await this.mainAxios<
@@ -1002,9 +1007,14 @@ export class QuidaxLib {
     ): Promise<t.QuidaxResponse<t.RefreshInstantSwapResponse>> {
         this.validateUserId(user_id, "refreshInstantSwapQuote");
         try {
+            const safeUserId = this.encodePathSegment(user_id, "user_id");
+            const safeQuotationId = this.encodePathSegment(
+                quotation_id,
+                "quotation_id"
+            );
             const requestOptions: AxiosRequestConfig<t.RefreshInstantSwapOptions> =
             {
-                url: `/users/${user_id}/swap_quotation/${quotation_id}/refresh`,
+                url: `/users/${safeUserId}/swap_quotation/${safeQuotationId}/refresh`,
                 method: "POST",
                 data: options,
             };

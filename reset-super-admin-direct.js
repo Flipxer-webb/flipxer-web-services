@@ -1,21 +1,35 @@
+require('dotenv').config();
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const NEW_PASSWORD = 'FlipxerAdmin2025!';
-const ADMIN_EMAIL = 'hello@flipxer.com';
-
-// Try internal Render connection (without -a suffix)
-const client = new Client({
-    connectionString: 'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d538qter433s73c6evk0-a.oregon-postgres.render.com/resolve_db_4a8l',
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 30000,
-    query_timeout: 30000,
-});
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@flipxer.com';
+const adminNewPassword = process.env.ADMIN_NEW_PASSWORD;
+const connectionString = process.env.ADMIN_DATABASE_URL || process.env.DATABASE_URL;
+const useSsl = connectionString && !/localhost|127\.0\.0\.1/.test(connectionString);
 
 async function main() {
+    let client;
+
     try {
         console.log('🔐 Super Admin Password Reset Script');
         console.log('=====================================\n');
+
+        if (!connectionString) {
+            console.error('❌ ADMIN_DATABASE_URL or DATABASE_URL environment variable is required.');
+            process.exit(1);
+        }
+
+        if (!adminNewPassword) {
+            console.error('❌ ADMIN_NEW_PASSWORD environment variable is required.');
+            process.exit(1);
+        }
+
+        client = new Client({
+            connectionString,
+            ssl: useSsl ? { rejectUnauthorized: false } : false,
+            connectionTimeoutMillis: 30000,
+            query_timeout: 30000,
+        });
 
         console.log('📡 Connecting to database...');
         console.log('(This may take a moment for external connections)\n');
@@ -40,7 +54,7 @@ async function main() {
 
         // Hash the new password
         console.log('🔒 Hashing new password...');
-        const hashedPassword = await bcrypt.hash(NEW_PASSWORD, 10);
+        const hashedPassword = await bcrypt.hash(adminNewPassword, 10);
 
         // Update the password
         console.log('📝 Updating password in database...');
@@ -55,7 +69,7 @@ async function main() {
         console.log('✅ SUCCESS! Password has been reset.');
         console.log('=====================================');
         console.log(`📧 Email: ${ADMIN_EMAIL}`);
-        console.log(`🔑 Password: ${NEW_PASSWORD}`);
+        console.log('🔑 Password source: ADMIN_NEW_PASSWORD');
         console.log('=====================================\n');
 
     } catch (err) {
@@ -66,7 +80,9 @@ async function main() {
         console.log('   2. Use Render\'s database dashboard');
         console.log('   3. Enable external connections in Render settings\n');
     } finally {
-        await client.end();
+        if (client) {
+            await client.end();
+        }
     }
 }
 
