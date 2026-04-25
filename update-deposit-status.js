@@ -100,10 +100,13 @@ async function main() {
     console.log(`Found ${allTxs.length} transactions`);
     
     // Find RECEIVE transactions that are pending
-    const pendingReceives = allTxs.filter(tx => 
-      tx.transactionType === 'RECEIVE' && 
-      (tx.streamlinedStatus === 'pending' || tx.status === 'pending')
-    );
+    const pendingReceives = allTxs.filter(tx => {
+      const streamlinedStatus = tx.streamLinedStatus ?? tx.streamlinedStatus;
+      return (
+        tx.transactionType === 'RECEIVE' &&
+        (streamlinedStatus === 'pending' || tx.status === 'pending')
+      );
+    });
     
     console.log(`Found ${pendingReceives.length} pending RECEIVE transactions`);
     
