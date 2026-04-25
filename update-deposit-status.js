@@ -2,17 +2,29 @@
 const https = require('node:https');
 
 const adminAccessToken = process.env.ADMIN_ACCESS_TOKEN;
+const apiHostname = process.env.API_HOSTNAME;
+const userId = process.argv[2] || process.env.USER_ID || '6';
 
 if (!adminAccessToken) {
   console.error('Missing ADMIN_ACCESS_TOKEN environment variable.');
   process.exit(1);
 }
 
-async function getTransactions() {
+if (!apiHostname) {
+  console.error('Missing API_HOSTNAME environment variable.');
+  process.exit(1);
+}
+
+if (!/^\d+$/.test(String(userId))) {
+  console.error('Invalid userId. Provide a numeric userId as CLI arg or USER_ID env var.');
+  process.exit(1);
+}
+
+async function getTransactions(userId) {
   return new Promise((resolve, reject) => {
     const options = {
-      hostname: 'flipxer-api.onrender.com',
-      path: '/api/v1/admin/transactions?userId=6',
+      hostname: apiHostname,
+      path: `/api/v1/admin/transactions?userId=${encodeURIComponent(userId)}`,
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${adminAccessToken}`,
@@ -42,7 +54,7 @@ async function updateTransactionStatus(transactionId, status) {
     const payload = JSON.stringify({ status: status });
     
     const options = {
-      hostname: 'flipxer-api.onrender.com',
+      hostname: apiHostname,
       path: `/api/v1/admin/transactions/${transactionId}/status`,
       method: 'PATCH',
       headers: {
@@ -71,8 +83,8 @@ async function updateTransactionStatus(transactionId, status) {
 }
 
 async function main() {
-  console.log('Fetching transactions for user 6...');
-  const txResult = await getTransactions();
+  console.log('Fetching transactions...');
+  const txResult = await getTransactions(userId);
   
   console.log('Raw response:', JSON.stringify(txResult, null, 2));
   
@@ -88,10 +100,13 @@ async function main() {
     console.log(`Found ${allTxs.length} transactions`);
     
     // Find RECEIVE transactions that are pending
-    const pendingReceives = allTxs.filter(tx => 
-      tx.transactionType === 'RECEIVE' && 
-      (tx.streamLinedStatus === 'pending' || tx.status === 'pending')
-    );
+    const pendingReceives = allTxs.filter(tx => {
+      const streamlinedStatus = tx.streamLinedStatus ?? tx.streamlinedStatus;
+      return (
+        tx.transactionType === 'RECEIVE' &&
+        (streamlinedStatus === 'pending' || tx.status === 'pending')
+      );
+    });
     
     console.log(`Found ${pendingReceives.length} pending RECEIVE transactions`);
     
