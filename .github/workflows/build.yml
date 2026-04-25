@@ -18,6 +18,10 @@ jobs:
   sonarqube:
     name: SonarQube
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,7 +57,23 @@ jobs:
         run: pnpm exec jest --coverage --passWithNoTests --runInBand --detectOpenHandles --forceExit
 
       - name: SonarQube Scan
+        id: sonar_scan
         if: always()
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Export SonarQube vulnerabilities to SARIF
+        id: export_sonar
+        if: ${{ steps.sonar_scan.outcome == 'success' }}
+        run: node .github/scripts/export-sonar-vulnerabilities-to-sarif.mjs
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SARIF_OUTPUT: sonarqube-results.sarif
+
+      - name: Upload SonarQube SARIF
+        if: ${{ steps.export_sonar.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sonarqube-results.sarif
+          category: sonarqube-security

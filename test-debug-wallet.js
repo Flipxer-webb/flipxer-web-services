@@ -36,5 +36,5 @@ const req = https.request(options, (res) => {
   });
 });
 
-req.on('error', (e) => console.error('Error:', e.message));
+req.on('error', () => console.error('Wallet debug request failed.'));
 req.end();
