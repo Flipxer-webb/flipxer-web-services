@@ -9,15 +9,9 @@ import {
     NetworkTypes,
 } from "@prisma/client";
 import { buildResponse } from "@/utils/api-response-util";
-import {
-    GeneralTransactionException,
-    OutOfRangeException,
-} from "../errors";
+import { GeneralTransactionException, OutOfRangeException } from "../errors";
 import { TradeHelpersService } from "./trade-helpers.service";
-import {
-    SUPPORTED_ASSETS,
-    DEFAULT_TRANSACTION_TIMEOUT_MS,
-} from "../constants";
+import { SUPPORTED_ASSETS, DEFAULT_TRANSACTION_TIMEOUT_MS } from "../constants";
 import {
     GetWalletDto,
     GetWalletAddressesDto,
@@ -28,7 +22,7 @@ import { UserNotFoundException } from "../../user";
 
 /**
  * Wallet Address Service
- * 
+ *
  * Handles all wallet address management operations including:
  * - Creating and managing crypto wallet addresses
  * - Syncing wallet balances with Quidax
@@ -42,8 +36,8 @@ export class WalletAddressService {
         private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService,
-        private readonly tradeHelpers: TradeHelpersService
-    ) { }
+        private readonly tradeHelpers: TradeHelpersService,
+    ) {}
 
     /**
      * Logs wallet-related operations with structured data
@@ -55,7 +49,7 @@ export class WalletAddressService {
 
     /**
      * Syncs a user's wallet balance with Quidax for a specific currency
-     * 
+     *
      * @param userId - The user's database ID
      * @param currency - The cryptocurrency symbol (e.g., "BTC", "ETH")
      */
@@ -96,19 +90,19 @@ export class WalletAddressService {
             }
         } catch (error) {
             this.logger.error(
-                `Failed to sync wallet for ${currency}: ${error.message}`
+                `Failed to sync wallet for ${currency}: ${error.message}`,
             );
         }
     }
 
     /**
      * Extracts a map of deposit-enabled networks from wallet data
-     * 
+     *
      * @param wallet - The wallet response from Quidax
      * @returns Map of normalized network types to provider network identifiers
      */
     extractDepositEnabledNetworkMap(
-        wallet: GetUserWalletResponse
+        wallet: GetUserWalletResponse,
     ): Map<NetworkTypes, string> {
         this.logWalletFlow("extractDepositEnabledNetworkMap:start", {
             currency: wallet.currency,
@@ -121,17 +115,18 @@ export class WalletAddressService {
             if (!candidate?.trim()) {
                 this.logWalletFlow(
                     "extractDepositEnabledNetworkMap:skip_empty",
-                    { candidate }
+                    { candidate },
                 );
                 return;
             }
 
-            const normalized = this.tradeHelpers.normalizeNetworkInput(candidate);
+            const normalized =
+                this.tradeHelpers.normalizeNetworkInput(candidate);
 
             if (!normalized) {
                 this.logWalletFlow(
                     "extractDepositEnabledNetworkMap:unsupported_network",
-                    { candidate }
+                    { candidate },
                 );
                 return;
             }
@@ -147,7 +142,7 @@ export class WalletAddressService {
 
         if (wallet.default_network) {
             const defaultNetworkInfo = networks.find(
-                (network) => network.id === wallet.default_network
+                (network) => network.id === wallet.default_network,
             );
 
             if (!defaultNetworkInfo || defaultNetworkInfo.deposits_enabled) {
@@ -159,7 +154,7 @@ export class WalletAddressService {
             if (!network.deposits_enabled) {
                 this.logWalletFlow(
                     "extractDepositEnabledNetworkMap:skip_deposit_disabled",
-                    { networkId: network.id }
+                    { networkId: network.id },
                 );
                 continue;
             }
@@ -176,7 +171,7 @@ export class WalletAddressService {
     /**
      * Ensures wallet payment addresses exist for the specified networks.
      * Creates new addresses via Quidax if they don't exist.
-     * 
+     *
      * @param options - Configuration for address creation
      * @returns Array of created or existing wallet addresses
      */
@@ -188,7 +183,6 @@ export class WalletAddressService {
         walletData?: GetUserWalletResponse;
     }): Promise<CryptoWalletAddress[]> {
         const { userId, cryptoSubAccountId, assetSymbol } = options;
-
         const assetSymbolUpper = assetSymbol.toUpperCase();
         const currency = assetSymbol.toLowerCase();
 
@@ -200,6 +194,7 @@ export class WalletAddressService {
             hasWalletData: Boolean(options.walletData),
         });
 
+        // Validate asset is supported
         if (!SUPPORTED_ASSETS.has(assetSymbolUpper)) {
             this.logWalletFlow("ensureWalletPaymentAddresses:skip_asset", {
                 assetSymbol: assetSymbolUpper,
@@ -207,8 +202,117 @@ export class WalletAddressService {
             return [];
         }
 
+        // Fetch wallet data from provider
+        const walletResponse = await this.getOrFetchWalletResponse(
+            options.walletData,
+            cryptoSubAccountId,
+            currency,
+        );
+        if (!walletResponse) return [];
+
+        // Get deposit-enabled networks
+        const depositEnabledNetworkMap =
+            this.extractDepositEnabledNetworkMap(walletResponse);
+        if (!depositEnabledNetworkMap.size) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:no_deposit_enabled_network",
+                { currency, cryptoSubAccountId },
+            );
+            return [];
+        }
+
+        // Determine target networks to create
+        const targetNetworks = await this.determineTargetNetworks({
+            depositEnabledNetworkMap,
+            requestedNetworks: options.requestedNetworks,
+            currency: walletResponse.currency,
+            cryptoSubAccountId,
+        });
+        if (!targetNetworks.length) return [];
+
+        // Get existing addresses and build network set
+        const { existingNetworkSet } = await this.buildExistingNetworkContext(
+            userId,
+            assetSymbolUpper,
+            walletResponse,
+            depositEnabledNetworkMap,
+        );
+
+        // Backfill addresses from provider and apply fallback
+        const providerAddressMap = await this.fetchProviderAddressMap(
+            cryptoSubAccountId,
+            currency,
+        );
+        const backfilledProviderAddresses =
+            await this.backfillFromProviderAddresses({
+                providerAddressMap,
+                targetNetworks,
+                existingNetworkSet,
+                userId,
+                assetSymbolUpper,
+            });
+
+        await this.applyWalletAddressFallback(
+            userId,
+            assetSymbolUpper,
+            walletResponse,
+        );
+
+        // Calculate networks to create
+        const networksToCreate = targetNetworks.filter(
+            (network) => !existingNetworkSet.has(network),
+        );
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:networks_to_create", {
+            networksToCreate,
+        });
+
+        // Early exit if all networks already exist
+        if (!networksToCreate.length) {
+            return await this.getExistingWalletAddresses(
+                userId,
+                assetSymbolUpper,
+            );
+        }
+
+        // Clean up FAILED records before creating new ones
+        await this.deleteFailedRecordsForNetworks(
+            userId,
+            assetSymbolUpper,
+            networksToCreate,
+        );
+
+        // Create new addresses via Quidax
+        const createdAddresses = await this.createAndPersistAddresses({
+            networksToCreate,
+            depositEnabledNetworkMap,
+            cryptoSubAccountId,
+            currency,
+            userId,
+            assetSymbolUpper,
+            backfilledProviderAddresses,
+        });
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:complete", {
+            createdAddresses: createdAddresses.map((address) => ({
+                id: address.id,
+                network: address.network,
+            })),
+        });
+
+        return createdAddresses;
+    }
+
+    /**
+     * Fetches wallet response, using provided data or fetching from Quidax
+     */
+    private async getOrFetchWalletResponse(
+        providedWalletData: GetUserWalletResponse | undefined,
+        cryptoSubAccountId: string,
+        currency: string,
+    ): Promise<GetUserWalletResponse | null> {
         const walletResponse =
-            options.walletData ??
+            providedWalletData ??
             (
                 await this.quidaxService.getUserWallet({
                     user_id: cryptoSubAccountId,
@@ -219,25 +323,26 @@ export class WalletAddressService {
         if (!walletResponse) {
             this.logWalletFlow(
                 "ensureWalletPaymentAddresses:no_wallet_response",
-                { currency, cryptoSubAccountId }
+                { currency, cryptoSubAccountId },
             );
-            return [];
+            return null;
         }
 
-        const depositEnabledNetworkMap =
-            this.extractDepositEnabledNetworkMap(walletResponse);
+        return walletResponse;
+    }
 
-        if (!depositEnabledNetworkMap.size) {
-            this.logWalletFlow(
-                "ensureWalletPaymentAddresses:no_deposit_enabled_network",
-                { currency, cryptoSubAccountId }
-            );
-            return [];
-        }
-
-        let targetNetworks = Array.from(depositEnabledNetworkMap.keys());
-
-        const providerAddressMap = await this.fetchProviderAddressMap(cryptoSubAccountId, currency);
+    /**
+     * Determines target networks based on deposit availability and user requests
+     */
+    private async determineTargetNetworks(options: {
+        depositEnabledNetworkMap: Map<NetworkTypes, string>;
+        requestedNetworks?: string[];
+        currency: string;
+        cryptoSubAccountId: string;
+    }): Promise<NetworkTypes[]> {
+        let targetNetworks = Array.from(
+            options.depositEnabledNetworkMap.keys(),
+        );
 
         this.logWalletFlow("ensureWalletPaymentAddresses:initial_targets", {
             targetNetworks,
@@ -246,23 +351,40 @@ export class WalletAddressService {
         if (options.requestedNetworks?.length) {
             targetNetworks = this.validateRequestedNetworks(
                 options.requestedNetworks,
-                depositEnabledNetworkMap,
-                walletResponse.currency,
+                options.depositEnabledNetworkMap,
+                options.currency,
             );
             this.logWalletFlow(
                 "ensureWalletPaymentAddresses:filtered_requested_networks",
-                { targetNetworks }
+                { targetNetworks },
             );
         }
 
         if (!targetNetworks.length) {
             this.logWalletFlow(
                 "ensureWalletPaymentAddresses:no_target_networks_after_filter",
-                { currency, cryptoSubAccountId }
+                {
+                    currency: options.currency,
+                    cryptoSubAccountId: options.cryptoSubAccountId,
+                },
             );
-            return [];
         }
 
+        return targetNetworks;
+    }
+
+    /**
+     * Builds context of existing addresses and default network
+     */
+    private async buildExistingNetworkContext(
+        userId: number,
+        assetSymbolUpper: string,
+        walletResponse: GetUserWalletResponse,
+        depositEnabledNetworkMap: Map<NetworkTypes, string>,
+    ): Promise<{
+        existingNetworkSet: Set<NetworkTypes>;
+        defaultNetworkNormalized: NetworkTypes | null;
+    }> {
         const existingAddresses =
             await this.prisma.cryptoWalletAddress.findMany({
                 where: {
@@ -275,9 +397,10 @@ export class WalletAddressService {
                 },
             });
 
-        const defaultNetworkNormalized = this.tradeHelpers.normalizeNetworkInput(
-            walletResponse.default_network
-        );
+        const defaultNetworkNormalized =
+            this.tradeHelpers.normalizeNetworkInput(
+                walletResponse.default_network,
+            );
 
         this.logWalletFlow("ensureWalletPaymentAddresses:existing_addresses", {
             existingCount: existingAddresses.length,
@@ -285,137 +408,79 @@ export class WalletAddressService {
         });
 
         const existingNetworkSet = this.buildExistingNetworkSet(
-            existingAddresses, defaultNetworkNormalized, depositEnabledNetworkMap
+            existingAddresses,
+            defaultNetworkNormalized,
+            depositEnabledNetworkMap,
         );
 
-        const backfilledProviderAddresses = await this.backfillFromProviderAddresses({
-            providerAddressMap, targetNetworks, existingNetworkSet, userId, assetSymbolUpper,
+        return { existingNetworkSet, defaultNetworkNormalized };
+    }
+
+    /**
+     * Retrieves full existing wallet addresses for an asset
+     */
+    private async getExistingWalletAddresses(
+        userId: number,
+        assetSymbolUpper: string,
+    ): Promise<CryptoWalletAddress[]> {
+        this.logWalletFlow("ensureWalletPaymentAddresses:all_networks_exist", {
+            assetSymbol: assetSymbolUpper,
         });
 
-        // Fallback: use wallet's deposit_address to fill PENDING records for the default network
-        await this.applyWalletAddressFallback(
-            userId, assetSymbolUpper, walletResponse,
-        );
-
-        targetNetworks = targetNetworks.filter(
-            (network) => !existingNetworkSet.has(network)
-        );
-
-        const networksToCreate = targetNetworks.filter(
-            (network) => !existingNetworkSet.has(network)
-        );
-
-        this.logWalletFlow("ensureWalletPaymentAddresses:networks_to_create", {
-            networksToCreate,
+        return await this.prisma.cryptoWalletAddress.findMany({
+            where: {
+                userId,
+                assetSymbol: assetSymbolUpper,
+            },
         });
+    }
 
-        // Remove FAILED records for networks we are about to re-create
-        // to avoid unique constraint violation on [userId, assetSymbol, network]
-        if (networksToCreate.length) {
-            await this.prisma.cryptoWalletAddress.deleteMany({
-                where: {
-                    userId,
-                    assetSymbol: assetSymbolUpper,
-                    network: { in: networksToCreate },
-                    status: CryptoWalletStatus.FAILED,
-                },
-            });
-        }
+    /**
+     * Deletes FAILED records for networks about to be re-created
+     */
+    private async deleteFailedRecordsForNetworks(
+        userId: number,
+        assetSymbolUpper: string,
+        networksToCreate: NetworkTypes[],
+    ): Promise<void> {
+        if (!networksToCreate.length) return;
 
-        if (!networksToCreate.length) {
-            this.logWalletFlow(
-                "ensureWalletPaymentAddresses:all_networks_exist",
-                { assetSymbol: assetSymbolUpper }
-            );
-            // Return the existing addresses instead of empty array
-            const existingFullAddresses = await this.prisma.cryptoWalletAddress.findMany({
-                where: {
-                    userId,
-                    assetSymbol: assetSymbolUpper,
-                },
-            });
-            return existingFullAddresses;
-        }
+        await this.prisma.cryptoWalletAddress.deleteMany({
+            where: {
+                userId,
+                assetSymbol: assetSymbolUpper,
+                status: CryptoWalletStatus.FAILED,
+                network: { in: networksToCreate },
+            },
+        });
+    }
 
+    /**
+     * Creates payment addresses via Quidax and persists them
+     */
+    private async createAndPersistAddresses(options: {
+        networksToCreate: NetworkTypes[];
+        depositEnabledNetworkMap: Map<NetworkTypes, string>;
+        cryptoSubAccountId: string;
+        currency: string;
+        userId: number;
+        assetSymbolUpper: string;
+        backfilledProviderAddresses: CryptoWalletAddress[];
+    }): Promise<CryptoWalletAddress[]> {
         const creationResults = await Promise.allSettled(
-            networksToCreate.map(async (network) => {
-                const providerNetwork = depositEnabledNetworkMap.get(network);
-
-                if (!providerNetwork) {
-                    this.logWalletFlow(
-                        "ensureWalletPaymentAddresses:missing_provider_network",
-                        { network }
-                    );
-                    throw new GeneralTransactionException(
-                        `Unable to resolve provider network for ${network}`,
-                        HttpStatus.SERVICE_UNAVAILABLE
-                    );
-                }
-
-                this.logWalletFlow(
-                    "ensureWalletPaymentAddresses:creating_address",
-                    {
-                        network,
-                        providerNetwork,
-                        currency,
-                        cryptoSubAccountId,
-                    }
-                );
-
-                const response = await this.quidaxService.createPaymentAddress({
-                    user_id: cryptoSubAccountId,
-                    currency,
-                    network: providerNetwork,
-                });
-
-                const responseNetworkValue = response.data.network || network;
-                const normalizedNetwork =
-                    this.tradeHelpers.normalizeNetworkInput(responseNetworkValue);
-
-                if (!normalizedNetwork) {
-                    this.logWalletFlow(
-                        "ensureWalletPaymentAddresses:unsupported_network_returned",
-                        {
-                            responseNetworkValue,
-                            providerNetwork,
-                            assetSymbol: assetSymbolUpper,
-                        }
-                    );
-                    throw new GeneralTransactionException(
-                        `Unsupported network ${responseNetworkValue} returned while creating address for ${assetSymbolUpper}`,
-                        HttpStatus.SERVICE_UNAVAILABLE
-                    );
-                }
-
-                this.logWalletFlow(
-                    "ensureWalletPaymentAddresses:created_address",
-                    {
-                        walletAddressId: response.data.id,
-                        normalizedNetwork,
-                        address: response.data.address,
-                        destination_tag: response.data.destination_tag,
-                    }
-                );
-
-                return {
-                    walletAddressId: response.data.id,
-                    network: normalizedNetwork,
-                    address: response.data.address,
-                    destination_tag: response.data.destination_tag,
-                };
-            })
+            options.networksToCreate.map((network) =>
+                this.createPaymentAddressForNetwork({
+                    network,
+                    depositEnabledNetworkMap: options.depositEnabledNetworkMap,
+                    cryptoSubAccountId: options.cryptoSubAccountId,
+                    currency: options.currency,
+                    assetSymbolUpper: options.assetSymbolUpper,
+                }),
+            ),
         );
 
-        const successfulCreations = creationResults.filter(
-            (
-                result
-            ): result is PromiseFulfilledResult<{
-                walletAddressId: string;
-                network: NetworkTypes;
-                address: string;
-                destination_tag: string | null;
-            }> => result.status === "fulfilled"
-        );
+        const successfulCreations =
+            this.filterSuccessfulCreations(creationResults);
 
         this.logWalletFlow("ensureWalletPaymentAddresses:creation_results", {
             successfulCount: successfulCreations.length,
@@ -425,24 +490,125 @@ export class WalletAddressService {
         if (!successfulCreations.length) {
             throw new GeneralTransactionException(
                 "Failed to create wallet addresses",
-                HttpStatus.SERVICE_UNAVAILABLE
+                HttpStatus.SERVICE_UNAVAILABLE,
             );
         }
 
         const createdAddresses = await this.persistCreatedAddresses({
-            successfulCreations, backfilledProviderAddresses, userId, assetSymbolUpper,
+            successfulCreations,
+            backfilledProviderAddresses: options.backfilledProviderAddresses,
+            userId: options.userId,
+            assetSymbolUpper: options.assetSymbolUpper,
         });
 
         this.logRejectedCreations(creationResults);
 
-        this.logWalletFlow("ensureWalletPaymentAddresses:complete", {
-            createdAddresses: createdAddresses.map((address) => ({
-                id: address.id,
-                network: address.network,
-            })),
+        return createdAddresses;
+    }
+
+    /**
+     * Creates a single payment address for a network
+     */
+    private async createPaymentAddressForNetwork(options: {
+        network: NetworkTypes;
+        depositEnabledNetworkMap: Map<NetworkTypes, string>;
+        cryptoSubAccountId: string;
+        currency: string;
+        assetSymbolUpper: string;
+    }): Promise<{
+        walletAddressId: string;
+        network: NetworkTypes;
+        address: string;
+        destination_tag: string | null;
+    }> {
+        const providerNetwork = options.depositEnabledNetworkMap.get(
+            options.network,
+        );
+
+        if (!providerNetwork) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:missing_provider_network",
+                { network: options.network },
+            );
+            throw new GeneralTransactionException(
+                `Unable to resolve provider network for ${options.network}`,
+                HttpStatus.SERVICE_UNAVAILABLE,
+            );
+        }
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:creating_address", {
+            network: options.network,
+            providerNetwork,
+            currency: options.currency,
+            cryptoSubAccountId: options.cryptoSubAccountId,
         });
 
-        return createdAddresses;
+        const response = await this.quidaxService.createPaymentAddress({
+            user_id: options.cryptoSubAccountId,
+            currency: options.currency,
+            network: providerNetwork,
+        });
+
+        const responseNetworkValue = response.data.network || options.network;
+        const normalizedNetwork =
+            this.tradeHelpers.normalizeNetworkInput(responseNetworkValue);
+
+        if (!normalizedNetwork) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:unsupported_network_returned",
+                {
+                    responseNetworkValue,
+                    providerNetwork,
+                    assetSymbol: options.assetSymbolUpper,
+                },
+            );
+            throw new GeneralTransactionException(
+                `Unsupported network ${responseNetworkValue} returned while creating address for ${options.assetSymbolUpper}`,
+                HttpStatus.SERVICE_UNAVAILABLE,
+            );
+        }
+
+        this.logWalletFlow("ensureWalletPaymentAddresses:created_address", {
+            walletAddressId: response.data.id,
+            normalizedNetwork,
+            address: response.data.address,
+            destination_tag: response.data.destination_tag,
+        });
+
+        return {
+            walletAddressId: response.data.id,
+            network: normalizedNetwork,
+            address: response.data.address,
+            destination_tag: response.data.destination_tag,
+        };
+    }
+
+    /**
+     * Filters successful creations from PromiseSettledResult array
+     */
+    private filterSuccessfulCreations(
+        creationResults: PromiseSettledResult<{
+            walletAddressId: string;
+            network: NetworkTypes;
+            address: string;
+            destination_tag: string | null;
+        }>[],
+    ): PromiseFulfilledResult<{
+        walletAddressId: string;
+        network: NetworkTypes;
+        address: string;
+        destination_tag: string | null;
+    }>[] {
+        return creationResults.filter(
+            (
+                result,
+            ): result is PromiseFulfilledResult<{
+                walletAddressId: string;
+                network: NetworkTypes;
+                address: string;
+                destination_tag: string | null;
+            }> => result.status === "fulfilled",
+        );
     }
 
     private async fetchProviderAddressMap(
@@ -461,9 +627,10 @@ export class WalletAddressService {
             const providerAddresses = providerAddressResponse.data ?? [];
 
             for (const providerAddress of providerAddresses) {
-                const normalizedNetwork = this.tradeHelpers.normalizeNetworkInput(
-                    providerAddress.network
-                );
+                const normalizedNetwork =
+                    this.tradeHelpers.normalizeNetworkInput(
+                        providerAddress.network,
+                    );
 
                 if (normalizedNetwork) {
                     providerAddressMap.set(normalizedNetwork, providerAddress);
@@ -475,12 +642,12 @@ export class WalletAddressService {
                 {
                     providerAddressCount: providerAddresses.length,
                     mappedCount: providerAddressMap.size,
-                }
+                },
             );
         } catch (error) {
             this.logWalletFlow(
                 "ensureWalletPaymentAddresses:provider_address_fetch_failed",
-                { error: error?.message }
+                { error: error?.message },
             );
         }
 
@@ -518,60 +685,114 @@ export class WalletAddressService {
         userId: number;
         assetSymbolUpper: string;
     }): Promise<CryptoWalletAddress[]> {
-        const { providerAddressMap, targetNetworks, existingNetworkSet, userId, assetSymbolUpper } = options;
+        const {
+            providerAddressMap,
+            targetNetworks,
+            existingNetworkSet,
+            userId,
+            assetSymbolUpper,
+        } = options;
         const backfilledAddresses: CryptoWalletAddress[] = [];
 
         for (const [network, providerAddress] of providerAddressMap.entries()) {
-            if (!targetNetworks.includes(network) || existingNetworkSet.has(network)) {
+            if (
+                !targetNetworks.includes(network) ||
+                existingNetworkSet.has(network)
+            )
                 continue;
-            }
 
-            try {
-                const hasAddress = Boolean(providerAddress.address);
+            // Guard: never persist a record with null network or null address
+            if (
+                !this.validateBackfillData(
+                    providerAddress,
+                    network,
+                    userId,
+                    assetSymbolUpper,
+                )
+            )
+                continue;
 
-                const record = await this.prisma.cryptoWalletAddress.upsert({
-                    where: { walletAddressId: providerAddress.id },
-                    update: {
-                        address: providerAddress.address,
-                        destination_tag: providerAddress.destination_tag,
-                        status: hasAddress
-                            ? CryptoWalletStatus.ACTIVE
-                            : CryptoWalletStatus.PENDING,
-                        lastSyncedAt: hasAddress ? new Date() : undefined,
-                        network,
-                    },
-                    create: {
-                        assetSymbol: assetSymbolUpper,
-                        walletAddressId: providerAddress.id,
-                        userId,
-                        network,
-                        address: providerAddress.address,
-                        destination_tag: providerAddress.destination_tag,
-                        status: hasAddress
-                            ? CryptoWalletStatus.ACTIVE
-                            : CryptoWalletStatus.PENDING,
-                        lastSyncedAt: hasAddress ? new Date() : undefined,
-                    },
-                });
+            const record = await this.persistProviderAddress(
+                userId,
+                assetSymbolUpper,
+                network,
+                providerAddress,
+            );
 
+            if (record) {
                 backfilledAddresses.push(record);
                 existingNetworkSet.add(network);
-            } catch (error) {
-                this.logWalletFlow(
-                    "ensureWalletPaymentAddresses:provider_backfill_failed",
-                    { network, error: error?.message }
-                );
             }
         }
 
         if (backfilledAddresses.length) {
             this.logWalletFlow(
                 "ensureWalletPaymentAddresses:provider_backfill_success",
-                { backfilledCount: backfilledAddresses.length }
+                { backfilledCount: backfilledAddresses.length },
             );
         }
 
         return backfilledAddresses;
+    }
+    private validateBackfillData(
+        providerAddress: IPaymentAddress,
+        network: NetworkTypes,
+        userId: number,
+        assetSymbolUpper: string,
+    ): boolean {
+        if (!providerAddress.address || !network) {
+            this.logger.warn(
+                `[ProviderGuard] Skipping persist incomplete data from Quidax, User: ${userId}, Asset: ${assetSymbolUpper}, HasAddress: ${!!providerAddress.address}, HasNetwork: ${!!network}`,
+            );
+            return false;
+        }
+        return true;
+    }
+
+    private async persistProviderAddress(
+        userId: number,
+        assetSymbol: string,
+        network: NetworkTypes,
+        providerAddress: IPaymentAddress,
+    ): Promise<CryptoWalletAddress | null> {
+        try {
+            const hasAddress = Boolean(providerAddress.address);
+            const status = hasAddress
+                ? CryptoWalletStatus.ACTIVE
+                : CryptoWalletStatus.PENDING;
+            const lastSyncedAt = hasAddress ? new Date() : undefined;
+
+            return await this.prisma.cryptoWalletAddress.upsert({
+                where: { walletAddressId: providerAddress.id },
+                update: {
+                    address: providerAddress.address,
+                    destination_tag: providerAddress.destination_tag,
+                    status,
+                    lastSyncedAt,
+                    network,
+                },
+                create: {
+                    userId,
+                    walletAddressId: providerAddress.id,
+                    assetSymbol,
+                    network,
+                    address: providerAddress.address,
+                    destination_tag: providerAddress.destination_tag,
+                    status,
+                    lastSyncedAt,
+                },
+            });
+        } catch (error) {
+            this.logWalletFlow(
+                "ensureWalletPaymentAddresses:provider_backfill_failed",
+                {
+                    network,
+                    error: error?.message,
+                    userId,
+                },
+            );
+            return null;
+        }
     }
 
     /**
@@ -627,14 +848,19 @@ export class WalletAddressService {
         userId: number;
         assetSymbolUpper: string;
     }): Promise<CryptoWalletAddress[]> {
-        const { successfulCreations, backfilledProviderAddresses, userId, assetSymbolUpper } = options;
+        const {
+            successfulCreations,
+            backfilledProviderAddresses,
+            userId,
+            assetSymbolUpper,
+        } = options;
         const createdAddresses: CryptoWalletAddress[] = [
             ...backfilledProviderAddresses,
         ];
 
         this.logWalletFlow(
             "ensureWalletPaymentAddresses:persisting_addresses",
-            { createCount: successfulCreations.length }
+            { createCount: successfulCreations.length },
         );
 
         try {
@@ -658,7 +884,9 @@ export class WalletAddressService {
                                 status: hasAddress
                                     ? CryptoWalletStatus.ACTIVE
                                     : CryptoWalletStatus.PENDING,
-                                lastSyncedAt: hasAddress ? new Date() : undefined,
+                                lastSyncedAt: hasAddress
+                                    ? new Date()
+                                    : undefined,
                             },
                             create: {
                                 assetSymbol: assetSymbolUpper,
@@ -670,14 +898,16 @@ export class WalletAddressService {
                                 status: hasAddress
                                     ? CryptoWalletStatus.ACTIVE
                                     : CryptoWalletStatus.PENDING,
-                                lastSyncedAt: hasAddress ? new Date() : undefined,
+                                lastSyncedAt: hasAddress
+                                    ? new Date()
+                                    : undefined,
                             },
                         });
 
                         createdAddresses.push(record);
                     }
                 },
-                { timeout: DEFAULT_TRANSACTION_TIMEOUT_MS }
+                { timeout: DEFAULT_TRANSACTION_TIMEOUT_MS },
             );
         } catch (error) {
             this.logWalletFlow("ensureWalletPaymentAddresses:persist_failed", {
@@ -689,21 +919,28 @@ export class WalletAddressService {
         return createdAddresses;
     }
 
-    private logRejectedCreations(creationResults: PromiseSettledResult<any>[]) {
+    private logRejectedCreations(
+        creationResults: PromiseSettledResult<{
+            walletAddressId: string;
+            network: NetworkTypes;
+            address: string;
+            destination_tag: string | null;
+        }>[],
+    ) {
         const rejectedErrors = creationResults.filter(
             (result): result is PromiseRejectedResult =>
-                result.status === "rejected"
+                result.status === "rejected",
         );
 
         if (rejectedErrors.length) {
             this.logWalletFlow(
                 "ensureWalletPaymentAddresses:rejected_creations",
-                { count: rejectedErrors.length }
+                { count: rejectedErrors.length },
             );
-            rejectedErrors.forEach((err, index) =>
+            rejectedErrors.forEach((err) =>
                 this.logger.error(
-                    `[WalletFlow] ensureWalletPaymentAddresses:rejected_detail index=${index} reason=${err.reason}`
-                )
+                    `[WalletFlow] ensureWalletPaymentAddresses:rejected_creation reason=${err.reason}`,
+                ),
             );
         }
     }
@@ -716,16 +953,17 @@ export class WalletAddressService {
         const normalizedRequests = new Set<NetworkTypes>();
 
         for (const requested of requestedNetworks) {
-            const normalized = this.tradeHelpers.normalizeNetworkInput(requested);
+            const normalized =
+                this.tradeHelpers.normalizeNetworkInput(requested);
 
             if (!normalized || !depositEnabledNetworkMap.has(normalized)) {
                 this.logWalletFlow(
                     "ensureWalletPaymentAddresses:requested_network_unavailable",
-                    { requested }
+                    { requested },
                 );
                 throw new OutOfRangeException(
                     `Network ${requested} is not available for ${currency.toUpperCase()}`,
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
 
@@ -737,7 +975,7 @@ export class WalletAddressService {
 
     /**
      * Gets a specific wallet address for a user
-     * 
+     *
      * @param userId - The user's database ID
      * @param dto - Query parameters (asset, network)
      */
@@ -761,7 +999,7 @@ export class WalletAddressService {
     /**
      * Gets all wallet addresses for a user and specific asset.
      * Automatically triggers address creation for any missing or failed networks.
-     * 
+     *
      * @param userId - The user's database ID
      * @param dto - Query parameters (asset)
      */
@@ -784,7 +1022,7 @@ export class WalletAddressService {
             }
         } catch (error) {
             this.logger.warn(
-                `getWalletAddresses: failed to ensure addresses for ${assetSymbol}: ${error.message}`
+                `getWalletAddresses: failed to ensure addresses for userId=${userId}, asset=${assetSymbol}: ${error.message}`,
             );
         }
 
@@ -806,7 +1044,7 @@ export class WalletAddressService {
 
     /**
      * Verifies a wallet address via Quidax
-     * 
+     *
      * @param dto - The address verification parameters
      */
     async verifyWalletAddress(dto: VerifyWalletAddressDto) {
@@ -824,13 +1062,13 @@ export class WalletAddressService {
 
     /**
      * Initiates wallet address creation for a user
-     * 
+     *
      * @param userId - The user's database ID
      * @param dto - The wallet creation parameters
      */
     async initiateWalletAddressCreation(
         userId: number,
-        dto: InitiateWalletCreationDto
+        dto: InitiateWalletCreationDto,
     ) {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -839,7 +1077,7 @@ export class WalletAddressService {
         if (!user?.cryptoSubAccountId) {
             throw new UserNotFoundException(
                 "User or sub-account not found",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
