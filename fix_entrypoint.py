@@ -1,6 +1,4 @@
 
-import os
-
 path = 'docker-entrypoint.sh'
 with open(path, 'rb') as f:
     content = f.read()
