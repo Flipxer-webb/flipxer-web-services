@@ -1,4 +1,4 @@
-import { PrismaClient, LedgerType, EntryStatus, SweepStatus } from '@prisma/client';
+import { PrismaClient, EntryStatus, SweepStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 const prisma = new PrismaClient();

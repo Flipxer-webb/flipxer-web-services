@@ -213,12 +213,12 @@ export class AdminUserService {
         const { pageNumber, pageSize, sortBy } = query;
 
         const resolvedPageNumber: number =
-            !pageNumber || (pageNumber && pageNumber <= 1)
+            !pageNumber || pageNumber <= 1
                 ? defaultPagination.pageNumber
                 : pageNumber;
 
         const resolvedPageSize: number =
-            !pageSize || (pageSize && pageSize <= 0)
+            !pageSize || pageSize <= 0
                 ? defaultPagination.pageSize
                 : query.pageSize;
 
@@ -396,12 +396,12 @@ export class AdminUserService {
         const { pageNumber, pageSize, sortBy } = query;
 
         const resolvedPageNumber: number =
-            !pageNumber || (pageNumber && pageNumber <= 1)
+            !pageNumber || pageNumber <= 1
                 ? defaultPagination.pageNumber
                 : pageNumber;
 
         const resolvedPageSize: number =
-            !pageSize || (pageSize && pageSize <= 0)
+            !pageSize || pageSize <= 0
                 ? defaultPagination.pageSize
                 : query.pageSize;
 

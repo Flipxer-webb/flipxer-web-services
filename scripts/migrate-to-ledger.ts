@@ -41,7 +41,6 @@ const prisma = new PrismaClient({
 });
 const MIGRATION_NAME = "ledger_initial_migration_v1";
 const BATCH_SIZE = 50; // Smaller batch size for cloud DB
-const PLATFORM_USER_ID = 0; // Platform omnibus account
 
 interface MigrationOptions {
     dryRun: boolean;

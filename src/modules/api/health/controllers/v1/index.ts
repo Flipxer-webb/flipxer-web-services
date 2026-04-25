@@ -62,7 +62,7 @@ export class HealthController {
     @ApiResponse({ status: 503, description: "Server is unhealthy" })
     async check(@Res() res: Response): Promise<Response> {
         // Check database health
-        let dbHealth: HealthCheckResult["services"]["database"] = { healthy: false };
+        let dbHealth: HealthCheckResult["services"]["database"];
         try {
             const dbStart = Date.now();
             const isDbHealthy = await this.prisma.isHealthy();
@@ -78,7 +78,7 @@ export class HealthController {
         }
 
         // Check Redis health
-        let redisHealth: HealthCheckResult["services"]["redis"] = { healthy: false, usingFallback: true };
+        let redisHealth: HealthCheckResult["services"]["redis"];
         try {
             const redisResult = await this.redis.isHealthy();
             const stats = this.redis.getStats();

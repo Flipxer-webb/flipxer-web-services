@@ -10,7 +10,6 @@ jest.mock("@/modules/api/user", () => ({
 }));
 
 import { Test, TestingModule } from "@nestjs/testing";
-import { HttpStatus } from "@nestjs/common";
 import { OrderCategory, OrderStatus } from "@prisma/client";
 import { AdminSwapService } from "../admin-swap.service";
 import { PrismaService } from "@/modules/core/prisma/services";

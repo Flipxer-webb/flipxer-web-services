@@ -44,12 +44,12 @@ export class AdminNotificationService {
         const { pageNumber, pageSize, sortBy } = query;
 
         const resolvedPageNumber: number =
-            !pageNumber || (pageNumber && pageNumber <= 1)
+            !pageNumber || pageNumber <= 1
                 ? Utils.defaultPagination.pageNumber
                 : pageNumber;
 
         const resolvedPageSize: number =
-            !pageSize || (pageSize && pageSize <= 0)
+            !pageSize || pageSize <= 0
                 ? Utils.defaultPagination.pageSize
                 : query.pageSize;
 

@@ -47,23 +47,6 @@ interface SweepResult {
   error?: string;
 }
 
-async function getMainWalletAddress(currency: string): Promise<string | null> {
-  try {
-    const response = await axios.get(
-      `${QUIDAX_API_URL}/users/me/wallets/${currency.toLowerCase()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${QUIDAX_SECRET_KEY}`,
-        },
-      }
-    );
-    return response.data?.data?.deposit_address || null;
-  } catch (error: any) {
-    console.error(`Failed to get main wallet address for ${currency}:`, error.message);
-    return null;
-  }
-}
-
 async function getSubAccountBalance(subAccountId: string, currency: string): Promise<string> {
   try {
     const response = await axios.get(
