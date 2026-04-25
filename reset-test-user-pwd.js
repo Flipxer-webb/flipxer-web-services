@@ -1,7 +1,6 @@
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
-const { randomUUID } = require('node:crypto');
 
 const p = new PrismaClient();
 const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL || 'testuser@flipxer.com';
