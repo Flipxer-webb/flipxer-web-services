@@ -157,7 +157,7 @@ describe("WalletAddressService", () => {
                 cryptoSubAccountId: "qx-123",
             });
             mockQuidax.getUserWallet.mockRejectedValue(
-                new Error("Network error")
+                new Error("Network error"),
             );
 
             await expect(service.syncWallet(1, "ETH")).resolves.toBeUndefined();
@@ -321,7 +321,7 @@ describe("WalletAddressService", () => {
             await expect(
                 service.initiateWalletAddressCreation(1, {
                     asset: "btc",
-                } as any)
+                } as any),
             ).rejects.toThrow();
         });
 
@@ -503,7 +503,7 @@ describe("WalletAddressService", () => {
                     }
 
                     return Promise.reject(new Error("provider-failure"));
-                }
+                },
             );
 
             const result = await service.ensureWalletPaymentAddresses({
@@ -554,7 +554,7 @@ describe("WalletAddressService", () => {
             });
 
             mockQuidax.getPaymentAddressList.mockRejectedValue(
-                new Error("provider-list-failed")
+                new Error("provider-list-failed"),
             );
 
             mockQuidax.createPaymentAddress.mockResolvedValue({
@@ -674,7 +674,7 @@ describe("WalletAddressService", () => {
 
             // Upsert throws on first call (erc20 backfill) but trc20 creation succeeds
             prisma.cryptoWalletAddress.upsert.mockRejectedValueOnce(
-                new Error("upsert-failed")
+                new Error("upsert-failed"),
             );
 
             mockQuidax.createPaymentAddress.mockResolvedValue({
@@ -792,7 +792,7 @@ describe("WalletAddressService", () => {
                     requestedNetworks: ["trc20"],
                     currency: "usdt",
                     cryptoSubAccountId: "qx-123",
-                })
+                }),
             ).rejects.toThrow("Network trc20 is not available");
         });
     });
@@ -818,10 +818,10 @@ describe("WalletAddressService", () => {
 
             expect(result.existingNetworkSet.size).toBe(2);
             expect(result.existingNetworkSet.has(NetworkTypes.erc20)).toBe(
-                true
+                true,
             ),
                 expect(result.defaultNetworkNormalized).toBe(
-                    NetworkTypes.erc20
+                    NetworkTypes.erc20,
                 );
         });
 
@@ -832,7 +832,7 @@ describe("WalletAddressService", () => {
                 1,
                 "USDT",
                 { default_network: "erc20" } as any,
-                depositMap
+                depositMap,
             );
 
             expect(prisma.cryptoWalletAddress.findMany).toHaveBeenCalledWith(
@@ -840,7 +840,7 @@ describe("WalletAddressService", () => {
                     where: expect.objectContaining({
                         status: { not: CryptoWalletStatus.FAILED },
                     }),
-                })
+                }),
             );
         });
     });
@@ -870,11 +870,25 @@ describe("WalletAddressService", () => {
 
     describe("deleteFailedRecordsForNetworks", () => {
         it("should delete FAILED records for specified networks", async () => {
-            await (service as any).deleteFailedRecordsForNetworks(
-                1,
-                "USDT",
+            await (service as any).deleteFailedRecordsForNetworks(1, "USDT", [
                 NetworkTypes.erc20,
-            );
+            ]);
+
+            expect(prisma.cryptoWalletAddress.deleteMany).toHaveBeenCalledWith({
+                where: {
+                    userId: 1,
+                    assetSymbol: "USDT",
+                    status: CryptoWalletStatus.FAILED,
+                    network: { in: [NetworkTypes.erc20] },
+                },
+            });
+        });
+
+        it("should delete FAILED records for multiple networks", async () => {
+            await (service as any).deleteFailedRecordsForNetworks(1, "USDT", [
+                NetworkTypes.erc20,
+                NetworkTypes.trc20,
+            ]);
 
             expect(prisma.cryptoWalletAddress.deleteMany).toHaveBeenCalledWith({
                 where: {
@@ -894,7 +908,7 @@ describe("WalletAddressService", () => {
             );
 
             expect(
-                prisma.cryptoWalletAddress.deleteMany
+                prisma.cryptoWalletAddress.deleteMany,
             ).not.toHaveBeenCalled();
         });
     });
@@ -943,7 +957,7 @@ describe("WalletAddressService", () => {
                     cryptoSubAccountId: "qx-123",
                     currency: "usdt",
                     assetSymbolUpper: "USDT",
-                })
+                }),
             ).rejects.toThrow("Unable to resolve provider network");
         });
 
@@ -966,7 +980,7 @@ describe("WalletAddressService", () => {
                     cryptoSubAccountId: "qx-123",
                     currency: "usdt",
                     assetSymbolUpper: "USDT",
-                })
+                }),
             ).rejects.toThrow("Unsupported network unknown-net returned");
         });
     });
@@ -989,7 +1003,7 @@ describe("WalletAddressService", () => {
             ];
 
             const filtered = (service as any).filterSuccessfulCreations(
-                results
+                results,
             );
 
             expect(filtered).toHaveLength(2);
@@ -1010,7 +1024,7 @@ describe("WalletAddressService", () => {
             ];
 
             const filtered = (service as any).filterSuccessfulCreations(
-                results
+                results,
             );
 
             expect(filtered).toHaveLength(0);
@@ -1037,7 +1051,7 @@ describe("WalletAddressService", () => {
                             address: "0xNEW",
                         }),
                     },
-                })
+                }),
             );
 
             const result = await (service as any).createAndPersistAddresses({
@@ -1071,7 +1085,7 @@ describe("WalletAddressService", () => {
                     userId: 1,
                     assetSymbolUpper: "USDT",
                     backfilledProviderAddresses: [],
-                })
+                }),
             ).rejects.toThrow("Failed to create wallet addresses");
         });
 
@@ -1102,7 +1116,7 @@ describe("WalletAddressService", () => {
                             address: "TRXNEW",
                         }),
                     },
-                })
+                }),
             );
 
             const result = await (service as any).createAndPersistAddresses({
@@ -1121,7 +1135,7 @@ describe("WalletAddressService", () => {
                 expect.objectContaining({
                     id: 1,
                     address: "0xBACKFILL",
-                })
+                }),
             );
         });
     });
