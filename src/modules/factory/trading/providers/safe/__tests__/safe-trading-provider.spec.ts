@@ -9,6 +9,25 @@ describe("SafeQuidaxTradingProvider", () => {
     let delegate: MockTradingProvider;
     let safe: SafeQuidaxTradingProvider;
 
+    type TradingProviderMethod = {
+        [K in keyof ITradingProvider]: ITradingProvider[K] extends (
+            ...args: any[]
+        ) => any
+            ? K
+            : never;
+    }[keyof ITradingProvider];
+
+    type TradingProviderResponse = Awaited<
+        ReturnType<ITradingProvider[TradingProviderMethod]>
+    >;
+
+    type DelegationCase = readonly [
+        label: string,
+        method: TradingProviderMethod,
+        expected: TradingProviderResponse,
+        invoke: () => Promise<TradingProviderResponse>
+    ];
+
     beforeEach(() => {
         delegate = new MockTradingProvider();
         safe = new SafeQuidaxTradingProvider(delegate, "test");
@@ -130,7 +149,7 @@ describe("SafeQuidaxTradingProvider", () => {
         expect(result).toBe(expected);
     });
 
-    it.each([
+    const delegationCases: readonly DelegationCase[] = [
         [
             "getUserWallet",
             "getUserWallet",
@@ -372,13 +391,12 @@ describe("SafeQuidaxTradingProvider", () => {
             },
             () => safe.getPurchaseQuoteForSell("user-1", "btc", "1000"),
         ],
-    ])(
+    ];
+
+    it.each(delegationCases)(
         "delegates %s to the underlying provider",
         async (_label, method, expected, invoke) => {
-            delegate.setResponse(
-                method as keyof ITradingProvider,
-                expected as never
-            );
+            delegate.setResponse(method, expected);
             const result = await invoke();
             expect(result).toBe(expected);
         }
