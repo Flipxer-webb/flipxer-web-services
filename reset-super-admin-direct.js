@@ -7,14 +7,9 @@ const adminNewPassword = process.env.ADMIN_NEW_PASSWORD;
 const connectionString = process.env.ADMIN_DATABASE_URL || process.env.DATABASE_URL;
 const useSsl = connectionString && !/localhost|127\.0\.0\.1/.test(connectionString);
 
-const client = new Client({
-    connectionString,
-    ssl: useSsl ? { rejectUnauthorized: false } : false,
-    connectionTimeoutMillis: 30000,
-    query_timeout: 30000,
-});
-
 async function main() {
+    let client;
+
     try {
         console.log('🔐 Super Admin Password Reset Script');
         console.log('=====================================\n');
@@ -28,6 +23,13 @@ async function main() {
             console.error('❌ ADMIN_NEW_PASSWORD environment variable is required.');
             process.exit(1);
         }
+
+        client = new Client({
+            connectionString,
+            ssl: useSsl ? { rejectUnauthorized: false } : false,
+            connectionTimeoutMillis: 30000,
+            query_timeout: 30000,
+        });
 
         console.log('📡 Connecting to database...');
         console.log('(This may take a moment for external connections)\n');
@@ -78,7 +80,9 @@ async function main() {
         console.log('   2. Use Render\'s database dashboard');
         console.log('   3. Enable external connections in Render settings\n');
     } finally {
-        await client.end();
+        if (client) {
+            await client.end();
+        }
     }
 }
 

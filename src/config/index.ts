@@ -172,6 +172,8 @@ const placeholderSensitiveEnvironment: string[] = [
 const placeholderValuePatterns: RegExp[] = [
     /^SET_IN_SECURE_ENV$/i,
     /^REPLACE_WITH_[A-Z0-9_]+$/i,
+    /^generate-\d+-byte-hex-secret-here$/i,
+    /^your-(?:[a-z0-9-]+)-(?:key|secret|token|id|password)$/i,
     /YOUR_PRIVATE_KEY_CONTENT_HERE/,
     /^https:\/\/hooks\.slack\.com\/services\/xxx\/xxx\/xxx$/i,
 ];
@@ -215,7 +217,7 @@ if (process.env.NODE_ENV !== 'test' && placeholderVars.length > 0) {
     const varList = placeholderVars.map((v) => `  - ${v}`).join("\n");
     console.error(`\n❌ FATAL: Placeholder environment values detected:\n${varList}\n`);
     console.error(
-        "Replace SET_IN_SECURE_ENV / REPLACE_WITH_* placeholders with real local or deployment secrets before starting the app.\n"
+        "Replace template placeholder values with real local or deployment secrets before starting the app.\n"
     );
     process.exit(1);
 }

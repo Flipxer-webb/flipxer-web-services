@@ -66,6 +66,18 @@ describe("config module", () => {
         return loaded;
     };
 
+    const requiredNonTestOverrides = {
+        NODE_ENV: "development",
+        FORGOT_PASSWORD_TEMPLATE: "forgot-template",
+        JWT_SECRET: "real-jwt-secret",
+        JWT_REFRESH_SECRET: "real-refresh-secret",
+        ENCRYPT_SECRET: "real-encrypt-secret",
+        REDIS_PASSWORD: "real-redis-password",
+        ZEPTOMAIL_TOKEN: "real-zepto-token",
+        QUIDAX_WEBHOOK_KEY: "real-quidax-webhook-key",
+        NOMBA_WEBHOOK_SECRET: "real-nomba-webhook-secret",
+    };
+
     it("loads dotenv and skips runtime validator in test env", () => {
         loadConfig();
 
@@ -82,20 +94,46 @@ describe("config module", () => {
 
         expect(() =>
             loadConfig({
-                NODE_ENV: "development",
+                ...requiredNonTestOverrides,
                 JWT_SECRET: "SET_IN_SECURE_ENV",
-                JWT_REFRESH_SECRET: "real-refresh-secret",
-                ENCRYPT_SECRET: "real-encrypt-secret",
-                REDIS_PASSWORD: "real-redis-password",
-                ZEPTOMAIL_TOKEN: "real-zepto-token",
-                QUIDAX_WEBHOOK_KEY: "real-quidax-webhook-key",
-                NOMBA_WEBHOOK_SECRET: "real-nomba-webhook-secret",
             })
         ).toThrow("process.exit:1");
 
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining("Placeholder environment values detected")
+        );
         expect(validateMock).not.toHaveBeenCalled();
 
         exitSpy.mockRestore();
+    });
+
+    it("treats template placeholder formats as fatal outside test env", () => {
+        const exitSpy = jest
+            .spyOn(process, "exit")
+            .mockImplementation((() => {
+                throw new Error("process.exit:1");
+            }) as never);
+
+        expect(() =>
+            loadConfig({
+                ...requiredNonTestOverrides,
+                JWT_SECRET: "generate-64-byte-hex-secret-here",
+                ZEPTOMAIL_TOKEN: "your-zeptomail-token",
+            })
+        ).toThrow("process.exit:1");
+
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining("Placeholder environment values detected")
+        );
+        expect(validateMock).not.toHaveBeenCalled();
+
+        exitSpy.mockRestore();
+    });
+
+    it("runs runtime validation in non-test env with real secrets", () => {
+        loadConfig(requiredNonTestOverrides);
+
+        expect(validateMock).toHaveBeenCalled();
     });
 
     it("parses allowed domains and exposes whitelist", () => {

@@ -25,13 +25,16 @@ async function main() {
     const timestamp = Math.floor(Date.now() / 1000);
     const email = `tier1-test-${timestamp}@yjo4y7so.mailosaur.net`;
     const userPassword = resolveTier1TestPassword();
+    const passwordSource = process.env.TIER1_TEST_PASSWORD
+        ? 'TIER1_TEST_PASSWORD'
+        : 'generated in memory';
     const hashedPassword = await bcrypt.hash(userPassword, 10);
     const twoFactorSecret = authenticator.generateSecret();
     const identifier = uuidv4();
 
     console.log('Creating Tier 1 test user...');
     console.log('Email:', email);
-    console.log('Password:', userPassword);
+    console.log('Password source:', passwordSource);
     console.log('2FA Secret:', twoFactorSecret);
 
     // Get the default Individual role
@@ -109,7 +112,7 @@ async function main() {
     console.log('----------------------------------------');
     console.log('User ID:', user.id);
     console.log('Email:', email);
-    console.log('Password:', password);
+    console.log('Password source:', passwordSource);
     console.log('2FA Secret:', twoFactorSecret);
     console.log('Tier:', 1);
     console.log('----------------------------------------');

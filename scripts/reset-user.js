@@ -5,11 +5,6 @@ const connectionString = process.env.RESET_USER_DATABASE_URL || process.env.DATA
 const targetUserEmail = process.env.TARGET_USER_EMAIL;
 const useSsl = connectionString && !/localhost|127\.0\.0\.1/.test(connectionString);
 
-const client = new Client({
-    connectionString,
-    ssl: useSsl ? { rejectUnauthorized: false } : false
-});
-
 async function main() {
     if (!connectionString) {
         console.error('Missing RESET_USER_DATABASE_URL or DATABASE_URL environment variable.');
@@ -21,27 +16,32 @@ async function main() {
         process.exit(1);
     }
 
-    console.log('Connecting to database...');
-    await client.connect();
-    console.log('Connected!');
+    const client = new Client({
+        connectionString,
+        ssl: useSsl ? { rejectUnauthorized: false } : false
+    });
 
-    // Find user
-    const findResult = await client.query(
-        'SELECT id, email, tier, "isBvnVerified", "isNinVerified", "isDocumentVerified", "isAddressVerified", "isIncomeVerified" FROM "User" WHERE email = $1',
-        [targetUserEmail]
-    );
+    try {
+        console.log('Connecting to database...');
+        await client.connect();
+        console.log('Connected!');
 
-    console.log('Current user state:', findResult.rows[0]);
+        // Find user
+        const findResult = await client.query(
+            'SELECT id, email, tier, "isBvnVerified", "isNinVerified", "isDocumentVerified", "isAddressVerified", "isIncomeVerified" FROM "User" WHERE email = $1',
+            [targetUserEmail]
+        );
 
-    if (findResult.rows.length === 0) {
-        console.log('User not found');
-        await client.end();
-        return;
-    }
+        console.log('Current user state:', findResult.rows[0]);
 
-    // Reset user to tier 0
-    const updateResult = await client.query(
-        `UPDATE "User" SET 
+        if (findResult.rows.length === 0) {
+            console.log('User not found');
+            return;
+        }
+
+        // Reset user to tier 0
+        const updateResult = await client.query(
+            `UPDATE "User" SET 
       tier = 0,
       "isBvnVerified" = false,
       "isNinVerified" = false,
@@ -52,13 +52,14 @@ async function main() {
       nin = NULL
     WHERE email = $1
     RETURNING id, email, tier, "isBvnVerified", "isNinVerified", "isDocumentVerified", "isAddressVerified", "isIncomeVerified"`,
-        [targetUserEmail]
-    );
+            [targetUserEmail]
+        );
 
-    console.log('\nUser reset successfully!');
-    console.log('User after reset:', updateResult.rows[0]);
-
-    await client.end();
+        console.log('\nUser reset successfully!');
+        console.log('User after reset:', updateResult.rows[0]);
+    } finally {
+        await client.end();
+    }
 }
 
 main().catch(err => {
