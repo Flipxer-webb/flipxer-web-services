@@ -45,8 +45,8 @@ const req = https.request(options, (res) => {
   });
 });
 
-req.on('error', (e) => {
-  console.error('Error:', e.message);
+req.on('error', () => {
+  console.error('Transaction history request failed.');
 });
 
 req.end();

@@ -88,8 +88,8 @@ const req = https.request(options, (res) => {
     });
 });
 
-req.on('error', (e) => {
-    console.error('Request error:', e.message);
+req.on('error', () => {
+    console.error('Webhook request failed.');
 });
 
 req.write(payloadString);

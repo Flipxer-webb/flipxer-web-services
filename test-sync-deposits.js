@@ -37,8 +37,8 @@ const syncReq = https.request(syncOptions, (res) => {
   });
 });
 
-syncReq.on('error', (e) => {
-  console.error('Error:', e.message);
+syncReq.on('error', () => {
+  console.error('Sync request failed.');
 });
 
 syncReq.end();
