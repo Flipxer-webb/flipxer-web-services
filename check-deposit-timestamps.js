@@ -1,6 +1,6 @@
 // Script to fix deposit timestamps via the deployed API
 // First, we need to delete the existing incorrect deposits and re-sync
-const https = require('https');
+const https = require('node:https');
 
 const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
 
@@ -32,15 +32,13 @@ const historyReq = https.request(historyOptions, (res) => {
     console.log('History response status:', res.statusCode);
     try {
       const result = JSON.parse(data);
-      console.log('Found transactions:', result.data?.length || 0);
+      console.log('Transaction history parsed successfully.');
       
       if (result.data) {
-        result.data.forEach(tx => {
-          console.log(`  - ${tx.orderCategory}: ${tx.amount} ${tx.currency} | Status: ${tx.status} | Created: ${tx.createdAt}`);
-        });
+        console.log('Transaction records were returned.');
       }
-    } catch (e) {
-      console.log('Raw response:', data);
+    } catch {
+      console.log('Transaction history response was not valid JSON.');
     }
   });
 });

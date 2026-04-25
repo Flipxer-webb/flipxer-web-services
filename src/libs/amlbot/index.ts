@@ -16,6 +16,7 @@ export class AmlBotLib {
         },
     });
 
+    // AMLBot's web API requires MD5 signatures for hash, uid, and page tokens.
     private md5(input: string): string {
         return createHash("md5").update(input).digest("hex");
     }

@@ -1,5 +1,5 @@
 // Test debug-wallet endpoint
-const https = require('https');
+const https = require('node:https');
 
 const ACCESS_TOKEN = process.env.ADMIN_ACCESS_TOKEN;
 const USER_ID = 6;
@@ -28,11 +28,10 @@ const req = https.request(options, (res) => {
   res.on('end', () => {
     console.log('Status:', res.statusCode);
     try {
-      const result = JSON.parse(data);
-      console.log('\n=== DEBUG WALLET INFO ===\n');
-      console.log(JSON.stringify(result, null, 2));
-    } catch (e) {
-      console.log('Raw:', data);
+      JSON.parse(data);
+      console.log('Wallet debug payload parsed successfully.');
+    } catch {
+      console.log('Wallet debug response was not valid JSON.');
     }
   });
 });

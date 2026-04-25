@@ -1,5 +1,5 @@
 // Test the sync deposits endpoint
-const https = require('https');
+const https = require('node:https');
 
 const USER_ID = 6;
 
@@ -29,10 +29,10 @@ const syncReq = https.request(syncOptions, (res) => {
   res.on('end', () => {
     console.log('Sync response status:', res.statusCode);
     try {
-      const result = JSON.parse(data);
-      console.log('Sync response:', JSON.stringify(result, null, 2));
-    } catch (e) {
-      console.log('Raw response:', data);
+      JSON.parse(data);
+      console.log('Sync response parsed successfully.');
+    } catch {
+      console.log('Sync response was not valid JSON.');
     }
   });
 });

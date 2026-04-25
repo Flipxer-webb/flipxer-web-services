@@ -39,7 +39,7 @@ const req = request(options, (res) => {
     res.on('data', chunk => body += chunk);
     res.on('end', () => {
         console.log('Status:', res.statusCode);
-        console.log('Response:', body);
+        console.log('Response body received.');
 
         if (res.statusCode === 200 || res.statusCode === 201) {
             console.log('\n✅ Withdrawal initiated successfully!');
