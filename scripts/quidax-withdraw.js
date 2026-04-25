@@ -49,6 +49,6 @@ const req = request(options, (res) => {
     });
 });
 
-req.on('error', (error) => console.error('Withdrawal request failed:', error.message));
+req.on('error', (error) => console.error('Withdrawal request failed:', String(error.message).replace(/[\r\n]/g, ' ')));
 req.write(data);
 req.end();
