@@ -10,12 +10,16 @@ import { customAlphabet } from "nanoid";
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;
 
-const generatePassword = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789", 18);
 const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || "test-admin@flipxer.local";
-const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || `TA-${generatePassword()}!`;
+const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD;
 
 async function main() {
     console.log("🔧 Creating test super admin...\n");
+
+    if (!TEST_ADMIN_PASSWORD) {
+        console.error("❌ TEST_ADMIN_PASSWORD environment variable is required.");
+        process.exit(1);
+    }
 
     // Find the super-admin role
     const superAdminRole = await prisma.role.findUnique({
@@ -55,7 +59,7 @@ async function main() {
         });
         console.log("✅ Test super admin updated successfully!\n");
         console.log("📧 Email:", TEST_ADMIN_EMAIL);
-        console.log("🔑 Password:", TEST_ADMIN_PASSWORD);
+        console.log("🔑 Password source: TEST_ADMIN_PASSWORD");
         console.log("👤 Name:", testAdmin.firstName, testAdmin.lastName);
         console.log("🆔 ID:", testAdmin.id);
         console.log("\n🧪 Use these credentials for Playwright admin tests.\n");
@@ -89,7 +93,7 @@ async function main() {
 
     console.log("✅ Test super admin created successfully!\n");
     console.log("📧 Email:", TEST_ADMIN_EMAIL);
-    console.log("🔑 Password:", TEST_ADMIN_PASSWORD);
+    console.log("🔑 Password source: TEST_ADMIN_PASSWORD");
     console.log("👤 Name:", testAdmin.firstName, testAdmin.lastName);
     console.log("🆔 ID:", testAdmin.id);
     console.log("🏷️ Role ID:", superAdminRole.id);
