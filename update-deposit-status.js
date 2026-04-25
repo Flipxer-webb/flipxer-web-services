@@ -83,7 +83,7 @@ async function updateTransactionStatus(transactionId, status) {
 }
 
 async function main() {
-  console.log(`Fetching transactions for user ${userId}...`);
+  console.log('Fetching transactions...');
   const txResult = await getTransactions(userId);
   
   console.log('Raw response:', JSON.stringify(txResult, null, 2));
