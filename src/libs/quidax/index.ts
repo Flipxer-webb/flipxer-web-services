@@ -575,7 +575,7 @@ export class QuidaxLib {
             >(requestOptions);
 
             if (!resp.data) {
-                const error = new e.QuidaxError("Failed to cancel withdrawer");
+                const error = new e.QuidaxError("Failed to cancel withdrawal");
                 error.status = 500;
                 throw error;
             }
