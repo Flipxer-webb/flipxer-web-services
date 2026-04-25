@@ -147,6 +147,40 @@ const runtimeEnvironment: RequiredEnvironment[] = [
     // - BLOCKED_COUNTRIES
 ];
 
+const placeholderSensitiveEnvironment: string[] = [
+    "JWT_SECRET",
+    "JWT_REFRESH_SECRET",
+    "ENCRYPT_SECRET",
+    "ZEPTOMAIL_TOKEN",
+    "DOJAH_PUBLIC_KEY",
+    "DOJAH_SECRET_KEY",
+    "DOJAH_TOKEN_ID",
+    "FINCRA_SECRET_KEY",
+    "FINCRA_PUBLIC_KEY",
+    "FINCRA_BUSINESS_ID",
+    "FINCRA_WEBHOOK_SECRET",
+    "QUIDAX_API_PUBLIC",
+    "QUIDAX_API_SECRET",
+    "QUIDAX_WEBHOOK_KEY",
+    "LIVECOINWATCH_API_KEY",
+    "FIREBASE_PRIVATE_KEY",
+    "NOMBA_CLIENT_SECRET",
+    "NOMBA_WEBHOOK_SECRET",
+    "INTERCOM_SECRET_KEY",
+];
+
+const placeholderValuePatterns: RegExp[] = [
+    /^SET_IN_SECURE_ENV$/i,
+    /^REPLACE_WITH_[A-Z0-9_]+$/i,
+    /YOUR_PRIVATE_KEY_CONTENT_HERE/,
+    /^https:\/\/hooks\.slack\.com\/services\/xxx\/xxx\/xxx$/i,
+];
+
+const isPlaceholderEnvValue = (value?: string): boolean => {
+    if (!value) return false;
+    return placeholderValuePatterns.some((pattern) => pattern.test(value));
+};
+
 // Log which environment variables are present/missing before validation
 const missingVars: string[] = [];
 const presentVars: string[] = [];
@@ -163,6 +197,10 @@ console.log(`Present (${presentVars.length}):`, presentVars.join(", "));
 console.log(`Missing (${missingVars.length}):`, missingVars.join(", "));
 console.log("==================================");
 
+const placeholderVars = placeholderSensitiveEnvironment.filter((name) =>
+    isPlaceholderEnvValue(process.env[name])
+);
+
 if (process.env.NODE_ENV !== 'test' && missingVars.length > 0) {
     const varList = missingVars.map((v) => `  - ${v}`).join("\n");
     console.error(`\n❌ FATAL: Missing required environment variables:\n${varList}\n`);
@@ -170,6 +208,15 @@ if (process.env.NODE_ENV !== 'test' && missingVars.length > 0) {
         "Please add these variables to your Render Environment tab.\n"
     );
     // Exit gracefully instead of throwing to get a clean error message
+    process.exit(1);
+}
+
+if (process.env.NODE_ENV !== 'test' && placeholderVars.length > 0) {
+    const varList = placeholderVars.map((v) => `  - ${v}`).join("\n");
+    console.error(`\n❌ FATAL: Placeholder environment values detected:\n${varList}\n`);
+    console.error(
+        "Replace SET_IN_SECURE_ENV / REPLACE_WITH_* placeholders with real local or deployment secrets before starting the app.\n"
+    );
     process.exit(1);
 }
 

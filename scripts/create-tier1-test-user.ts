@@ -17,17 +17,21 @@ import { v4 as uuidv4 } from 'uuid';
 
 const prisma = new PrismaClient();
 
+function resolveTier1TestPassword() {
+    return process.env.TIER1_TEST_PASSWORD || uuidv4();
+}
+
 async function main() {
     const timestamp = Math.floor(Date.now() / 1000);
     const email = `tier1-test-${timestamp}@yjo4y7so.mailosaur.net`;
-    const password = 'TestPassword123!';
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const userPassword = resolveTier1TestPassword();
+    const hashedPassword = await bcrypt.hash(userPassword, 10);
     const twoFactorSecret = authenticator.generateSecret();
     const identifier = uuidv4();
 
     console.log('Creating Tier 1 test user...');
     console.log('Email:', email);
-    console.log('Password:', password);
+    console.log('Password:', userPassword);
     console.log('2FA Secret:', twoFactorSecret);
 
     // Get the default Individual role

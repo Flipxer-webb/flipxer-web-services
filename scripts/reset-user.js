@@ -1,15 +1,26 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
+const connectionString = process.env.RESET_USER_DATABASE_URL || process.env.DATABASE_URL;
+const targetUserEmail = process.env.TARGET_USER_EMAIL;
+const useSsl = connectionString && !/localhost|127\.0\.0\.1/.test(connectionString);
+
 const client = new Client({
-    host: 'dpg-d44d3om3jp1c739lgge0-a.oregon-postgres.render.com',
-    port: 5432,
-    user: 'resolve_db_user',
-    password: 'Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc',
-    database: 'resolve_db',
-    ssl: true
+    connectionString,
+    ssl: useSsl ? { rejectUnauthorized: false } : false
 });
 
 async function main() {
+    if (!connectionString) {
+        console.error('Missing RESET_USER_DATABASE_URL or DATABASE_URL environment variable.');
+        process.exit(1);
+    }
+
+    if (!targetUserEmail) {
+        console.error('Missing TARGET_USER_EMAIL environment variable.');
+        process.exit(1);
+    }
+
     console.log('Connecting to database...');
     await client.connect();
     console.log('Connected!');
@@ -17,7 +28,7 @@ async function main() {
     // Find user
     const findResult = await client.query(
         'SELECT id, email, tier, "isBvnVerified", "isNinVerified", "isDocumentVerified", "isAddressVerified", "isIncomeVerified" FROM "User" WHERE email = $1',
-        ['magpiep18@gmail.com']
+        [targetUserEmail]
     );
 
     console.log('Current user state:', findResult.rows[0]);
@@ -41,7 +52,7 @@ async function main() {
       nin = NULL
     WHERE email = $1
     RETURNING id, email, tier, "isBvnVerified", "isNinVerified", "isDocumentVerified", "isAddressVerified", "isIncomeVerified"`,
-        ['magpiep18@gmail.com']
+        [targetUserEmail]
     );
 
     console.log('\nUser reset successfully!');

@@ -10,9 +10,9 @@ import { customAlphabet } from "nanoid";
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;
 
-// Test admin credentials - use these for Playwright tests
-const TEST_ADMIN_EMAIL = "test-admin@flipxer.com";
-const TEST_ADMIN_PASSWORD = "TestAdmin123!";
+const generatePassword = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789", 18);
+const TEST_ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || "test-admin@flipxer.local";
+const TEST_ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || `TA-${generatePassword()}!`;
 
 async function main() {
     console.log("🔧 Creating test super admin...\n");

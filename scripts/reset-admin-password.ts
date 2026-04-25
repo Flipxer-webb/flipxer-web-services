@@ -12,8 +12,8 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const SALT_ROUNDS = 10;
-const ADMIN_EMAIL = 'hello@flipxer.com';
-const NEW_PASSWORD = 'FlipxerAdmin2025!';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'hello@flipxer.com';
+const adminNewPassword = process.env.ADMIN_NEW_PASSWORD;
 
 async function main() {
     console.log('🔐 Admin Password Reset Script');
@@ -23,6 +23,11 @@ async function main() {
         console.error('❌ ERROR: DATABASE_URL environment variable is not set');
         console.log('\nUsage:');
         console.log('  DATABASE_URL="postgresql://..." npx ts-node scripts/reset-admin-password.ts');
+        process.exit(1);
+    }
+
+    if (!adminNewPassword) {
+        console.error('❌ ERROR: ADMIN_NEW_PASSWORD environment variable is not set');
         process.exit(1);
     }
 
@@ -45,7 +50,7 @@ async function main() {
 
         // Hash the new password
         console.log('\n🔒 Hashing new password...');
-        const hashedPassword = await bcrypt.hash(NEW_PASSWORD, SALT_ROUNDS);
+        const hashedPassword = await bcrypt.hash(adminNewPassword, SALT_ROUNDS);
 
         // Update the password
         console.log('📝 Updating password in database...');
@@ -57,7 +62,7 @@ async function main() {
         console.log('\n✅ SUCCESS! Admin password has been reset.');
         console.log('================================');
         console.log(`📧 Email: ${ADMIN_EMAIL}`);
-        console.log(`🔑 Password: ${NEW_PASSWORD}`);
+        console.log('🔑 Password source: ADMIN_NEW_PASSWORD');
         console.log('================================\n');
 
     } catch (error) {

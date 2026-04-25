@@ -73,6 +73,31 @@ describe("config module", () => {
         expect(validateMock).not.toHaveBeenCalled();
     });
 
+    it("exits early when non-test env contains placeholder secrets", () => {
+        const exitSpy = jest
+            .spyOn(process, "exit")
+            .mockImplementation((() => {
+                throw new Error("process.exit:1");
+            }) as never);
+
+        expect(() =>
+            loadConfig({
+                NODE_ENV: "development",
+                JWT_SECRET: "SET_IN_SECURE_ENV",
+                JWT_REFRESH_SECRET: "real-refresh-secret",
+                ENCRYPT_SECRET: "real-encrypt-secret",
+                REDIS_PASSWORD: "real-redis-password",
+                ZEPTOMAIL_TOKEN: "real-zepto-token",
+                QUIDAX_WEBHOOK_KEY: "real-quidax-webhook-key",
+                NOMBA_WEBHOOK_SECRET: "real-nomba-webhook-secret",
+            })
+        ).toThrow("process.exit:1");
+
+        expect(validateMock).not.toHaveBeenCalled();
+
+        exitSpy.mockRestore();
+    });
+
     it("parses allowed domains and exposes whitelist", () => {
         const cfg = loadConfig({
             ALLOWED_DOMAINS: "https://a.com,https://b.com",

@@ -16,8 +16,12 @@
 require('dotenv').config();
 const { Client } = require('pg');
 
-const DATABASE_URL = process.env.DATABASE_URL ||
-    'postgresql://resolve_db_user:Bje9vozyOzdFC7qxy4hybDDiSUle7Wyc@dpg-d575e4mr433s73egl6p0-a.oregon-postgres.render.com/resolve_db_4a8l_b6ra';
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+    console.error('ERROR: DATABASE_URL not found in environment');
+    process.exit(1);
+}
 
 // Parse command line arguments
 function parseArgs() {
