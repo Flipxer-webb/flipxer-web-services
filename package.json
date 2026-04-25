@@ -89,7 +89,7 @@
     "private": true,
     "license": "MIT",
     "engines": {
-        "node": ">=20 <21"
+        "node": ">=24 <25"
     },
     "packageManager": "pnpm@9.15.9",
     "prisma": {

@@ -1,5 +1,5 @@
 # ---- Development Stage ----
-FROM node:20 AS dev
+FROM node:24 AS dev
 WORKDIR /usr/src/app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends poppler-utils && \
@@ -21,7 +21,7 @@ EXPOSE 3500
 CMD ["./docker-entrypoint.dev.sh"]
 
 # ---- Build Stage ----
-FROM node:20 AS build
+FROM node:24 AS build
 WORKDIR /usr/src/app
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 COPY ./package.json ./pnpm-lock.yaml ./.npmrc ./.pnpmfile.cjs ./
@@ -36,7 +36,7 @@ RUN pnpm prisma generate
 RUN NODE_OPTIONS=--experimental-global-webcrypto pnpm build
 
 # ---- Production Stage ----
-FROM node:20 AS production
+FROM node:24 AS production
 ENV TZ=Africa/Lagos
 WORKDIR /usr/src/app
 RUN apt-get update && \
