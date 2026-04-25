@@ -512,10 +512,10 @@ export class QuidaxLib {
      * @returns withdrawal detail
      * @description initiates the withdrawal of an authenticated account
      */
-    async createWithdrawerRequest(
+    async createWithdrawalRequest(
         options: t.CreateWithdrawerRequestOptions
     ): Promise<t.QuidaxResponse<t.CreateWithdrawerRequestResponse>> {
-        this.validateUserId(options.user_id, "createWithdrawerRequest");
+        this.validateUserId(options.user_id, "createWithdrawalRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CreateWithdrawerRequestOptions> =
             {
@@ -529,7 +529,7 @@ export class QuidaxLib {
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to initiate withdrawer"
+                    "Failed to initiate withdrawal"
                 );
                 error.status = 500;
                 throw error;
@@ -545,15 +545,24 @@ export class QuidaxLib {
     }
 
     /**
+     * @deprecated Use createWithdrawalRequest instead.
+     */
+    async createWithdrawerRequest(
+        options: t.CreateWithdrawerRequestOptions
+    ): Promise<t.QuidaxResponse<t.CreateWithdrawerRequestResponse>> {
+        return this.createWithdrawalRequest(options);
+    }
+
+    /**
      *
      * @param options query options
      * @returns n/a
      * @description cancel initiated withdrawal
      */
-    async cancelWithdrawerRequest(
+    async cancelWithdrawalRequest(
         options: t.CancelWithdrawerRequestOptions
     ): Promise<t.QuidaxResponse<t.CancelWithdrawerRequestResponse>> {
-        this.validateUserId(options.user_id, "cancelWithdrawerRequest");
+        this.validateUserId(options.user_id, "cancelWithdrawalRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CancelWithdrawerRequestOptions> =
             {
@@ -581,16 +590,25 @@ export class QuidaxLib {
     }
 
     /**
+     * @deprecated Use cancelWithdrawalRequest instead.
+     */
+    async cancelWithdrawerRequest(
+        options: t.CancelWithdrawerRequestOptions
+    ): Promise<t.QuidaxResponse<t.CancelWithdrawerRequestResponse>> {
+        return this.cancelWithdrawalRequest(options);
+    }
+
+    /**
      *
      * @param options query options
      * @returns withdrawer list
      * @description fetch all withdrawals related to the authenticated user.
      */
-    async getWithdrawerList(
+    async getWithdrawalList(
         user_id: string,
         options: t.WithdrawalListOptions
     ): Promise<t.QuidaxResponse<t.WithdrawalListResponse>> {
-        this.validateUserId(user_id, "getWithdrawerList");
+        this.validateUserId(user_id, "getWithdrawalList");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
             {
@@ -604,7 +622,7 @@ export class QuidaxLib {
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get withdrawer list"
+                    "Failed to get withdrawal list"
                 );
                 error.status = 500;
                 throw error;
@@ -617,6 +635,16 @@ export class QuidaxLib {
         } catch (error) {
             this.handleQuidaxError(error);
         }
+    }
+
+    /**
+     * @deprecated Use getWithdrawalList instead.
+     */
+    async getWithdrawerList(
+        user_id: string,
+        options: t.WithdrawalListOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawalListResponse>> {
+        return this.getWithdrawalList(user_id, options);
     }
 
     /**
@@ -625,10 +653,10 @@ export class QuidaxLib {
      * @returns withdrawer detail
      * @description fetch a withdrawal object, related to the user
      */
-    async getWithdrawerDetail(
-        options: t.WithdrawerDetailOptions
-    ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
-        this.validateUserId(options.user_id, "getWithdrawerDetail");
+    async getWithdrawalDetail(
+        options: t.WithdrawalDetailOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawalDetailResponse>> {
+        this.validateUserId(options.user_id, "getWithdrawalDetail");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
             {
@@ -636,12 +664,12 @@ export class QuidaxLib {
                 method: "GET",
             };
             const resp = await this.mainAxios<
-                t.QuidaxResponse<t.WithdrawerDetailResponse>
+                t.QuidaxResponse<t.WithdrawalDetailResponse>
             >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get withdrawer detail"
+                    "Failed to get withdrawal detail"
                 );
                 error.status = 500;
                 throw error;
@@ -657,15 +685,24 @@ export class QuidaxLib {
     }
 
     /**
+     * @deprecated Use getWithdrawalDetail instead.
+     */
+    async getWithdrawerDetail(
+        options: t.WithdrawerDetailOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
+        return this.getWithdrawalDetail(options);
+    }
+
+    /**
      *
      * @param options query options
      * @returns withdrawer detail
      * @description fetch a withdrawal object, related to the user by withdrawer reference
      */
-    async getWithdrawerByReference(
+    async getWithdrawalByReference(
         options: t.WithdrawerRecordByReferenceOptions
     ): Promise<t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>> {
-        this.validateUserId(options.user_id, "getWithdrawerByReference");
+        this.validateUserId(options.user_id, "getWithdrawalByReference");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawerRecordByReferenceOptions> =
             {
@@ -677,7 +714,7 @@ export class QuidaxLib {
             >(requestOptions);
 
             if (!resp.data) {
-                const error = new e.QuidaxError("Failed to get withdrawer");
+                const error = new e.QuidaxError("Failed to get withdrawal");
                 error.status = 500;
                 throw error;
             }
@@ -689,6 +726,12 @@ export class QuidaxLib {
         } catch (error) {
             this.handleQuidaxError(error);
         }
+    }
+
+    async getWithdrawerByReference(
+        options: t.WithdrawerRecordByReferenceOptions
+    ): Promise<t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>> {
+        return this.getWithdrawalByReference(options);
     }
 
     /************************** Fees  *************************/
