@@ -28,13 +28,16 @@ const req = https.request(options, (res) => {
   res.on('end', () => {
     console.log('Status:', res.statusCode);
     try {
-      JSON.parse(data);
-      console.log('Wallet debug payload parsed successfully.');
+      const parsed = JSON.parse(data);
+      const summary = parsed && typeof parsed === 'object'
+        ? `top-level keys: ${Object.keys(parsed).length}`
+        : `type: ${typeof parsed}`;
+      console.log(`Wallet debug payload parsed successfully (${summary}).`);
     } catch {
       console.log('Wallet debug response was not valid JSON.');
     }
   });
 });
 
-req.on('error', () => console.error('Wallet debug request failed.'));
+req.on('error', (err) => console.error('Wallet debug request failed:', String(err.message).replace(/[\r\n]/g, ' ')));
 req.end();

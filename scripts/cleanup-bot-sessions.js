@@ -40,43 +40,99 @@ async function cleanupBotSessions() {
             console.error(`Invalid table name: ${tableName}`);
             return;
         }
-        // Sanitize table name (remove any non-alphanumeric chars except underscore)
-        const safeTableName = tableName.replace(/[^a-zA-Z0-9_]/g, '');
 
         // Get column names
         const columnsResult = await client.query(
             'SELECT column_name FROM information_schema.columns WHERE table_name = $1',
-            [safeTableName]
+            [tableName]
         );
         console.log('Columns:', columnsResult.rows.map(r => r.column_name).join(', '));
 
+        const countQueries = {
+            Session: 'SELECT COUNT(*) as count FROM "Session" WHERE "isActive" = true',
+            session: 'SELECT COUNT(*) as count FROM "session" WHERE "isActive" = true',
+            Sessions: 'SELECT COUNT(*) as count FROM "Sessions" WHERE "isActive" = true',
+            sessions: 'SELECT COUNT(*) as count FROM "sessions" WHERE "isActive" = true'
+        };
+
+        const deactivateQueries = {
+            Session: `
+                UPDATE "Session"
+                SET "isActive" = false
+                WHERE "isActive" = true
+                AND (
+                    "ipAddress" LIKE '3.%' OR
+                    "ipAddress" LIKE '13.%' OR
+                    "ipAddress" LIKE '16.%' OR
+                    "ipAddress" LIKE '18.%' OR
+                    "ipAddress" LIKE '34.%' OR
+                    "ipAddress" LIKE '35.%' OR
+                    "ipAddress" LIKE '44.%' OR
+                    "ipAddress" LIKE '52.%' OR
+                    "ipAddress" LIKE '54.%'
+                )
+            `,
+            session: `
+                UPDATE "session"
+                SET "isActive" = false
+                WHERE "isActive" = true
+                AND (
+                    "ipAddress" LIKE '3.%' OR
+                    "ipAddress" LIKE '13.%' OR
+                    "ipAddress" LIKE '16.%' OR
+                    "ipAddress" LIKE '18.%' OR
+                    "ipAddress" LIKE '34.%' OR
+                    "ipAddress" LIKE '35.%' OR
+                    "ipAddress" LIKE '44.%' OR
+                    "ipAddress" LIKE '52.%' OR
+                    "ipAddress" LIKE '54.%'
+                )
+            `,
+            Sessions: `
+                UPDATE "Sessions"
+                SET "isActive" = false
+                WHERE "isActive" = true
+                AND (
+                    "ipAddress" LIKE '3.%' OR
+                    "ipAddress" LIKE '13.%' OR
+                    "ipAddress" LIKE '16.%' OR
+                    "ipAddress" LIKE '18.%' OR
+                    "ipAddress" LIKE '34.%' OR
+                    "ipAddress" LIKE '35.%' OR
+                    "ipAddress" LIKE '44.%' OR
+                    "ipAddress" LIKE '52.%' OR
+                    "ipAddress" LIKE '54.%'
+                )
+            `,
+            sessions: `
+                UPDATE "sessions"
+                SET "isActive" = false
+                WHERE "isActive" = true
+                AND (
+                    "ipAddress" LIKE '3.%' OR
+                    "ipAddress" LIKE '13.%' OR
+                    "ipAddress" LIKE '16.%' OR
+                    "ipAddress" LIKE '18.%' OR
+                    "ipAddress" LIKE '34.%' OR
+                    "ipAddress" LIKE '35.%' OR
+                    "ipAddress" LIKE '44.%' OR
+                    "ipAddress" LIKE '52.%' OR
+                    "ipAddress" LIKE '54.%'
+                )
+            `
+        };
+
         // Count active sessions
-        const countResult = await client.query(`SELECT COUNT(*) as count FROM "${safeTableName}" WHERE "isActive" = true`);
+        const countResult = await client.query(countQueries[tableName]);
 
         console.log('Total active sessions:', countResult.rows[0].count);
 
         // Deactivate bot sessions (AWS IPs)
-        const deactivateQuery = `
-            UPDATE "${safeTableName}" 
-            SET "isActive" = false 
-            WHERE "isActive" = true 
-            AND (
-                "ipAddress" LIKE '3.%' OR
-                "ipAddress" LIKE '13.%' OR
-                "ipAddress" LIKE '16.%' OR
-                "ipAddress" LIKE '18.%' OR
-                "ipAddress" LIKE '34.%' OR
-                "ipAddress" LIKE '35.%' OR
-                "ipAddress" LIKE '44.%' OR
-                "ipAddress" LIKE '52.%' OR
-                "ipAddress" LIKE '54.%'
-            )
-        `;
-        const deactivateResult = await client.query(deactivateQuery);
+        const deactivateResult = await client.query(deactivateQueries[tableName]);
         console.log('Bot sessions deactivated:', deactivateResult.rowCount);
 
         // Check remaining active sessions
-        const remainingResult = await client.query(`SELECT COUNT(*) as count FROM "${safeTableName}" WHERE "isActive" = true`);
+        const remainingResult = await client.query(countQueries[tableName]);
         console.log('Remaining active sessions:', remainingResult.rows[0].count);
 
     } catch (error) {

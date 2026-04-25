@@ -29,8 +29,11 @@ const syncReq = https.request(syncOptions, (res) => {
   res.on('end', () => {
     console.log('Sync response status:', res.statusCode);
     try {
-      JSON.parse(data);
-      console.log('Sync response parsed successfully.');
+      const parsed = JSON.parse(data);
+      console.log(
+        'Sync response parsed successfully.',
+        Array.isArray(parsed) ? `Array(${parsed.length})` : `Object keys: ${Object.keys(parsed).join(', ')}`
+      );
     } catch {
       console.log('Sync response was not valid JSON.');
     }
