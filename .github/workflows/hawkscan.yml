@@ -1,0 +1,174 @@
+name: HawkScan
+
+on:
+    workflow_dispatch:
+    pull_request:
+        branches:
+            - develop
+            - production
+    schedule:
+        - cron: "0 7 * * 1"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: hawkscan-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    hawkscan:
+        name: Dynamic API Scan
+        runs-on: ubuntu-latest
+        timeout-minutes: 135
+        env:
+            CI_POSTGRES_USER: flipxer
+            CI_POSTGRES_PASSWORD: ${{ github.run_id }}
+            CI_POSTGRES_DB: flipxer_dev
+            CI_REDIS_PASSWORD: local
+        services:
+            postgres:
+                image: postgres:13
+                env:
+                    POSTGRES_USER: ${{ env.CI_POSTGRES_USER }}
+                    POSTGRES_PASSWORD: ${{ env.CI_POSTGRES_PASSWORD }}
+                    POSTGRES_DB: ${{ env.CI_POSTGRES_DB }}
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U flipxer -d flipxer_dev"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Start Redis
+              run: >-
+                  docker run --rm --detach --publish 6379:6379 --name flipxer-stackhawk-redis
+                  redis:7-alpine redis-server --requirepass "$CI_REDIS_PASSWORD"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+              with:
+                  version: 9.15.9
+                  run_install: false
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - name: Write CI environment file
+              run: |
+                  cp .env.example .env
+                  cat <<EOF >> .env
+                  PORT=3500
+                  NODE_ENV=development
+                  ENVIRONMENT=development
+                  BASEURL=http://127.0.0.1:3500
+                  ALLOWED_DOMAINS=http://127.0.0.1:3008,http://localhost:3008
+                  FRONTEND_DEV_DOMAIN=http://127.0.0.1:3008
+                  FRONTEND_URL=http://127.0.0.1:3008
+                  DATABASE_URL=postgresql://${CI_POSTGRES_USER}:${CI_POSTGRES_PASSWORD}@127.0.0.1:5432/${CI_POSTGRES_DB}
+                  DIRECT_DATABASE_URL=postgresql://${CI_POSTGRES_USER}:${CI_POSTGRES_PASSWORD}@127.0.0.1:5432/${CI_POSTGRES_DB}
+                  SHADOW_DATABASE_URL=postgresql://${CI_POSTGRES_USER}:${CI_POSTGRES_PASSWORD}@127.0.0.1:5432/${CI_POSTGRES_DB}
+                  REDIS_HOST=127.0.0.1
+                  REDIS_PORT=6379
+                  REDIS_USER=default
+                  REDIS_PASSWORD=${CI_REDIS_PASSWORD}
+                  REDIS_TLS=false
+                  REDIS_DISABLED=false
+                  JWT_SECRET=hawkscan-jwt-secret-ci
+                  JWT_REFRESH_SECRET=hawkscan-jwt-refresh-secret-ci
+                  ENCRYPT_SECRET=hawkscan-encrypt-secret-ci
+                  ZEPTOMAIL_TOKEN=hawkscan-zeptomail-token-ci
+                  DOJAH_PUBLIC_KEY=hawkscan-dojah-public-ci
+                  DOJAH_SECRET_KEY=hawkscan-dojah-secret-ci
+                  DOJAH_TOKEN_ID=hawkscan-dojah-token-ci
+                  FINCRA_SECRET_KEY=hawkscan-fincra-secret-ci
+                  FINCRA_PUBLIC_KEY=hawkscan-fincra-public-ci
+                  FINCRA_BUSINESS_ID=hawkscan-fincra-business-ci
+                  FINCRA_WEBHOOK_SECRET=hawkscan-fincra-webhook-ci
+                  QUIDAX_API_PUBLIC=hawkscan-quidax-public-ci
+                  QUIDAX_API_SECRET=hawkscan-quidax-secret-ci
+                  QUIDAX_WEBHOOK_KEY=hawkscan-quidax-webhook-ci
+                  LIVECOINWATCH_API_KEY=hawkscan-livecoinwatch-key-ci
+                  FIREBASE_PRIVATE_KEY=hawkscan-firebase-private-key-ci
+                  NOMBA_CLIENT_SECRET=hawkscan-nomba-client-secret-ci
+                  NOMBA_WEBHOOK_SECRET=hawkscan-nomba-webhook-ci
+                  INTERCOM_SECRET_KEY=hawkscan-intercom-secret-ci
+                  MAIL_DRIVER=smtp
+                  SMTP_HOST=127.0.0.1
+                  SMTP_PORT=1025
+                  SMTP_SECURE=false
+                  ENABLE_REDIS_SOCKET_ADAPTER=false
+                  EOF
+
+            - name: Install dependencies
+              run: pnpm install --no-frozen-lockfile --ignore-scripts
+
+            - name: Generate Prisma client
+              run: pnpm exec prisma generate
+
+            - name: Apply database migrations
+              run: pnpm exec prisma migrate deploy
+
+            - name: Build backend
+              run: |
+                  pnpm run prebuild
+                  NODE_OPTIONS=--experimental-global-webcrypto pnpm exec webpack --mode development
+
+            - name: Start backend
+              run: |
+                  nohup node dist/server > backend.log 2>&1 &
+                  echo $! > backend.pid
+
+            - name: Wait for backend health
+              run: |
+                  for attempt in $(seq 1 36); do
+                    if curl --fail --silent http://127.0.0.1:3500/api/v1/health > /dev/null; then
+                      exit 0
+                    fi
+                    sleep 5
+                  done
+                  cat backend.log
+                  exit 1
+
+            - name: Run HawkScan (PR Smoke)
+              if: github.event_name == 'pull_request'
+              timeout-minutes: 25
+              uses: stackhawk/hawkscan-action@29a62fe1e926ea50ac87a1b64efc59b82ffd5b7d # v2.2.0
+              env:
+                  STACKHAWK_APPLICATION_ID: ${{ vars.STACKHAWK_APPLICATION_ID }}
+              with:
+                  apiKey: ${{ secrets.HAWK_API_KEY }}
+                  configurationFiles: stackhawk-pr.yml
+
+            - name: Run HawkScan (Full Surface)
+              if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+              timeout-minutes: 120
+              uses: stackhawk/hawkscan-action@29a62fe1e926ea50ac87a1b64efc59b82ffd5b7d # v2.2.0
+              env:
+                  STACKHAWK_APPLICATION_ID: ${{ vars.STACKHAWK_APPLICATION_ID }}
+              with:
+                  apiKey: ${{ secrets.HAWK_API_KEY }}
+                  configurationFiles: stackhawk.yml
+
+            - name: Upload backend log on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: hawkscan-backend-log
+                  path: backend.log
+
+            - name: Stop backend and Redis
+              if: always()
+              run: |
+                  if [ -f backend.pid ]; then
+                    kill "$(cat backend.pid)" || true
+                  fi
+                  docker rm -f flipxer-stackhawk-redis || true
