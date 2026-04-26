@@ -1,0 +1,22 @@
+app:
+    applicationId: ${STACKHAWK_APPLICATION_ID}
+    env: CI
+    host: http://127.0.0.1:3500
+    waitForAppTarget:
+        path: /api/v1/health
+        waitTimeoutMillis: 180000
+        pollDelay: 5000
+    openApiConf:
+        path: /api-json
+
+hawk:
+    startupTimeoutMinutes: 10
+    failureThreshold: high
+    spider:
+        base: false
+
+tags:
+    - name: git-branch
+      value: ${GITHUB_REF_NAME:local}
+    - name: git-sha
+      value: ${GITHUB_SHA:HEAD}
