@@ -138,6 +138,20 @@ jobs:
                   cat backend.log
                   exit 1
 
+            - name: Validate HawkScan configuration
+              env:
+                  STACKHAWK_APPLICATION_ID: ${{ vars.STACKHAWK_APPLICATION_ID }}
+                  HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+              run: |
+                  if [ -z "$STACKHAWK_APPLICATION_ID" ]; then
+                    echo "::error::Missing required GitHub Actions variable STACKHAWK_APPLICATION_ID."
+                    exit 1
+                  fi
+                  if [ -z "$HAWK_API_KEY" ]; then
+                    echo "::error::Missing required GitHub Actions secret HAWK_API_KEY."
+                    exit 1
+                  fi
+
             - name: Run HawkScan (PR Smoke)
               if: github.event_name == 'pull_request'
               timeout-minutes: 25
