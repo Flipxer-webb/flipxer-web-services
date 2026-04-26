@@ -1,4 +1,4 @@
-import { Module, NestModule, MiddlewareConsumer } from "@nestjs/common";
+import { Module, NestModule, MiddlewareConsumer, RequestMethod } from "@nestjs/common";
 import { SystemSettingsService } from "./services/system-settings.service";
 import { FeatureFlagService } from "./services/feature-flag.service";
 import { MaintenanceModeService } from "./services/maintenance-mode.service";
@@ -29,9 +29,11 @@ export class SystemConfigModule implements NestModule {
         consumer
             .apply(MaintenanceMiddleware)
             .exclude(
-                "admin/(.*)",  // Exclude admin routes
-                "health(.*)",   // Exclude health checks
+                { path: "admin", method: RequestMethod.ALL },
+                { path: "admin/{*path}", method: RequestMethod.ALL },
+                { path: "health", method: RequestMethod.ALL },
+                { path: "health/{*path}", method: RequestMethod.ALL },
             )
-            .forRoutes("*");
+            .forRoutes({ path: "{*path}", method: RequestMethod.ALL });
     }
 }

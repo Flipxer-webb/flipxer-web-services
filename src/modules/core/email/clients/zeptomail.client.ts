@@ -31,10 +31,14 @@ export class ZeptoMailClient implements ISendMailClient {
             throw new Error("ZEPTOMAIL_URL must not be empty");
         }
 
+        const normalizedUrl = trimmedUrl
+            .replace(/^https:(?!\/\/)/i, "https://")
+            .replace(/^http:(?!\/\/)/i, "http://");
+
         const absoluteUrl =
-            trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")
-                ? trimmedUrl
-                : `https://${trimmedUrl}`;
+            normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")
+                ? normalizedUrl
+                : `https://${normalizedUrl}`;
 
         try {
             return new URL(absoluteUrl).origin;

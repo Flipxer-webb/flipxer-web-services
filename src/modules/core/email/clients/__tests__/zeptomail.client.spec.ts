@@ -93,6 +93,32 @@ describe("ZeptoMailClient", () => {
         );
     });
 
+    it("normalizes a scheme missing slashes", async () => {
+        (globalThis.fetch as jest.Mock).mockResolvedValue(
+            makeResponse({ body: '{"request_id":"req-scheme-fix"}' }),
+        );
+
+        const client = new ZeptoMailClient({
+            url: "https:api.zeptomail.com",
+            token: "secret-token",
+        });
+
+        await expect(
+            client.sendMail({
+                from: { address: "noreply@test.com" },
+                to: [{ email_address: { address: "user@test.com" } }],
+                subject: "Subject",
+                textbody: "Text",
+                htmlbody: "<p>HTML</p>",
+            }),
+        ).resolves.toEqual({ request_id: "req-scheme-fix" });
+
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            "https://api.zeptomail.com/v1.1/email",
+            expect.any(Object),
+        );
+    });
+
     it("treats empty successful responses as accepted", async () => {
         (globalThis.fetch as jest.Mock).mockResolvedValue(
             makeResponse({ body: "", contentType: "", status: 202, statusText: "Accepted" }),
