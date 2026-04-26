@@ -1,4 +1,4 @@
-import { Global, MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { Global, MiddlewareConsumer, Module, NestModule, RequestMethod } from "@nestjs/common";
 import { StructuredLoggerService, createLogger } from "./services/structured-logger.service";
 import { RequestTracingMiddleware } from "./middleware/request-tracing.middleware";
 
@@ -29,6 +29,6 @@ export class LoggerModule implements NestModule {
         // Apply request tracing to all routes
         consumer
             .apply(RequestTracingMiddleware)
-            .forRoutes("*");
+            .forRoutes({ path: "{*path}", method: RequestMethod.ALL });
     }
 }

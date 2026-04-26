@@ -2,6 +2,13 @@ import { Logger } from "@nestjs/common";
 import { UserType } from "@prisma/client";
 import { WsService } from "../websocket.service";
 
+jest.mock("../../../user/services", () => ({
+    UserService: class {
+        readonly __stub = true;
+    },
+    __esModule: true,
+}));
+
 jest.mock("@/modules/api/user", () => {
     class AccountDeletedException extends Error { constructor() { super("Account deleted"); } }
     class UserNotFoundException extends Error { constructor() { super("User not found"); } }
