@@ -34,7 +34,7 @@ overrides:
   serialize-javascript: 7.0.5
   socket.io-parser: 4.2.6
   underscore: 1.13.8
-  uuid: ^11.0.3
+  uuid: ^14.0.0
 
 pnpmfileChecksum: gvjobanvk4qezrsvice5cgcwia
 
@@ -229,8 +229,8 @@ importers:
         specifier: ^7.0.0
         version: 7.0.0
       uuid:
-        specifier: ^11.0.3
-        version: 11.1.0
+        specifier: ^14.0.0
+        version: 14.0.0
       zeptomail:
         specifier: ^6.1.0
         version: 6.2.1
@@ -5375,8 +5375,8 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@11.1.0:
-    resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
+  uuid@14.0.0:
+    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
     hasBin: true
 
   v8-compile-cache-lib@3.0.1:
@@ -6090,7 +6090,7 @@ snapshots:
       p-limit: 3.1.0
       retry-request: 7.0.2
       teeny-request: 9.0.0
-      uuid: 11.1.0
+      uuid: 14.0.0
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -7725,7 +7725,7 @@ snapshots:
       lodash: 4.18.1
       msgpackr: 1.11.10
       semver: 7.7.4
-      uuid: 11.1.0
+      uuid: 14.0.0
     transitivePeerDependencies:
       - supports-color
 
@@ -8691,7 +8691,7 @@ snapshots:
       jsonwebtoken: 9.0.3
       jwks-rsa: 3.2.2
       node-forge: 1.4.0
-      uuid: 11.1.0
+      uuid: 14.0.0
     optionalDependencies:
       '@google-cloud/firestore': 7.11.6
       '@google-cloud/storage': 7.19.0
@@ -8790,7 +8790,7 @@ snapshots:
       https-proxy-agent: 7.0.6
       is-stream: 2.0.1
       node-fetch: 2.7.0
-      uuid: 11.1.0
+      uuid: 14.0.0
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -8955,7 +8955,7 @@ snapshots:
       proto3-json-serializer: 2.0.2
       protobufjs: 7.5.5
       retry-request: 7.0.2
-      uuid: 11.1.0
+      uuid: 14.0.0
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -9122,7 +9122,7 @@ snapshots:
       hamming-distance: 1.0.0
       lodash: 4.18.1
       tslib: 2.8.1
-      uuid: 11.1.0
+      uuid: 14.0.0
     transitivePeerDependencies:
       - debug
 
@@ -10410,7 +10410,7 @@ snapshots:
       p-event: 4.2.0
       p-wait-for: 3.2.0
       pug: 3.0.4
-      uuid: 11.1.0
+      uuid: 14.0.0
     optional: true
 
   prisma@6.2.1:
@@ -11094,7 +11094,7 @@ snapshots:
       https-proxy-agent: 5.0.1
       node-fetch: 2.7.0
       stream-events: 1.0.5
-      uuid: 11.1.0
+      uuid: 14.0.0
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -11355,7 +11355,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  uuid@11.1.0: {}
+  uuid@14.0.0: {}
 
   v8-compile-cache-lib@3.0.1: {}
 
