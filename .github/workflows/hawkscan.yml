@@ -20,7 +20,7 @@ jobs:
     hawkscan:
         name: Dynamic API Scan
         runs-on: ubuntu-latest
-        timeout-minutes: 75
+        timeout-minutes: 135
         env:
             CI_POSTGRES_USER: flipxer
             CI_POSTGRES_PASSWORD: ${{ github.run_id }}
@@ -138,13 +138,25 @@ jobs:
                   cat backend.log
                   exit 1
 
-            - name: Run HawkScan
-              timeout-minutes: 60
+            - name: Run HawkScan (PR Smoke)
+              if: github.event_name == 'pull_request'
+              timeout-minutes: 25
               uses: stackhawk/hawkscan-action@29a62fe1e926ea50ac87a1b64efc59b82ffd5b7d # v2.2.0
               env:
                   STACKHAWK_APPLICATION_ID: ${{ vars.STACKHAWK_APPLICATION_ID }}
               with:
                   apiKey: ${{ secrets.HAWK_API_KEY }}
+                  configurationFiles: stackhawk-pr.yml
+
+            - name: Run HawkScan (Full Surface)
+              if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+              timeout-minutes: 120
+              uses: stackhawk/hawkscan-action@29a62fe1e926ea50ac87a1b64efc59b82ffd5b7d # v2.2.0
+              env:
+                  STACKHAWK_APPLICATION_ID: ${{ vars.STACKHAWK_APPLICATION_ID }}
+              with:
+                  apiKey: ${{ secrets.HAWK_API_KEY }}
+                  configurationFiles: stackhawk.yml
 
             - name: Upload backend log on failure
               if: failure()

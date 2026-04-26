@@ -2,6 +2,17 @@ app:
     applicationId: ${STACKHAWK_APPLICATION_ID}
     env: CI
     host: http://127.0.0.1:3500
+    includePaths:
+        - ^/api/v1/health(?:/.*)?$
+        - ^/api/v1/auth(?:/.*)?$
+        - ^/api/v1/sessions(?:/.*)?$
+        - ^/api/v1/user(?:/.*)?$
+        - ^/api/v1/notifications(?:/.*)?$
+        - ^/api/v1/banks(?:/.*)?$
+        - ^/api/v1/settings(?:/.*)?$
+    excludePaths:
+        - ^/api/v1/admin(?:/.*)?$
+        - ^/api/v1/webhooks(?:/.*)?$
     waitForAppTarget:
         path: /api/v1/health
         waitTimeoutMillis: 180000
@@ -14,12 +25,14 @@ hawk:
     failureThreshold: high
     spider:
         base: false
-        maxDurationMinutes: 5
+        maxDurationMinutes: 1
     scan:
-        maxDurationMinutes: 110
+        maxDurationMinutes: 20
 
 tags:
     - name: git-branch
       value: ${GITHUB_REF_NAME:local}
     - name: git-sha
       value: ${GITHUB_SHA:HEAD}
+    - name: scan-profile
+      value: pr-smoke
