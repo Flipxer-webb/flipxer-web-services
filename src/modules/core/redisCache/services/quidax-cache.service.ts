@@ -2,28 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { RedisCacheService } from "./redis-cache.service";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
-import { QuidaxTooManyRequestError } from "@/libs/quidax";
-
-function isQuidaxThrottleError(error: unknown): boolean {
-    if (error instanceof QuidaxTooManyRequestError) {
-        return true;
-    }
-
-    if (typeof error !== "object" || error === null) {
-        return false;
-    }
-
-    if ("status" in error && typeof error.status === "number") {
-        return error.status === 429 || error.status === 444;
-    }
-
-    if ("getStatus" in error && typeof error.getStatus === "function") {
-        const status = error.getStatus();
-        return status === 429 || status === 444;
-    }
-
-    return false;
-}
+import { isQuidaxThrottleError } from "@/libs/quidax";
 
 @Injectable()
 export class QuidaxCacheService {

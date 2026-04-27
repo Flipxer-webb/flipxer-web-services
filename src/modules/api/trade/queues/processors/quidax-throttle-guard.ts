@@ -1,7 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { Queue } from "bull";
-import { QuidaxTooManyRequestError } from "@/libs/quidax";
-import { QuidaxException } from "@/modules/factory/trading/providers/quidax/errors";
+import { isQuidaxThrottleError } from "@/libs/quidax";
 
 /**
  * Default cooldown applied to a Bull queue when Quidax responds with a
@@ -16,19 +15,7 @@ const DEFAULT_THROTTLE_PAUSE_MS = 30_000;
  * QuidaxException wrapper produced by the provider's error handler.
  */
 export function isQuidaxThrottlingError(error: unknown): boolean {
-    if (!error) return false;
-
-    if (error instanceof QuidaxTooManyRequestError) return true;
-
-    if (error instanceof QuidaxException) {
-        // QuidaxException preserves the upstream HTTP status.
-        const status = error.getStatus?.();
-        if (status === 429 || status === 444) return true;
-    }
-
-    // Defensive fallback for plain objects that carry a status field.
-    const status = (error as { status?: number })?.status;
-    return status === 429 || status === 444;
+    return isQuidaxThrottleError(error);
 }
 
 /**

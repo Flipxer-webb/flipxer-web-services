@@ -10,7 +10,7 @@ import { CoinCapService } from "@/modules/factory/trading/providers/coincap/serv
 import {
     GetUserWalletResponse,
     GetPaymentAddressByIdOptions,
-    QuidaxTooManyRequestError,
+    isQuidaxThrottleError,
 } from "@/libs/quidax";
 import {
     AccountCreationException,
@@ -86,27 +86,6 @@ import {
     DEFAULT_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
 } from "../constants";
-
-function isQuidaxThrottleError(error: unknown): boolean {
-    if (error instanceof QuidaxTooManyRequestError) {
-        return true;
-    }
-
-    if (typeof error !== "object" || error === null) {
-        return false;
-    }
-
-    if ("status" in error && typeof error.status === "number") {
-        return error.status === 429 || error.status === 444;
-    }
-
-    if ("getStatus" in error && typeof error.getStatus === "function") {
-        const status = error.getStatus();
-        return status === 429 || status === 444;
-    }
-
-    return false;
-}
 
 @Injectable()
 export class TradingService {

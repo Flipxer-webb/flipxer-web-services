@@ -33,3 +33,24 @@ export class QuidaxTooManyRequestError extends QuidaxError {
     name = "DojahTooManyRequestError";
     status = 429;
 }
+
+export function isQuidaxThrottleError(error: unknown): boolean {
+    if (error instanceof QuidaxTooManyRequestError) {
+        return true;
+    }
+
+    if (typeof error !== "object" || error === null) {
+        return false;
+    }
+
+    if ("status" in error && typeof error.status === "number") {
+        return error.status === 429 || error.status === 444;
+    }
+
+    if ("getStatus" in error && typeof error.getStatus === "function") {
+        const status = error.getStatus();
+        return status === 429 || status === 444;
+    }
+
+    return false;
+}
