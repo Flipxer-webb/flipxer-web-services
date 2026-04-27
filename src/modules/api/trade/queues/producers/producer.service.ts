@@ -29,6 +29,9 @@ export class CryptoAccountQueueProducer {
             QuidaxTradingQueue.SYNC_CRYPTO_BALANCE,
             {
                 user_id: user_id,
+            },
+            {
+                jobId: `sync-balance:${user_id}`,
             }
         );
     }

@@ -17,9 +17,14 @@ export const quidaxTradingOptions: BullModuleOptions = {
 
 export const quidaxSyncBalanceQueue: BullModuleOptions = {
     name: TradingQueue.QUIDAX_SYNC_BALANCE,
+    limiter: {
+        // Wallet balance sync calls Quidax once per user job.
+        // Pace the queue so bulk refreshes do not trigger provider throttling.
+        max: 1,
+        duration: 1000,
+    },
     defaultJobOptions: {
         attempts: 3,
-        delay: 10000, // maybe 10 sec delay for balance sync (optional)
         removeOnFail: true,
         removeOnComplete: true,
     },

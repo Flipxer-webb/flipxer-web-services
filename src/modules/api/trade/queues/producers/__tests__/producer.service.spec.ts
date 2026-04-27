@@ -21,8 +21,14 @@ describe("CryptoAccountQueueProducer", () => {
         const service = new CryptoAccountQueueProducer(quidaxCryptoQueue as any, syncBalanceQueue as any);
         await service.enqueueSyncBalance(17);
 
-        expect(syncBalanceQueue.add).toHaveBeenCalledWith(QuidaxTradingQueue.SYNC_CRYPTO_BALANCE, {
-            user_id: 17,
-        });
+        expect(syncBalanceQueue.add).toHaveBeenCalledWith(
+            QuidaxTradingQueue.SYNC_CRYPTO_BALANCE,
+            {
+                user_id: 17,
+            },
+            {
+                jobId: "sync-balance:17",
+            },
+        );
     });
 });
