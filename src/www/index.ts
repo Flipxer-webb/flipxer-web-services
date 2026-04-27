@@ -66,7 +66,7 @@ export default async function createServer(
         : corsOptions.allowedHeaders;
 
     const expressApp = app.getHttpAdapter().getInstance();
-    expressApp.options("*", (req: Request, res: Response) => {
+    expressApp.options("/*path", (req: Request, res: Response) => {
         const origin = req.headers.origin;
         const isAllowedOrigin =
             typeof origin === "string" &&
@@ -107,8 +107,7 @@ export default async function createServer(
                     defaultSrc: ["'self'"],
                     scriptSrc: [
                         "'self'",
-                        (req: Request, res: Response) =>
-                            `'nonce-${res.locals.cspNonce}'`,
+                        (_req, res) => `'nonce-${(res as Response).locals.cspNonce}'`,
                         "https://widget.intercom.io",
                         "https://js.intercomcdn.com",
                     ],

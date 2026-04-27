@@ -220,6 +220,11 @@ describe("createServer", () => {
             whitelistedDomains: ["https://allowed.app"],
         });
 
+        expect(expressOptionsMock).toHaveBeenCalledWith(
+            "/*path",
+            expect.any(Function)
+        );
+
         const optionsHandler = expressOptionsMock.mock.calls[0][1];
 
         const makeRes = () => ({
