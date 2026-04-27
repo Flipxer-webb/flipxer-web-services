@@ -197,7 +197,7 @@ describe("createServer", () => {
         });
 
         expect(waitForRedisMock).toHaveBeenCalledWith(configState.redisConfig);
-        expect(appMock.listen).toHaveBeenCalledWith(4010);
+        expect(appMock.listen).toHaveBeenCalledWith(4010, "0.0.0.0");
         expect(enableShutdownHooksMock).toHaveBeenCalledWith(appMock);
     });
 
