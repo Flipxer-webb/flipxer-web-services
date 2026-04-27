@@ -96,14 +96,16 @@ function isQuidaxThrottleError(error: unknown): boolean {
         return false;
     }
 
-    const status =
-        "status" in error && typeof error.status === "number"
-            ? error.status
-            : "getStatus" in error && typeof error.getStatus === "function"
-                ? error.getStatus()
-                : undefined;
+    if ("status" in error && typeof error.status === "number") {
+        return error.status === 429 || error.status === 444;
+    }
 
-    return status === 429 || status === 444;
+    if ("getStatus" in error && typeof error.getStatus === "function") {
+        const status = error.getStatus();
+        return status === 429 || status === 444;
+    }
+
+    return false;
 }
 
 @Injectable()
