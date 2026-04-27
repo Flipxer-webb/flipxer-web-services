@@ -227,6 +227,57 @@ describe("SmtpMailClient", () => {
         );
     });
 
+    it.each([
+        "document_approved",
+        "document_escalated",
+        "document_pending_review",
+        "document_rejected",
+        "forgot_password",
+        "recovery_pin",
+        "registration_success",
+        "transaction_failed",
+        "transaction_notification",
+        "transaction_otp",
+        "verify_account",
+    ])("renders known local template alias %s", async (templateAlias) => {
+        const transporter = {
+            sendMail: jest.fn().mockResolvedValue({ messageId: "message-id" }),
+        } as any;
+        const client = new SmtpMailClient(transporter);
+
+        existsSyncMock.mockReturnValue(true);
+        readFileSyncMock.mockReturnValue(
+            "<p>{{first_name}}</p><p>{{status}}</p>" as any
+        );
+
+        await expect(
+            client.sendMailWithTemplate({
+                from: { address: "noreply@test.com" },
+                to: [{ email_address: { address: "user@test.com" } }],
+                template_alias: templateAlias,
+                merge_info: {
+                    first_name: "Ada",
+                    status: "Queued",
+                },
+            } as never)
+        ).resolves.toEqual({ messageId: "message-id" });
+
+        expect(readFileSyncMock).toHaveBeenCalled();
+        expect(transporter.sendMail).toHaveBeenCalledWith(
+            expect.objectContaining({
+                subject: `[Local SMTP] ${templateAlias
+                    .split("_")
+                    .map(
+                        (part) =>
+                            part.charAt(0).toUpperCase() +
+                            part.slice(1).toLowerCase()
+                    )
+                    .join(" ")}`,
+                html: expect.stringContaining("<p>Ada</p><p>Queued</p>"),
+            })
+        );
+    });
+
     it("sends batch template previews one recipient at a time", async () => {
         const transporter = {
             sendMail: jest.fn().mockResolvedValue({ messageId: "message-id" }),
@@ -314,6 +365,70 @@ describe("SmtpMailClient", () => {
                 subject: "[Local SMTP] Manual Review",
                 text: expect.stringContaining("No merge fields provided."),
                 html: expect.stringContaining("No merge fields provided."),
+            })
+        );
+    });
+
+    it.each([
+        "document_pending_review",
+        "document_rejected",
+        "forgot_password",
+        "recovery_pin",
+        "registration_success",
+        "transaction_failed",
+        "transaction_notification",
+        "transaction_otp",
+    ])(
+        "falls back cleanly when local template file is missing for %s",
+        async (templateAlias) => {
+            const transporter = {
+                sendMail: jest.fn().mockResolvedValue({ messageId: "message-id" }),
+            } as any;
+            const client = new SmtpMailClient(transporter);
+
+            existsSyncMock.mockReturnValue(false);
+
+            await client.sendMailWithTemplate({
+                from: { address: "noreply@test.com" },
+                to: [{ email_address: { address: "user@test.com" } }],
+                template_alias: templateAlias,
+            } as never);
+
+            expect(readFileSyncMock).not.toHaveBeenCalled();
+            expect(transporter.sendMail).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    subject: `[Local SMTP] ${templateAlias
+                        .split("_")
+                        .map(
+                            (part) =>
+                                part.charAt(0).toUpperCase() +
+                                part.slice(1).toLowerCase()
+                        )
+                        .join(" ")}`,
+                    html: expect.stringContaining("Local SMTP preview"),
+                })
+            );
+        }
+    );
+
+    it("rejects traversal-like template aliases before resolving a local path", async () => {
+        const transporter = {
+            sendMail: jest.fn().mockResolvedValue({ messageId: "message-id" }),
+        } as any;
+        const client = new SmtpMailClient(transporter);
+
+        await client.sendMailWithTemplate({
+            from: { address: "noreply@test.com" },
+            to: [{ email_address: { address: "user@test.com" } }],
+            template_alias: "../secrets/reset-password",
+        } as never);
+
+        expect(existsSyncMock).not.toHaveBeenCalled();
+        expect(readFileSyncMock).not.toHaveBeenCalled();
+        expect(transporter.sendMail).toHaveBeenCalledWith(
+            expect.objectContaining({
+                subject: "[Local SMTP] Local Template",
+                html: expect.stringContaining("Local SMTP preview"),
             })
         );
     });
