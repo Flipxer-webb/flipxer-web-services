@@ -22,7 +22,7 @@ export function isQuidaxThrottlingError(error: unknown): boolean {
 
     if (error instanceof QuidaxException) {
         // QuidaxException preserves the upstream HTTP status.
-        const status = (error as QuidaxException).getStatus?.();
+        const status = error.getStatus?.();
         if (status === 429 || status === 444) return true;
     }
 

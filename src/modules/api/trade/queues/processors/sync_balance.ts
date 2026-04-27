@@ -1,6 +1,5 @@
-import { Process, Processor } from "@nestjs/bull";
+import { InjectQueue, Process, Processor } from "@nestjs/bull";
 import { Job, Queue } from "bull";
-import { InjectQueue } from "@nestjs/bull";
 import { Inject, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";

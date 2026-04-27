@@ -1494,10 +1494,12 @@ export class TradingService {
 
         // Check ALL supported currencies, not just those in wallet table
         // This ensures we catch deposits even if wallet address record is missing
-        const ALL_SUPPORTED_CURRENCIES = ['usdt', 'btc', 'eth', 'usdc', 'sol', 'xrp', 'bnb', 'trx', 'matic', 'avax'];
+        const ALL_SUPPORTED_CURRENCIES: ReadonlySet<string> = new Set([
+            'usdt', 'btc', 'eth', 'usdc', 'sol', 'xrp', 'bnb', 'trx', 'matic', 'avax',
+        ]);
         // Default scan set for users with no wallet addresses yet — keeps the
         // first-deposit detection path working without polling every chain.
-        const DEFAULT_NEW_USER_CURRENCIES = ['btc', 'usdt', 'eth'];
+        const DEFAULT_NEW_USER_CURRENCIES: readonly string[] = ['btc', 'usdt', 'eth'];
 
         // Also get user's wallet addresses for logging
         const walletAddresses = await this.prisma.cryptoWalletAddress.findMany({
@@ -1505,14 +1507,14 @@ export class TradingService {
             select: { assetSymbol: true },
         });
 
-        const userCurrencies = Array.from(
-            new Set(walletAddresses.map(w => w.assetSymbol.toLowerCase()))
-        ).filter(c => ALL_SUPPORTED_CURRENCIES.includes(c));
+        const userCurrencies: string[] = Array.from(
+            new Set(walletAddresses.map((w) => String(w.assetSymbol).toLowerCase()))
+        ).filter((c) => ALL_SUPPORTED_CURRENCIES.has(c));
 
         // Only scan currencies the user actually holds. For brand-new accounts
         // with no wallet addresses we fall back to a small default set so the
         // very first deposit is still detected without polling 10 chains.
-        const currenciesToScan = userCurrencies.length > 0
+        const currenciesToScan: readonly string[] = userCurrencies.length > 0
             ? userCurrencies
             : DEFAULT_NEW_USER_CURRENCIES;
 
