@@ -66,7 +66,7 @@ export default async function createServer(
         : corsOptions.allowedHeaders;
 
     const expressApp = app.getHttpAdapter().getInstance();
-    expressApp.options("/{*path}", (req: Request, res: Response) => {
+    expressApp.options("*", (req: Request, res: Response) => {
         const origin = req.headers.origin;
         const isAllowedOrigin =
             typeof origin === "string" &&
