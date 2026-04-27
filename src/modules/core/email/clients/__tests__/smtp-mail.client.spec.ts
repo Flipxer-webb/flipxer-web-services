@@ -318,6 +318,28 @@ describe("SmtpMailClient", () => {
         );
     });
 
+    it("rejects traversal-like template aliases before resolving a local path", async () => {
+        const transporter = {
+            sendMail: jest.fn().mockResolvedValue({ messageId: "message-id" }),
+        } as any;
+        const client = new SmtpMailClient(transporter);
+
+        await client.sendMailWithTemplate({
+            from: { address: "noreply@test.com" },
+            to: [{ email_address: { address: "user@test.com" } }],
+            template_alias: "../secrets/reset-password",
+        } as never);
+
+        expect(existsSyncMock).not.toHaveBeenCalled();
+        expect(readFileSyncMock).not.toHaveBeenCalled();
+        expect(transporter.sendMail).toHaveBeenCalledWith(
+            expect.objectContaining({
+                subject: "[Local SMTP] Local Template",
+                html: expect.stringContaining("Local SMTP preview"),
+            })
+        );
+    });
+
     it("supports helper fallbacks for empty headers and formatting utilities", () => {
         const client = new SmtpMailClient({ sendMail: jest.fn() } as any);
         const internals = client as any;

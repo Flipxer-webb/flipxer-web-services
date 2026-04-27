@@ -21,6 +21,66 @@ type MailRecipient = {
     merge_info?: Record<string, unknown>;
 };
 
+const LOCAL_TEMPLATE_DIRECTORY = path.resolve(
+    __dirname,
+    "../../../../../email-templates"
+);
+
+const DOCUMENT_APPROVED_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "document-approved.html"
+);
+
+const DOCUMENT_ESCALATED_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "document-escalated.html"
+);
+
+const DOCUMENT_PENDING_REVIEW_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "document-pending-review.html"
+);
+
+const DOCUMENT_REJECTED_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "document-rejected.html"
+);
+
+const FORGOT_PASSWORD_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "forgot-password.html"
+);
+
+const RECOVERY_PIN_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "recovery-pin.html"
+);
+
+const REGISTRATION_SUCCESS_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "registration-success.html"
+);
+
+const TRANSACTION_FAILED_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "transaction-failed.html"
+);
+
+const TRANSACTION_NOTIFICATION_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "transaction-notification.html"
+);
+
+const TRANSACTION_OTP_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "transaction-otp.html"
+);
+
+const VERIFY_ACCOUNT_TEMPLATE_PATH = path.resolve(
+    LOCAL_TEMPLATE_DIRECTORY,
+    "verify-account.html"
+);
+
 export class SmtpMailClient implements ISendMailClient {
     private readonly logger = new Logger(SmtpMailClient.name);
 
@@ -73,7 +133,7 @@ export class SmtpMailClient implements ISendMailClient {
                 mergeInfo
             ),
             html: this.buildTemplateHtml(
-                templateDisplayName,
+                templateName,
                 templateKey,
                 mergeInfo
             ),
@@ -261,19 +321,13 @@ export class SmtpMailClient implements ISendMailClient {
         templateName: string,
         mergeInfo: Record<string, unknown>
     ): string | null {
-        // Convert template name to filename: e.g. "verify_account" → "verify-account.html"
-        const fileName = templateName.replaceAll("_", "-").toLowerCase() + ".html";
-        const templatePath = path.resolve(
-            __dirname,
-            "../../../../../email-templates",
-            fileName
-        );
+        const templateContents = this.readKnownLocalTemplate(templateName);
+        if (!templateContents) {
+            return null;
+        }
 
         try {
-            if (!fs.existsSync(templatePath)) {
-                return null;
-            }
-            let html = fs.readFileSync(templatePath, "utf-8");
+            let html = templateContents;
             // Replace {{variable}} placeholders with merge field values
             html = html.replaceAll(/\{\{(\w+)\}\}/g, (_, key: string) => {
                 const value = mergeInfo[key];
@@ -288,7 +342,7 @@ export class SmtpMailClient implements ISendMailClient {
     private resolveTemplateName(options: SendMailWithTemplateOptions) {
         const templateAlias = options.template_alias?.trim();
 
-        if (templateAlias) {
+        if (templateAlias && this.isSafeTemplateName(templateAlias)) {
             return templateAlias;
         }
 
@@ -297,7 +351,151 @@ export class SmtpMailClient implements ISendMailClient {
             options.template_key?.trim();
         const configuredAlias = this.resolveConfiguredTemplateAlias(templateKey);
 
-        return configuredAlias || templateKey || "local-template";
+        if (configuredAlias && this.isSafeTemplateName(configuredAlias)) {
+            return configuredAlias;
+        }
+
+        if (templateKey && this.isSafeTemplateName(templateKey)) {
+            return templateKey;
+        }
+
+        return "local-template";
+    }
+
+    private isSafeTemplateName(templateName: string) {
+        return /^[a-z0-9_-]+$/i.test(templateName);
+    }
+
+    private readKnownLocalTemplate(templateName: string): string | null {
+        try {
+            switch (templateName.trim().toLowerCase()) {
+                case "document-approved":
+                case "document_approved":
+                    return this.readDocumentApprovedTemplate();
+                case "document-escalated":
+                case "document_escalated":
+                    return this.readDocumentEscalatedTemplate();
+                case "document-pending-review":
+                case "document_pending_review":
+                    return this.readDocumentPendingReviewTemplate();
+                case "document-rejected":
+                case "document_rejected":
+                    return this.readDocumentRejectedTemplate();
+                case "forgot-password":
+                case "forgot_password":
+                    return this.readForgotPasswordTemplate();
+                case "recovery-pin":
+                case "recovery_pin":
+                    return this.readRecoveryPinTemplate();
+                case "registration-success":
+                case "registration_success":
+                    return this.readRegistrationSuccessTemplate();
+                case "transaction-failed":
+                case "transaction_failed":
+                    return this.readTransactionFailedTemplate();
+                case "transaction-notification":
+                case "transaction_notification":
+                    return this.readTransactionNotificationTemplate();
+                case "transaction-otp":
+                case "transaction_otp":
+                    return this.readTransactionOtpTemplate();
+                case "verify-account":
+                case "verify_account":
+                    return this.readVerifyAccountTemplate();
+                default:
+                    return null;
+            }
+        } catch {
+            return null;
+        }
+    }
+
+    private readDocumentApprovedTemplate() {
+        if (!fs.existsSync(DOCUMENT_APPROVED_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(DOCUMENT_APPROVED_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readDocumentEscalatedTemplate() {
+        if (!fs.existsSync(DOCUMENT_ESCALATED_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(DOCUMENT_ESCALATED_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readDocumentPendingReviewTemplate() {
+        if (!fs.existsSync(DOCUMENT_PENDING_REVIEW_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(DOCUMENT_PENDING_REVIEW_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readDocumentRejectedTemplate() {
+        if (!fs.existsSync(DOCUMENT_REJECTED_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(DOCUMENT_REJECTED_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readForgotPasswordTemplate() {
+        if (!fs.existsSync(FORGOT_PASSWORD_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(FORGOT_PASSWORD_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readRecoveryPinTemplate() {
+        if (!fs.existsSync(RECOVERY_PIN_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(RECOVERY_PIN_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readRegistrationSuccessTemplate() {
+        if (!fs.existsSync(REGISTRATION_SUCCESS_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(REGISTRATION_SUCCESS_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readTransactionFailedTemplate() {
+        if (!fs.existsSync(TRANSACTION_FAILED_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(TRANSACTION_FAILED_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readTransactionNotificationTemplate() {
+        if (!fs.existsSync(TRANSACTION_NOTIFICATION_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(TRANSACTION_NOTIFICATION_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readTransactionOtpTemplate() {
+        if (!fs.existsSync(TRANSACTION_OTP_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(TRANSACTION_OTP_TEMPLATE_PATH, "utf-8");
+    }
+
+    private readVerifyAccountTemplate() {
+        if (!fs.existsSync(VERIFY_ACCOUNT_TEMPLATE_PATH)) {
+            return null;
+        }
+
+        return fs.readFileSync(VERIFY_ACCOUNT_TEMPLATE_PATH, "utf-8");
     }
 
     private resolveConfiguredTemplateAlias(templateKey?: string) {
