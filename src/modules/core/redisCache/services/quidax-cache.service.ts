@@ -11,10 +11,12 @@ export class QuidaxCacheService {
     private readonly CACHE_TTL = 60; // 60 seconds for fresh cache
     private readonly STALE_TTL = 300; // 5 minutes for stale fallback
     private readonly API_TIMEOUT_MS = 5000; // 5 second timeout for Quidax API
-    private readonly THROTTLE_COOLDOWN_MS = 30_000;
+    private readonly BASE_THROTTLE_COOLDOWN_MS = 30_000;
+    private readonly MAX_THROTTLE_COOLDOWN_MS = this.STALE_TTL * 1000;
     private readonly logger = new Logger(QuidaxCacheService.name);
     private inFlightMarketTickersRequest: Promise<Record<string, any>> | null = null;
     private marketTickersThrottleUntil = 0;
+    private consecutiveThrottleCount = 0;
 
     constructor(
         private readonly redisCacheService: RedisCacheService,
@@ -63,6 +65,7 @@ export class QuidaxCacheService {
                 ]);
 
                 this.marketTickersThrottleUntil = 0;
+                this.consecutiveThrottleCount = 0;
                 this.logger.log(`[PERF] Quidax API fetch: ${Date.now() - startTime}ms`);
                 return data;
             } catch (err) {
@@ -70,9 +73,11 @@ export class QuidaxCacheService {
                 this.logger.error(`[PERF] Quidax API error after ${Date.now() - startTime}ms: ${errorMessage}`);
 
                 if (isQuidaxThrottleError(err)) {
-                    this.marketTickersThrottleUntil = Date.now() + this.THROTTLE_COOLDOWN_MS;
+                    this.consecutiveThrottleCount += 1;
+                    const cooldownMs = this.getThrottleCooldownMs();
+                    this.marketTickersThrottleUntil = Date.now() + cooldownMs;
                     this.logger.warn(
-                        `[PERF] Entering Quidax market ticker cooldown for ${this.THROTTLE_COOLDOWN_MS}ms after throttling response`,
+                        `[PERF] Entering Quidax market ticker cooldown for ${cooldownMs}ms after ${this.consecutiveThrottleCount} consecutive throttling response(s)`,
                     );
                 }
 
@@ -111,5 +116,13 @@ export class QuidaxCacheService {
 
         this.logger.warn(`${logMessage}; no stale cache available`);
         return {};
+    }
+
+    private getThrottleCooldownMs(): number {
+        const backoffMultiplier = Math.max(0, this.consecutiveThrottleCount - 1);
+        return Math.min(
+            this.BASE_THROTTLE_COOLDOWN_MS * 2 ** backoffMultiplier,
+            this.MAX_THROTTLE_COOLDOWN_MS,
+        );
     }
 }

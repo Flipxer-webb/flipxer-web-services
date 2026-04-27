@@ -100,6 +100,61 @@ describe("QuidaxCacheService", () => {
         expect(quidaxService.getMarketTickers).toHaveBeenCalledTimes(1);
     });
 
+    it("increases cooldown after consecutive Quidax throttles", async () => {
+        let now = 1_000_000;
+        jest.spyOn(Date, "now").mockImplementation(() => now);
+
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true })
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true });
+        quidaxService.getMarketTickers.mockRejectedValue(
+            new QuidaxTooManyRequestError("rate limited"),
+        );
+
+        await service.getMarketTickers();
+        expect((service as any).marketTickersThrottleUntil - now).toBe(30_000);
+
+        now = (service as any).marketTickersThrottleUntil + 1;
+
+        await service.getMarketTickers();
+        expect((service as any).marketTickersThrottleUntil - now).toBe(60_000);
+    });
+
+    it("resets throttle backoff after a successful market ticker fetch", async () => {
+        let now = 2_000_000;
+        jest.spyOn(Date, "now").mockImplementation(() => now);
+
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true })
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true })
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true });
+        quidaxService.getMarketTickers
+            .mockRejectedValueOnce(new QuidaxTooManyRequestError("rate limited"))
+            .mockRejectedValueOnce(new QuidaxTooManyRequestError("rate limited"))
+            .mockResolvedValueOnce({ data: { btcngn: { buy: "9000" } } })
+            .mockRejectedValueOnce(new QuidaxTooManyRequestError("rate limited"));
+
+        await service.getMarketTickers();
+        now = (service as any).marketTickersThrottleUntil + 1;
+        await service.getMarketTickers();
+        expect((service as any).marketTickersThrottleUntil - now).toBe(60_000);
+
+        now = (service as any).marketTickersThrottleUntil + 1;
+        await service.getMarketTickers();
+        expect((service as any).consecutiveThrottleCount).toBe(0);
+
+        now += 60_000;
+        await service.getMarketTickers();
+        expect((service as any).marketTickersThrottleUntil - now).toBe(30_000);
+    });
+
     it("returns empty object during cooldown when stale cache is unavailable", async () => {
         (service as any).marketTickersThrottleUntil = Date.now() + 30_000;
         redisCacheService.get
