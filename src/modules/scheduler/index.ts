@@ -1,5 +1,4 @@
 import { forwardRef, Module } from "@nestjs/common";
-import { ScheduleModule } from "@nestjs/schedule"; // Import ScheduleModule
 import { AccountSchedulerService } from "./services/manageAccounts";
 import { AssetBalanceSchedulerService } from "./services/manageBalance";
 import { ManageOrdersSchedulerService } from "./services/manageOrder";
@@ -11,7 +10,6 @@ import { CachingModule } from "@/modules/core/redisCache";
 
 @Module({
     imports: [
-        ScheduleModule.forRoot(), // Required for cron jobs
         forwardRef(() => TradingModule),
         BankModule,
         CachingModule,

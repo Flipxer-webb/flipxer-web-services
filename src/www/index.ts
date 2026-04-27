@@ -265,7 +265,7 @@ export default async function createServer(
         );
     }
 
-    app.listen(options.port);
+    await app.listen(options.port, "0.0.0.0");
 
     //handle prisma enableShutDownHook interference with nest app enableShutdownHooks
     const prismaService = app.get(PrismaService);
