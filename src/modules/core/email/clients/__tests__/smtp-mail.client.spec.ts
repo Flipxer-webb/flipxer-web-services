@@ -227,6 +227,55 @@ describe("SmtpMailClient", () => {
         );
     });
 
+    it.each([
+        "document_escalated",
+        "document_pending_review",
+        "document_rejected",
+        "forgot_password",
+        "recovery_pin",
+        "registration_success",
+        "transaction_failed",
+        "transaction_notification",
+        "transaction_otp",
+    ])("renders known local template alias %s", async (templateAlias) => {
+        const transporter = {
+            sendMail: jest.fn().mockResolvedValue({ messageId: "message-id" }),
+        } as any;
+        const client = new SmtpMailClient(transporter);
+
+        existsSyncMock.mockReturnValue(true);
+        readFileSyncMock.mockReturnValue(
+            "<p>{{first_name}}</p><p>{{status}}</p>" as any
+        );
+
+        await expect(
+            client.sendMailWithTemplate({
+                from: { address: "noreply@test.com" },
+                to: [{ email_address: { address: "user@test.com" } }],
+                template_alias: templateAlias,
+                merge_info: {
+                    first_name: "Ada",
+                    status: "Queued",
+                },
+            } as never)
+        ).resolves.toEqual({ messageId: "message-id" });
+
+        expect(readFileSyncMock).toHaveBeenCalled();
+        expect(transporter.sendMail).toHaveBeenCalledWith(
+            expect.objectContaining({
+                subject: `[Local SMTP] ${templateAlias
+                    .split("_")
+                    .map(
+                        (part) =>
+                            part.charAt(0).toUpperCase() +
+                            part.slice(1).toLowerCase()
+                    )
+                    .join(" ")}`,
+                html: expect.stringContaining("<p>Ada</p><p>Queued</p>"),
+            })
+        );
+    });
+
     it("sends batch template previews one recipient at a time", async () => {
         const transporter = {
             sendMail: jest.fn().mockResolvedValue({ messageId: "message-id" }),
