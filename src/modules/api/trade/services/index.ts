@@ -7,7 +7,11 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
-import { GetUserWalletResponse, GetPaymentAddressByIdOptions } from "@/libs/quidax";
+import {
+    GetUserWalletResponse,
+    GetPaymentAddressByIdOptions,
+    isQuidaxThrottleError,
+} from "@/libs/quidax";
 import {
     AccountCreationException,
     GeneralTransactionException,
@@ -1551,8 +1555,20 @@ export class TradingService {
                     await this.syncSingleDeposit(user, currency, deposit, syncResults);
                 }
             } catch (currencyError) {
+                if (isQuidaxThrottleError(currencyError)) {
+                    this.logger.warn(
+                        `Quidax throttled deposit sync for user ${user.id} while fetching ${currency}; aborting remaining currencies so the queue guard can pause retries`,
+                    );
+                    throw currencyError;
+                }
+
+                const errorMessage =
+                    currencyError instanceof Error
+                        ? currencyError.message
+                        : String(currencyError);
+
                 this.logger.error(
-                    `Error fetching deposits for ${currency}: ${currencyError.message}`
+                    `Error fetching deposits for ${currency}: ${errorMessage}`
                 );
             }
         }
