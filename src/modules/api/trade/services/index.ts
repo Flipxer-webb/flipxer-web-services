@@ -7,7 +7,11 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
-import { GetUserWalletResponse, GetPaymentAddressByIdOptions } from "@/libs/quidax";
+import {
+    GetUserWalletResponse,
+    GetPaymentAddressByIdOptions,
+    QuidaxTooManyRequestError,
+} from "@/libs/quidax";
 import {
     AccountCreationException,
     GeneralTransactionException,
@@ -82,6 +86,25 @@ import {
     DEFAULT_TRANSACTION_TIMEOUT_MS,
     DEFAULT_TRANSACTION_MAX_WAIT_MS,
 } from "../constants";
+
+function isQuidaxThrottleError(error: unknown): boolean {
+    if (error instanceof QuidaxTooManyRequestError) {
+        return true;
+    }
+
+    if (typeof error !== "object" || error === null) {
+        return false;
+    }
+
+    const status =
+        "status" in error && typeof error.status === "number"
+            ? error.status
+            : "getStatus" in error && typeof error.getStatus === "function"
+                ? error.getStatus()
+                : undefined;
+
+    return status === 429 || status === 444;
+}
 
 @Injectable()
 export class TradingService {
@@ -1551,8 +1574,20 @@ export class TradingService {
                     await this.syncSingleDeposit(user, currency, deposit, syncResults);
                 }
             } catch (currencyError) {
+                if (isQuidaxThrottleError(currencyError)) {
+                    this.logger.warn(
+                        `Quidax throttled deposit sync for user ${user.id} while fetching ${currency}; aborting remaining currencies so the queue guard can pause retries`,
+                    );
+                    throw currencyError;
+                }
+
+                const errorMessage =
+                    currencyError instanceof Error
+                        ? currencyError.message
+                        : String(currencyError);
+
                 this.logger.error(
-                    `Error fetching deposits for ${currency}: ${currencyError.message}`
+                    `Error fetching deposits for ${currency}: ${errorMessage}`
                 );
             }
         }

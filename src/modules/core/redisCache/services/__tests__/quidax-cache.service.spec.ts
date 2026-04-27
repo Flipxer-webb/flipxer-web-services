@@ -1,3 +1,4 @@
+import { QuidaxTooManyRequestError } from "@/libs/quidax";
 import { QuidaxCacheService } from "../quidax-cache.service";
 
 describe("QuidaxCacheService", () => {
@@ -78,6 +79,37 @@ describe("QuidaxCacheService", () => {
         expect(result).toEqual({ stale: true });
         expect((service as any).logger.warn).toHaveBeenCalled();
         expect((service as any).logger.error).toHaveBeenCalled();
+    });
+
+    it("enters cooldown after Quidax throttles and serves stale cache without re-hitting the API", async () => {
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true })
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true });
+        quidaxService.getMarketTickers.mockRejectedValue(
+            new QuidaxTooManyRequestError("rate limited"),
+        );
+
+        const first = await service.getMarketTickers();
+        const second = await service.getMarketTickers();
+
+        expect(first).toEqual({ stale: true });
+        expect(second).toEqual({ stale: true });
+        expect((service as any).marketTickersThrottleUntil).toBeGreaterThan(Date.now());
+        expect(quidaxService.getMarketTickers).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns empty object during cooldown when stale cache is unavailable", async () => {
+        (service as any).marketTickersThrottleUntil = Date.now() + 30_000;
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+
+        const result = await service.getMarketTickers();
+
+        expect(result).toEqual({});
+        expect(quidaxService.getMarketTickers).not.toHaveBeenCalled();
     });
 
     it("returns empty object when API and stale cache are unavailable", async () => {

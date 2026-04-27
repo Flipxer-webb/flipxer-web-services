@@ -2,6 +2,26 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { RedisCacheService } from "./redis-cache.service";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
+import { QuidaxTooManyRequestError } from "@/libs/quidax";
+
+function isQuidaxThrottleError(error: unknown): boolean {
+    if (error instanceof QuidaxTooManyRequestError) {
+        return true;
+    }
+
+    if (typeof error !== "object" || error === null) {
+        return false;
+    }
+
+    const status =
+        "status" in error && typeof error.status === "number"
+            ? error.status
+            : "getStatus" in error && typeof error.getStatus === "function"
+                ? error.getStatus()
+                : undefined;
+
+    return status === 429 || status === 444;
+}
 
 @Injectable()
 export class QuidaxCacheService {
@@ -10,8 +30,10 @@ export class QuidaxCacheService {
     private readonly CACHE_TTL = 60; // 60 seconds for fresh cache
     private readonly STALE_TTL = 300; // 5 minutes for stale fallback
     private readonly API_TIMEOUT_MS = 5000; // 5 second timeout for Quidax API
+    private readonly THROTTLE_COOLDOWN_MS = 30_000;
     private readonly logger = new Logger(QuidaxCacheService.name);
     private inFlightMarketTickersRequest: Promise<Record<string, any>> | null = null;
+    private marketTickersThrottleUntil = 0;
 
     constructor(
         private readonly redisCacheService: RedisCacheService,
@@ -27,6 +49,13 @@ export class QuidaxCacheService {
         if (cached) {
             this.logger.debug(`[PERF] Quidax cache HIT in ${Date.now() - startTime}ms`);
             return cached;
+        }
+
+        const remainingThrottleMs = this.marketTickersThrottleUntil - Date.now();
+        if (remainingThrottleMs > 0) {
+            return this.getStaleMarketTickers(
+                `[PERF] Quidax market ticker cooldown active for ${remainingThrottleMs}ms`,
+            );
         }
 
         if (this.inFlightMarketTickersRequest !== null) {
@@ -52,20 +81,21 @@ export class QuidaxCacheService {
                     this.redisCacheService.set(this.STALE_CACHE_KEY, data, this.STALE_TTL),
                 ]);
 
+                this.marketTickersThrottleUntil = 0;
                 this.logger.log(`[PERF] Quidax API fetch: ${Date.now() - startTime}ms`);
                 return data;
             } catch (err) {
                 const errorMessage = err instanceof Error ? err.message : String(err);
                 this.logger.error(`[PERF] Quidax API error after ${Date.now() - startTime}ms: ${errorMessage}`);
 
-                // Fallback to stale cache if available
-                const staleData = await this.redisCacheService.get(this.STALE_CACHE_KEY);
-                if (staleData) {
-                    this.logger.warn(`[PERF] Using stale Quidax cache as fallback`);
-                    return staleData;
+                if (isQuidaxThrottleError(err)) {
+                    this.marketTickersThrottleUntil = Date.now() + this.THROTTLE_COOLDOWN_MS;
+                    this.logger.warn(
+                        `[PERF] Entering Quidax market ticker cooldown for ${this.THROTTLE_COOLDOWN_MS}ms after throttling response`,
+                    );
                 }
 
-                return {};
+                return this.getStaleMarketTickers(`[PERF] Using stale Quidax cache as fallback`);
             } finally {
                 this.inFlightMarketTickersRequest = null;
             }
@@ -88,5 +118,17 @@ export class QuidaxCacheService {
                 setTimeout(() => reject(new Error(`Quidax API timeout after ${timeoutMs}ms`)), timeoutMs)
             ),
         ]);
+    }
+
+    private async getStaleMarketTickers(logMessage: string): Promise<Record<string, any>> {
+        const staleData = await this.redisCacheService.get(this.STALE_CACHE_KEY);
+
+        if (staleData) {
+            this.logger.warn(logMessage);
+            return staleData;
+        }
+
+        this.logger.warn(`${logMessage}; no stale cache available`);
+        return {};
     }
 }
