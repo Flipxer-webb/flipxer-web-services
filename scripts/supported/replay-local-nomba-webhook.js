@@ -13,8 +13,8 @@ function printUsage() {
     console.log(`Local Nomba webhook replay helper
 
 Usage:
-  node scripts/replay-local-nomba-webhook.js --reference <payment-reference>
-  node scripts/replay-local-nomba-webhook.js --latest-pending-buy
+    node scripts/supported/replay-local-nomba-webhook.js --reference <payment-reference>
+    node scripts/supported/replay-local-nomba-webhook.js --latest-pending-buy
 
 Options:
   --reference <ref>           Replay against a specific Payment.reference
@@ -27,9 +27,9 @@ Options:
   --help                     Show this help
 
 Examples:
-  node scripts/replay-local-nomba-webhook.js --reference 0hce2gcch26863fa1g68b4505ad093
-  node scripts/replay-local-nomba-webhook.js --latest-pending-buy
-  node scripts/replay-local-nomba-webhook.js --reference 0hce2gcch26863fa1g68b4505ad093 --dry-run
+    node scripts/supported/replay-local-nomba-webhook.js --reference 0hce2gcch26863fa1g68b4505ad093
+    node scripts/supported/replay-local-nomba-webhook.js --latest-pending-buy
+    node scripts/supported/replay-local-nomba-webhook.js --reference 0hce2gcch26863fa1g68b4505ad093 --dry-run
 `);
 }
 
@@ -204,7 +204,7 @@ function ensureReplayableTarget(payment, allowNonPending) {
         fail("No matching payment found");
     }
 
-    if (!payment.order || payment.order.orderCategory !== "BUY") {
+    if (payment.order?.orderCategory !== "BUY") {
         fail(`Payment ${payment.reference} is not attached to a BUY order`);
     }
 

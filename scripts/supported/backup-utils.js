@@ -7,17 +7,27 @@
  * - restore: Restore from a backup file
  * 
  * Usage:
- *   node scripts/backup-utils.js backup
- *   node scripts/backup-utils.js list
- *   node scripts/backup-utils.js restore <filename>
+ *   node scripts/supported/backup-utils.js backup
+ *   node scripts/supported/backup-utils.js list
+ *   node scripts/supported/backup-utils.js restore <filename>
  */
 
 const { exec } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const BACKUP_DIR = path.join(__dirname, '..', 'backups');
+const BACKUP_DIR = path.join(__dirname, '..', '..', 'backups');
 const DATABASE_URL = process.env.DATABASE_URL;
+
+function resolveBackupFile(filename) {
+    const safeName = path.basename(filename);
+
+    if (safeName !== filename) {
+        throw new Error('Backup filename must not include directory segments');
+    }
+
+    return path.join(BACKUP_DIR, safeName);
+}
 
 // Ensure backup directory exists
 if (!fs.existsSync(BACKUP_DIR)) {
@@ -99,7 +109,7 @@ function listBackups() {
     }
 
     files.forEach((file, index) => {
-        const filePath = path.join(BACKUP_DIR, file);
+        const filePath = resolveBackupFile(file);
         const stats = fs.statSync(filePath);
         const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
         const date = stats.mtime.toLocaleString();
@@ -117,7 +127,14 @@ function restoreBackup(filename) {
         process.exit(1);
     }
 
-    const backupFile = path.join(BACKUP_DIR, filename);
+    let backupFile;
+
+    try {
+        backupFile = resolveBackupFile(filename);
+    } catch (error) {
+        console.error(`❌ ${error.message}`);
+        process.exit(1);
+    }
 
     if (!fs.existsSync(backupFile)) {
         console.error(`❌ Backup file not found: ${backupFile}`);
