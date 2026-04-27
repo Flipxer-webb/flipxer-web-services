@@ -1,5 +1,5 @@
-import { Process, Processor } from "@nestjs/bull";
-import { Job } from "bull";
+import { InjectQueue, Process, Processor } from "@nestjs/bull";
+import { Job, Queue } from "bull";
 import { Inject, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
@@ -14,6 +14,7 @@ import {
     NETWORK_ALIAS_MAP,
     NETWORK_SEGMENT_SPLITTER,
 } from "../../constants";
+import { withQuidaxThrottleGuard } from "./quidax-throttle-guard";
 
 const supportedNetworkSet = new Set<string>(Object.values(NetworkTypes));
 
@@ -75,7 +76,9 @@ export class QuidaxTradingBalanceSyncProcessor {
     constructor(
         private readonly prisma: PrismaService,
         @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService
+        private readonly quidaxService: QuidaxService,
+        @InjectQueue(TradingQueue.QUIDAX_SYNC_BALANCE)
+        private readonly syncBalanceQueue: Queue<QuidaxTradingJobOptions>
     ) { }
 
     private resolveProviderWallet(
@@ -128,6 +131,14 @@ export class QuidaxTradingBalanceSyncProcessor {
 
     @Process(QuidaxTradingQueue.SYNC_CRYPTO_BALANCE)
     async handleSyncBalance(job: Job<QuidaxTradingJobOptions>) {
+        return withQuidaxThrottleGuard(
+            this.syncBalanceQueue,
+            this.logger,
+            () => this.runSyncBalance(job)
+        );
+    }
+
+    private async runSyncBalance(job: Job<QuidaxTradingJobOptions>) {
         const { user_id } = job.data;
 
         const user = await this.prisma.user.findUnique({

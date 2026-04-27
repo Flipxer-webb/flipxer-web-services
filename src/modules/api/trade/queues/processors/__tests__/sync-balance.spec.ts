@@ -28,7 +28,18 @@ describe("QuidaxTradingBalanceSyncProcessor", () => {
             getUserWalletList: jest.fn(),
         };
 
-        processor = new QuidaxTradingBalanceSyncProcessor(prisma as never, quidaxService as never);
+        const syncBalanceQueue = {
+            isPaused: jest.fn().mockResolvedValue(false),
+            pause: jest.fn().mockResolvedValue(undefined),
+            resume: jest.fn().mockResolvedValue(undefined),
+            name: "quidaxSyncBalance",
+        };
+
+        processor = new QuidaxTradingBalanceSyncProcessor(
+            prisma as never,
+            quidaxService as never,
+            syncBalanceQueue as never
+        );
         jest.spyOn((processor as any).logger, "warn").mockImplementation(() => undefined);
         jest.spyOn((processor as any).logger, "debug").mockImplementation(() => undefined);
     });

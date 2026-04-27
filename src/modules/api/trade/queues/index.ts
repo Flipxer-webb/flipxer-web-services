@@ -10,6 +10,10 @@ export const quidaxTradingOptions: BullModuleOptions = {
     defaultJobOptions: {
         attempts: 3, //If a job fails, retry once more (total 3 attempts).
         delay: 20000, //each job execution will be delayed by 3min
+        // Exponential backoff so retries don't immediately re-hit Quidax
+        // when it returns a throttling response (HTTP 429/444).
+        // Delays: 5s, 10s, 20s.
+        backoff: { type: "exponential", delay: 5000 },
         removeOnFail: true, //automatically removes failed jobs.
         removeOnComplete: true, //automatically removes successfully completed jobs.
     },
@@ -25,6 +29,25 @@ export const quidaxSyncBalanceQueue: BullModuleOptions = {
     },
     defaultJobOptions: {
         attempts: 3,
+        // Same throttle-aware backoff as the account-init queue.
+        backoff: { type: "exponential", delay: 5000 },
+        removeOnFail: true,
+        removeOnComplete: true,
+    },
+};
+
+export const quidaxDepositSyncQueue: BullModuleOptions = {
+    name: TradingQueue.QUIDAX_DEPOSIT_SYNC,
+    limiter: {
+        // Deposit sync may issue multiple Quidax /deposits calls per job
+        // (one per currency the user holds). Pace at the queue level so the
+        // fallback cron cannot fan-out and trigger provider throttling.
+        max: 1,
+        duration: 1000,
+    },
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5000 },
         removeOnFail: true,
         removeOnComplete: true,
     },
@@ -33,6 +56,7 @@ export const quidaxSyncBalanceQueue: BullModuleOptions = {
 export const quidaxQueueConfig: BullModuleOptions[] = [
     quidaxTradingOptions,
     quidaxSyncBalanceQueue,
+    quidaxDepositSyncQueue,
 ];
 
 // BullBoard queue config removed - package uninstalled

@@ -27,6 +27,7 @@ describe("AssetBalanceSchedulerService", () => {
 
     const cryptoAccountProducer = {
         enqueueSyncBalance: jest.fn(),
+        enqueueDepositSync: jest.fn(),
     };
 
     const tradingService = {
@@ -198,17 +199,18 @@ describe("AssetBalanceSchedulerService", () => {
 
         jest.spyOn(service, "getRecentlyActiveUsersWithSubAccounts").mockResolvedValue([1, 2, 3]);
 
-        tradingService.syncUserDeposits
-            .mockResolvedValueOnce({ data: { synced: 2 } })
-            .mockRejectedValueOnce(new Error("provider timeout"))
-            .mockResolvedValueOnce({ data: { synced: 1 } });
+        cryptoAccountProducer.enqueueDepositSync
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error("queue down"))
+            .mockResolvedValueOnce(undefined);
 
         await service.syncMissedDeposits();
 
-        expect(tradingService.syncUserDeposits).toHaveBeenCalledTimes(3);
-        expect(tradingService.syncUserDeposits).toHaveBeenCalledWith(1);
-        expect(tradingService.syncUserDeposits).toHaveBeenCalledWith(2);
-        expect(tradingService.syncUserDeposits).toHaveBeenCalledWith(3);
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledTimes(3);
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(1);
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(2);
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(3);
+        expect(tradingService.syncUserDeposits).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledTimes(1);
     });
 
@@ -222,6 +224,7 @@ describe("AssetBalanceSchedulerService", () => {
 
         await service.syncMissedDeposits();
 
+        expect(cryptoAccountProducer.enqueueDepositSync).not.toHaveBeenCalled();
         expect(tradingService.syncUserDeposits).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledTimes(1);
     });
