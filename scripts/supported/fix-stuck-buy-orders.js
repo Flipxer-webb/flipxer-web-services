@@ -6,8 +6,8 @@
  * - Order status = PENDING (Quidax transfer never completed)
  * 
  * Usage:
- *   DRY RUN (default):  node scripts/fix-stuck-buy-orders.js
- *   EXECUTE:            node scripts/fix-stuck-buy-orders.js --execute
+ *   DRY RUN (default):  node scripts/supported/fix-stuck-buy-orders.js
+ *   EXECUTE:            node scripts/supported/fix-stuck-buy-orders.js --execute
  * 
  * Prerequisites:
  *   - Set DATABASE_URL in environment or .env file
@@ -127,7 +127,7 @@ async function main() {
 
         if (DRY_RUN && stuckPayments.length > 0) {
             console.log('\n💡 To attempt recovery, run:');
-            console.log('   node scripts/fix-stuck-buy-orders.js --execute\n');
+            console.log('   node scripts/supported/fix-stuck-buy-orders.js --execute\n');
         }
 
     } catch (error) {
