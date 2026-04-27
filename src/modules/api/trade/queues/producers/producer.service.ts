@@ -14,7 +14,10 @@ export class CryptoAccountQueueProducer {
         private readonly quidaxCryptoQueue: Queue<QuidaxTradingJobOptions>,
 
         @InjectQueue(TradingQueue.QUIDAX_SYNC_BALANCE)
-        private readonly syncBalanceQueue: Queue<QuidaxTradingJobOptions>
+        private readonly syncBalanceQueue: Queue<QuidaxTradingJobOptions>,
+
+        @InjectQueue(TradingQueue.QUIDAX_DEPOSIT_SYNC)
+        private readonly depositSyncQueue: Queue<QuidaxTradingJobOptions>
     ) {}
 
     async enqueue(user_id: number) {
@@ -32,6 +35,18 @@ export class CryptoAccountQueueProducer {
             },
             {
                 jobId: `sync-balance:${user_id}`,
+            }
+        );
+    }
+
+    async enqueueDepositSync(user_id: number) {
+        await this.depositSyncQueue.add(
+            QuidaxTradingQueue.SYNC_USER_DEPOSITS,
+            { user_id },
+            {
+                // Deduplicate: if a deposit sync is already queued for this
+                // user it will be reused instead of fanning out.
+                jobId: `sync-deposits:${user_id}`,
             }
         );
     }

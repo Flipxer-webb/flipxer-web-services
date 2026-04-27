@@ -28,39 +28,47 @@ export class QuidaxLib {
     private handleQuidaxError(error: AxiosError<any>) {
         // Enhanced logging for debugging Quidax API issues
         const logger = new Logger("QuidaxLib");
-        logger.error(`Quidax API Error - Status: ${error.response?.status}, URL: ${error.config?.url}`);
-        logger.error(`Quidax API Error - Response: ${JSON.stringify(error.response?.data)}`);
+        const status = error.response?.status;
+        const data = error.response?.data;
+        // Quidax sometimes returns a plain string body (e.g. throttling at 444).
+        // Fall back through string body, statusText, and axios message so we
+        // never log/throw with an empty <none> message.
+        const responseMessage =
+            (typeof data === "string" && data) ||
+            data?.message ||
+            error.response?.statusText ||
+            error.message;
+
+        logger.error(`Quidax API Error - Status: ${status}, URL: ${error.config?.url}`);
+        logger.error(`Quidax API Error - Response: ${JSON.stringify(data)}`);
         logger.error(`Quidax API Error - Message: ${error.message}`);
 
         switch (true) {
-            case error.response?.status == 401: {
-                throw new e.QuidaxAuthorizationError(
-                    error.response.data.message
-                );
+            case status == 401: {
+                throw new e.QuidaxAuthorizationError(responseMessage);
             }
-            case error.response?.status == 400: {
+            case status == 400: {
                 // Preserve the Quidax error code for better debugging
-                const errorCode = error.response?.data?.data?.code;
-                throw new e.QuidaxValidationError(error.response.data.message, errorCode);
+                const errorCode = data?.data?.code;
+                throw new e.QuidaxValidationError(responseMessage, errorCode);
             }
 
-            case error.response?.status == 404: {
-                throw new e.QuidaxNotFoundError(error.response.data.message);
+            case status == 404: {
+                throw new e.QuidaxNotFoundError(responseMessage);
             }
 
-            case error.response?.status == 429: {
-                throw new e.QuidaxTooManyRequestError(
-                    error.response.data.message
-                );
+            // Quidax emits HTTP 429 (standard) and HTTP 444 (their custom
+            // throttling code with body "That's a bit too much request please throttle").
+            // Treat both as the same retryable rate-limit class.
+            case status == 429 || status == 444: {
+                throw new e.QuidaxTooManyRequestError(responseMessage);
             }
 
             default: {
                 logger.error(`Unknown Quidax error: ${error.message}`);
-                const err = new e.QuidaxGenericError(
-                    error.response?.data?.message || error.response?.statusText
-                );
+                const err = new e.QuidaxGenericError(responseMessage);
 
-                err.status = error.response?.status;
+                err.status = status;
                 throw err;
             }
         }

@@ -1495,6 +1495,9 @@ export class TradingService {
         // Check ALL supported currencies, not just those in wallet table
         // This ensures we catch deposits even if wallet address record is missing
         const ALL_SUPPORTED_CURRENCIES = ['usdt', 'btc', 'eth', 'usdc', 'sol', 'xrp', 'bnb', 'trx', 'matic', 'avax'];
+        // Default scan set for users with no wallet addresses yet — keeps the
+        // first-deposit detection path working without polling every chain.
+        const DEFAULT_NEW_USER_CURRENCIES = ['btc', 'usdt', 'eth'];
 
         // Also get user's wallet addresses for logging
         const walletAddresses = await this.prisma.cryptoWalletAddress.findMany({
@@ -1502,9 +1505,19 @@ export class TradingService {
             select: { assetSymbol: true },
         });
 
-        const userCurrencies = walletAddresses.map(w => w.assetSymbol.toLowerCase());
+        const userCurrencies = Array.from(
+            new Set(walletAddresses.map(w => w.assetSymbol.toLowerCase()))
+        ).filter(c => ALL_SUPPORTED_CURRENCIES.includes(c));
+
+        // Only scan currencies the user actually holds. For brand-new accounts
+        // with no wallet addresses we fall back to a small default set so the
+        // very first deposit is still detected without polling 10 chains.
+        const currenciesToScan = userCurrencies.length > 0
+            ? userCurrencies
+            : DEFAULT_NEW_USER_CURRENCIES;
+
         this.logger.log(`User ${user.email} has wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
-        this.logger.log(`Checking ALL supported currencies: ${ALL_SUPPORTED_CURRENCIES.join(', ')}`);
+        this.logger.log(`Scanning Quidax deposits for: ${currenciesToScan.join(', ')}`);
 
         const syncResults = {
             synced: 0,
@@ -1513,7 +1526,7 @@ export class TradingService {
             details: [] as { currency: string; depositId: string; status: string; amount: string; result: string }[],
         };
 
-        for (const currency of ALL_SUPPORTED_CURRENCIES) {
+        for (const currency of currenciesToScan) {
             try {
                 // Fetch deposits from Quidax
                 this.logger.log(`Fetching ${currency} deposits for sub-account: ${user.cryptoSubAccountId}`);

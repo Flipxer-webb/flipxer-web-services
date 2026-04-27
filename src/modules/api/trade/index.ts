@@ -42,6 +42,7 @@ import { quidaxQueueConfig } from "./queues";
 import { CryptoAccountQueueProducer } from "./queues/producers/producer.service";
 import { QuidaxTradingCryptoAccountInitQueueProcessor } from "./queues/processors/account_init_processor";
 import { QuidaxTradingBalanceSyncProcessor } from "./queues/processors/sync_balance";
+import { QuidaxDepositSyncProcessor } from "./queues/processors/deposit_sync";
 import { BankFactoryModule } from "@/modules/factory/bank/bank.module";
 import { UserModule } from "../user";
 import { WsGateway } from "./gateway/v1";
@@ -116,6 +117,7 @@ export * from "./errors";
         QuidaxTradingCryptoAccountInitQueueProcessor,
         CryptoAccountQueueProducer,
         QuidaxTradingBalanceSyncProcessor,
+        QuidaxDepositSyncProcessor,
         WsGateway,
         WsService,
         TransactionService,

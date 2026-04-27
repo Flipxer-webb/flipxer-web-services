@@ -5,8 +5,13 @@ describe("CryptoAccountQueueProducer", () => {
     it("enqueues account init job", async () => {
         const quidaxCryptoQueue = { add: jest.fn().mockResolvedValue(undefined) };
         const syncBalanceQueue = { add: jest.fn().mockResolvedValue(undefined) };
+        const depositSyncQueue = { add: jest.fn().mockResolvedValue(undefined) };
 
-        const service = new CryptoAccountQueueProducer(quidaxCryptoQueue as any, syncBalanceQueue as any);
+        const service = new CryptoAccountQueueProducer(
+            quidaxCryptoQueue as any,
+            syncBalanceQueue as any,
+            depositSyncQueue as any
+        );
         await service.enqueue(42);
 
         expect(quidaxCryptoQueue.add).toHaveBeenCalledWith(QuidaxTradingQueue.TRADING_ACCOUNT_INIT, {
@@ -17,8 +22,13 @@ describe("CryptoAccountQueueProducer", () => {
     it("enqueues sync balance job", async () => {
         const quidaxCryptoQueue = { add: jest.fn().mockResolvedValue(undefined) };
         const syncBalanceQueue = { add: jest.fn().mockResolvedValue(undefined) };
+        const depositSyncQueue = { add: jest.fn().mockResolvedValue(undefined) };
 
-        const service = new CryptoAccountQueueProducer(quidaxCryptoQueue as any, syncBalanceQueue as any);
+        const service = new CryptoAccountQueueProducer(
+            quidaxCryptoQueue as any,
+            syncBalanceQueue as any,
+            depositSyncQueue as any
+        );
         await service.enqueueSyncBalance(17);
 
         expect(syncBalanceQueue.add).toHaveBeenCalledWith(
@@ -29,6 +39,25 @@ describe("CryptoAccountQueueProducer", () => {
             {
                 jobId: "sync-balance:17",
             },
+        );
+    });
+
+    it("enqueues deposit sync job", async () => {
+        const quidaxCryptoQueue = { add: jest.fn().mockResolvedValue(undefined) };
+        const syncBalanceQueue = { add: jest.fn().mockResolvedValue(undefined) };
+        const depositSyncQueue = { add: jest.fn().mockResolvedValue(undefined) };
+
+        const service = new CryptoAccountQueueProducer(
+            quidaxCryptoQueue as any,
+            syncBalanceQueue as any,
+            depositSyncQueue as any
+        );
+        await service.enqueueDepositSync(99);
+
+        expect(depositSyncQueue.add).toHaveBeenCalledWith(
+            QuidaxTradingQueue.SYNC_USER_DEPOSITS,
+            { user_id: 99 },
+            { jobId: "sync-deposits:99" },
         );
     });
 });

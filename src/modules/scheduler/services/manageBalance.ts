@@ -224,58 +224,37 @@ export class AssetBalanceSchedulerService {
             // Get users who have had recent activity (logged in within last 7 days)
             // to avoid syncing deposits for inactive accounts
             const recentlyActiveUsers = await this.getRecentlyActiveUsersWithSubAccounts();
-            
+
             if (recentlyActiveUsers.length === 0) {
                 this.logger.debug("[DEPOSIT SYNC] No recently active users found");
                 return;
             }
 
-            this.logger.log(`[DEPOSIT SYNC] Checking deposits for ${recentlyActiveUsers.length} active users`);
+            this.logger.log(
+                `[DEPOSIT SYNC] Enqueueing deposit sync for ${recentlyActiveUsers.length} active users`
+            );
 
-            const batchSize = 10; // Process 10 users at a time to avoid rate limits
-            let totalSynced = 0;
-            let totalErrors = 0;
+            // Enqueue per-user instead of fanning out Quidax calls directly.
+            // The deposit-sync queue applies a per-second rate limit and
+            // exponential backoff so the cron cannot trigger provider
+            // throttling regardless of how many users are active.
+            let enqueued = 0;
+            let enqueueErrors = 0;
 
-            for (let i = 0; i < recentlyActiveUsers.length; i += batchSize) {
-                const batch = recentlyActiveUsers.slice(i, i + batchSize);
-                
-                const results = await Promise.allSettled(
-                    batch.map(async (userId) => {
-                        try {
-                            const result = await this.tradingService.syncUserDeposits(userId);
-                            if (result.data?.synced > 0) {
-                                this.logger.log(
-                                    `[DEPOSIT SYNC] User ${userId}: Synced ${result.data.synced} deposits`
-                                );
-                                return result.data.synced;
-                            }
-                            return 0;
-                        } catch (error) {
-                            this.logger.error(
-                                `[DEPOSIT SYNC] Error syncing deposits for user ${userId}: ${error.message}`
-                            );
-                            throw error;
-                        }
-                    })
-                );
-
-                // Count results
-                for (const result of results) {
-                    if (result.status === "fulfilled") {
-                        totalSynced += result.value;
-                    } else {
-                        totalErrors++;
-                    }
-                }
-
-                // Add a small delay between batches to avoid overwhelming the API
-                if (i + batchSize < recentlyActiveUsers.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+            for (const userId of recentlyActiveUsers) {
+                try {
+                    await this.cryptoAccountProducer.enqueueDepositSync(userId);
+                    enqueued += 1;
+                } catch (error) {
+                    enqueueErrors += 1;
+                    this.logger.error(
+                        `[DEPOSIT SYNC] Error enqueueing deposit sync for user ${userId}: ${error?.message}`
+                    );
                 }
             }
 
             this.logger.log(
-                `[DEPOSIT SYNC] Completed - Synced: ${totalSynced} deposits, Errors: ${totalErrors}`
+                `[DEPOSIT SYNC] Enqueue complete - Enqueued: ${enqueued}, Errors: ${enqueueErrors}`
             );
         } catch (error) {
             this.logger.error("[DEPOSIT SYNC] Error in fallback deposit sync:", error);
