@@ -110,7 +110,7 @@
         "prisma:generate": "npx prisma generate",
         "migration:generate": "npx prisma migrate dev --create-only --name",
         "db:migrate:dev": "npx prisma migrate dev",
-        "db:push": "echo '⚠️  WARNING: db:push should NEVER be used on production. Use db:migrate:prod instead.' && npx prisma db push",
+        "db:push": "echo '??????  WARNING: db:push should NEVER be used on production. Use db:migrate:prod instead.' && npx prisma db push",
         "db:seed": "npx prisma db seed",
         "db:pull": "npx prisma db pull",
         "db:migrate:prod": "npx prisma migrate deploy",
@@ -123,7 +123,8 @@
         "db:pre-check": "npx ts-node prisma/scripts/pre-migrate-check.ts",
         "db:staging:up": "docker compose -f docker-compose.staging.yml up -d",
         "db:staging:down": "docker compose -f docker-compose.staging.yml down",
-        "db:staging:logs": "docker compose -f docker-compose.staging.yml logs -f"
+        "db:staging:logs": "docker compose -f docker-compose.staging.yml logs -f",
+        "security:opengrep:local": "powershell -ExecutionPolicy Bypass -File ./scripts/supported/run-local-opengrep.ps1"
     },
     "dependencies": {
         "@boxpositron/vre": "^1.0.0",
