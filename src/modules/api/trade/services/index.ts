@@ -10,7 +10,7 @@ import { CoinCapService } from "@/modules/factory/trading/providers/coincap/serv
 import {
     GetUserWalletResponse,
     GetPaymentAddressByIdOptions,
-    isQuidaxCooldownError,
+    isQuidaxThrottleError,
 } from "@/libs/quidax";
 import {
     AccountCreationException,
@@ -985,33 +985,6 @@ export class TradingService {
                     },
                 },
                 update: {
-
-            async enqueueUserDepositSync(userId: number) {
-                const user = await this.prisma.user.findUnique({
-                    where: { id: userId },
-                    select: {
-                        id: true,
-                        cryptoSubAccountId: true,
-                    },
-                });
-
-                if (!user?.cryptoSubAccountId) {
-                    throw new UserNotFoundException(
-                        "User not found or no crypto sub-account",
-                        HttpStatus.NOT_FOUND
-                    );
-                }
-
-                await this.cryptoAccountQueueProducer.enqueueDepositSync(user.id);
-
-                return buildResponse({
-                    message: "Deposit sync queued",
-                    data: {
-                        queued: true,
-                        userId: user.id,
-                    },
-                });
-            }
                     quidaxWalletId: data.id,
                     assetName: data.name,
                     balance: data.balance,
@@ -1052,6 +1025,33 @@ export class TradingService {
         } catch (assetError) {
             this.logger.error(`Failed to create AssetWallet for ${currency}: ${assetError?.message}`);
         }
+    }
+
+    async enqueueUserDepositSync(userId: number) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                cryptoSubAccountId: true,
+            },
+        });
+
+        if (!user?.cryptoSubAccountId) {
+            throw new UserNotFoundException(
+                "User not found or no crypto sub-account",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        await this.cryptoAccountQueueProducer.enqueueDepositSync(user.id);
+
+        return buildResponse({
+            message: "Deposit sync queued",
+            data: {
+                queued: true,
+                userId: user.id,
+            },
+        });
     }
 
     // Handles successful wallet address creation webhook from Quidax
@@ -1555,7 +1555,7 @@ export class TradingService {
                     await this.syncSingleDeposit(user, currency, deposit, syncResults);
                 }
             } catch (currencyError) {
-                if (isQuidaxCooldownError(currencyError)) {
+                if (isQuidaxThrottleError(currencyError)) {
                     this.logger.warn(
                         `Quidax deposit sync hit a cooldown-worthy response for user ${user.id} while fetching ${currency}; aborting remaining currencies so the queue guard can pause retries`,
                     );
