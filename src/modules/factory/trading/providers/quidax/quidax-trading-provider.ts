@@ -506,10 +506,14 @@ export class QuidaxTradingProvider implements ITradingProvider {
         });
 
         const data: any = result.data;
-        // Handle case where fee might be an array or object
-        const fee = Array.isArray(data?.fee) 
-            ? data.fee[0]?.fee?.toString() || '0'
-            : data?.fee?.toString() || '0';
+        const fee = data?.type === 'range' && Array.isArray(data?.fee)
+            ? data.fee.map((item: any) => ({
+                min: Number(item?.min ?? 0),
+                max: Number(item?.max ?? 0),
+                type: item?.type,
+                value: Number(item?.value ?? item?.fee ?? 0),
+            }))
+            : Number(data?.fee ?? 0);
 
         return {
             status: result.status === 'successful' ? 'success' : 'error',
