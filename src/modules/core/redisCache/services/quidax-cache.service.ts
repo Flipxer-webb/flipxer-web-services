@@ -4,6 +4,18 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
 import { isQuidaxThrottleError } from "@/libs/quidax";
 
+type SharedMarketTickerState = {
+    inFlightMarketTickersRequest: Promise<Record<string, any>> | null;
+    marketTickersThrottleUntil: number;
+    consecutiveThrottleCount: number;
+};
+
+const sharedMarketTickerState: SharedMarketTickerState = {
+    inFlightMarketTickersRequest: null,
+    marketTickersThrottleUntil: 0,
+    consecutiveThrottleCount: 0,
+};
+
 @Injectable()
 export class QuidaxCacheService {
     private readonly CACHE_KEY = "quidax:market:tickers";
@@ -14,15 +26,36 @@ export class QuidaxCacheService {
     private readonly BASE_THROTTLE_COOLDOWN_MS = 30_000;
     private readonly MAX_THROTTLE_COOLDOWN_MS = this.STALE_TTL * 1000;
     private readonly logger = new Logger(QuidaxCacheService.name);
-    private inFlightMarketTickersRequest: Promise<Record<string, any>> | null = null;
-    private marketTickersThrottleUntil = 0;
-    private consecutiveThrottleCount = 0;
 
     constructor(
         private readonly redisCacheService: RedisCacheService,
         @Inject(TradingInjectionToken.QUIDAX)
         private readonly quidaxService: QuidaxService
     ) { }
+
+    private get inFlightMarketTickersRequest(): Promise<Record<string, any>> | null {
+        return sharedMarketTickerState.inFlightMarketTickersRequest;
+    }
+
+    private set inFlightMarketTickersRequest(value: Promise<Record<string, any>> | null) {
+        sharedMarketTickerState.inFlightMarketTickersRequest = value;
+    }
+
+    private get marketTickersThrottleUntil(): number {
+        return sharedMarketTickerState.marketTickersThrottleUntil;
+    }
+
+    private set marketTickersThrottleUntil(value: number) {
+        sharedMarketTickerState.marketTickersThrottleUntil = value;
+    }
+
+    private get consecutiveThrottleCount(): number {
+        return sharedMarketTickerState.consecutiveThrottleCount;
+    }
+
+    private set consecutiveThrottleCount(value: number) {
+        sharedMarketTickerState.consecutiveThrottleCount = value;
+    }
 
     async getMarketTickers(): Promise<Record<string, any>> {
         const startTime = Date.now();

@@ -3,6 +3,7 @@ import { QuidaxCacheService } from "../quidax-cache.service";
 
 describe("QuidaxCacheService", () => {
     let service: QuidaxCacheService;
+    let otherService: QuidaxCacheService;
     let redisCacheService: {
         get: jest.Mock;
         set: jest.Mock;
@@ -22,11 +23,20 @@ describe("QuidaxCacheService", () => {
         };
 
         service = new QuidaxCacheService(redisCacheService as any, quidaxService as any);
+        otherService = new QuidaxCacheService(redisCacheService as any, quidaxService as any);
+
+        (service as any).inFlightMarketTickersRequest = null;
+        (service as any).marketTickersThrottleUntil = 0;
+        (service as any).consecutiveThrottleCount = 0;
 
         jest.spyOn((service as any).logger, "debug").mockImplementation(() => undefined);
         jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
         jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
         jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        jest.spyOn((otherService as any).logger, "debug").mockImplementation(() => undefined);
+        jest.spyOn((otherService as any).logger, "log").mockImplementation(() => undefined);
+        jest.spyOn((otherService as any).logger, "warn").mockImplementation(() => undefined);
+        jest.spyOn((otherService as any).logger, "error").mockImplementation(() => undefined);
     });
 
     afterEach(() => {
@@ -222,6 +232,25 @@ describe("QuidaxCacheService", () => {
         const [r1, r2] = await Promise.all([first, second]);
         expect(r1).toEqual({ btcngn: { buy: "9000" } });
         expect(r2).toEqual({ btcngn: { buy: "9000" } });
+        expect(quidaxService.getMarketTickers).toHaveBeenCalledTimes(1);
+    });
+
+    it("shares in-flight market ticker requests across service instances", async () => {
+        redisCacheService.get.mockResolvedValue(null);
+
+        let resolveApi!: (v: any) => void;
+        quidaxService.getMarketTickers.mockReturnValue(
+            new Promise((res) => { resolveApi = res; }),
+        );
+
+        const first = service.getMarketTickers();
+        const second = otherService.getMarketTickers();
+
+        resolveApi({ data: { ethngn: { buy: "2500" } } });
+
+        const [r1, r2] = await Promise.all([first, second]);
+        expect(r1).toEqual({ ethngn: { buy: "2500" } });
+        expect(r2).toEqual({ ethngn: { buy: "2500" } });
         expect(quidaxService.getMarketTickers).toHaveBeenCalledTimes(1);
     });
 });
