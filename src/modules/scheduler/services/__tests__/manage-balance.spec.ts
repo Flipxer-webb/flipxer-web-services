@@ -36,14 +36,22 @@ describe("AssetBalanceSchedulerService", () => {
         syncUserDeposits: jest.fn(),
     };
 
+    const distributedLockService = {
+        acquireLock: jest.fn(),
+        releaseLock: jest.fn(),
+    };
+
     let service: AssetBalanceSchedulerService;
 
     beforeEach(() => {
         jest.resetAllMocks();
+        distributedLockService.acquireLock.mockResolvedValue("lock-token");
+        distributedLockService.releaseLock.mockResolvedValue(true);
         service = new AssetBalanceSchedulerService(
             prisma as never,
             cryptoAccountProducer as never,
             tradingService as never,
+            distributedLockService as never,
         );
 
         jest.spyOn((service as any).logger, "debug").mockImplementation(() => undefined);
@@ -66,6 +74,18 @@ describe("AssetBalanceSchedulerService", () => {
         expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(1);
         expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(2);
         expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(3);
+        expect(distributedLockService.acquireLock).toHaveBeenCalledWith(
+            "job:quidax-balance-sync:process",
+            expect.objectContaining({
+                ttlMs: 20 * 60 * 1000,
+                maxWaitMs: 0,
+                strict: true,
+            }),
+        );
+        expect(distributedLockService.releaseLock).toHaveBeenCalledWith(
+            "job:quidax-balance-sync:process",
+            "lock-token",
+        );
         expect(release).toHaveBeenCalledTimes(1);
     });
 
@@ -77,6 +97,22 @@ describe("AssetBalanceSchedulerService", () => {
 
         await service.syncAllQuidaxAssetBalance();
 
+        expect(distributedLockService.releaseLock).toHaveBeenCalledWith(
+            "job:quidax-balance-sync:process",
+            "lock-token",
+        );
+        expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("syncAllQuidaxAssetBalance skips queueing when another instance owns the distributed lock", async () => {
+        const release = jest.fn();
+        (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
+        distributedLockService.acquireLock.mockResolvedValueOnce(null);
+
+        await service.syncAllQuidaxAssetBalance();
+
+        expect(cryptoAccountProducer.enqueueSyncBalance).not.toHaveBeenCalled();
+        expect(distributedLockService.releaseLock).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledTimes(1);
     });
 

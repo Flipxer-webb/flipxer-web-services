@@ -6,6 +6,7 @@ import { CryptoAccountQueueProducer } from "@/modules/api/trade/queues/producers
 import { CryptoWalletStatus } from "@prisma/client";
 import { TradingService } from "@/modules/api/trade/services";
 import { QuidaxException } from "@/modules/factory/trading/providers/quidax/errors";
+import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 
 @Injectable()
 export class AssetBalanceSchedulerService {
@@ -13,11 +14,14 @@ export class AssetBalanceSchedulerService {
     private readonly mutex = new Mutex(); // Create a Mutex instance
     private readonly depositSyncMutex = new Mutex(); // Separate mutex for deposit sync
     private readonly walletAddressPendingMaxAgeMs = 30 * 60 * 1000;
+    private readonly balanceSyncLockKey = "job:quidax-balance-sync:process";
+    private readonly balanceSyncLockTtlMs = 20 * 60 * 1000;
 
     constructor(
         private readonly prisma: PrismaService,
         private readonly cryptoAccountProducer: CryptoAccountQueueProducer,
-        private readonly tradingService: TradingService
+        private readonly tradingService: TradingService,
+        private readonly distributedLockService: DistributedLockService
     ) {}
 
     private isStalePendingWalletAddress(updatedAt: Date): boolean {
@@ -45,7 +49,24 @@ export class AssetBalanceSchedulerService {
 
         // Use the mutex to ensure only one execution at a time
         const release = await this.mutex.acquire();
+        let distributedLockToken: string | null = null;
         try {
+            distributedLockToken = await this.distributedLockService.acquireLock(
+                this.balanceSyncLockKey,
+                {
+                    ttlMs: this.balanceSyncLockTtlMs,
+                    maxWaitMs: 0,
+                    strict: true,
+                }
+            );
+
+            if (!distributedLockToken) {
+                this.logger.debug(
+                    "Skipping quidax asset balance sync job because another instance already owns the distributed lock"
+                );
+                return;
+            }
+
             this.logger.debug(
                 "Acquired lock: Running quidax asset balance sync job"
             );
@@ -70,6 +91,12 @@ export class AssetBalanceSchedulerService {
                 error
             );
         } finally {
+            if (distributedLockToken) {
+                await this.distributedLockService.releaseLock(
+                    this.balanceSyncLockKey,
+                    distributedLockToken
+                );
+            }
             release(); // Ensure lock is released even if an error occurs
             this.logger.debug("Lock released: Job completed");
         }
