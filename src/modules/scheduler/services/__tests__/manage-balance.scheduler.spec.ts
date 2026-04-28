@@ -32,6 +32,10 @@ describe("AssetBalanceSchedulerService", () => {
         walletAddressCreatedSuccessHandler: jest.Mock;
         syncUserDeposits: jest.Mock;
     };
+    let distributedLockService: {
+        acquireLock: jest.Mock;
+        releaseLock: jest.Mock;
+    };
 
     beforeEach(() => {
         prisma = {
@@ -55,10 +59,16 @@ describe("AssetBalanceSchedulerService", () => {
             syncUserDeposits: jest.fn(),
         };
 
+        distributedLockService = {
+            acquireLock: jest.fn().mockResolvedValue("lock-token"),
+            releaseLock: jest.fn().mockResolvedValue(true),
+        };
+
         service = new AssetBalanceSchedulerService(
             prisma as any,
             cryptoAccountProducer as any,
             tradingService as any,
+            distributedLockService as any,
         );
     });
 
@@ -72,6 +82,14 @@ describe("AssetBalanceSchedulerService", () => {
             expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenNthCalledWith(1, 1);
             expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenNthCalledWith(2, 2);
             expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenNthCalledWith(3, 3);
+            expect(distributedLockService.acquireLock).toHaveBeenCalledWith(
+                "job:quidax-balance-sync:process",
+                expect.objectContaining({ maxWaitMs: 0, strict: true }),
+            );
+            expect(distributedLockService.releaseLock).toHaveBeenCalledWith(
+                "job:quidax-balance-sync:process",
+                "lock-token",
+            );
         });
 
         it("should swallow producer errors", async () => {
@@ -79,6 +97,15 @@ describe("AssetBalanceSchedulerService", () => {
             cryptoAccountProducer.enqueueSyncBalance.mockRejectedValue(new Error("queue down"));
 
             await expect(service.syncAllQuidaxAssetBalance()).resolves.toBeUndefined();
+        });
+
+        it("should skip queueing when the distributed lock is already held", async () => {
+            distributedLockService.acquireLock.mockResolvedValueOnce(null);
+
+            await service.syncAllQuidaxAssetBalance();
+
+            expect(cryptoAccountProducer.enqueueSyncBalance).not.toHaveBeenCalled();
+            expect(distributedLockService.releaseLock).not.toHaveBeenCalled();
         });
     });
 
