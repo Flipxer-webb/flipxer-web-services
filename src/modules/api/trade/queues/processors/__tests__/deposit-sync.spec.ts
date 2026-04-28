@@ -10,11 +10,15 @@ jest.mock("@nestjs/bull", () => ({
 // because the value is provided by the DI container.
 jest.mock("../../../services", () => ({
     __esModule: true,
-    TradingService: class TradingServiceStub {},
+    TradingService: class TradingServiceStub {
+        readonly __stub = true;
+    },
 }));
 
 import { QuidaxDepositSyncProcessor } from "../deposit_sync";
 import { QuidaxTooManyRequestError } from "@/libs/quidax";
+
+let queueSequence = 0;
 
 describe("QuidaxDepositSyncProcessor", () => {
     let tradingService: { syncUserDeposits: jest.Mock };
@@ -32,7 +36,7 @@ describe("QuidaxDepositSyncProcessor", () => {
             isPaused: jest.fn().mockResolvedValue(false),
             pause: jest.fn().mockResolvedValue(undefined),
             resume: jest.fn().mockResolvedValue(undefined),
-            name: "quidaxDepositSync",
+            name: `quidaxDepositSync-${++queueSequence}`,
         };
 
         processor = new QuidaxDepositSyncProcessor(
