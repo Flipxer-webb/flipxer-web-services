@@ -1,4 +1,5 @@
 import { NetworkTypes } from "@prisma/client";
+import type { SupportedTradeAsset } from "../interfaces/trade";
 
 /**
  * Trade Module Constants
@@ -78,41 +79,37 @@ export const NETWORK_SEGMENT_SPLITTER = /[\s/_-]+/;
 // ==================== SUPPORTED ASSETS ====================
 
 /**
- * Set of cryptocurrency symbols supported by the platform with full Quidax wallet support.
- * Used for validation and wallet creation filtering.
+ * Canonical tradable-asset reference data shared by trade flows.
+ * This is the backend-owned source of truth for trade eligibility and display names.
  */
-export const SUPPORTED_ASSETS = new Set([
-    "BTC",   // Bitcoin
-    "ETH",   // Ethereum
-    "USDT",  // Tether
-    "USDC",  // USD Coin
-    "BNB",   // Binance Coin
-    "SOL",   // Solana
-    "XRP",   // Ripple
-    "ADA",   // Cardano
-    "DOGE",  // Dogecoin
-    "LTC",   // Litecoin
-    "TRX",   // Tron
-    "SHIB",  // Shiba Inu
-]);
+export const SUPPORTED_TRADE_ASSETS = [
+    { symbol: "BTC", name: "Bitcoin" },
+    { symbol: "ETH", name: "Ethereum" },
+    { symbol: "USDT", name: "Tether" },
+    { symbol: "USDC", name: "USD Coin" },
+    { symbol: "BNB", name: "BNB" },
+    { symbol: "SOL", name: "Solana" },
+    { symbol: "XRP", name: "XRP" },
+    { symbol: "ADA", name: "Cardano" },
+    { symbol: "DOGE", name: "Dogecoin" },
+    { symbol: "LTC", name: "Litecoin" },
+    { symbol: "TRX", name: "Tron" },
+    { symbol: "SHIB", name: "Shiba Inu" },
+] as const satisfies readonly SupportedTradeAsset[];
+
+/**
+ * Set of tradable cryptocurrency symbols used for validation and wallet creation filtering.
+ */
+export const SUPPORTED_ASSETS: ReadonlySet<string> = new Set(
+    SUPPORTED_TRADE_ASSETS.map((asset) => asset.symbol),
+);
 
 /**
  * Array version of supported currencies for iteration (lowercase for Quidax API)
  */
-export const SUPPORTED_CURRENCIES = [
-    "btc",
-    "eth",
-    "usdt",
-    "usdc",
-    "bnb",
-    "sol",
-    "xrp",
-    "ada",
-    "doge",
-    "ltc",
-    "trx",
-    "shib",
-] as const;
+export const SUPPORTED_CURRENCIES: ReadonlyArray<string> = SUPPORTED_TRADE_ASSETS.map((asset) =>
+    asset.symbol.toLowerCase(),
+);
 
 /**
  * All supported currencies for deposit sync (includes additional assets)

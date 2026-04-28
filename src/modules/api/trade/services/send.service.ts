@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
-import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
+import { ITradingProvider } from "@/modules/factory/trading/interfaces/trading-provider.interface";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
@@ -76,8 +76,8 @@ export class SendService {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService,
+        @Inject(TradingInjectionToken.TRADING_PROVIDER)
+        private readonly tradingProvider: ITradingProvider,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
@@ -597,11 +597,11 @@ export class SendService {
     async getCryptoWithdrawerFee(dto: GetCryptoWithdrawerFeeDto) {
         const currency = dto.currency.toUpperCase();
 
-        // Fetch only provider fee (admin fee is removed)
-        const providerFeeInfo = await this.quidaxService.getWithdrawerFees({
-            currency: dto.currency.toLowerCase(),
-            ...(dto.network && { network: dto.network }),
-        });
+        const providerFeeInfo = await this.tradingProvider.getWithdrawalFees(
+            "me",
+            dto.currency.toLowerCase(),
+            dto.network,
+        );
 
         if (!providerFeeInfo?.data) {
             throw new IncompleteAccountSetupException(
@@ -966,12 +966,8 @@ export class SendService {
      */
     private async getMainWalletBalance(currency: string): Promise<Decimal> {
         try {
-            // Get balance from Quidax main account
-            const wallets = await this.quidaxService.getUserWalletList({ user_id: "me" });
-            const wallet = wallets.data?.find(
-                (w: any) => w.currency.toUpperCase() === currency.toUpperCase()
-            );
-            return wallet ? new Decimal(wallet.balance || "0") : new Decimal(0);
+            const wallet = await this.tradingProvider.getUserWallet("me", currency.toLowerCase());
+            return wallet?.data ? new Decimal(wallet.data.balance || "0") : new Decimal(0);
         } catch (error) {
             this.logger.error(`Failed to get main wallet balance | ${JSON.stringify({
                 currency,
@@ -992,26 +988,31 @@ export class SendService {
         resolvedNetwork?: string
     ) {
         try {
-            // Execute withdrawal from main wallet (not user's sub-account)
-            const requestRes = await this.quidaxService.createWithdrawerRequest({
+            const requestRes = await this.tradingProvider.createWithdrawal({
+                userId: "me",
                 amount: order.amount.toString(),
                 currency: order.currency.toLowerCase(),
                 narration: dto.narration || order.narration,
-                transaction_note: dto.transaction_note || order.transaction_note,
-                user_id: "me", // Main wallet
-                fund_uid: dto.recipientWalletAddress,
-                fund_uid2: dto.destinationTag,
+                transactionNote: dto.transaction_note || order.transaction_note,
+                address: dto.recipientWalletAddress,
+                destinationTag: dto.destinationTag,
                 reference: order.orderReference,
                 network: resolvedNetwork || dto.network,
             });
+
+            const rawFee = requestRes.data.fee;
+            const providerFee = Array.isArray(rawFee)
+                ? rawFee.reduce((sum, f) => sum + (f.value ?? 0), 0)
+                : Number.parseFloat(String(rawFee ?? order.fee ?? 0));
+            const updatedTotal = order.amount.plus(new Decimal(providerFee));
 
             // Update order with provider details
             await this.prisma.order.update({
                 where: { id: order.id },
                 data: {
                     providerOrderId: requestRes.data.id,
-                    fee: +requestRes.data.fee,
-                    total: +requestRes.data.total,
+                    fee: providerFee,
+                    total: updatedTotal.toNumber(),
                     status: OrderStatus.processing,
                     streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
                 },
@@ -1117,17 +1118,33 @@ export class SendService {
      * Cancels a pending withdrawal request
      */
     async cancelWithdrawerRequest(user: User, dto: CancelWithdrawerRequestDto) {
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
+        const providerUserIds = ["me", user.cryptoSubAccountId].filter(
+            (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
+        );
+
+        let requestRes: any;
+        let lastError: unknown;
+
+        for (const providerUserId of providerUserIds) {
+            try {
+                requestRes = await this.tradingProvider.cancelWithdrawal({
+                    userId: providerUserId,
+                    withdrawalId: dto.withdrawal_id,
+                });
+                break;
+            } catch (error) {
+                lastError = error;
+            }
         }
 
-        const requestRes = await this.quidaxService.cancelWithdrawerRequest({
-            user_id: user.cryptoSubAccountId,
-            withdrawal_id: dto.withdrawal_id,
-        });
+        if (!requestRes) {
+            throw lastError instanceof Error
+                ? lastError
+                : new GeneralTransactionException(
+                    "Unable to cancel withdrawal request at this time",
+                    HttpStatus.BAD_REQUEST
+                );
+        }
 
         return buildResponse({
             message: "Withdrawer cancel request placed successfully",

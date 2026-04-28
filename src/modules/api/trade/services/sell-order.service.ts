@@ -5,7 +5,6 @@ import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
-    CryptoWalletStatus,
     LedgerType,
     OrderCategory,
     OrderStatus,
@@ -13,17 +12,13 @@ import {
     User,
 } from "@prisma/client";
 import {
-    AssetNotFoundException,
     GeneralTransactionException,
-    IncompleteAccountSetupException,
     InsufficientBalanceException,
-    WalletAddressNotFoundException,
 } from "../errors";
 import { BankDetailNotFoundException } from "../../banks/errors";
 import { SellQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
 import { InitiateSellOrderDto, SellCryptoOrderDto } from "../dtos";
 import { WsGateway } from "../gateway/v1";
-import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.handler";
@@ -47,7 +42,7 @@ export class SellOrderService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly wsGateway: WsGateway,
-        private readonly tradeHelpers: TradeHelpersService,
+
         private readonly walletAddressService: WalletAddressService,
         private readonly walletManagementService: WalletManagementService,
         private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
@@ -59,6 +54,28 @@ export class SellOrderService {
         private readonly distributedLockService: DistributedLockService
     ) { }
 
+    /** Safely extract a human-readable message from an unknown thrown value. */
+    private formatError(error: unknown): string {
+        if (error instanceof Error) return error.message;
+        if (typeof error === 'string') return error;
+        try { return JSON.stringify(error); } catch { return '[non-serializable error]'; }
+    }
+
+    private triggerBestEffortWalletSync(userId: number, currency: string) {
+        const normalizedCurrency = currency?.toUpperCase();
+
+        if (!normalizedCurrency) {
+            return;
+        }
+
+        void this.walletAddressService
+            .syncWallet(userId, normalizedCurrency)
+            .catch((error: unknown) => {
+                this.logger.warn(
+                    `Best-effort wallet sync failed for user ${userId} ${normalizedCurrency}: ${this.formatError(error)}`
+                );
+            });
+    }
 
     /**
      * Gets a quote request for selling crypto
@@ -80,18 +97,10 @@ export class SellOrderService {
         dto: InitiateSellOrderDto,
         internal = false
     ): Promise<SellQuoteResponse> {
-        // 1. Ensure crypto account is set up
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
         const currency = dto.asset.toUpperCase();
 
-        // 2. Fetch bank detail, asset wallet, rate concurrently
-        const [bankDetail, assetWallet, rate] = await Promise.all([
+        // 1. Fetch bank detail and rate concurrently.
+        const [bankDetail, rate] = await Promise.all([
             this.prisma.bankDetail.findFirst({
                 where: { userId: user.id },
                 select: {
@@ -100,66 +109,13 @@ export class SellOrderService {
                     bankName: true,
                 },
             }),
-            this.prisma.assetWallet.findFirst({
-                where: {
-                    userId: user.id,
-                    assetCurrency: currency,
-                },
-            }),
             this.rateService.getAssetRate(currency),
         ]);
 
-        // 3. Validate fetched records
+        // 2. Validate fetched records
         if (!bankDetail && !internal) {
             throw new BankDetailNotFoundException(
                 "No bank detail found. Please setup your bank detail",
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        if (!assetWallet) {
-            throw new AssetNotFoundException(
-                `Asset ${dto.asset} not found for the user`,
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        const normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-            assetWallet.defaultNetwork
-        );
-
-        const fallbackWalletAddress =
-            !assetWallet.depositAddress || !normalizedDefaultNetwork
-                ? await this.prisma.cryptoWalletAddress.findFirst({
-                    where: {
-                        userId: user.id,
-                        assetSymbol: currency,
-                        status: CryptoWalletStatus.ACTIVE,
-                        address: { not: null },
-                        ...(normalizedDefaultNetwork && {
-                            network: normalizedDefaultNetwork,
-                        }),
-                    },
-                    select: {
-                        address: true,
-                        network: true,
-                    },
-                    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-                })
-                : null;
-
-        const depositAddress =
-            assetWallet.depositAddress ?? fallbackWalletAddress?.address ?? null;
-        const defaultNetwork =
-            normalizedDefaultNetwork ?? fallbackWalletAddress?.network ?? null;
-
-        if ((!depositAddress || !defaultNetwork) && !internal) {
-            // Internal sells might not need deposit address if just balance deduction? 
-            // But we usually need verify user has wallet. 
-            // Let's keep strict check for wallet existence, but maybe address specific logic if needed.
-            // For now, assume internal users have wallets.
-            throw new WalletAddressNotFoundException(
-                `No wallet address found for asset ${dto.asset}`,
                 HttpStatus.NOT_FOUND
             );
         }
@@ -365,8 +321,8 @@ export class SellOrderService {
                 },
             });
 
-            // Sync wallet with Quidax to ensure balance is up to date
-            await this.walletAddressService.syncWallet(user.id, dto.asset);
+            // Provider wallet metadata is optional for sell flows.
+            this.triggerBestEffortWalletSync(user.id, dto.asset);
 
             // Invalidate admin wallet cache since company wallet received funds
             await this.walletManagementService.invalidateWalletCache();
@@ -409,127 +365,159 @@ export class SellOrderService {
                     data: freshOrder ?? order,
                 });
             } catch (payoutError) {
-                // Payout initiation failed - release hold and fail the order
-                this.logger.error(
-                    `Payout initiation failed for Order ${order.id}: ${payoutError.message}`,
-                    payoutError.stack
-                );
-
-                // CRITICAL FIX: Hold was already SETTLED at line 280 (releaseHoldWithPlatformEntry with settle: true).
-                // We need to CREDIT back the user's virtual balance because the hold no longer exists.
-                try {
-                    const refundResult = await this.ledgerService.pairedCredit({
-                        userId: user.id,
-                        currency: dto.asset.toUpperCase(),
-                        amount: totalCryptoToAdmin,
-                        type: LedgerType.REFUND,
-                        reference: `${holdReference}:refund`,
-                        description: `Refund: Payout initiation failed`,
-                        createPlatformEntry: true
-                    });
-
-                    if (refundResult.success) {
-                        this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
-
-                        // Sync wallet to reflect refund in cache
-                        this.walletAddressService.syncWallet(user.id, dto.asset.toUpperCase());
-                    } else {
-                        // This is a catastrophic failure - payout failed AND refund failed
-                        throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
-                    }
-                } catch (refundError) {
-                    this.logger.error(
-                        `CRITICAL: Failed to REFUND user after payout failure: ${refundError.message}`,
-                        refundError.stack
-                    );
-                    // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed).
-                    // sendWebhookFailureAlert uses the system-level Slack URL directly and does not
-                    // depend on a webhook subscription record, so it is guaranteed to reach ops.
-                    await this.slackWebhookService.sendWebhookFailureAlert(
-                        'sell',
-                        holdReference,
-                        `🚨 CRITICAL: Sell order payout failed AND refund failed! MANUAL INTERVENTION REQUIRED.`,
-                        {
-                            orderId: order.id,
-                            userId: user.id,
-                            holdReference,
-                            payoutError: payoutError.message,
-                            refundError: refundError.message,
-                        },
-                    );
-                }
-
-                // Update order to failed status
-                await this.prisma.order.update({
-                    where: { id: order.id },
-                    data: {
-                        status: OrderStatus.failed,
-                        streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
-                        paymentStatus: TransactionStatus.FAILED,
-                        transaction_note: `Payout initiation failed: ${payoutError.message}`,
-                    },
-                });
-
-                // Notify user of failure
-                this.wsGateway.notifyTransactionUpdate(user.id, {
-                    type: 'transaction_update',
-                    transaction: {
-                        id: order.id,
-                        transactionId: order.transactionId,
-                        status: OrderStatus.failed,
-                        streamlinedStatus: 'failed',
-                        orderCategory: order.orderCategory,
-                        amount: Number(order.amount),
-                        currency: order.currency,
-                        createdAt: order.createdAt,
-                        updatedAt: new Date(),
-                    },
-                });
-
-                // Send sell failure notification (in-app + push + email)
-                await this.notificationDispatcher.notify({
-                    userId: user.id,
-                    title: "Sell order failed",
-                    body: `❌ Your sell order of ${order.amount} ${order.currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
-                    category: "transaction",
-                    currency: order.currency,
-                    transactionType: OrderCategory.SELL,
-                    enableEmail: true,
-                    emailPayload: {
-                        email: user.email,
-                        transactionType: 'sell',
-                        transactionId: order.transactionId,
-                        amount: String(order.amount),
-                        currency: order.currency.toUpperCase(),
-                        status: 'failed',
-                        date: new Date().toISOString(),
-                    },
-                    enablePush: true,
-                });
-
-                throw new HttpException(
-                    'Sell order failed - payout could not be initiated. Your funds have been released.',
-                    HttpStatus.INTERNAL_SERVER_ERROR
-                );
+                await this.handlePayoutFailure(user, dto, order, payoutError, holdReference, totalCryptoToAdmin);
             }
         } catch (error) {
             // Only attempt to release the hold if settlement never completed.
             // Once releaseHoldWithPlatformEntry(settle:true) succeeds the hold no longer exists,
             // and the payout-failure branch already runs pairedCredit to reverse the debit.
             if (!holdSettled) {
-                this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${error.message}`);
-                try {
-                    await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${error.message}`);
-                    this.logger.log(`Cancelled hold for failed sell order | Reference: ${holdReference}`);
-                } catch (releaseError) {
-                    this.logger.error(`Failed to cancel hold after sell order failure: ${releaseError.message}`);
-                }
+                await this.cancelHoldOnFailure(holdReference, error);
             }
             throw error;
         }
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
+    }
+
+    /** Best-effort hold cancellation when sellCryptoOrder fails before settlement. */
+    private async cancelHoldOnFailure(holdReference: string, error: unknown): Promise<void> {
+        const errorMsg = this.formatError(error);
+        this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${errorMsg}`);
+        try {
+            await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${errorMsg}`);
+            this.logger.log(`Cancelled hold for failed sell order | Reference: ${holdReference}`);
+        } catch (releaseError) {
+            this.logger.error(`Failed to cancel hold after sell order failure: ${this.formatError(releaseError)}`);
+        }
+    }
+
+    /**
+     * Handles payout initiation failure: refunds user, updates order, notifies, and throws.
+     */
+    private async handlePayoutFailure(
+        user: User,
+        dto: SellCryptoOrderDto,
+        order: any,
+        payoutError: unknown,
+        holdReference: string,
+        totalCryptoToAdmin: number,
+    ): Promise<never> {
+        const payoutMessage = this.formatError(payoutError);
+        const payoutStack = payoutError instanceof Error ? payoutError.stack : undefined;
+        this.logger.error(
+            `Payout initiation failed for Order ${order.id}: ${payoutMessage}`,
+            payoutStack
+        );
+
+        // CRITICAL FIX: Hold was already SETTLED (releaseHoldWithPlatformEntry with settle: true).
+        // We need to CREDIT back the user's virtual balance because the hold no longer exists.
+        await this.attemptPayoutRefund(user, dto, order, holdReference, totalCryptoToAdmin, payoutMessage);
+
+        // Update order to failed status
+        await this.prisma.order.update({
+            where: { id: order.id },
+            data: {
+                status: OrderStatus.failed,
+                streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
+                paymentStatus: TransactionStatus.FAILED,
+                transaction_note: `Payout initiation failed: ${payoutMessage}`,
+            },
+        });
+
+        // Notify user of failure
+        this.wsGateway.notifyTransactionUpdate(user.id, {
+            type: 'transaction_update',
+            transaction: {
+                id: order.id,
+                transactionId: order.transactionId,
+                status: OrderStatus.failed,
+                streamlinedStatus: 'failed',
+                orderCategory: order.orderCategory,
+                amount: Number(order.amount),
+                currency: order.currency,
+                createdAt: order.createdAt,
+                updatedAt: new Date(),
+            },
+        });
+
+        // Send sell failure notification (in-app + push + email)
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Sell order failed",
+            body: `❌ Your sell order of ${order.amount} ${order.currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
+            category: "transaction",
+            currency: order.currency,
+            transactionType: OrderCategory.SELL,
+            enableEmail: true,
+            emailPayload: {
+                email: user.email,
+                transactionType: 'sell',
+                transactionId: order.transactionId,
+                amount: String(order.amount),
+                currency: order.currency.toUpperCase(),
+                status: 'failed',
+                date: new Date().toISOString(),
+            },
+            enablePush: true,
+        });
+
+        throw new HttpException(
+            'Sell order failed - payout could not be initiated. Your funds have been released.',
+            HttpStatus.INTERNAL_SERVER_ERROR
+        );
+    }
+
+    /**
+     * Attempts to refund user after a payout failure. Alerts admin on critical failure.
+     */
+    private async attemptPayoutRefund(
+        user: User,
+        dto: SellCryptoOrderDto,
+        order: any,
+        holdReference: string,
+        totalCryptoToAdmin: number,
+        payoutMessage: string,
+    ): Promise<void> {
+        try {
+            const refundResult = await this.ledgerService.pairedCredit({
+                userId: user.id,
+                currency: dto.asset.toUpperCase(),
+                amount: totalCryptoToAdmin,
+                type: LedgerType.REFUND,
+                reference: `${holdReference}:refund`,
+                description: `Refund: Payout initiation failed`,
+                createPlatformEntry: true
+            });
+
+            if (refundResult.success) {
+                this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
+                this.triggerBestEffortWalletSync(user.id, dto.asset);
+            } else {
+                throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
+            }
+        } catch (refundError) {
+            const refundMessage = this.formatError(refundError);
+            const refundStack = refundError instanceof Error ? refundError.stack : undefined;
+            this.logger.error(
+                `CRITICAL: Failed to REFUND user after payout failure: ${refundMessage}`,
+                refundStack
+            );
+            // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed).
+            await this.slackWebhookService.sendWebhookFailureAlert(
+                'sell',
+                holdReference,
+                `🚨 CRITICAL: Sell order payout failed AND refund failed! MANUAL INTERVENTION REQUIRED.`,
+                {
+                    orderId: order.id,
+                    userId: user.id,
+                    holdReference,
+                    payoutError: payoutMessage,
+                    refundError: refundMessage,
+                },
+            );
+        }
     }
 
     /**

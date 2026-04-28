@@ -29,7 +29,7 @@ jest.mock("uuid", () => ({
     __esModule: true,
 }));
 
-import { QuidaxTooManyRequestError } from "@/libs/quidax";
+import { QuidaxGenericError, QuidaxTooManyRequestError } from "@/libs/quidax";
 import { TradingService } from "..";
 import {
     GeneralTransactionException,
@@ -183,7 +183,9 @@ function makeDeps() {
     };
 
     const coinGeckoService = {};
-    const cryptoAccountQueueProducer = {};
+    const cryptoAccountQueueProducer = {
+        enqueueDepositSync: jest.fn().mockResolvedValue(undefined),
+    };
     const notificationMessage = {};
     const walletManagementService = {};
     const lockService = {};
@@ -225,6 +227,7 @@ function makeDeps() {
         webhookHandlerService,
         liveCoinWatchService,
         coinCapService,
+        cryptoAccountQueueProducer,
     };
 }
 
@@ -1096,6 +1099,20 @@ describe("TradingService (index)", () => {
             await expect(service.syncUserDeposits(10)).rejects.toBeInstanceOf(Error);
         });
 
+        it("enqueueUserDepositSync queues deposit sync for users with sub-accounts", async () => {
+            const { service, prisma, cryptoAccountQueueProducer } = makeDeps();
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                cryptoSubAccountId: "sub-10",
+            });
+
+            const result = await service.enqueueUserDepositSync(10);
+
+            expect(cryptoAccountQueueProducer.enqueueDepositSync).toHaveBeenCalledWith(10);
+            expect(result.message).toBe("Deposit sync queued");
+            expect(result.data).toEqual({ queued: true, userId: 10 });
+        });
+
         it("syncUserDeposits rethrows Quidax throttle errors and aborts remaining currencies", async () => {
             const { service, prisma, quidaxService } = makeDeps();
             const throttleError = new QuidaxTooManyRequestError("rate limited");
@@ -1120,6 +1137,90 @@ describe("TradingService (index)", () => {
                 user_id: "sub-10",
                 currency: "bnb",
             });
+        });
+
+        it("syncUserDeposits rethrows Cloudflare block errors and aborts remaining currencies", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+            const blockError = new QuidaxGenericError(
+                "<title>Attention Required! | Cloudflare</title><h2>You are unable to access quidax.io</h2>",
+            );
+            blockError.status = 403;
+
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+                { assetSymbol: "BNB" },
+                { assetSymbol: "BTC" },
+            ]);
+            quidaxService.fetchDeposits.mockRejectedValue(blockError);
+
+            await expect(service.syncUserDeposits(10)).rejects.toBe(blockError);
+
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(1);
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledWith({
+                user_id: "sub-10",
+                currency: "bnb",
+            });
+        });
+
+        it("syncUserDeposits scans only active wallet-address currencies with resolved addresses", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+                { assetSymbol: "USDT" },
+            ]);
+            quidaxService.fetchDeposits.mockResolvedValue({ data: [] });
+
+            await service.syncUserDeposits(10);
+
+            expect(prisma.cryptoWalletAddress.findMany).toHaveBeenCalledWith({
+                where: {
+                    userId: 10,
+                    status: CryptoWalletStatus.ACTIVE,
+                    address: { not: null },
+                },
+                select: { assetSymbol: true },
+            });
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(1);
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledWith({
+                user_id: "sub-10",
+                currency: "usdt",
+            });
+        });
+
+        it("syncUserDeposits preserves the new-user fallback when no active deposit addresses exist", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
+            quidaxService.fetchDeposits.mockResolvedValue({ data: [] });
+
+            await service.syncUserDeposits(10);
+
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(3);
+            expect(quidaxService.fetchDeposits.mock.calls.map(([options]: any[]) => options.currency)).toEqual([
+                "btc",
+                "usdt",
+                "eth",
+            ]);
         });
 
         it("syncUserDeposits continues after non-throttle currency errors", async () => {
@@ -1270,32 +1371,45 @@ describe("TradingService (index)", () => {
             expect(res.message).toContain("completed successfully");
         });
 
-        it("refreshTransactionStatus refreshes SWAP transactions from provider", async () => {
+        it("refreshTransactionStatus returns the latest SELL order state without provider metadata", async () => {
             const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
-            prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({
-                    orderCategory: OrderCategory.SWAP,
-                    status: OrderStatus.processing,
-                    providerOrderId: "swap-provider-1",
-                }),
-            );
-            quidaxService.getSwapTransaction.mockResolvedValue({
-                data: { status: OrderStatus.failed },
-            });
-            webhookHandlerService.swapTransactionHandler.mockResolvedValue({ ok: true });
+            prisma.order.findFirst
+                .mockResolvedValueOnce(
+                    pendingOrder({
+                        transactionId: "TX-sell-1",
+                        orderCategory: OrderCategory.SELL,
+                        status: OrderStatus.processing,
+                        streamlinedStatus: "processing",
+                        orderReference: "sell-omnibus-1",
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({
+                        transactionId: "TX-sell-1",
+                        orderCategory: OrderCategory.SELL,
+                        status: OrderStatus.completed,
+                        streamlinedStatus: "completed",
+                        orderReference: "sell-omnibus-1",
+                        updatedAt: new Date("2026-03-29T10:00:00Z"),
+                    }),
+                );
 
             const res = await service.refreshTransactionStatus(
-                { id: 10, cryptoSubAccountId: "sub-1" } as any,
-                "TX-1",
+                { id: 10, cryptoSubAccountId: null } as any,
+                "TX-sell-1",
             );
 
-            expect(webhookHandlerService.swapTransactionHandler).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    orderId: "swap-provider-1",
-                    status: OrderStatus.failed,
-                }),
-            );
-            expect(res.message).toContain("Swap failed");
+            expect(quidaxService.getWithdrawerByReference).not.toHaveBeenCalled();
+            expect(webhookHandlerService.withdrawerTransactionHandler).not.toHaveBeenCalled();
+            expect(res).toMatchObject({
+                message: "Transaction status refreshed from order state",
+                data: {
+                    transactionId: "TX-sell-1",
+                    status: OrderStatus.completed,
+                    streamlinedStatus: "completed",
+                    orderCategory: OrderCategory.SELL,
+                },
+            });
         });
 
         it("refreshTransactionStatus throws when transaction does not exist", async () => {
@@ -1330,15 +1444,16 @@ describe("TradingService (index)", () => {
             });
         });
 
-        it("refreshTransactionStatus rejects non-final transactions when sub-account is missing", async () => {
+        it("refreshTransactionStatus logs warning when sub-account is missing but does not reject", async () => {
             const { service, prisma } = makeDeps();
             prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ status: OrderStatus.processing, streamlinedStatus: "processing" }),
+                pendingOrder({ orderCategory: OrderCategory.SEND, status: OrderStatus.processing }),
             );
 
+            // Should not throw anymore — just warn and proceed
             await expect(
                 service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: null } as any, "TX-no-sub"),
-            ).rejects.toThrow("Account setup incomplete");
+            ).resolves.toBeDefined();
         });
 
         it("refreshTransactionStatus returns unsupported response for non-SEND/SELL/SWAP categories", async () => {
@@ -1401,49 +1516,77 @@ describe("TradingService (index)", () => {
             ).rejects.toBeInstanceOf(GeneralTransactionException);
         });
 
-        it("refreshTransactionStatus handles SWAP completed, still-processing, and provider failure paths", async () => {
+        it("refreshTransactionStatus returns the latest SWAP order state without provider metadata", async () => {
             const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
 
             prisma.order.findFirst
                 .mockResolvedValueOnce(
-                    pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: "swap-done" }),
+                    pendingOrder({
+                        transactionId: "TX-swap-1",
+                        orderCategory: OrderCategory.SWAP,
+                        status: OrderStatus.processing,
+                        streamlinedStatus: "processing",
+                        providerOrderId: null,
+                    }),
                 )
                 .mockResolvedValueOnce(
-                    pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: "swap-processing" }),
-                )
-                .mockResolvedValueOnce(
-                    pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: "swap-error" }),
+                    pendingOrder({
+                        transactionId: "TX-swap-1",
+                        orderCategory: OrderCategory.SWAP,
+                        status: OrderStatus.completed,
+                        streamlinedStatus: "completed",
+                        providerOrderId: null,
+                        updatedAt: new Date("2026-03-29T10:05:00Z"),
+                    }),
                 );
 
-            quidaxService.getSwapTransaction
-                .mockResolvedValueOnce({ data: { status: OrderStatus.completed } })
-                .mockResolvedValueOnce({ data: { status: OrderStatus.processing } })
-                .mockRejectedValueOnce(new Error("swap provider down"));
-
-            webhookHandlerService.swapTransactionHandler.mockResolvedValue({ ok: true });
-
-            await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-1"),
-            ).resolves.toMatchObject({ message: "Swap completed successfully" });
-
-            await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-2"),
-            ).resolves.toMatchObject({ message: "Swap is still processing" });
-
-            await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-3"),
-            ).resolves.toMatchObject({ message: "Unable to refresh status. Please try again later." });
-        });
-
-        it("refreshTransactionStatus rejects SWAP transactions without provider order id", async () => {
-            const { service, prisma } = makeDeps();
-            prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ orderCategory: OrderCategory.SWAP, providerOrderId: null }),
+            const res = await service.refreshTransactionStatus(
+                { id: 10, cryptoSubAccountId: null } as any,
+                "TX-swap-1",
             );
 
+            expect(quidaxService.getSwapTransaction).not.toHaveBeenCalled();
+            expect(webhookHandlerService.swapTransactionHandler).not.toHaveBeenCalled();
+            expect(res).toMatchObject({
+                message: "Transaction status refreshed from order state",
+                data: {
+                    transactionId: "TX-swap-1",
+                    status: OrderStatus.completed,
+                    streamlinedStatus: "completed",
+                    orderCategory: OrderCategory.SWAP,
+                },
+            });
+        });
+
+        it("refreshTransactionStatus does not require provider order id for SWAP", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+            prisma.order.findFirst
+                .mockResolvedValueOnce(
+                    pendingOrder({
+                        transactionId: "TX-swap-missing-provider-id",
+                        orderCategory: OrderCategory.SWAP,
+                        providerOrderId: null,
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({
+                        transactionId: "TX-swap-missing-provider-id",
+                        orderCategory: OrderCategory.SWAP,
+                        providerOrderId: null,
+                    }),
+                );
+
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-swap-missing-provider-id"),
-            ).rejects.toBeInstanceOf(GeneralTransactionException);
+                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: null } as any, "TX-swap-missing-provider-id"),
+            ).resolves.toMatchObject({
+                message: "Transaction status refreshed from order state",
+                data: {
+                    transactionId: "TX-swap-missing-provider-id",
+                    status: OrderStatus.processing,
+                    orderCategory: OrderCategory.SWAP,
+                },
+            });
+            expect(quidaxService.getSwapTransaction).not.toHaveBeenCalled();
         });
 
         it("normalizes deposit statuses and detects BUY-related deposits by amount tolerance", async () => {

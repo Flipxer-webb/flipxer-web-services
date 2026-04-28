@@ -529,12 +529,7 @@ const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
             body.from_amount
                 ? body.from_currency?.toUpperCase()
                 : body.to_currency?.toUpperCase(),
-    },
-    {
-        patterns: ["execute-atomic-swap"],
-        category: OrderCategory.SWAP,
-        getAmount: (body) => body.from_amount,
-        getCurrency: (body) => body.from_currency?.toUpperCase(),
+
     },
     {
         patterns: ["withdrawer-request"],
@@ -825,12 +820,7 @@ export class TwoFactorGuard implements CanActivate {
             verifiedMethods.add(method);
         }
 
-        let requiredCount = userData?.requiredMethodCount || 1;
-
-        if (this.isAtomicSwapRoute(routeTemplate)) {
-            this.logger.debug(`User ${userId}: Swap transaction detected, overriding requiredMethodCount to 1`);
-            requiredCount = 1;
-        }
+        const requiredCount = userData?.requiredMethodCount || 1;
 
         if (verifiedMethods.size >= requiredCount) {
             this.logger.debug(`User ${userId}: Verified ${verifiedMethods.size}/${requiredCount} methods (${Array.from(verifiedMethods).join(', ')}), allowing transaction`);
@@ -855,10 +845,6 @@ export class TwoFactorGuard implements CanActivate {
         }
 
         return request.path ?? "";
-    }
-
-    private isAtomicSwapRoute(routeTemplate: string): boolean {
-        return /(^|\/)execute-atomic-swap(?:\/|$)/.test(routeTemplate);
     }
 
     /**

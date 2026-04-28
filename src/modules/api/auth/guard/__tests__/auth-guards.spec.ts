@@ -636,26 +636,7 @@ describe("TransactionAmountGuard", () => {
         expect(result).toBe(true);
     });
 
-    it("should call validateTransaction for execute atomic swap", async () => {
-        const user = { id: 1 };
-        const ctx = mockContext({
-            path: "/api/v1/execute-atomic-swap",
-            body: { from_amount: 25, from_currency: "eth" },
-            user,
-        });
-        (ctx.switchToHttp().getRequest() as any).user = user;
-        transactionService.validateTransaction.mockResolvedValue(undefined);
 
-        const result = await guard.canActivate(ctx);
-        expect(result).toBe(true);
-        expect(transactionService.validateTransaction).toHaveBeenCalledWith(
-            user,
-            25,
-            "ETH",
-            "SWAP",
-            "/api/v1/execute-atomic-swap",
-        );
-    });
 });
 
 // ==================== TwoFactorGuard ====================
@@ -799,8 +780,8 @@ describe("TwoFactorGuard", () => {
         ).resolves.toBe(true);
 
         await expect(
-            (guard as any).verifyMultiFactorTokens(1, "c", { requiredMethodCount: 2 }, "/api/v1/execute-atomic-swap"),
-        ).resolves.toBe(true);
+            (guard as any).verifyMultiFactorTokens(1, "c", { requiredMethodCount: 2 }, "/api/v1/confirm-instant-swap-quote"),
+        ).resolves.toBe(false);
     });
 
     it("should reject invalid multi-factor tokens and insufficient verified methods", async () => {
@@ -1124,18 +1105,13 @@ describe("TwoFactorGuard", () => {
         await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
     });
 
-    it("should validate multi-factor token counts with swap override", async () => {
+    it("should validate multi-factor token counts", async () => {
         jest.spyOn(guard as any, "validateVerificationTokenAndGetMethod")
             .mockResolvedValueOnce("sms")
-            .mockResolvedValueOnce("email")
-            .mockResolvedValueOnce("sms");
+            .mockResolvedValueOnce("email");
 
         await expect(
             (guard as any).verifyMultiFactorTokens(1, "a,b", { requiredMethodCount: 2 }, "/api/v1/buy/order"),
-        ).resolves.toBe(true);
-
-        await expect(
-            (guard as any).verifyMultiFactorTokens(1, "c", { requiredMethodCount: 2 }, "/api/v1/execute-atomic-swap"),
         ).resolves.toBe(true);
     });
 

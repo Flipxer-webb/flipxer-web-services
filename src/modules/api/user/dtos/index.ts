@@ -109,6 +109,14 @@ export class GetUserAssetsDto extends PaginationQueryDto {
     @IsOptional()
     @IsString()
     searchText?: string;
+
+    @ApiProperty({
+        description: "Include all supported trade assets (even those without wallets)",
+        required: false,
+    })
+    @IsOptional()
+    @IsBooleanString()
+    includeSupported?: string;
 }
 
 export class GetUserListDto extends PaginationQueryDto {

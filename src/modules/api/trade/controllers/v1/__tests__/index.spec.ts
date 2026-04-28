@@ -75,8 +75,8 @@ describe("TradingController", () => {
             getMarketChart: jest.fn().mockResolvedValue({ data: [] }),
             getBatchSparklines: jest.fn().mockResolvedValue({ data: [] }),
             getOrderStatus: jest.fn().mockResolvedValue({ data: { status: "processing" } }),
-            refreshTransactionStatus: jest.fn().mockResolvedValue({ data: { status: "done" } }),
-            syncUserDeposits: jest.fn().mockResolvedValue({ message: "synced" }),
+
+            enqueueUserDepositSync: jest.fn().mockResolvedValue({ message: "queued" }),
         };
 
         controller = new TradingController(tradingService as any);
@@ -147,7 +147,7 @@ describe("TradingController", () => {
         expect(tradingService.sellCryptoOrder).toHaveBeenCalledWith(user, sellOrderDto);
     });
 
-    it("delegates swap, withdrawal and status refresh flows", async () => {
+    it("delegates swap, withdrawal and order status flows", async () => {
         const swapDto = { fromCurrency: "usdt", toCurrency: "btc", amount: "100" } as any;
         const confirmSwapDto = { quoteId: "swap-quote", idempotencyKey: "idem-1" } as any;
         const refreshSwapDto = { quoteId: "swap-quote" } as any;
@@ -163,7 +163,7 @@ describe("TradingController", () => {
         await controller.getMarketChart(chartQuery);
         await controller.getBatchSparklines(sparklineQuery);
         await controller.getOrderStatus("tx-1", user);
-        await controller.refreshTransactionStatus({ transactionId: "tx-1" }, user);
+
         await controller.syncDeposits(user);
 
         expect(tradingService.getSwapEstimate).toHaveBeenCalledWith(user, swapDto);
@@ -174,7 +174,7 @@ describe("TradingController", () => {
         expect(tradingService.getMarketChart).toHaveBeenCalledWith("btc", 7);
         expect(tradingService.getBatchSparklines).toHaveBeenCalledWith(["btc", "eth", "usdt"]);
         expect(tradingService.getOrderStatus).toHaveBeenCalledWith(user, "tx-1");
-        expect(tradingService.refreshTransactionStatus).toHaveBeenCalledWith(user, "tx-1");
-        expect(tradingService.syncUserDeposits).toHaveBeenCalledWith(77);
+
+        expect(tradingService.enqueueUserDepositSync).toHaveBeenCalledWith(77);
     });
 });

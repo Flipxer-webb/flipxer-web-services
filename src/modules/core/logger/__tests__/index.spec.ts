@@ -25,6 +25,6 @@ describe("LoggerModule", () => {
         moduleRef.configure(consumer);
 
         expect(apply).toHaveBeenCalledWith(RequestTracingMiddleware);
-        expect(apply.mock.results[0].value.forRoutes).toHaveBeenCalledWith("*");
+        expect(apply.mock.results[0].value.forRoutes).toHaveBeenCalledWith({ method: 5, path: "{*path}" });
     });
 });

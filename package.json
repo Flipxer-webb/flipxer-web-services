@@ -266,7 +266,8 @@
             }
         },
         "moduleNameMapper": {
-            "^@/(.*)$": "<rootDir>/$1"
+            "^@/(.*)$": "<rootDir>/$1",
+            "^uuid$": "<rootDir>/test/shims/uuid.ts"
         }
     },
     "repository": {

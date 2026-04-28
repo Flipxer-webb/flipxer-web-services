@@ -1,8 +1,8 @@
 const uuidMock = jest.fn(() => "corr-123");
 
-jest.mock("uuid", () => ({
-    __esModule: true,
-    v4: uuidMock,
+jest.mock("node:crypto", () => ({
+    ...jest.requireActual("node:crypto"),
+    randomUUID: uuidMock,
 }));
 
 import { createLogger, StructuredLoggerService } from "../structured-logger.service";
