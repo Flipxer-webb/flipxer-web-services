@@ -54,6 +54,13 @@ export class SellOrderService {
         private readonly distributedLockService: DistributedLockService
     ) { }
 
+    /** Safely extract a human-readable message from an unknown thrown value. */
+    private formatError(error: unknown): string {
+        if (error instanceof Error) return error.message;
+        if (typeof error === 'string') return error;
+        try { return JSON.stringify(error); } catch { return '[non-serializable error]'; }
+    }
+
     private triggerBestEffortWalletSync(userId: number, currency: string) {
         const normalizedCurrency = currency?.toUpperCase();
 
@@ -64,11 +71,8 @@ export class SellOrderService {
         void this.walletAddressService
             .syncWallet(userId, normalizedCurrency)
             .catch((error: unknown) => {
-                const reason =
-                    error instanceof Error ? error.message : String(error);
-
                 this.logger.warn(
-                    `Best-effort wallet sync failed for user ${userId} ${normalizedCurrency}: ${reason}`
+                    `Best-effort wallet sync failed for user ${userId} ${normalizedCurrency}: ${this.formatError(error)}`
                 );
             });
     }
@@ -368,20 +372,25 @@ export class SellOrderService {
             // Once releaseHoldWithPlatformEntry(settle:true) succeeds the hold no longer exists,
             // and the payout-failure branch already runs pairedCredit to reverse the debit.
             if (!holdSettled) {
-                const errorMsg = error instanceof Error ? error.message : String(error);
-                this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${errorMsg}`);
-                try {
-                    await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${errorMsg}`);
-                    this.logger.log(`Cancelled hold for failed sell order | Reference: ${holdReference}`);
-                } catch (releaseError) {
-                    this.logger.error(`Failed to cancel hold after sell order failure: ${releaseError instanceof Error ? releaseError.message : String(releaseError)}`);
-                }
+                await this.cancelHoldOnFailure(holdReference, error);
             }
             throw error;
         }
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
+    }
+
+    /** Best-effort hold cancellation when sellCryptoOrder fails before settlement. */
+    private async cancelHoldOnFailure(holdReference: string, error: unknown): Promise<void> {
+        const errorMsg = this.formatError(error);
+        this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${errorMsg}`);
+        try {
+            await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${errorMsg}`);
+            this.logger.log(`Cancelled hold for failed sell order | Reference: ${holdReference}`);
+        } catch (releaseError) {
+            this.logger.error(`Failed to cancel hold after sell order failure: ${this.formatError(releaseError)}`);
+        }
     }
 
     /**
@@ -395,7 +404,7 @@ export class SellOrderService {
         holdReference: string,
         totalCryptoToAdmin: number,
     ): Promise<never> {
-        const payoutMessage = payoutError instanceof Error ? payoutError.message : String(payoutError);
+        const payoutMessage = this.formatError(payoutError);
         const payoutStack = payoutError instanceof Error ? payoutError.stack : undefined;
         this.logger.error(
             `Payout initiation failed for Order ${order.id}: ${payoutMessage}`,
@@ -489,7 +498,7 @@ export class SellOrderService {
                 throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
             }
         } catch (refundError) {
-            const refundMessage = refundError instanceof Error ? refundError.message : String(refundError);
+            const refundMessage = this.formatError(refundError);
             const refundStack = refundError instanceof Error ? refundError.stack : undefined;
             this.logger.error(
                 `CRITICAL: Failed to REFUND user after payout failure: ${refundMessage}`,

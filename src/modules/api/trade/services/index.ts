@@ -1849,8 +1849,10 @@ export class TradingService {
         if (transaction.orderCategory === OrderCategory.SEND ||
             transaction.orderCategory === OrderCategory.SELL ||
             transaction.orderCategory === OrderCategory.SWAP) {
-            // For omnibus orders without provider metadata, return latest DB state
-            if (!user.cryptoSubAccountId || !transaction.providerOrderId) {
+            // SWAP orders are settled atomically on-chain — no provider status to refresh.
+            // For omnibus orders without provider metadata, return latest DB state.
+            if (transaction.orderCategory === OrderCategory.SWAP ||
+                !user.cryptoSubAccountId || !transaction.providerOrderId) {
                 const latestOrder = await this.prisma.order.findFirst({
                     where: { transactionId },
                     orderBy: { updatedAt: "desc" },
