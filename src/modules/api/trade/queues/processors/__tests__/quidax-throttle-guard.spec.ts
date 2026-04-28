@@ -3,6 +3,8 @@ import { isQuidaxThrottlingError, withQuidaxThrottleGuard } from "../quidax-thro
 import { QuidaxTooManyRequestError } from "@/libs/quidax";
 import { QuidaxException } from "@/modules/factory/trading/providers/quidax/errors";
 
+let queueSequence = 0;
+
 describe("isQuidaxThrottlingError", () => {
     it("returns false for null/undefined", () => {
         expect(isQuidaxThrottlingError(null)).toBe(false);
@@ -57,7 +59,7 @@ describe("withQuidaxThrottleGuard", () => {
             isPaused: jest.fn().mockResolvedValue(false),
             pause: jest.fn().mockResolvedValue(undefined),
             resume: jest.fn().mockResolvedValue(undefined),
-            name: "test-queue",
+            name: `test-queue-${++queueSequence}`,
         };
     });
 
@@ -106,6 +108,64 @@ describe("withQuidaxThrottleGuard", () => {
         // collide with any global fake-timer setup in the jest environment.
         await new Promise((resolve) => setTimeout(resolve, 30));
         expect(queue.resume).toHaveBeenCalledWith(true);
+    });
+
+    it("increases the pause window after consecutive throttles", async () => {
+        const err = new QuidaxTooManyRequestError("rate limited");
+        const handler = jest.fn().mockRejectedValue(err);
+
+        await expect(
+            withQuidaxThrottleGuard(queue as never, logger, handler, 5),
+        ).rejects.toBe(err);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        await expect(
+            withQuidaxThrottleGuard(queue as never, logger, handler, 5),
+        ).rejects.toBe(err);
+
+        const pauseWarnings = (logger.warn as jest.Mock).mock.calls.map(([message]) => String(message));
+        expect(pauseWarnings[0]).toContain("for 5ms after 1 consecutive");
+        expect(pauseWarnings[1]).toContain("for 10ms after 2 consecutive");
+    });
+
+    it("resets the pause window after a successful handler run", async () => {
+        const err = new QuidaxTooManyRequestError("rate limited");
+
+        await expect(
+            withQuidaxThrottleGuard(
+                queue as never,
+                logger,
+                jest.fn().mockRejectedValue(err),
+                5,
+            ),
+        ).rejects.toBe(err);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        await expect(
+            withQuidaxThrottleGuard(
+                queue as never,
+                logger,
+                jest.fn().mockResolvedValue("ok"),
+                5,
+            ),
+        ).resolves.toBe("ok");
+
+        await expect(
+            withQuidaxThrottleGuard(
+                queue as never,
+                logger,
+                jest.fn().mockRejectedValue(err),
+                5,
+            ),
+        ).rejects.toBe(err);
+
+        const pauseWarnings = (logger.warn as jest.Mock).mock.calls
+            .map(([message]) => String(message))
+            .filter((message) => message.includes("Pausing queue"));
+
+        expect(pauseWarnings).toHaveLength(2);
+        expect(pauseWarnings[0]).toContain("for 5ms after 1 consecutive");
+        expect(pauseWarnings[1]).toContain("for 5ms after 1 consecutive");
     });
 
     it("skips pausing if the queue is already paused", async () => {
