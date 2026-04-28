@@ -100,6 +100,50 @@ describe("TradingFactory", () => {
         );
     });
 
+    it("build returns QuidaxService for quidax provider", () => {
+        const factory = new TradingFactory(tradingConfig);
+
+        const service = factory.build({ provider: "quidax" } as any) as any;
+
+        expect(service.type).toBe("service");
+    });
+
+    it("build throws for unknown provider", () => {
+        const factory = new TradingFactory(tradingConfig);
+
+        expect(() => factory.build({ provider: "unknown" } as any)).toThrow(
+            "Unknown provider: unknown"
+        );
+    });
+
+    it("buildProvider returns mock provider when QUIDAX_MOCK=true", () => {
+        const origMock = process.env.QUIDAX_MOCK;
+        process.env.QUIDAX_MOCK = "true";
+        try {
+            const factory = new TradingFactory(tradingConfig);
+            const provider = factory.buildProvider({ provider: "quidax" } as any) as any;
+
+            expect(mockProviderCtor).toHaveBeenCalled();
+            expect(provider.type).toBe("mock-provider");
+        } finally {
+            process.env.QUIDAX_MOCK = origMock;
+        }
+    });
+
+    it("buildProvider returns raw provider in production", () => {
+        const origEnv = process.env.NODE_ENV;
+        process.env.NODE_ENV = "production";
+        try {
+            const factory = new TradingFactory(tradingConfig);
+            const provider = factory.buildProvider({ provider: "quidax" } as any) as any;
+
+            expect(safeProviderCtor).not.toHaveBeenCalled();
+            expect(provider.type).toBe("provider");
+        } finally {
+            process.env.NODE_ENV = origEnv;
+        }
+    });
+
     it("logs missing config details when baseUrl or secret is absent", () => {
         const loggerErrorSpy = jest
             .spyOn(Logger.prototype, "error")

@@ -10,7 +10,7 @@ import { CoinCapService } from "@/modules/factory/trading/providers/coincap/serv
 import {
     GetUserWalletResponse,
     GetPaymentAddressByIdOptions,
-    isQuidaxThrottleError,
+    isQuidaxCooldownError,
 } from "@/libs/quidax";
 import {
     AccountCreationException,
@@ -985,6 +985,33 @@ export class TradingService {
                     },
                 },
                 update: {
+
+            async enqueueUserDepositSync(userId: number) {
+                const user = await this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: {
+                        id: true,
+                        cryptoSubAccountId: true,
+                    },
+                });
+
+                if (!user?.cryptoSubAccountId) {
+                    throw new UserNotFoundException(
+                        "User not found or no crypto sub-account",
+                        HttpStatus.NOT_FOUND
+                    );
+                }
+
+                await this.cryptoAccountQueueProducer.enqueueDepositSync(user.id);
+
+                return buildResponse({
+                    message: "Deposit sync queued",
+                    data: {
+                        queued: true,
+                        userId: user.id,
+                    },
+                });
+            }
                     quidaxWalletId: data.id,
                     assetName: data.name,
                     balance: data.balance,
@@ -1472,9 +1499,15 @@ export class TradingService {
         // first-deposit detection path working without polling every chain.
         const DEFAULT_NEW_USER_CURRENCIES: readonly string[] = ['btc', 'usdt', 'eth'];
 
-        // Also get user's wallet addresses for logging
+        // Only use wallet-address rows that are already active and have a
+        // resolved deposit address. This avoids polling currencies that are
+        // still pending/failed while preserving the new-user fallback below.
         const walletAddresses = await this.prisma.cryptoWalletAddress.findMany({
-            where: { userId: user.id },
+            where: {
+                userId: user.id,
+                status: CryptoWalletStatus.ACTIVE,
+                address: { not: null },
+            },
             select: { assetSymbol: true },
         });
 
@@ -1489,7 +1522,7 @@ export class TradingService {
             ? userCurrencies
             : DEFAULT_NEW_USER_CURRENCIES;
 
-        this.logger.log(`User ${user.email} has wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
+        this.logger.log(`User ${user.email} has active wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
         this.logger.log(`Scanning Quidax deposits for: ${currenciesToScan.join(', ')}`);
 
         const syncResults = {
@@ -1522,9 +1555,9 @@ export class TradingService {
                     await this.syncSingleDeposit(user, currency, deposit, syncResults);
                 }
             } catch (currencyError) {
-                if (isQuidaxThrottleError(currencyError)) {
+                if (isQuidaxCooldownError(currencyError)) {
                     this.logger.warn(
-                        `Quidax throttled deposit sync for user ${user.id} while fetching ${currency}; aborting remaining currencies so the queue guard can pause retries`,
+                        `Quidax deposit sync hit a cooldown-worthy response for user ${user.id} while fetching ${currency}; aborting remaining currencies so the queue guard can pause retries`,
                     );
                     throw currencyError;
                 }

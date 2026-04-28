@@ -518,6 +518,7 @@ export class QuidaxTradingProvider implements ITradingProvider {
                 currency,
                 network,
                 fee,
+                type: data?.type,
                 minimumAmount: data?.minimum?.toString() || data?.min_amount?.toString() || '0',
             },
         };

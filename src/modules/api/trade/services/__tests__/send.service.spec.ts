@@ -187,6 +187,30 @@ describe("SendService", () => {
 
             expect(result.data.networkFee).toBe(10); // 500 * 2 / 100
         });
+
+        it("throws when provider returns null data", async () => {
+            tradingProvider.getWithdrawalFees.mockResolvedValue({ data: null });
+
+            await expect(
+                service.getCryptoWithdrawerFee({
+                    amount: 1,
+                    currency: "btc" as any,
+                } as any),
+            ).rejects.toThrow("Fee information is not available");
+        });
+
+        it("falls back to fixed fee for simple numeric fee without type", async () => {
+            tradingProvider.getWithdrawalFees.mockResolvedValue({
+                data: { fee: 0.005 },
+            });
+
+            const result = await service.getCryptoWithdrawerFee({
+                amount: 1,
+                currency: "btc" as any,
+            } as any);
+
+            expect(result.data.networkFee).toBe(0.005);
+        });
     });
 
     // ── inferAddressFamily (via reflection) ──────────────────
@@ -504,6 +528,48 @@ describe("SendService", () => {
                 userId: "me",
                 withdrawalId: "wd-1",
             });
+        });
+
+        it("falls back to sub-account when main wallet cancel fails", async () => {
+            tradingProvider.cancelWithdrawal
+                .mockRejectedValueOnce(new Error("Not found on main"))
+                .mockResolvedValueOnce({ data: { id: "wd-1", status: "cancelled" } });
+
+            const result = await service.cancelWithdrawerRequest(
+                { id: 1, cryptoSubAccountId: "sub-1" } as any,
+                { withdrawal_id: "wd-1" } as any,
+            );
+
+            expect(result.data.status).toBe("cancelled");
+            expect(tradingProvider.cancelWithdrawal).toHaveBeenCalledTimes(2);
+            expect(tradingProvider.cancelWithdrawal).toHaveBeenLastCalledWith({
+                userId: "sub-1",
+                withdrawalId: "wd-1",
+            });
+        });
+
+        it("throws original Error when all cancel attempts fail", async () => {
+            tradingProvider.cancelWithdrawal
+                .mockRejectedValueOnce(new Error("fail-me"))
+                .mockRejectedValueOnce(new Error("fail-sub"));
+
+            await expect(
+                service.cancelWithdrawerRequest(
+                    { id: 1, cryptoSubAccountId: "sub-1" } as any,
+                    { withdrawal_id: "wd-1" } as any,
+                ),
+            ).rejects.toThrow("fail-sub");
+        });
+
+        it("throws GeneralTransactionException for non-Error failures", async () => {
+            tradingProvider.cancelWithdrawal.mockRejectedValue("string error");
+
+            await expect(
+                service.cancelWithdrawerRequest(
+                    { id: 1, cryptoSubAccountId: null } as any,
+                    { withdrawal_id: "wd-1" } as any,
+                ),
+            ).rejects.toThrow("Unable to cancel withdrawal request");
         });
     });
 
