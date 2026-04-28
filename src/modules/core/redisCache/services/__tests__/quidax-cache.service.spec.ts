@@ -8,6 +8,10 @@ describe("QuidaxCacheService", () => {
         get: jest.Mock;
         set: jest.Mock;
     };
+    let distributedLockService: {
+        acquireLock: jest.Mock;
+        releaseLock: jest.Mock;
+    };
     let quidaxService: {
         getMarketTickers: jest.Mock;
     };
@@ -18,16 +22,31 @@ describe("QuidaxCacheService", () => {
             set: jest.fn().mockResolvedValue(undefined),
         };
 
+        distributedLockService = {
+            acquireLock: jest.fn().mockResolvedValue("lock-token"),
+            releaseLock: jest.fn().mockResolvedValue(true),
+        };
+
         quidaxService = {
             getMarketTickers: jest.fn(),
         };
 
-        service = new QuidaxCacheService(redisCacheService as any, quidaxService as any);
-        otherService = new QuidaxCacheService(redisCacheService as any, quidaxService as any);
+        service = new QuidaxCacheService(
+            redisCacheService as any,
+            distributedLockService as any,
+            quidaxService as any,
+        );
+        otherService = new QuidaxCacheService(
+            redisCacheService as any,
+            distributedLockService as any,
+            quidaxService as any,
+        );
 
         (service as any).inFlightMarketTickersRequest = null;
         (service as any).marketTickersThrottleUntil = 0;
         (service as any).consecutiveThrottleCount = 0;
+        (service as any).lastSuccessfulMarketTickers = null;
+        (service as any).lastSuccessfulMarketTickersAt = 0;
 
         jest.spyOn((service as any).logger, "debug").mockImplementation(() => undefined);
         jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
@@ -76,10 +95,48 @@ describe("QuidaxCacheService", () => {
             { ethngn: { buy: "2500" } },
             300,
         );
+        expect(distributedLockService.acquireLock).toHaveBeenCalledWith(
+            "quidax:market:tickers:refresh",
+            expect.objectContaining({ ttlMs: 6000, maxWaitMs: 1000, retryIntervalMs: 100 }),
+        );
+        expect(distributedLockService.releaseLock).toHaveBeenCalledWith(
+            "quidax:market:tickers:refresh",
+            "lock-token",
+        );
+    });
+
+    it("returns fresh cache when another instance populates Redis before this instance fetches", async () => {
+        const refreshed = { btcngn: { buy: "1000" } };
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(refreshed);
+
+        const result = await service.getMarketTickers();
+
+        expect(result).toEqual(refreshed);
+        expect(quidaxService.getMarketTickers).not.toHaveBeenCalled();
+        expect(distributedLockService.releaseLock).toHaveBeenCalledWith(
+            "quidax:market:tickers:refresh",
+            "lock-token",
+        );
+    });
+
+    it("uses stale cache instead of issuing a second API request when another instance holds the refresh lock", async () => {
+        distributedLockService.acquireLock.mockResolvedValue(null);
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true });
+
+        const result = await service.getMarketTickers();
+
+        expect(result).toEqual({ stale: true });
+        expect(quidaxService.getMarketTickers).not.toHaveBeenCalled();
+        expect(distributedLockService.releaseLock).not.toHaveBeenCalled();
     });
 
     it("falls back to stale cache when API call fails", async () => {
         redisCacheService.get
+            .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ stale: true });
         quidaxService.getMarketTickers.mockRejectedValue(new Error("provider down"));
@@ -93,6 +150,7 @@ describe("QuidaxCacheService", () => {
 
     it("enters cooldown after Quidax throttles and serves stale cache without re-hitting the API", async () => {
         redisCacheService.get
+            .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ stale: true })
             .mockResolvedValueOnce(null)
@@ -116,7 +174,9 @@ describe("QuidaxCacheService", () => {
 
         redisCacheService.get
             .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ stale: true })
+            .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ stale: true });
         quidaxService.getMarketTickers.mockRejectedValue(
@@ -138,17 +198,13 @@ describe("QuidaxCacheService", () => {
 
         redisCacheService.get
             .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce({ stale: true })
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ stale: true })
-            .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ stale: true });
         quidaxService.getMarketTickers
             .mockRejectedValueOnce(new QuidaxTooManyRequestError("rate limited"))
-            .mockRejectedValueOnce(new QuidaxTooManyRequestError("rate limited"))
-            .mockResolvedValueOnce({ data: { btcngn: { buy: "9000" } } })
             .mockRejectedValueOnce(new QuidaxTooManyRequestError("rate limited"));
 
         await service.getMarketTickers();
@@ -157,10 +213,31 @@ describe("QuidaxCacheService", () => {
         expect((service as any).marketTickersThrottleUntil - now).toBe(60_000);
 
         now = (service as any).marketTickersThrottleUntil + 1;
+
+        redisCacheService.get.mockReset();
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+        quidaxService.getMarketTickers.mockReset();
+        quidaxService.getMarketTickers.mockResolvedValueOnce({
+            data: { btcngn: { buy: "9000" } },
+        });
+
         await service.getMarketTickers();
         expect((service as any).consecutiveThrottleCount).toBe(0);
 
         now += 60_000;
+
+        redisCacheService.get.mockReset();
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ stale: true });
+        quidaxService.getMarketTickers.mockReset();
+        quidaxService.getMarketTickers.mockRejectedValueOnce(
+            new QuidaxTooManyRequestError("rate limited"),
+        );
+
         await service.getMarketTickers();
         expect((service as any).marketTickersThrottleUntil - now).toBe(30_000);
     });
@@ -177,8 +254,53 @@ describe("QuidaxCacheService", () => {
         expect(quidaxService.getMarketTickers).not.toHaveBeenCalled();
     });
 
+    it("uses the last successful market data when Redis stale cache expires during cooldown", async () => {
+        let now = 3_000_000;
+        jest.spyOn(Date, "now").mockImplementation(() => now);
+
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+        quidaxService.getMarketTickers.mockResolvedValueOnce({
+            data: { btcngn: { buy: "9000" } },
+        });
+
+        await expect(service.getMarketTickers()).resolves.toEqual({ btcngn: { buy: "9000" } });
+
+        now += 6 * 60_000;
+        (service as any).marketTickersThrottleUntil = now + 60_000;
+        redisCacheService.get.mockReset();
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+        quidaxService.getMarketTickers.mockReset();
+
+        await expect(service.getMarketTickers()).resolves.toEqual({ btcngn: { buy: "9000" } });
+        expect(quidaxService.getMarketTickers).not.toHaveBeenCalled();
+        expect((service as any).logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining("using last successful in-memory Quidax cache as fallback"),
+        );
+    });
+
+    it("does not use the in-memory fallback once it is too old", async () => {
+        let now = 4_000_000;
+        jest.spyOn(Date, "now").mockImplementation(() => now);
+
+        (service as any).lastSuccessfulMarketTickers = { ethngn: { buy: "2500" } };
+        (service as any).lastSuccessfulMarketTickersAt = now;
+
+        now += 16 * 60_000;
+        (service as any).marketTickersThrottleUntil = now + 60_000;
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+
+        await expect(service.getMarketTickers()).resolves.toEqual({});
+    });
+
     it("returns empty object when API and stale cache are unavailable", async () => {
         redisCacheService.get
+            .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null);
         quidaxService.getMarketTickers.mockRejectedValue(new Error("timeout"));
