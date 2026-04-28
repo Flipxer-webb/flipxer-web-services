@@ -66,7 +66,7 @@ describe("AdminTransactionController", () => {
         bulkUpdateStatus: jest.Mock;
         exportTransactions: jest.Mock;
     };
-    let tradingService: { syncUserDeposits: jest.Mock; debugUserWallet: jest.Mock };
+    let tradingService: { enqueueUserDepositSync: jest.Mock; debugUserWallet: jest.Mock };
     const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
     const mockReq = { ip: '127.0.0.1', headers: { 'user-agent': 'test' }, user: { id: 1 } } as any;
 
@@ -88,7 +88,7 @@ describe("AdminTransactionController", () => {
             bulkUpdateStatus: jest.fn(),
             exportTransactions: jest.fn(),
         };
-        tradingService = { syncUserDeposits: jest.fn(), debugUserWallet: jest.fn() };
+        tradingService = { enqueueUserDepositSync: jest.fn(), debugUserWallet: jest.fn() };
 
         const module: TestingModule = await Test.createTestingModule({
             controllers: [AdminTransactionController],
@@ -171,15 +171,15 @@ describe("AdminTransactionController", () => {
     });
 
     it("should sync deposits and debug wallet", async () => {
-        tradingService.syncUserDeposits.mockResolvedValue({ message: "synced" });
+        tradingService.enqueueUserDepositSync.mockResolvedValue({ message: "queued" });
         tradingService.debugUserWallet.mockResolvedValue({ data: { currency: "BTC" } });
 
         const syncResult = await controller.syncUserDeposits(15, mockReq);
         const debugResult = await controller.debugWallet(15, "BTC");
 
-        expect(tradingService.syncUserDeposits).toHaveBeenCalledWith(15);
+        expect(tradingService.enqueueUserDepositSync).toHaveBeenCalledWith(15);
         expect(tradingService.debugUserWallet).toHaveBeenCalledWith(15, "BTC");
-        expect(syncResult.message).toBe("synced");
+        expect(syncResult.message).toBe("queued");
         expect((debugResult as any).data.currency).toBe("BTC");
     });
 });

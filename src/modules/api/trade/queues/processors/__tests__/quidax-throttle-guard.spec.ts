@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { isQuidaxThrottlingError, withQuidaxThrottleGuard } from "../quidax-throttle-guard";
-import { QuidaxTooManyRequestError } from "@/libs/quidax";
+import { QuidaxGenericError, QuidaxTooManyRequestError } from "@/libs/quidax";
 import { QuidaxException } from "@/modules/factory/trading/providers/quidax/errors";
 
 let queueSequence = 0;
@@ -21,6 +21,20 @@ describe("isQuidaxThrottlingError", () => {
 
     it("detects QuidaxException with status 444", () => {
         expect(isQuidaxThrottlingError(new QuidaxException("throttled", 444))).toBe(true);
+    });
+
+    it("detects Cloudflare block-style 403 responses", () => {
+        const blocked = new QuidaxException(
+            "<title>Attention Required! | Cloudflare</title><h2>You are unable to access quidax.io</h2>",
+            403,
+        );
+        const rawBlocked = new QuidaxGenericError(
+            "<title>Attention Required! | Cloudflare</title><h2>You are unable to access quidax.io</h2>",
+        );
+        rawBlocked.status = 403;
+
+        expect(isQuidaxThrottlingError(blocked)).toBe(true);
+        expect(isQuidaxThrottlingError(rawBlocked)).toBe(true);
     });
 
     it("returns false for QuidaxException with non-throttle status", () => {
@@ -96,6 +110,20 @@ describe("withQuidaxThrottleGuard", () => {
         );
     });
 
+    it("pauses the queue and re-throws on a Cloudflare block response", async () => {
+        const err = new QuidaxException(
+            "<title>Attention Required! | Cloudflare</title><h2>You are unable to access quidax.io</h2>",
+            403,
+        );
+        const handler = jest.fn().mockRejectedValue(err);
+
+        await expect(
+            withQuidaxThrottleGuard(queue as never, logger, handler, 5_000),
+        ).rejects.toBe(err);
+
+        expect(queue.pause).toHaveBeenCalledWith(true);
+    });
+
     it("schedules a resume after the cooldown window", async () => {
         const err = new QuidaxTooManyRequestError("rate limited");
         const handler = jest.fn().mockRejectedValue(err);
@@ -124,8 +152,8 @@ describe("withQuidaxThrottleGuard", () => {
         ).rejects.toBe(err);
 
         const pauseWarnings = (logger.warn as jest.Mock).mock.calls.map(([message]) => String(message));
-        expect(pauseWarnings[0]).toContain("for 5ms after 1 consecutive");
-        expect(pauseWarnings[1]).toContain("for 10ms after 2 consecutive");
+        expect(pauseWarnings[0]).toContain("for 5ms after Quidax");
+        expect(pauseWarnings[1]).toContain("for 5ms after Quidax");
     });
 
     it("resets the pause window after a successful handler run", async () => {
@@ -164,8 +192,8 @@ describe("withQuidaxThrottleGuard", () => {
             .filter((message) => message.includes("Pausing queue"));
 
         expect(pauseWarnings).toHaveLength(2);
-        expect(pauseWarnings[0]).toContain("for 5ms after 1 consecutive");
-        expect(pauseWarnings[1]).toContain("for 5ms after 1 consecutive");
+        expect(pauseWarnings[0]).toContain("for 5ms after Quidax");
+        expect(pauseWarnings[1]).toContain("for 5ms after Quidax");
     });
 
     it("skips pausing if the queue is already paused", async () => {

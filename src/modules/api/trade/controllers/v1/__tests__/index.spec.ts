@@ -76,7 +76,7 @@ describe("TradingController", () => {
             getBatchSparklines: jest.fn().mockResolvedValue({ data: [] }),
             getOrderStatus: jest.fn().mockResolvedValue({ data: { status: "processing" } }),
 
-            syncUserDeposits: jest.fn().mockResolvedValue({ message: "synced" }),
+            enqueueUserDepositSync: jest.fn().mockResolvedValue({ message: "queued" }),
         };
 
         controller = new TradingController(tradingService as any);
@@ -175,6 +175,6 @@ describe("TradingController", () => {
         expect(tradingService.getBatchSparklines).toHaveBeenCalledWith(["btc", "eth", "usdt"]);
         expect(tradingService.getOrderStatus).toHaveBeenCalledWith(user, "tx-1");
 
-        expect(tradingService.syncUserDeposits).toHaveBeenCalledWith(77);
+        expect(tradingService.enqueueUserDepositSync).toHaveBeenCalledWith(77);
     });
 });

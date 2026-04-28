@@ -29,7 +29,7 @@ jest.mock("uuid", () => ({
     __esModule: true,
 }));
 
-import { QuidaxTooManyRequestError } from "@/libs/quidax";
+import { QuidaxGenericError, QuidaxTooManyRequestError } from "@/libs/quidax";
 import { TradingService } from "..";
 import {
     GeneralTransactionException,
@@ -183,7 +183,9 @@ function makeDeps() {
     };
 
     const coinGeckoService = {};
-    const cryptoAccountQueueProducer = {};
+    const cryptoAccountQueueProducer = {
+        enqueueDepositSync: jest.fn().mockResolvedValue(undefined),
+    };
     const notificationMessage = {};
     const walletManagementService = {};
     const lockService = {};
@@ -225,6 +227,7 @@ function makeDeps() {
         webhookHandlerService,
         liveCoinWatchService,
         coinCapService,
+        cryptoAccountQueueProducer,
     };
 }
 
@@ -1096,6 +1099,20 @@ describe("TradingService (index)", () => {
             await expect(service.syncUserDeposits(10)).rejects.toBeInstanceOf(Error);
         });
 
+        it("enqueueUserDepositSync queues deposit sync for users with sub-accounts", async () => {
+            const { service, prisma, cryptoAccountQueueProducer } = makeDeps();
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                cryptoSubAccountId: "sub-10",
+            });
+
+            const result = await service.enqueueUserDepositSync(10);
+
+            expect(cryptoAccountQueueProducer.enqueueDepositSync).toHaveBeenCalledWith(10);
+            expect(result.message).toBe("Deposit sync queued");
+            expect(result.data).toEqual({ queued: true, userId: 10 });
+        });
+
         it("syncUserDeposits rethrows Quidax throttle errors and aborts remaining currencies", async () => {
             const { service, prisma, quidaxService } = makeDeps();
             const throttleError = new QuidaxTooManyRequestError("rate limited");
@@ -1120,6 +1137,90 @@ describe("TradingService (index)", () => {
                 user_id: "sub-10",
                 currency: "bnb",
             });
+        });
+
+        it("syncUserDeposits rethrows Cloudflare block errors and aborts remaining currencies", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+            const blockError = new QuidaxGenericError(
+                "<title>Attention Required! | Cloudflare</title><h2>You are unable to access quidax.io</h2>",
+            );
+            blockError.status = 403;
+
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+                { assetSymbol: "BNB" },
+                { assetSymbol: "BTC" },
+            ]);
+            quidaxService.fetchDeposits.mockRejectedValue(blockError);
+
+            await expect(service.syncUserDeposits(10)).rejects.toBe(blockError);
+
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(1);
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledWith({
+                user_id: "sub-10",
+                currency: "bnb",
+            });
+        });
+
+        it("syncUserDeposits scans only active wallet-address currencies with resolved addresses", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+                { assetSymbol: "USDT" },
+            ]);
+            quidaxService.fetchDeposits.mockResolvedValue({ data: [] });
+
+            await service.syncUserDeposits(10);
+
+            expect(prisma.cryptoWalletAddress.findMany).toHaveBeenCalledWith({
+                where: {
+                    userId: 10,
+                    status: CryptoWalletStatus.ACTIVE,
+                    address: { not: null },
+                },
+                select: { assetSymbol: true },
+            });
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(1);
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledWith({
+                user_id: "sub-10",
+                currency: "usdt",
+            });
+        });
+
+        it("syncUserDeposits preserves the new-user fallback when no active deposit addresses exist", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([]);
+            quidaxService.fetchDeposits.mockResolvedValue({ data: [] });
+
+            await service.syncUserDeposits(10);
+
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(3);
+            expect(quidaxService.fetchDeposits.mock.calls.map(([options]: any[]) => options.currency)).toEqual([
+                "btc",
+                "usdt",
+                "eth",
+            ]);
         });
 
         it("syncUserDeposits continues after non-throttle currency errors", async () => {

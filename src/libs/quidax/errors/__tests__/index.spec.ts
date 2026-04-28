@@ -1,4 +1,6 @@
 import {
+    isQuidaxCloudflareBlockError,
+    isQuidaxCooldownError,
     isQuidaxThrottleError,
     QuidaxAuthorizationError,
     QuidaxError,
@@ -48,5 +50,16 @@ describe("quidax error classes", () => {
         expect(isQuidaxThrottleError({ getStatus: () => 500 })).toBe(false);
         expect(isQuidaxThrottleError(new Error("boom"))).toBe(false);
         expect(isQuidaxThrottleError(null)).toBe(false);
+    });
+
+    it("detects Cloudflare 403 block pages as cooldown-worthy errors", () => {
+        const blocked = new QuidaxGenericError(
+            "<title>Attention Required! | Cloudflare</title><h2>You are unable to access quidax.io</h2>"
+        );
+        blocked.status = 403;
+
+        expect(isQuidaxThrottleError(blocked)).toBe(false);
+        expect(isQuidaxCloudflareBlockError(blocked)).toBe(true);
+        expect(isQuidaxCooldownError(blocked)).toBe(true);
     });
 });

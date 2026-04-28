@@ -1,26 +1,27 @@
 import { Logger } from "@nestjs/common";
 import { Queue } from "bull";
-import { isQuidaxThrottleError } from "@/libs/quidax";
+import { isQuidaxCooldownError } from "@/libs/quidax";
 
 /**
  * Default cooldown applied to a Bull queue when Quidax responds with a
- * throttling status (HTTP 429 or 444). 30s gives the provider headroom while
- * the queue's exponential backoff handles per-job retries.
+ * throttle or a Cloudflare access block. 30s gives the provider headroom
+ * while the queue's exponential backoff handles per-job retries.
  */
 const DEFAULT_THROTTLE_PAUSE_MS = 30_000;
 
 /**
  * Returns true when the given error originated from a Quidax throttling
- * response (HTTP 429 or 444). Matches both the raw QuidaxLib error and the
- * QuidaxException wrapper produced by the provider's error handler.
+ * response (HTTP 429/444) or a Cloudflare block page (HTTP 403). Matches both
+ * the raw QuidaxLib errors and the QuidaxException wrapper produced by the
+ * provider's error handler.
  */
 export function isQuidaxThrottlingError(error: unknown): boolean {
-    return isQuidaxThrottleError(error);
+    return isQuidaxCooldownError(error);
 }
 
 /**
  * Pause the queue for `pauseMs` whenever the underlying job handler throws a
- * Quidax throttling error. The error is re-thrown so Bull's retry/backoff
+ * Quidax cooldown-worthy error. The error is re-thrown so Bull's retry/backoff
  * still applies to the individual job, but no other jobs in the queue make
  * additional Quidax calls during the cooldown window.
  *
@@ -57,7 +58,7 @@ async function pauseQueueForCooldown(
 
         await queue.pause(/* isLocal */ true);
         logger.warn(
-            `[QUIDAX THROTTLE] Pausing queue "${queue.name}" for ${pauseMs}ms after Quidax throttling response`
+            `[QUIDAX THROTTLE] Pausing queue "${queue.name}" for ${pauseMs}ms after Quidax throttle/block response`
         );
 
         setTimeout(async () => {
