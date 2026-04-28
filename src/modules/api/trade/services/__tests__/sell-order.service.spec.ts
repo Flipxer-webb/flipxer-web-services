@@ -86,7 +86,7 @@ describe("SellOrderService", () => {
             validateBeforeExecution: jest.fn().mockResolvedValue({ success: true, blocked: false }),
         };
         const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
-        const mockSlack = { sendAlert: jest.fn().mockResolvedValue(undefined) };
+        const mockSlack = { sendAlert: jest.fn().mockResolvedValue(undefined), sendWebhookFailureAlert: jest.fn().mockResolvedValue(undefined) };
         const mockLock = {
             withLock: jest.fn().mockImplementation(async (_k: string, fn: () => Promise<any>) => fn()),
         };
@@ -383,6 +383,127 @@ describe("SellOrderService", () => {
                     payload?.transaction?.streamlinedStatus === "failed",
             );
             expect(failedEmit).toBeUndefined();
+        });
+
+        it("alerts admin when payout AND refund both fail", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 8,
+                transactionId: "TX-CRITICAL",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.update.mockResolvedValue({ ...createdOrder, status: "failed" });
+
+            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
+            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(new Error("Nomba down"));
+
+            // Refund also fails
+            ledgerService.pairedCredit.mockResolvedValue({ success: false, error: "Ledger locked" });
+
+            const slack = service["slackWebhookService"] as any;
+
+            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+
+            expect(slack.sendWebhookFailureAlert).toHaveBeenCalledWith(
+                "sell",
+                expect.any(String),
+                expect.stringContaining("MANUAL INTERVENTION"),
+                expect.objectContaining({ orderId: 8 }),
+            );
+        });
+
+        it("handles non-Error payout exceptions safely", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            const createdOrder = {
+                id: 9,
+                transactionId: "TX-NONERR",
+                status: "processing",
+                streamlinedStatus: "processing",
+                orderCategory: "SELL",
+                amount: 0.1,
+                currency: "BTC",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            prisma.order.create.mockResolvedValue(createdOrder);
+            prisma.order.update.mockResolvedValue({ ...createdOrder, status: "failed" });
+
+            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
+            // Throw a non-Error value
+            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce("string error");
+
+            ledgerService.pairedCredit.mockResolvedValue({ success: true, userEntry: { id: 99 } });
+
+            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+
+            expect(prisma.order.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        transaction_note: expect.stringContaining("string error"),
+                    }),
+                }),
+            );
+        });
+
+        it("releases hold when outer catch fires before settlement", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            // Settlement itself fails → throws GeneralTransactionException → holdSettled stays false
+            ledgerService.releaseHoldWithPlatformEntry.mockResolvedValue({
+                success: false,
+                error: "Settlement failed",
+            });
+
+            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+
+            // Hold was never settled, so releaseHold should be called in outer catch
+            expect(ledgerService.releaseHold).toHaveBeenCalled();
+        });
+
+        it("handles release hold failure in outer catch gracefully", async () => {
+            prisma.order.findFirst.mockResolvedValue(null);
+            // Make settlement fail so holdSettled=false
+            ledgerService.releaseHoldWithPlatformEntry.mockResolvedValue({
+                success: false,
+                error: "Settlement failed",
+            });
+            // Also make releaseHold throw
+            ledgerService.releaseHold.mockRejectedValueOnce(new Error("Release also failed"));
+
+            // Should still throw the original error, not the release failure
+            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+        });
+    });
+
+    // ── triggerBestEffortWalletSync ──────────────────────────
+
+    describe("triggerBestEffortWalletSync", () => {
+        it("logs warning when wallet sync fails", async () => {
+            const walletService = service["walletAddressService"] as any;
+            walletService.syncWallet.mockRejectedValueOnce(new Error("Sync timeout"));
+            const loggerSpy = jest.spyOn(service["logger"], "warn");
+
+            // Call the private method directly
+            (service as any).triggerBestEffortWalletSync(1, "btc");
+
+            // Wait for the async catch to fire
+            await new Promise((r) => setTimeout(r, 50));
+
+            expect(loggerSpy).toHaveBeenCalledWith(
+                expect.stringContaining("Best-effort wallet sync failed"),
+            );
+        });
+
+        it("does nothing when currency is empty", () => {
+            const walletService = service["walletAddressService"] as any;
+            (service as any).triggerBestEffortWalletSync(1, "");
+            expect(walletService.syncWallet).not.toHaveBeenCalled();
         });
     });
 

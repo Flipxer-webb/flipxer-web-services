@@ -361,124 +361,20 @@ export class SellOrderService {
                     data: freshOrder ?? order,
                 });
             } catch (payoutError) {
-                // Payout initiation failed - release hold and fail the order
-                const payoutMessage = payoutError instanceof Error ? payoutError.message : String(payoutError);
-                const payoutStack = payoutError instanceof Error ? payoutError.stack : undefined;
-                this.logger.error(
-                    `Payout initiation failed for Order ${order.id}: ${payoutMessage}`,
-                    payoutStack
-                );
-
-                // CRITICAL FIX: Hold was already SETTLED at line 280 (releaseHoldWithPlatformEntry with settle: true).
-                // We need to CREDIT back the user's virtual balance because the hold no longer exists.
-                try {
-                    const refundResult = await this.ledgerService.pairedCredit({
-                        userId: user.id,
-                        currency: dto.asset.toUpperCase(),
-                        amount: totalCryptoToAdmin,
-                        type: LedgerType.REFUND,
-                        reference: `${holdReference}:refund`,
-                        description: `Refund: Payout initiation failed`,
-                        createPlatformEntry: true
-                    });
-
-                    if (refundResult.success) {
-                        this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
-
-                        // Sync provider metadata opportunistically after the refund.
-                        this.triggerBestEffortWalletSync(user.id, dto.asset);
-                    } else {
-                        // This is a catastrophic failure - payout failed AND refund failed
-                        throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
-                    }
-                } catch (refundError) {
-                    const refundMessage = refundError instanceof Error ? refundError.message : String(refundError);
-                    const refundStack = refundError instanceof Error ? refundError.stack : undefined;
-                    this.logger.error(
-                        `CRITICAL: Failed to REFUND user after payout failure: ${refundMessage}`,
-                        refundStack
-                    );
-                    // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed).
-                    // sendWebhookFailureAlert uses the system-level Slack URL directly and does not
-                    // depend on a webhook subscription record, so it is guaranteed to reach ops.
-                    await this.slackWebhookService.sendWebhookFailureAlert(
-                        'sell',
-                        holdReference,
-                        `🚨 CRITICAL: Sell order payout failed AND refund failed! MANUAL INTERVENTION REQUIRED.`,
-                        {
-                            orderId: order.id,
-                            userId: user.id,
-                            holdReference,
-                            payoutError: payoutMessage,
-                            refundError: refundMessage,
-                        },
-                    );
-                }
-
-                // Update order to failed status
-                await this.prisma.order.update({
-                    where: { id: order.id },
-                    data: {
-                        status: OrderStatus.failed,
-                        streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
-                        paymentStatus: TransactionStatus.FAILED,
-                        transaction_note: `Payout initiation failed: ${payoutError.message}`,
-                    },
-                });
-
-                // Notify user of failure
-                this.wsGateway.notifyTransactionUpdate(user.id, {
-                    type: 'transaction_update',
-                    transaction: {
-                        id: order.id,
-                        transactionId: order.transactionId,
-                        status: OrderStatus.failed,
-                        streamlinedStatus: 'failed',
-                        orderCategory: order.orderCategory,
-                        amount: Number(order.amount),
-                        currency: order.currency,
-                        createdAt: order.createdAt,
-                        updatedAt: new Date(),
-                    },
-                });
-
-                // Send sell failure notification (in-app + push + email)
-                await this.notificationDispatcher.notify({
-                    userId: user.id,
-                    title: "Sell order failed",
-                    body: `❌ Your sell order of ${order.amount} ${order.currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
-                    category: "transaction",
-                    currency: order.currency,
-                    transactionType: OrderCategory.SELL,
-                    enableEmail: true,
-                    emailPayload: {
-                        email: user.email,
-                        transactionType: 'sell',
-                        transactionId: order.transactionId,
-                        amount: String(order.amount),
-                        currency: order.currency.toUpperCase(),
-                        status: 'failed',
-                        date: new Date().toISOString(),
-                    },
-                    enablePush: true,
-                });
-
-                throw new HttpException(
-                    'Sell order failed - payout could not be initiated. Your funds have been released.',
-                    HttpStatus.INTERNAL_SERVER_ERROR
-                );
+                await this.handlePayoutFailure(user, dto, order, payoutError, holdReference, totalCryptoToAdmin);
             }
         } catch (error) {
             // Only attempt to release the hold if settlement never completed.
             // Once releaseHoldWithPlatformEntry(settle:true) succeeds the hold no longer exists,
             // and the payout-failure branch already runs pairedCredit to reverse the debit.
             if (!holdSettled) {
-                this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${error.message}`);
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${errorMsg}`);
                 try {
-                    await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${error.message}`);
+                    await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${errorMsg}`);
                     this.logger.log(`Cancelled hold for failed sell order | Reference: ${holdReference}`);
                 } catch (releaseError) {
-                    this.logger.error(`Failed to cancel hold after sell order failure: ${releaseError.message}`);
+                    this.logger.error(`Failed to cancel hold after sell order failure: ${releaseError instanceof Error ? releaseError.message : String(releaseError)}`);
                 }
             }
             throw error;
@@ -486,6 +382,133 @@ export class SellOrderService {
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
+    }
+
+    /**
+     * Handles payout initiation failure: refunds user, updates order, notifies, and throws.
+     */
+    private async handlePayoutFailure(
+        user: User,
+        dto: SellCryptoOrderDto,
+        order: any,
+        payoutError: unknown,
+        holdReference: string,
+        totalCryptoToAdmin: number,
+    ): Promise<never> {
+        const payoutMessage = payoutError instanceof Error ? payoutError.message : String(payoutError);
+        const payoutStack = payoutError instanceof Error ? payoutError.stack : undefined;
+        this.logger.error(
+            `Payout initiation failed for Order ${order.id}: ${payoutMessage}`,
+            payoutStack
+        );
+
+        // CRITICAL FIX: Hold was already SETTLED (releaseHoldWithPlatformEntry with settle: true).
+        // We need to CREDIT back the user's virtual balance because the hold no longer exists.
+        await this.attemptPayoutRefund(user, dto, order, holdReference, totalCryptoToAdmin, payoutMessage);
+
+        // Update order to failed status
+        await this.prisma.order.update({
+            where: { id: order.id },
+            data: {
+                status: OrderStatus.failed,
+                streamlinedStatus: getStreamlinedStatus(OrderStatus.failed),
+                paymentStatus: TransactionStatus.FAILED,
+                transaction_note: `Payout initiation failed: ${payoutMessage}`,
+            },
+        });
+
+        // Notify user of failure
+        this.wsGateway.notifyTransactionUpdate(user.id, {
+            type: 'transaction_update',
+            transaction: {
+                id: order.id,
+                transactionId: order.transactionId,
+                status: OrderStatus.failed,
+                streamlinedStatus: 'failed',
+                orderCategory: order.orderCategory,
+                amount: Number(order.amount),
+                currency: order.currency,
+                createdAt: order.createdAt,
+                updatedAt: new Date(),
+            },
+        });
+
+        // Send sell failure notification (in-app + push + email)
+        await this.notificationDispatcher.notify({
+            userId: user.id,
+            title: "Sell order failed",
+            body: `❌ Your sell order of ${order.amount} ${order.currency.toUpperCase()} has failed. Your funds have been refunded. Transaction ID: ${order.transactionId}.`,
+            category: "transaction",
+            currency: order.currency,
+            transactionType: OrderCategory.SELL,
+            enableEmail: true,
+            emailPayload: {
+                email: user.email,
+                transactionType: 'sell',
+                transactionId: order.transactionId,
+                amount: String(order.amount),
+                currency: order.currency.toUpperCase(),
+                status: 'failed',
+                date: new Date().toISOString(),
+            },
+            enablePush: true,
+        });
+
+        throw new HttpException(
+            'Sell order failed - payout could not be initiated. Your funds have been released.',
+            HttpStatus.INTERNAL_SERVER_ERROR
+        );
+    }
+
+    /**
+     * Attempts to refund user after a payout failure. Alerts admin on critical failure.
+     */
+    private async attemptPayoutRefund(
+        user: User,
+        dto: SellCryptoOrderDto,
+        order: any,
+        holdReference: string,
+        totalCryptoToAdmin: number,
+        payoutMessage: string,
+    ): Promise<void> {
+        try {
+            const refundResult = await this.ledgerService.pairedCredit({
+                userId: user.id,
+                currency: dto.asset.toUpperCase(),
+                amount: totalCryptoToAdmin,
+                type: LedgerType.REFUND,
+                reference: `${holdReference}:refund`,
+                description: `Refund: Payout initiation failed`,
+                createPlatformEntry: true
+            });
+
+            if (refundResult.success) {
+                this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
+                this.triggerBestEffortWalletSync(user.id, dto.asset);
+            } else {
+                throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
+            }
+        } catch (refundError) {
+            const refundMessage = refundError instanceof Error ? refundError.message : String(refundError);
+            const refundStack = refundError instanceof Error ? refundError.stack : undefined;
+            this.logger.error(
+                `CRITICAL: Failed to REFUND user after payout failure: ${refundMessage}`,
+                refundStack
+            );
+            // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed).
+            await this.slackWebhookService.sendWebhookFailureAlert(
+                'sell',
+                holdReference,
+                `🚨 CRITICAL: Sell order payout failed AND refund failed! MANUAL INTERVENTION REQUIRED.`,
+                {
+                    orderId: order.id,
+                    userId: user.id,
+                    holdReference,
+                    payoutError: payoutMessage,
+                    refundError: refundMessage,
+                },
+            );
+        }
     }
 
     /**
