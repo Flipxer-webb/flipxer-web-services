@@ -1,5 +1,11 @@
 import { buildResponse } from "@/utils/api-response-util";
 import {
+    settingsSecuritySendOtpRateLimit,
+    settingsSecuritySendOtpWindowSeconds,
+    settingsSecurityVerifyRateLimit,
+    settingsSecurityVerifyWindowSeconds,
+} from "@/config";
+import {
     Body,
     Controller,
     Get,
@@ -31,7 +37,7 @@ import {
     // UpdateAllowedIpDto,
 } from "../../dtos";
 import { AuthGuard, TwoFactorGuard } from "@/modules/api/auth/guard";
-import { RateLimiterGuard } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
+import { RateLimit, RateLimiterGuard } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 
@@ -253,6 +259,11 @@ export class SettingController {
     }
 
     @UseGuards(AuthGuard)
+    @RateLimit({
+        limit: settingsSecuritySendOtpRateLimit,
+        windowSeconds: settingsSecuritySendOtpWindowSeconds,
+        failOpen: false,
+    })
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Send transaction OTP via SMS or Email" })
@@ -265,6 +276,11 @@ export class SettingController {
     }
 
     @UseGuards(AuthGuard)
+    @RateLimit({
+        limit: settingsSecurityVerifyRateLimit,
+        windowSeconds: settingsSecurityVerifyWindowSeconds,
+        failOpen: false,
+    })
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Verify security method (unified endpoint)" })

@@ -240,6 +240,39 @@ export const isProduction: boolean = process.env.ENVIRONMENT === "production";
 export const port: number = Number.parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
 export const frontendUrl = process.env.FRONTEND_URL;
+
+const parsePositiveIntegerEnv = (
+    value: string | undefined,
+    fallback: number,
+): number => {
+    const parsed = Number.parseInt(value ?? "", 10);
+
+    if (Number.isNaN(parsed) || parsed <= 0) {
+        return fallback;
+    }
+
+    return parsed;
+};
+
+export const settingsSecurityVerifyRateLimit = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_VERIFY_RATE_LIMIT,
+    20,
+);
+
+export const settingsSecurityVerifyWindowSeconds = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_VERIFY_WINDOW_SECONDS,
+    60,
+);
+
+export const settingsSecuritySendOtpRateLimit = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_SEND_OTP_RATE_LIMIT,
+    5,
+);
+
+export const settingsSecuritySendOtpWindowSeconds = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_SEND_OTP_WINDOW_SECONDS,
+    300,
+);
 // JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
