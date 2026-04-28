@@ -32,15 +32,8 @@ import {
 } from "../../dtos";
 import { AuthGuard, TwoFactorGuard } from "@/modules/api/auth/guard";
 import {
-    RateLimit,
     RateLimiterGuard,
 } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
-import {
-    settingsSecuritySendOtpRateLimit,
-    settingsSecuritySendOtpWindowSeconds,
-    settingsSecurityVerifyRateLimit,
-    settingsSecurityVerifyWindowSeconds,
-} from "@/config";
 import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 

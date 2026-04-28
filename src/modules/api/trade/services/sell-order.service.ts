@@ -362,9 +362,11 @@ export class SellOrderService {
                 });
             } catch (payoutError) {
                 // Payout initiation failed - release hold and fail the order
+                const payoutMessage = payoutError instanceof Error ? payoutError.message : String(payoutError);
+                const payoutStack = payoutError instanceof Error ? payoutError.stack : undefined;
                 this.logger.error(
-                    `Payout initiation failed for Order ${order.id}: ${payoutError.message}`,
-                    payoutError.stack
+                    `Payout initiation failed for Order ${order.id}: ${payoutMessage}`,
+                    payoutStack
                 );
 
                 // CRITICAL FIX: Hold was already SETTLED at line 280 (releaseHoldWithPlatformEntry with settle: true).
@@ -390,9 +392,11 @@ export class SellOrderService {
                         throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
                     }
                 } catch (refundError) {
+                    const refundMessage = refundError instanceof Error ? refundError.message : String(refundError);
+                    const refundStack = refundError instanceof Error ? refundError.stack : undefined;
                     this.logger.error(
-                        `CRITICAL: Failed to REFUND user after payout failure: ${refundError.message}`,
-                        refundError.stack
+                        `CRITICAL: Failed to REFUND user after payout failure: ${refundMessage}`,
+                        refundStack
                     );
                     // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed).
                     // sendWebhookFailureAlert uses the system-level Slack URL directly and does not
@@ -405,8 +409,8 @@ export class SellOrderService {
                             orderId: order.id,
                             userId: user.id,
                             holdReference,
-                            payoutError: payoutError.message,
-                            refundError: refundError.message,
+                            payoutError: payoutMessage,
+                            refundError: refundMessage,
                         },
                     );
                 }

@@ -38,13 +38,9 @@ import {
     CryptoWalletStatus,
     EntryStatus,
     NetworkTypes,
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     User,
-    UserNotificationTarget,
 } from "@prisma/client";
 import {
     CancelWithdrawerRequestDto,
@@ -687,7 +683,7 @@ export class TradingService {
         try {
             const { providerUserId, withdrawalDetail } = await this.resolveSendWithdrawalProviderContext(
                 user,
-                order.providerOrderId
+                order.providerOrderId,
             );
 
             const quidaxStatus = withdrawalDetail.data?.status?.toLowerCase();
@@ -710,14 +706,14 @@ export class TradingService {
             if (quidaxStatus === 'pending' || quidaxStatus === 'processing' || quidaxStatus === 'submitted') {
                 try {
                     await this.quidaxService.cancelWithdrawerRequest({
-                        user_id: user.cryptoSubAccountId,
+                        user_id: providerUserId,
                         withdrawal_id: order.providerOrderId,
                     });
                     this.logger.log(`Successfully cancelled withdrawal ${order.providerOrderId} on Quidax`);
                 } catch (cancelError) {
-                    this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError.message}`);
+                    this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
                     const recheckDetail = await this.quidaxService.getWithdrawerDetail({
-                        user_id: user.cryptoSubAccountId,
+                        user_id: providerUserId,
                         withdrawal_id: order.providerOrderId,
                     });
                     const recheckStatus = recheckDetail.data?.status?.toLowerCase();
@@ -742,7 +738,7 @@ export class TradingService {
             if (error instanceof GeneralTransactionException) {
                 throw error;
             }
-            this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error.message}`);
+            this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
