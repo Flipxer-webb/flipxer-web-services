@@ -34,67 +34,23 @@ export class QuidaxTooManyRequestError extends QuidaxError {
     status = 429;
 }
 
-function getErrorStatus(error: unknown): number | null {
-    if (typeof error !== "object" || error === null) {
-        return null;
-    }
-
-    if ("status" in error && typeof error.status === "number") {
-        return error.status;
-    }
-
-    if ("getStatus" in error && typeof error.getStatus === "function") {
-        const status = error.getStatus();
-        return typeof status === "number" ? status : null;
-    }
-
-    return null;
-}
-
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    if (
-        typeof error === "object" &&
-        error !== null &&
-        "message" in error &&
-        typeof error.message === "string"
-    ) {
-        return error.message;
-    }
-
-    return "";
-}
-
 export function isQuidaxThrottleError(error: unknown): boolean {
     if (error instanceof QuidaxTooManyRequestError) {
         return true;
     }
 
-    const status = getErrorStatus(error);
-    return status === 429 || status === 444;
-}
-
-export function isQuidaxCloudflareBlockError(error: unknown): boolean {
-    if (getErrorStatus(error) !== 403) {
+    if (typeof error !== "object" || error === null) {
         return false;
     }
 
-    const message = getErrorMessage(error).toLowerCase();
+    if ("status" in error && typeof error.status === "number") {
+        return error.status === 429 || error.status === 444;
+    }
 
-    return (
-        message.includes("cloudflare") &&
-        (
-            message.includes("quidax.io") ||
-            message.includes("you are unable to access") ||
-            message.includes("sorry, you have been blocked") ||
-            message.includes("cloudflare ray id")
-        )
-    );
-}
+    if ("getStatus" in error && typeof error.getStatus === "function") {
+        const status = error.getStatus();
+        return status === 429 || status === 444;
+    }
 
-export function isQuidaxCooldownError(error: unknown): boolean {
-    return isQuidaxThrottleError(error) || isQuidaxCloudflareBlockError(error);
+    return false;
 }

@@ -193,11 +193,11 @@ export class AdminTransactionController {
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Queue a Quidax deposit sync for a user" })
+    @ApiOperation({ summary: "Sync deposits from Quidax for a user" })
     @Permissions([PermissionName.TRANSACTIONS_UPDATE])
     @Post("sync-deposits/:userId")
     async syncUserDeposits(@Param("userId", ParseIntPipe) userId: number, @Req() req: any) {
-        const result = await this.tradingService.enqueueUserDepositSync(userId);
+        const result = await this.tradingService.syncUserDeposits(userId);
         await this.auditLogService.log({
             action: "SYNC_USER_DEPOSITS",
             resource: "transaction",

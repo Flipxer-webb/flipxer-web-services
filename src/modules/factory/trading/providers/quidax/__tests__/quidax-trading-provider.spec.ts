@@ -260,7 +260,7 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.getWithdrawerFees.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { fee: [{ fee: "0.02" }], minimum: "0.1", type: "range" },
+            data: { fee: [{ fee: "0.02" }], minimum: "0.1" },
         });
 
         const order = await provider.placeOrder({
@@ -304,7 +304,6 @@ describe("QuidaxTradingProvider", () => {
         expect(withdrawalByRef.data.id).toBe("w3");
         expect(withdrawals.data).toHaveLength(1);
         expect(fees.data.fee).toBe("0.02");
-        expect(fees.data.type).toBe("range");
     });
 
     it("should map deposits, market data, and purchase operations", async () => {
