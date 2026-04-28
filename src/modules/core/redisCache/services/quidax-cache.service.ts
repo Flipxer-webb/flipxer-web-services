@@ -9,12 +9,16 @@ type SharedMarketTickerState = {
     inFlightMarketTickersRequest: Promise<Record<string, any>> | null;
     marketTickersThrottleUntil: number;
     consecutiveThrottleCount: number;
+    lastSuccessfulMarketTickers: Record<string, any> | null;
+    lastSuccessfulMarketTickersAt: number;
 };
 
 const sharedMarketTickerState: SharedMarketTickerState = {
     inFlightMarketTickersRequest: null,
     marketTickersThrottleUntil: 0,
     consecutiveThrottleCount: 0,
+    lastSuccessfulMarketTickers: null,
+    lastSuccessfulMarketTickersAt: 0,
 };
 
 @Injectable()
@@ -30,6 +34,7 @@ export class QuidaxCacheService {
     private readonly FETCH_LOCK_RETRY_INTERVAL_MS = 100;
     private readonly BASE_THROTTLE_COOLDOWN_MS = 30_000;
     private readonly MAX_THROTTLE_COOLDOWN_MS = this.STALE_TTL * 1000;
+    private readonly LAST_SUCCESSFUL_FALLBACK_TTL_MS = 15 * 60_000;
     private readonly logger = new Logger(QuidaxCacheService.name);
 
     constructor(
@@ -61,6 +66,22 @@ export class QuidaxCacheService {
 
     private set consecutiveThrottleCount(value: number) {
         sharedMarketTickerState.consecutiveThrottleCount = value;
+    }
+
+    private get lastSuccessfulMarketTickers(): Record<string, any> | null {
+        return sharedMarketTickerState.lastSuccessfulMarketTickers;
+    }
+
+    private set lastSuccessfulMarketTickers(value: Record<string, any> | null) {
+        sharedMarketTickerState.lastSuccessfulMarketTickers = value;
+    }
+
+    private get lastSuccessfulMarketTickersAt(): number {
+        return sharedMarketTickerState.lastSuccessfulMarketTickersAt;
+    }
+
+    private set lastSuccessfulMarketTickersAt(value: number) {
+        sharedMarketTickerState.lastSuccessfulMarketTickersAt = value;
     }
 
     async getMarketTickers(): Promise<Record<string, any>> {
@@ -145,6 +166,8 @@ export class QuidaxCacheService {
 
             this.marketTickersThrottleUntil = 0;
             this.consecutiveThrottleCount = 0;
+            this.lastSuccessfulMarketTickers = data;
+            this.lastSuccessfulMarketTickersAt = Date.now();
             this.logger.log(`[PERF] Quidax API fetch: ${Date.now() - startTime}ms`);
             return data;
         } catch (err) {
@@ -186,6 +209,18 @@ export class QuidaxCacheService {
         if (staleData) {
             this.logger.warn(logMessage);
             return staleData;
+        }
+
+        const lastSuccessfulMarketTickers = this.lastSuccessfulMarketTickers;
+        const hasRecentSuccessfulFallback =
+            lastSuccessfulMarketTickers !== null &&
+            Date.now() - this.lastSuccessfulMarketTickersAt <= this.LAST_SUCCESSFUL_FALLBACK_TTL_MS;
+
+        if (hasRecentSuccessfulFallback) {
+            this.logger.warn(
+                `${logMessage}; stale cache expired, using last successful in-memory Quidax cache as fallback`,
+            );
+            return lastSuccessfulMarketTickers;
         }
 
         this.logger.warn(`${logMessage}; no stale cache available`);
