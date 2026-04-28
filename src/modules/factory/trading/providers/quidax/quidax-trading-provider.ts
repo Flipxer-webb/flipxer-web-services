@@ -411,7 +411,8 @@ export class QuidaxTradingProvider implements ITradingProvider {
             network: options.network,
             reference: options.reference || '',
             narration: options.narration || '',
-            transaction_note: options.narration || '',
+            fund_uid2: options.destinationTag,
+            transaction_note: options.transactionNote || options.narration || '',
         });
 
         const data: any = result.data;

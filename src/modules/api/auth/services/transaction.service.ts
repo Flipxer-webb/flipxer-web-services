@@ -11,7 +11,7 @@ import { CoinCapService } from "@/modules/factory/trading/providers/coincap/serv
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { EmailService } from "@/modules/core/email/services";
 import { GeneralTransactionException } from "@/modules/api/trade/errors";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
 import { COMPANY_NAME, mailConfig, emailTemplateConfig } from "@/config";
 import { SupportedAssets } from "@/modules/api/trade/interfaces/trade";
 import { TierService, TierInfo } from "./tier.service";
@@ -81,7 +81,7 @@ export class TransactionService {
         });
 
         if (flagged?.flagged) {
-            const transactionId = uuidv4();
+            const transactionId = randomUUID();
             await this.recordFailedTransaction(user, amount, currency, flagged.reason, path, transactionId);
             await this.sendFlaggedEmail(user, flagged.reason, transactionId);
             throw new GeneralTransactionException(
@@ -105,7 +105,7 @@ export class TransactionService {
         // Validate currency
         const allowedCurrencies = Object.values(SupportedAssets);
         if (!currency || typeof currency !== 'string' || !allowedCurrencies.some(ac => ac.toLowerCase() === currency.toLowerCase())) {
-            const transactionId = uuidv4();
+            const transactionId = randomUUID();
             const reason = `Invalid currency: ${currency || 'null'}. Must be one of ${allowedCurrencies.join(', ')}.`;
             await this.recordFailedTransaction(user, amount, currency || 'UNKNOWN', reason, path, transactionId);
             throw new GeneralTransactionException(
@@ -119,7 +119,7 @@ export class TransactionService {
 
         const amountInUSD = await this.getAmountInUSD(normalizedCurrency, amount);
         if (!amountInUSD?.amount) {
-            const transactionId = uuidv4();
+            const transactionId = randomUUID();
             const reason = `Failed to convert ${amount} ${currency} to USD. Please try again later.`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
             throw new GeneralTransactionException(
@@ -150,7 +150,7 @@ export class TransactionService {
 
         // Tier 0 users cannot transact at all
         if (!tierInfo.canTransact) {
-            const transactionId = uuidv4();
+            const transactionId = randomUUID();
             const reason = `Transaction blocked: Complete KYC verification to unlock transactions. Current tier: ${tierInfo.tier}`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
             throw new GeneralTransactionException(
@@ -210,7 +210,7 @@ export class TransactionService {
 
         if (newDailyTotal > dailyLimit) {
             await this.redisCacheService.decrbyfloat(dailyKey, amountUSD);
-            const transactionId = uuidv4();
+            const transactionId = randomUUID();
             const reason = `Daily ${operationLabel.toLowerCase()} limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)} - Transaction ID: ${transactionId}`;
             await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
             await this.sendFlaggedEmail(user, reason, transactionId);
@@ -267,7 +267,7 @@ export class TransactionService {
 
             const newDailyTotal = this.sumOrdersInUsd(orders, null, rateCache) + amountUSD;
             if (newDailyTotal > dailyLimit) {
-                const transactionId = uuidv4();
+                const transactionId = randomUUID();
                 const reason = `Daily ${operationLabel.toLowerCase()} limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)}`;
                 await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
                 await this.sendFlaggedEmail(user, reason, transactionId);

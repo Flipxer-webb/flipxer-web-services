@@ -1,4 +1,5 @@
 import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
+import { SUPPORTED_TRADE_ASSETS } from "@/modules/api/trade/constants";
 import { createHmac } from "node:crypto";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -641,6 +642,43 @@ export class UserService {
     async getUserWallets(userId: number, query: GetUserAssetsDto) {
         const startTime = Date.now();
         const { pageNumber, pageSize, sortBy } = query;
+        const supportedTradeAssetsBySymbol = new Map<string, string>(
+            SUPPORTED_TRADE_ASSETS.map((asset) => [asset.symbol, asset.name])
+        );
+        const includeSupportedAssets = query.includeSupported === "true";
+        const searchText = query.searchText?.toLowerCase();
+
+        const matchesSearch = (symbol: string, name?: string) => {
+            if (!searchText) {
+                return true;
+            }
+
+            return symbol.toLowerCase().includes(searchText)
+                || name?.toLowerCase().includes(searchText);
+        };
+
+        const createSyntheticAsset = (currency: string, assetName?: string) => ({
+            id: `ledger:${userId}:${currency}`,
+            userId,
+            quidaxWalletId: "",
+            assetName: assetName ?? currency,
+            assetCurrency: currency,
+            balance: 0,
+            locked: 0,
+            staked: 0,
+            convertedBalance: 0,
+            referenceCurrency: "ngn",
+            isCrypto: true,
+            defaultNetwork: "",
+            blockchainEnabled: false,
+            depositAddress: "",
+            destinationTag: null,
+            isActive: false,
+            addressSynced: false,
+            networks: [],
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+        });
 
         const resolvedPageNumber =
             !pageNumber || pageNumber <= 1
@@ -675,18 +713,8 @@ export class UserService {
 
         // OPTIMIZATION: Run all queries in parallel instead of sequential
         const dbStartTime = Date.now();
-        const [assetsResult, dynamicRates, liveMarketData, ledgerBalances] = await Promise.all([
-            // Query 1: Fetch user assets + count in a transaction
-            this.prisma.$transaction([
-                this.prisma.assetWallet.findMany({
-                    ...dbQuery,
-                    ...(query.paginated === "true" && {
-                        skip: (resolvedPageNumber - 1) * resolvedPageSize,
-                        take: resolvedPageSize,
-                    }),
-                }),
-                this.prisma.assetWallet.count({ where: dbQuery.where }),
-            ]),
+        const [assets, dynamicRates, liveMarketData, ledgerBalances] = await Promise.all([
+            this.prisma.assetWallet.findMany(dbQuery),
             // Query 2: Fetch dynamic rates from RateService (uses LiveCoinWatch)
             this.rateService.getAllRates(),
             // Query 3: Fetch live Quidax rates (from cache or API)
@@ -697,10 +725,67 @@ export class UserService {
 
         this.logger.log(`[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`);
 
-        const [assets, count] = assetsResult;
+        const assetCurrencies = new Set(
+            assets.map((asset) => asset.assetCurrency.toUpperCase())
+        );
+
+        const syntheticAssets = Array.from(ledgerBalances.entries())
+            .filter(([currency, balanceInfo]) => {
+                const normalizedCurrency = currency.toUpperCase();
+                if (assetCurrencies.has(normalizedCurrency)) {
+                    return false;
+                }
+
+                const available = Number(balanceInfo.available);
+                const held = Number(balanceInfo.held);
+                const hasLedgerBalance = (!Number.isNaN(available) && available > 0)
+                    || (!Number.isNaN(held) && held > 0);
+
+                if (!hasLedgerBalance) {
+                    return false;
+                }
+
+                return matchesSearch(
+                    normalizedCurrency,
+                    supportedTradeAssetsBySymbol.get(normalizedCurrency)
+                );
+            })
+            .map(([currency]) => {
+                const normalizedCurrency = currency.toUpperCase();
+
+                return createSyntheticAsset(
+                    normalizedCurrency,
+                    supportedTradeAssetsBySymbol.get(normalizedCurrency)
+                );
+            });
+
+        const mergedAssetCurrencies = new Set([
+            ...assetCurrencies,
+            ...syntheticAssets.map((asset) => asset.assetCurrency.toUpperCase()),
+        ]);
+
+        const supportedCatalogAssets = includeSupportedAssets
+            ? SUPPORTED_TRADE_ASSETS
+                .filter(({ symbol, name }) => {
+                    if (mergedAssetCurrencies.has(symbol)) {
+                        return false;
+                    }
+
+                    return matchesSearch(symbol, name);
+                })
+                .map(({ symbol, name }) => createSyntheticAsset(symbol, name))
+            : [];
+
+        const mergedAssets = [...assets, ...syntheticAssets, ...supportedCatalogAssets];
+        const paginatedAssets = query.paginated === "true"
+            ? mergedAssets.slice(
+                (resolvedPageNumber - 1) * resolvedPageSize,
+                resolvedPageNumber * resolvedPageSize,
+            )
+            : mergedAssets;
 
         // Fetch LiveCoinWatch market data for percentage change fallback
-        const uniqueAssets = [...new Set(assets.map(a => a.assetCurrency))];
+        const uniqueAssets = [...new Set(paginatedAssets.map(a => a.assetCurrency))];
         const lcwStartTime = Date.now();
         const lcwData = await this.liveCoinWatchService.getBatchMarketData(uniqueAssets);
         this.logger.log(`[PERF] LiveCoinWatch batch fetch for ${uniqueAssets.length} assets: ${Date.now() - lcwStartTime}ms`);
@@ -717,11 +802,11 @@ export class UserService {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
                     resolvedPageSize,
-                    count,
-                    assets.length
+                    mergedAssets.length,
+                    paginatedAssets.length
                 ),
             }),
-            records: assets.map((asset) => {
+            records: paginatedAssets.map((asset) => {
                 const assetCurrency = asset.assetCurrency.toLowerCase();
                 const assetCurrencyUpper = asset.assetCurrency.toUpperCase();
 

@@ -339,17 +339,6 @@ export class TradingController {
         return await this.tradingService.getOrderStatus(user, transactionId);
     }
 
-    @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Refresh transaction status from provider" })
-    @UseGuards(AuthGuard)
-    @ApiBearerAuth("access-token")
-    @Post("refresh-transaction-status")
-    async refreshTransactionStatus(
-        @Body() dto: { transactionId: string },
-        @User() user: UserModel
-    ) {
-        return await this.tradingService.refreshTransactionStatus(user, dto.transactionId);
-    }
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Sync deposits from provider to catch any missed transactions" })

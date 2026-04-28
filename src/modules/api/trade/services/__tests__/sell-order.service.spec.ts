@@ -118,24 +118,13 @@ describe("SellOrderService", () => {
     // ── calculateSellQuote ───────────────────────────────────
 
     describe("calculateSellQuote", () => {
-        it("should throw when user has no crypto account", async () => {
-            const user = { ...mockUser, cryptoSubAccountId: null };
-
-            await expect(
-                service.calculateSellQuote(user, { asset: "btc", amount: 0.1 } as any),
-            ).rejects.toThrow("Please complete your account setup");
-        });
-
         it("should return sell quote with correct calculations", async () => {
             prisma.bankDetail.findFirst.mockResolvedValue({
                 accountName: "Test User",
                 accountNumber: "1234567890",
                 bankName: "GTBank",
             });
-            prisma.assetWallet.findFirst.mockResolvedValue({
-                depositAddress: "addr-1",
-                defaultNetwork: "btc",
-            });
+
 
             const result = await service.calculateSellQuote(
                 mockUser,
@@ -149,44 +138,9 @@ describe("SellOrderService", () => {
             expect(result.currency).toBe("NGN");
         });
 
-        it("should throw when asset wallet not found", async () => {
-            prisma.bankDetail.findFirst.mockResolvedValue({ accountName: "Test" });
-            prisma.assetWallet.findFirst.mockResolvedValue(null);
-
-            await expect(
-                service.calculateSellQuote(mockUser, { asset: "xyz", amount: 1 } as any),
-            ).rejects.toThrow("not found");
-        });
-
-        it("should use the active child address when the parent deposit address is null", async () => {
-            prisma.bankDetail.findFirst.mockResolvedValue({
-                accountName: "Test User",
-                accountNumber: "1234567890",
-                bankName: "GTBank",
-            });
-            prisma.assetWallet.findFirst.mockResolvedValue({
-                depositAddress: null,
-                defaultNetwork: "btc",
-            });
-            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
-                address: "bc1childaddress",
-                network: "btc",
-            });
-
-            await expect(
-                service.calculateSellQuote(mockUser, { asset: "btc", amount: 0.1 } as any),
-            ).resolves.toMatchObject({
-                sellRate: 70000000,
-                cryptoSellAmount: 0.1,
-            });
-        });
-
         it("should throw when no bank detail for non-internal call", async () => {
             prisma.bankDetail.findFirst.mockResolvedValue(null);
-            prisma.assetWallet.findFirst.mockResolvedValue({
-                depositAddress: "addr-1",
-                defaultNetwork: "btc",
-            });
+
 
             await expect(
                 service.calculateSellQuote(

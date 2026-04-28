@@ -5,7 +5,6 @@ import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import {
-    CryptoWalletStatus,
     LedgerType,
     OrderCategory,
     OrderStatus,
@@ -13,17 +12,13 @@ import {
     User,
 } from "@prisma/client";
 import {
-    AssetNotFoundException,
     GeneralTransactionException,
-    IncompleteAccountSetupException,
     InsufficientBalanceException,
-    WalletAddressNotFoundException,
 } from "../errors";
 import { BankDetailNotFoundException } from "../../banks/errors";
 import { SellQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
 import { InitiateSellOrderDto, SellCryptoOrderDto } from "../dtos";
 import { WsGateway } from "../gateway/v1";
-import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.handler";
@@ -47,7 +42,7 @@ export class SellOrderService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly wsGateway: WsGateway,
-        private readonly tradeHelpers: TradeHelpersService,
+
         private readonly walletAddressService: WalletAddressService,
         private readonly walletManagementService: WalletManagementService,
         private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
@@ -59,6 +54,24 @@ export class SellOrderService {
         private readonly distributedLockService: DistributedLockService
     ) { }
 
+    private triggerBestEffortWalletSync(userId: number, currency: string) {
+        const normalizedCurrency = currency?.toUpperCase();
+
+        if (!normalizedCurrency) {
+            return;
+        }
+
+        void this.walletAddressService
+            .syncWallet(userId, normalizedCurrency)
+            .catch((error: unknown) => {
+                const reason =
+                    error instanceof Error ? error.message : String(error);
+
+                this.logger.warn(
+                    `Best-effort wallet sync failed for user ${userId} ${normalizedCurrency}: ${reason}`
+                );
+            });
+    }
 
     /**
      * Gets a quote request for selling crypto
@@ -80,18 +93,10 @@ export class SellOrderService {
         dto: InitiateSellOrderDto,
         internal = false
     ): Promise<SellQuoteResponse> {
-        // 1. Ensure crypto account is set up
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
         const currency = dto.asset.toUpperCase();
 
-        // 2. Fetch bank detail, asset wallet, rate concurrently
-        const [bankDetail, assetWallet, rate] = await Promise.all([
+        // 1. Fetch bank detail and rate concurrently.
+        const [bankDetail, rate] = await Promise.all([
             this.prisma.bankDetail.findFirst({
                 where: { userId: user.id },
                 select: {
@@ -100,66 +105,13 @@ export class SellOrderService {
                     bankName: true,
                 },
             }),
-            this.prisma.assetWallet.findFirst({
-                where: {
-                    userId: user.id,
-                    assetCurrency: currency,
-                },
-            }),
             this.rateService.getAssetRate(currency),
         ]);
 
-        // 3. Validate fetched records
+        // 2. Validate fetched records
         if (!bankDetail && !internal) {
             throw new BankDetailNotFoundException(
                 "No bank detail found. Please setup your bank detail",
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        if (!assetWallet) {
-            throw new AssetNotFoundException(
-                `Asset ${dto.asset} not found for the user`,
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        const normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-            assetWallet.defaultNetwork
-        );
-
-        const fallbackWalletAddress =
-            !assetWallet.depositAddress || !normalizedDefaultNetwork
-                ? await this.prisma.cryptoWalletAddress.findFirst({
-                    where: {
-                        userId: user.id,
-                        assetSymbol: currency,
-                        status: CryptoWalletStatus.ACTIVE,
-                        address: { not: null },
-                        ...(normalizedDefaultNetwork && {
-                            network: normalizedDefaultNetwork,
-                        }),
-                    },
-                    select: {
-                        address: true,
-                        network: true,
-                    },
-                    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-                })
-                : null;
-
-        const depositAddress =
-            assetWallet.depositAddress ?? fallbackWalletAddress?.address ?? null;
-        const defaultNetwork =
-            normalizedDefaultNetwork ?? fallbackWalletAddress?.network ?? null;
-
-        if ((!depositAddress || !defaultNetwork) && !internal) {
-            // Internal sells might not need deposit address if just balance deduction? 
-            // But we usually need verify user has wallet. 
-            // Let's keep strict check for wallet existence, but maybe address specific logic if needed.
-            // For now, assume internal users have wallets.
-            throw new WalletAddressNotFoundException(
-                `No wallet address found for asset ${dto.asset}`,
                 HttpStatus.NOT_FOUND
             );
         }
@@ -365,8 +317,8 @@ export class SellOrderService {
                 },
             });
 
-            // Sync wallet with Quidax to ensure balance is up to date
-            await this.walletAddressService.syncWallet(user.id, dto.asset);
+            // Provider wallet metadata is optional for sell flows.
+            this.triggerBestEffortWalletSync(user.id, dto.asset);
 
             // Invalidate admin wallet cache since company wallet received funds
             await this.walletManagementService.invalidateWalletCache();
@@ -431,8 +383,8 @@ export class SellOrderService {
                     if (refundResult.success) {
                         this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
 
-                        // Sync wallet to reflect refund in cache
-                        this.walletAddressService.syncWallet(user.id, dto.asset.toUpperCase());
+                        // Sync provider metadata opportunistically after the refund.
+                        this.triggerBestEffortWalletSync(user.id, dto.asset);
                     } else {
                         // This is a catastrophic failure - payout failed AND refund failed
                         throw new Error(`Refund ledger entry failed: ${refundResult.error}`);

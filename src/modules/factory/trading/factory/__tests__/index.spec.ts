@@ -19,6 +19,18 @@ jest.mock("../../providers/quidax/quidax-trading-provider", () => ({
     __esModule: true,
 }));
 
+const safeProviderCtor = jest.fn().mockImplementation((inner, env) => ({ inner, env, type: "safe-provider" }));
+jest.mock("../../providers/safe/safe-trading-provider", () => ({
+    SafeQuidaxTradingProvider: safeProviderCtor,
+    __esModule: true,
+}));
+
+const mockProviderCtor = jest.fn().mockImplementation(() => ({ type: "mock-provider" }));
+jest.mock("../../providers/mock/mock-trading-provider", () => ({
+    MockQuidaxTradingProvider: mockProviderCtor,
+    __esModule: true,
+}));
+
 import { TradingFactory } from "../index";
 
 describe("TradingFactory", () => {
@@ -73,7 +85,11 @@ describe("TradingFactory", () => {
                 type: "service",
             })
         );
-        expect(provider.type).toBe("provider");
+        expect(safeProviderCtor).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "provider" }),
+            expect.any(String),
+        );
+        expect(provider.type).toBe("safe-provider");
     });
 
     it("buildProvider throws for unknown provider", () => {
