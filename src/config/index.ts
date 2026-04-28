@@ -295,6 +295,7 @@ export interface EMailTemplateConfig {
     document_escalated: string;
     admin_invite: string;
     transaction_otp: string;
+    login_notification: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
@@ -310,6 +311,7 @@ export const emailTemplateConfig: EMailTemplateConfig = {
     document_escalated: process.env.DOCUMENT_ESCALATED_TEMPLATE || "",
     admin_invite: process.env.ADMIN_INVITE_TEMPLATE || "",
     transaction_otp: process.env.TRANSACTION_OTP_TEMPLATE || "",
+    login_notification: process.env.LOGIN_NOTIFICATION_TEMPLATE || "",
 };
 
 // Email config

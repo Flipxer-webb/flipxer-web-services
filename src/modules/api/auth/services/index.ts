@@ -119,6 +119,7 @@ import { DistributedLockService } from "@/modules/core/redisCache/services/distr
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
+import { NotificationEvent } from "../../notification/events/notification.event";
 
 /**
  * Build a spread-safe object for a file field in update operations.
@@ -444,6 +445,7 @@ export class AuthService {
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly wsGateway: WsGateway,
         private readonly identityResolution: IdentityResolutionService,
+        private readonly notificationEvent: NotificationEvent,
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -3381,6 +3383,39 @@ export class AuthService {
             },
         });
 
+         await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                ipAddress: ip,
+                loginCount: 0,
+                lastLogin: new Date(),
+            },
+        });
+
+        const userRec = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { email: true, firstName: true },
+        });
+
+        if (userRec?.email) {
+             const deviceParts = [];
+            if (options.deviceName) deviceParts.push(options.deviceName);
+            if (options.deviceType) deviceParts.push(options.deviceType);
+            if (options.browser) deviceParts.push(options.browser);
+            if (options.os) deviceParts.push(options.os);
+            
+            const deviceInfo = deviceParts.length > 0 ? deviceParts.join(' - ') : 'Unknown device';
+            
+            this.notificationEvent.emit("login_notification", {
+                email: userRec.email,
+                userId: user.id,
+                name: userRec.firstName || userRec.email?.split('@')[0] || 'User',
+                ipAddress: ip,
+                userAgent: deviceInfo,
+                loginTime: new Date().toISOString(),
+            });
+        }
+
         if (loginPlatform === LoginPlatform.ADMIN) {
             const permissions = this.buildAdminPermissions(user);
 
@@ -3639,15 +3674,7 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                ipAddress: ip,
-                loginCount: 0,
-                lastLogin: new Date(),
-            },
-        });
-
+       
         // Admin platform: return enriched response with permissions
         if (payload.platform === LoginPlatform.ADMIN) {
             const permissions = this.buildAdminPermissions(user);

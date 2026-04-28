@@ -194,12 +194,111 @@
             font-size: 11px;
             margin: 0;
         }
+
+        .status-alert {
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+
+        .status-alert-failed {
+            background-color: #e40e0e18;
+            border: 2px solid #e40e0e40;
+        }
+
+        .status-alert-pending {
+            background-color: #95600918;
+            border: 2px solid #95600940;
+        }
+
+        .status-alert-processing {
+            background-color: #95600918;
+            border: 2px solid #95600940;
+        }
+
+        .status-alert-title {
+            font-weight: 600;
+            font-size: 14px;
+            margin: 0 0 8px 0;
+        }
+
+        .status-alert-failed .status-alert-title {
+            color: #e40e0e;
+        }
+
+        .status-alert-pending .status-alert-title,
+        .status-alert-processing .status-alert-title {
+            color: #956009;
+        }
+
+        .status-alert-message {
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 0;
+            color: #5a5b5b;
+        }
+
+        .status-badge-inline {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 8px;
+        }
+
+        .status-badge-completed {
+            background-color: #099528;
+            color: #ffffff;
+        }
+
+        .status-badge-failed {
+            background-color: #e40e0e;
+            color: #ffffff;
+        }
+
+        .status-badge-pending,
+        .status-badge-processing {
+            background-color: #956009;
+            color: #ffffff;
+        }
+
+        .status-badge-cancelled,
+        .status-badge-reversed {
+            background-color: #666666;
+            color: #ffffff;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .status-alert-failed {
+                background-color: #5f1515 !important;
+                border-color: #e40e0e60 !important;
+            }
+
+            .status-alert-failed .status-alert-title {
+                color: #ff6b6b !important;
+            }
+
+            .status-alert-pending,
+            .status-alert-processing {
+                background-color: #5f4415 !important;
+                border-color: #95600960 !important;
+            }
+
+            .status-alert-pending .status-alert-title,
+            .status-alert-processing .status-alert-title {
+                color: #ffa94d !important;
+            }
+        }
     </style>
 </head>
 
 <body>
     <div class="wrapper" style="width: 100%; background-color: #f4f4f5; padding: 40px 16px;">
-        <div class="container" style="max-width: 595px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);">
+        <div class="container"
+            style="max-width: 595px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);">
 
             <!-- Header -->
             <div class="header" style="text-align: center; padding: 32px 24px 24px; border-bottom: 3px solid #305DC9;">
@@ -208,13 +307,88 @@
             </div>
 
             <div class="content" style="padding: 28px;">
+                <!-- Status Alert for Failed/Pending/Processing -->
+                {{#if_status_failed}}
+                <div class="status-alert status-alert-failed"
+                    style="padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: left; background-color: #e40e0e18; border: 2px solid #e40e0e40;">
+                    <p class="status-alert-title"
+                        style="font-weight: 600; font-size: 14px; margin: 0 0 8px 0; color: #e40e0e;">❌ Transaction
+                        Failed</p>
+                    <p class="status-alert-message"
+                        style="font-size: 13px; line-height: 1.5; margin: 0; color: #5a5b5b;">Your {{transaction_type}}
+                        transaction could not be completed. Please review the details and try again, or contact support
+                        if the problem persists.</p>
+                </div>
+                {{/if_status_failed}}
+
+                {{#if_status_pending}}
+                <div class="status-alert status-alert-pending"
+                    style="padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: left; background-color: #95600918; border: 2px solid #95600940;">
+                    <p class="status-alert-title"
+                        style="font-weight: 600; font-size: 14px; margin: 0 0 8px 0; color: #956009;">⏳ Transaction
+                        Pending</p>
+                    <p class="status-alert-message"
+                        style="font-size: 13px; line-height: 1.5; margin: 0; color: #5a5b5b;">Your {{transaction_type}}
+                        transaction is being processed. We'll notify you once it completes.</p>
+                </div>
+                {{/if_status_pending}}
+
+                {{#if_status_processing}}
+                <div class="status-alert status-alert-processing"
+                    style="padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: left; background-color: #95600918; border: 2px solid #95600940;">
+                    <p class="status-alert-title"
+                        style="font-weight: 600; font-size: 14px; margin: 0 0 8px 0; color: #956009;">⏳ Transaction
+                        Processing</p>
+                    <p class="status-alert-message"
+                        style="font-size: 13px; line-height: 1.5; margin: 0; color: #5a5b5b;">Your {{transaction_type}}
+                        transaction is being processed. We'll notify you once it completes.</p>
+                </div>
+                {{/if_status_processing}}
+
+                {{#if_status_cancelled}}
+                <div class="status-alert"
+                    style="padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: left; background-color: #e40e0e18; border: 2px solid #e40e0e40;">
+                    <p class="status-alert-title"
+                        style="font-weight: 600; font-size: 14px; margin: 0 0 8px 0; color: #e40e0e;">🛑 Transaction
+                        Cancelled</p>
+                    <p class="status-alert-message"
+                        style="font-size: 13px; line-height: 1.5; margin: 0; color: #5a5b5b;">Your {{transaction_type}}
+                        transaction has been cancelled. No funds were transferred.</p>
+                </div>
+                {{/if_status_cancelled}}
+
+                {{#if_status_reversed}}
+                <div class="status-alert"
+                    style="padding: 16px; border-radius: 12px; margin-bottom: 24px; text-align: left; background-color: #e40e0e18; border: 2px solid #e40e0e40;">
+                    <p class="status-alert-title"
+                        style="font-weight: 600; font-size: 14px; margin: 0 0 8px 0; color: #e40e0e;">↩️ Transaction
+                        Reversed</p>
+                    <p class="status-alert-message"
+                        style="font-size: 13px; line-height: 1.5; margin: 0; color: #5a5b5b;">Your {{transaction_type}}
+                        transaction has been reversed. Funds have been returned to your account.</p>
+                </div>
+                {{/if_status_reversed}}
+
                 <!-- Amount Box -->
-                <div class="amount-box" style="background-color: #f4f4f5; border: 2px solid #e1e4ea; border-radius: 12px; padding: 28px; text-align: center; margin-bottom: 24px;">
-                    <div class="amount-label" style="color: #aaabac; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">{{header}}</div>
-                    <p class="message" style="font-size: 16px; color: #020202; margin-bottom: 16px; line-height: 1.5;">{{notice}}</p>
-                    <p class="sub-message" style="font-size: 14px; color: #5a5b5b; margin-bottom: 24px; line-height: 1.5;">For the full transaction breakdown and downloadable receipt, please sign in to your Flipxer account.</p>
+                <div class="amount-box"
+                    style="background-color: #f4f4f5; border: 2px solid #e1e4ea; border-radius: 12px; padding: 28px; text-align: center; margin-bottom: 24px;">
+                    <div class="amount-label"
+                        style="color: #aaabac; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">
+                        {{header}}</div>
+                    <div class="amount-value"
+                        style="font-size: 36px; font-weight: 700; color: #020202; margin-bottom: 8px;">{{amount}}
+                        {{currency}}</div>
+                        <div class="transaction-type-label" style="color: #aaabac; font-size: 12px; margin-top: 8px;">
+                            Transaction Type: {{transaction_type}}
+                        </div>
+                    <p class="message" style="font-size: 16px; color: #020202; margin-bottom: 16px; line-height: 1.5;">
+                        {{notice}}</p>
+                    <span class="status-badge-inline status-badge-{{status}}" style="margin-top: 8px;">{{status}}</span>
+                    <p class="sub-message"
+                        style="font-size: 14px; color: #5a5b5b; margin-bottom: 24px; line-height: 1.5;">For the full
+                        transaction breakdown and downloadable receipt, please sign in to your Flipxer account.</p>
                     <div style="text-align: center;">
-                        <a href="https://app.flipxer.com/login" class="cta-button" style="background-color: #305DC9; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">Sign in</a>
+                        <a href="https://app.flipxer.com/login" class="cta-button">Sign in</a> 
                     </div>
                 </div>
             </div>
@@ -223,8 +397,10 @@
             <div class="footer" style="border-top: 3px solid #305DC9; padding: 24px; text-align: center;">
                 <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer"
                     class="footer-logo" style="width: 90px; height: auto; margin-bottom: 12px;" width="90">
-                <p class="footer-text" style="color: #5a5b5b; font-size: 12px; margin: 0 0 6px;">hello@flipxer.com &bull; flipxer.com</p>
-                <p class="footer-copyright" style="color: #aaabac; font-size: 11px; margin: 0;">&copy; 2026 Flipxer. All rights reserved.</p>
+                <p class="footer-text" style="color: #5a5b5b; font-size: 12px; margin: 0 0 6px;">hello@flipxer.com
+                    &bull; flipxer.com</p>
+                <p class="footer-copyright" style="color: #aaabac; font-size: 11px; margin: 0;">&copy; 2026 Flipxer. All
+                    rights reserved.</p>
             </div>
         </div>
     </div>
