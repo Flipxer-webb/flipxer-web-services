@@ -526,6 +526,22 @@ describe("NotificationEvent", () => {
             );
         });
 
+        it("normalizes mixed-case transaction type internally", async () => {
+            await event.sendTransactionNotification({
+                ...basePayload,
+                transactionType: " BUY " as any,
+            });
+
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    merge_info: expect.objectContaining({
+                        header: "Purchase Completed",
+                        transaction_type: "buy",
+                    }),
+                })
+            );
+        });
+
         it("trims whitespace from status", async () => {
             await event.sendTransactionNotification({
                 ...basePayload,
@@ -1056,7 +1072,21 @@ describe("NotificationEvent", () => {
 
             await event.sendLoginNotification(baseLoginPayload);
 
-            expect(loggerSpy).toHaveBeenCalled();
+            expect(loggerSpy).toHaveBeenCalledWith(
+                expect.stringContaining("String error")
+            );
+
+            loggerSpy.mockRestore();
+        });
+
+        it("handles null exceptions without throwing inside catch", async () => {
+            emailService.sendMailWithTemplate.mockRejectedValue(null);
+            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+
+            await expect(event.sendLoginNotification(baseLoginPayload)).resolves.toBeUndefined();
+            expect(loggerSpy).toHaveBeenCalledWith(
+                expect.stringContaining("null")
+            );
 
             loggerSpy.mockRestore();
         });

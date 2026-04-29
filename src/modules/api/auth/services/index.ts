@@ -3244,6 +3244,112 @@ export class AuthService {
         return (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
     }
 
+    private buildLoginDeviceInfo(
+        deviceInfo: Pick<SignInOptions, "deviceName" | "deviceType" | "browser" | "os">
+    ): string {
+        const deviceParts = [
+            deviceInfo.deviceName,
+            deviceInfo.deviceType,
+            deviceInfo.browser,
+            deviceInfo.os,
+        ].filter((value): value is string => Boolean(value?.trim()));
+
+        return deviceParts.length > 0 ? deviceParts.join(" - ") : "Unknown device";
+    }
+
+    private async recordSuccessfulLogin(
+        user: {
+            id: number;
+            email?: string | null;
+            firstName?: string | null;
+            loginCount?: number | null;
+        },
+        ip: string,
+        deviceInfo: Pick<SignInOptions, "deviceName" | "deviceType" | "browser" | "os">
+    ): Promise<void> {
+        const loginTime = new Date();
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                ipAddress: ip,
+                loginCount: (user.loginCount ?? 0) + 1,
+                lastLogin: loginTime,
+            },
+        });
+
+        if (!user.email) {
+            return;
+        }
+
+        this.notificationEvent.emit("login_notification", {
+            email: user.email,
+            userId: user.id,
+            name: user.firstName || user.email.split("@")[0] || "User",
+            ipAddress: ip,
+            userAgent: this.buildLoginDeviceInfo(deviceInfo),
+            loginTime: loginTime.toISOString(),
+        });
+    }
+
+    private buildSuccessfulSignInResponse(
+        user: {
+            userType: string;
+            role?: { name: string; slug?: string; rolePermission?: Array<{ permission: { name: string } }> } | null;
+            isEmailVerified: boolean;
+            isPhoneVerified: boolean;
+            isPasswordCreated: boolean;
+            isBvnVerified: boolean;
+            isDocumentVerified: boolean;
+            businessRecordCompleted?: boolean;
+            businessDocumentVerificationStatus?: string | null;
+        },
+        loginPlatform: LoginPlatform,
+        tokens: { accessToken: string; refreshToken: string },
+        sessionId?: string,
+    ): ApiResponse {
+        if (loginPlatform === LoginPlatform.ADMIN) {
+            const permissions = this.buildAdminPermissions(user);
+
+            return buildResponse({
+                message: "Login successful",
+                data: {
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                    userType: user.userType,
+                    role: user.role ? { name: user.role.name, slug: user.role.slug ?? null } : null,
+                    permissions,
+                },
+            });
+        }
+
+        const verificationStatus: VerificationStatus = {
+            isEmailVerified: user.isEmailVerified,
+            isPhoneVerified: user.isPhoneVerified,
+            isPasswordCreated: user.isPasswordCreated,
+            isBvnVerified: user.isBvnVerified,
+            isDocumentVerified: user.isDocumentVerified,
+        };
+
+        if (user.userType.toLowerCase() === "business") {
+            verificationStatus.businessRecordCompleted =
+                user.businessRecordCompleted;
+            verificationStatus.businessDocumentVerificationStatus =
+                user.businessDocumentVerificationStatus || null;
+        }
+
+        return buildResponse({
+            message: "Login successful",
+            data: {
+                accessToken: tokens.accessToken,
+                refreshToken: tokens.refreshToken,
+                sessionId,
+                userType: user.userType.toLowerCase(),
+                verificationStatus,
+            },
+        });
+    }
+
     private async signIn(
         options: SignInOptions,
         loginPlatform: LoginPlatform,
@@ -3261,6 +3367,7 @@ export class AuthService {
             flaggedRecord: true,
             flaggedId: true,
             email: true,
+            firstName: true,
             isEmailVerified: true,
             isPhoneVerified: true,
             isPasswordCreated: true,
@@ -3374,90 +3481,14 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                ipAddress: ip,
-                loginCount: 0,
-                lastLogin: new Date(),
-            },
-        });
+        await this.recordSuccessfulLogin(user, ip, options);
 
-         await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                ipAddress: ip,
-                loginCount: 0,
-                lastLogin: new Date(),
-            },
-        });
-
-        const userRec = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            select: { email: true, firstName: true },
-        });
-
-        if (userRec?.email) {
-             const deviceParts = [];
-            if (options.deviceName) deviceParts.push(options.deviceName);
-            if (options.deviceType) deviceParts.push(options.deviceType);
-            if (options.browser) deviceParts.push(options.browser);
-            if (options.os) deviceParts.push(options.os);
-            
-            const deviceInfo = deviceParts.length > 0 ? deviceParts.join(' - ') : 'Unknown device';
-            
-            this.notificationEvent.emit("login_notification", {
-                email: userRec.email,
-                userId: user.id,
-                name: userRec.firstName || userRec.email?.split('@')[0] || 'User',
-                ipAddress: ip,
-                userAgent: deviceInfo,
-                loginTime: new Date().toISOString(),
-            });
-        }
-
-        if (loginPlatform === LoginPlatform.ADMIN) {
-            const permissions = this.buildAdminPermissions(user);
-
-            return buildResponse({
-                message: "Login successful",
-                data: {
-                    accessToken: tokens.accessToken,
-                    refreshToken: tokens.refreshToken,
-                    userType: user.userType,
-                    role: user.role ? { name: user.role.name, slug: (user.role as any).slug } : null,
-                    permissions,
-                },
-            });
-        }
-
-        const verificationStatus: VerificationStatus = {
-            isEmailVerified: user.isEmailVerified,
-            isPhoneVerified: user.isPhoneVerified,
-            isPasswordCreated: user.isPasswordCreated,
-            isBvnVerified: user.isBvnVerified,
-            isDocumentVerified: user.isDocumentVerified,
-        };
-
-        if (user.userType.toLowerCase() === "business") {
-            verificationStatus.businessRecordCompleted =
-                user.businessRecordCompleted;
-            verificationStatus.businessDocumentVerificationStatus =
-                user.businessDocumentVerificationStatus || null;
-        }
-
-        const responseData = {
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
+        return this.buildSuccessfulSignInResponse(
+            user,
+            loginPlatform,
+            tokens,
             sessionId,
-            userType: user.userType.toLowerCase(),
-            verificationStatus,
-        };
-
-        return buildResponse({
-            message: "Login successful",
-            data: responseData,
-        });
+        );
     }
 
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {

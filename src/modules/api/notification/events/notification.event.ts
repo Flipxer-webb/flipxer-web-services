@@ -30,6 +30,23 @@ export class NotificationEvent extends EventEmitter {
         return super.on(eventName, listener);
     }
 
+    private formatError(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+
+        if (typeof error === "string") {
+            return error;
+        }
+
+        try {
+            const serialized = JSON.stringify(error);
+            return serialized ?? String(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     async sendTransactionNotification(options: t.SendTransactionNotification) {
         try {
             // Validation: Status and Transaction Type
@@ -78,6 +95,8 @@ export class NotificationEvent extends EventEmitter {
                 return;
             }
 
+            const transactionType = normalizedType as t.TransactionType;
+
             // Base labels per transaction type
             const transactionTypeBase: Record<t.TransactionType, string> = {
                 deposit: "Deposit",
@@ -97,12 +116,9 @@ export class NotificationEvent extends EventEmitter {
                 processing: "Processing",
             };
 
-            const base =
-                transactionTypeBase[options.transactionType] || "Transaction";
+            const base = transactionTypeBase[transactionType] || "Transaction";
             const suffix = statusSuffix[normalizedStatus] || "Notification";
-            const transactionTypeLabels = {
-                [options.transactionType]: `${base} ${suffix}`,
-            } as Record<t.TransactionType, string>;
+            const header = `${base} ${suffix}`;
 
             const payload = {
                 from: { address: cf.mailConfig.senderMail },
@@ -111,12 +127,10 @@ export class NotificationEvent extends EventEmitter {
                 merge_info: {
                     // Basic info
                     team: cf.COMPANY_NAME,
-                    header:
-                        transactionTypeLabels[options.transactionType] ||
-                        "Transaction Notification",
+                    header,
                     notice: options.notice,
                     // Structured transaction details
-                    transaction_type: options.transactionType,
+                    transaction_type: transactionType,
                     transaction_id: options.transactionId,
                     amount: options.amount,
                     currency: options.currency,
@@ -146,7 +160,7 @@ export class NotificationEvent extends EventEmitter {
 
             // Log transaction email sending attempt
             this.logger.log(
-                `[TransactionEmail] Sending: txId=${options.transactionId} type=${options.transactionType} status=${normalizedStatus} ` +
+                `[TransactionEmail] Sending: txId=${options.transactionId} type=${transactionType} status=${normalizedStatus} ` +
                     `amount=${options.amount} ${options.currency} recipient=${options.email}`,
             );
 
@@ -154,14 +168,14 @@ export class NotificationEvent extends EventEmitter {
 
             // Log successful send
             this.logger.log(
-                `[TransactionEmail] Sent successfully: txId=${options.transactionId} type=${options.transactionType} status=${normalizedStatus} recipient=${options.email}`
+                `[TransactionEmail] Sent successfully: txId=${options.transactionId} type=${transactionType} status=${normalizedStatus} recipient=${options.email}`
             );
         } catch (error) {
             this.logger.error(
                 `[TransactionEmail] Failed to send for txId=${
                     options.transactionId
                 } recipient=${options.email}: ${
-                    error instanceof Error ? error.message : error
+                    this.formatError(error)
                 }`
             );
         }
@@ -203,7 +217,7 @@ export class NotificationEvent extends EventEmitter {
             );
         } catch (error) {
             this.logger.error(
-                `[LoginNotification] Failed to send to ${options.email}: ${error.message}`,
+                `[LoginNotification] Failed to send to ${options.email}: ${this.formatError(error)}`,
             );
         }
     }
