@@ -31,7 +31,18 @@ export interface SendTransactionNotification {
     exchangeRate?: string;
 }
 
+export interface SendLoginNotification {
+    email: string;
+    userId: number;
+    name: string;
+    ipAddress: string;
+    userAgent?: string;
+    loginTime: string;
+    location?: string;
+}
+
 export interface NotificationEventMap {
     transaction_notification: SendTransactionNotification;
+    login_notification: SendLoginNotification;
 }
 

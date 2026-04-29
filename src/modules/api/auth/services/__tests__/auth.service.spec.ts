@@ -70,6 +70,7 @@ import { DistributedLockService } from "@/modules/core/redisCache/services/distr
 import { KycStateMachineService } from "../kyc-state-machine.service";
 import { IdentityResolutionService } from "../identity-resolution.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
+import { NotificationEvent } from "@/modules/api/notification/events/notification.event";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { DocumentType, Prisma, Status, UserType } from "@prisma/client";
 import { authenticator } from "otplib";
@@ -125,6 +126,7 @@ describe("AuthService", () => {
     let emailService: { sendMailWithTemplate: jest.Mock };
     let redisCacheService: { set: jest.Mock; get: jest.Mock; del: jest.Mock };
     let notificationDispatcher: { notify: jest.Mock };
+    let notificationEvent: { emit: jest.Mock };
     let kycStateMachine: { transition: jest.Mock };
     let dojahService: {
         verifyDocumentWithNameMatch: jest.Mock;
@@ -189,6 +191,7 @@ describe("AuthService", () => {
         };
         const mockKyc = { transition: jest.fn().mockResolvedValue(undefined) };
         const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
+        const mockNotificationEvent = { emit: jest.fn() };
         const mockWsGateway = { sendToUser: jest.fn(), notifyProfileUpdate: jest.fn() };
         const mockIdentityResolution = { resolveOrCreate: jest.fn().mockResolvedValue({ subjectId: 1, isNew: true }) };
 
@@ -210,6 +213,7 @@ describe("AuthService", () => {
                 { provide: DistributedLockService, useValue: mockLock },
                 { provide: KycStateMachineService, useValue: mockKyc },
                 { provide: NotificationDispatcher, useValue: mockNotification },
+                { provide: NotificationEvent, useValue: mockNotificationEvent },
                 { provide: WsGateway, useValue: mockWsGateway },
                 { provide: IdentityResolutionService, useValue: mockIdentityResolution },
             ],
@@ -220,6 +224,7 @@ describe("AuthService", () => {
         emailService = module.get(EmailService);
         redisCacheService = module.get(RedisCacheService);
         notificationDispatcher = module.get(NotificationDispatcher);
+        notificationEvent = module.get(NotificationEvent);
         kycStateMachine = module.get(KycStateMachineService);
         dojahService = module.get(IdentityComplianceInjectionToken.DOJAH);
     });
@@ -1363,10 +1368,12 @@ describe("AuthService", () => {
                 id: 1,
                 identifier: "user-id",
                 email: "user@example.com",
+                firstName: "Jane",
                 [CREDENTIAL_FIELD]: HASHED_SECRET_VALUE,
                 userType: UserType.INDIVIDUAL,
                 status: Status.ACTIVE,
                 role: { name: "individual", rolePermission: [] },
+                loginCount: 4,
                 flaggedRecord: null,
                 isTwoFactorEnabled: false,
                 twoFactorSecret: null,
@@ -1391,6 +1398,24 @@ describe("AuthService", () => {
 
             expect(result.data.accessToken).toBe("access-token");
             expect(result.data.refreshToken).toBe("refresh-token");
+            expect(prisma.user.update).toHaveBeenCalledTimes(2);
+            expect(prisma.user.update).toHaveBeenNthCalledWith(2, {
+                where: { id: 1 },
+                data: expect.objectContaining({
+                    ipAddress: "127.0.0.1",
+                    loginCount: 5,
+                    lastLogin: expect.any(Date),
+                }),
+            });
+            expect(notificationEvent.emit).toHaveBeenCalledWith(
+                "login_notification",
+                expect.objectContaining({
+                    email: "user@example.com",
+                    name: "Jane",
+                    ipAddress: "127.0.0.1",
+                    userAgent: "Chrome - desktop - Chrome - Windows",
+                }),
+            );
         });
 
         it("should throw for invalid password", async () => {
@@ -1706,6 +1731,9 @@ describe("AuthService", () => {
 
         const base2FAUser = {
             id: 1,
+            email: "twofactor@example.com",
+            firstName: "Ada",
+            loginCount: 4,
             twoFactorSecret: "encrypted-secret",
             isTwoFactorEnabled: true,
             userType: "INDIVIDUAL",
@@ -1716,6 +1744,7 @@ describe("AuthService", () => {
             isDocumentVerified: false,
             businessRecordCompleted: false,
             businessDocumentVerificationStatus: null,
+            role: null,
         };
 
         it("rejects invalid or expired temporary 2FA token", async () => {
@@ -1822,6 +1851,24 @@ describe("AuthService", () => {
             expect((service as any).twoFactorRateLimitService.recordSuccessfulAttempt).toHaveBeenCalledWith("1", "login");
             expect(saveSpy).toHaveBeenCalledWith(1, "2fa-refresh");
             expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER" });
+            expect(prisma.user.update).toHaveBeenCalledWith({
+                where: { id: 1 },
+                data: {
+                    ipAddress: "127.0.0.1",
+                    loginCount: 5,
+                    lastLogin: expect.any(Date),
+                },
+            });
+            expect(notificationEvent.emit).toHaveBeenCalledWith(
+                "login_notification",
+                expect.objectContaining({
+                    email: "twofactor@example.com",
+                    userId: 1,
+                    name: "Ada",
+                    ipAddress: "127.0.0.1",
+                    userAgent: "Chrome - desktop - Chrome - Windows",
+                }),
+            );
 
             generateSpy.mockRestore();
             saveSpy.mockRestore();
