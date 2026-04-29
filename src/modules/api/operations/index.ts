@@ -6,9 +6,10 @@ import { AdminWalletController } from "./controllers/v1/admin/wallet.controller"
 import { AdminSlackWebhookController } from "./controllers/v1/admin/slack-webhook.controller";
 import { AdminLiquidityAlertController } from "./controllers/v1/admin/liquidity-alert.controller";
 import { SessionModule } from "../session";
+import { TradingFactoryModule } from "@/modules/factory/trading";
 
 @Module({
-    imports: [SessionModule],
+    imports: [SessionModule, TradingFactoryModule],
     controllers: [
         AdminWalletController,
         AdminSlackWebhookController,

@@ -1,5 +1,5 @@
 import * as e from "./errors";
-import Axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from "axios";
+import Axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 export * from "./errors";
 export * from "./types";
 import * as t from "./types";
@@ -9,12 +9,32 @@ export class QuidaxLib {
     constructor(protected instanceOptions: t.QuidaxOptions) { }
 
     // Quidax main API
-    private readonly mainAxios: AxiosInstance = Axios.create({
+    private readonly rawMainAxios: AxiosInstance = Axios.create({
         baseURL: this.instanceOptions.baseURL,
         headers: {
             Authorization: `Bearer ${this.instanceOptions.api_secret}`,
         },
     });
+
+    private readonly mainAxios: AxiosInstance = (async <T = any>(
+        requestOptions: AxiosRequestConfig,
+    ): Promise<any> => {
+        const bucket = this.getMainRequestBudgetBucket(requestOptions);
+
+        if (bucket) {
+            await this.instanceOptions.requestBudget?.assertAllowed(bucket);
+        }
+
+        try {
+            return await this.rawMainAxios<T>(requestOptions);
+        } catch (error) {
+            if (bucket && this.isThrottleLikeAxiosError(error)) {
+                await this.instanceOptions.requestBudget?.noteThrottle(bucket);
+            }
+
+            throw error;
+        }
+    }) as AxiosInstance;
 
     // Quidax Ramp API
     private readonly rampAxios: AxiosInstance = Axios.create({
@@ -25,23 +45,44 @@ export class QuidaxLib {
         },
     });
 
-    private handleQuidaxError(error: AxiosError<any>) {
+    private handleQuidaxError(error: unknown) {
+        if (error instanceof e.QuidaxError) {
+            if (error.constructor === e.QuidaxError) {
+                const err = new e.QuidaxGenericError(error.message);
+
+                err.status = error.status;
+                throw err;
+            }
+
+            throw error;
+        }
+
+        if (!Axios.isAxiosError(error)) {
+            const err = new e.QuidaxGenericError(
+                error instanceof Error ? error.message : "Unknown Quidax error",
+            );
+
+            throw err;
+        }
+
+        const axiosError = error;
+
         // Enhanced logging for debugging Quidax API issues
         const logger = new Logger("QuidaxLib");
-        const status = error.response?.status;
-        const data = error.response?.data;
+        const status = axiosError.response?.status;
+        const data = axiosError.response?.data;
         // Quidax sometimes returns a plain string body (e.g. throttling at 444).
         // Fall back through string body, statusText, and axios message so we
         // never log/throw with an empty <none> message.
         const responseMessage =
             (typeof data === "string" && data) ||
             data?.message ||
-            error.response?.statusText ||
-            error.message;
+            axiosError.response?.statusText ||
+            axiosError.message;
 
-        logger.error(`Quidax API Error - Status: ${status}, URL: ${error.config?.url}`);
+        logger.error(`Quidax API Error - Status: ${status}, URL: ${axiosError.config?.url}`);
         logger.error(`Quidax API Error - Response: ${JSON.stringify(data)}`);
-        logger.error(`Quidax API Error - Message: ${error.message}`);
+        logger.error(`Quidax API Error - Message: ${axiosError.message}`);
 
         switch (true) {
             case status == 401: {
@@ -65,13 +106,47 @@ export class QuidaxLib {
             }
 
             default: {
-                logger.error(`Unknown Quidax error: ${error.message}`);
+                logger.error(`Unknown Quidax error: ${axiosError.message}`);
                 const err = new e.QuidaxGenericError(responseMessage);
 
                 err.status = status;
                 throw err;
             }
         }
+    }
+
+    private getMainRequestBudgetBucket(
+        requestOptions: AxiosRequestConfig,
+    ): t.QuidaxRequestBudgetBucket | null {
+        const url = typeof requestOptions.url === "string" ? requestOptions.url : "";
+        const method = String(requestOptions.method || "GET").toUpperCase();
+
+        if (
+            method === "POST" &&
+            /^\/users\/[^/]+\/wallets\/[^/]+\/addresses$/.test(url)
+        ) {
+            return "wallet-address";
+        }
+
+        return "main";
+    }
+
+    private isThrottleLikeAxiosError(error: unknown): boolean {
+        if (!Axios.isAxiosError(error)) {
+            return false;
+        }
+
+        const axiosError = error;
+        const data = axiosError.response?.data;
+        const message =
+            (typeof data === "string" && data) ||
+            data?.message ||
+            axiosError.message;
+
+        return e.isQuidaxThrottleError({
+            status: axiosError.response?.status,
+            message,
+        });
     }
 
     /**

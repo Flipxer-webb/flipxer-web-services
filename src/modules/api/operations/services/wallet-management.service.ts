@@ -4,6 +4,7 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 import { CoinGeckoCacheService } from "@/modules/core/redisCache/services/coingecko-cache.service";
 import { QuidaxLib } from "@/libs/quidax";
 import { quidaxConfig } from "@/config";
+import { QuidaxGlobalLimiterService } from "@/modules/factory/trading/providers/quidax/services/quidax-global-limiter.service";
 import {
     WalletBalance,
     AggregatedWalletBalance,
@@ -24,12 +25,14 @@ export class WalletManagementService {
         private readonly prisma: PrismaService,
         private readonly cacheService: RedisCacheService,
         private readonly coinGeckoCache: CoinGeckoCacheService,
+        private readonly quidaxGlobalLimiter: QuidaxGlobalLimiterService,
     ) {
         this.quidax = new QuidaxLib({
             api_public: quidaxConfig.api_public,
             api_secret: quidaxConfig.api_secret,
             baseURL: quidaxConfig.baseUrl,
             rampBaseURL: quidaxConfig.rampBaseUrl,
+            requestBudget: this.quidaxGlobalLimiter,
         });
     }
 

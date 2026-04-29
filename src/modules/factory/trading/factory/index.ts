@@ -4,6 +4,7 @@ import { QuidaxTradingProvider } from "../providers/quidax/quidax-trading-provid
 import { MockQuidaxTradingProvider } from "../providers/mock/mock-trading-provider";
 import { SafeQuidaxTradingProvider } from "../providers/safe/safe-trading-provider";
 import { QuidaxLib } from "@/libs/quidax";
+import type { QuidaxRequestBudget } from "@/libs/quidax";
 import { TradingConfig } from "@/config";
 import { Logger } from "@nestjs/common";
 import { ITradingProvider } from "../interfaces/trading-provider.interface";
@@ -11,7 +12,10 @@ import { ITradingProvider } from "../interfaces/trading-provider.interface";
 const logger = new Logger("TradingFactory");
 
 export class TradingFactory implements t.ITradingFactory {
-    constructor(private readonly tradingConfig: TradingConfig) {}
+    constructor(
+        private readonly tradingConfig: TradingConfig,
+        private readonly requestBudget?: QuidaxRequestBudget,
+    ) {}
 
     buildQuidaxService(): QuidaxService {
         return this.createQuidaxService();
@@ -77,6 +81,7 @@ export class TradingFactory implements t.ITradingFactory {
             api_secret: quidaxConfig.api_secret,
             baseURL: quidaxConfig.baseUrl,
             rampBaseURL: quidaxConfig.rampBaseUrl,
+            ...(this.requestBudget ? { requestBudget: this.requestBudget } : {}),
         });
 
         return new QuidaxService(quidax);
