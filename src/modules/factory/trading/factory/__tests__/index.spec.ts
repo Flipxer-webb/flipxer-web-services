@@ -146,7 +146,7 @@ describe("TradingFactory", () => {
         }
     });
 
-    it("logs missing config details when baseUrl or secret is absent", () => {
+    it("throws when required Quidax config is missing", () => {
         const loggerErrorSpy = jest
             .spyOn(Logger.prototype, "error")
             .mockImplementation(() => undefined);
@@ -160,7 +160,9 @@ describe("TradingFactory", () => {
             },
         } as any);
 
-        factory.buildQuidaxService();
+        expect(() => factory.buildQuidaxService()).toThrow(
+            "Missing Quidax configuration: baseUrl and api_secret are required",
+        );
 
         expect(loggerErrorSpy).toHaveBeenCalled();
         loggerErrorSpy.mockRestore();

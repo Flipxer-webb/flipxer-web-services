@@ -65,17 +65,20 @@ export class TradingFactory implements t.ITradingFactory {
      */
     private createQuidaxService(): QuidaxService {
         const quidaxConfig = this.tradingConfig.quidax;
-        
+
         // Debug: Log if Quidax config is properly loaded
         const hasBaseUrl = !!quidaxConfig.baseUrl;
         const hasApiSecret = !!quidaxConfig.api_secret;
         const hasApiPublic = !!quidaxConfig.api_public;
         logger.log(`Quidax config check - baseUrl: ${hasBaseUrl}, api_secret: ${hasApiSecret}, api_public: ${hasApiPublic}`);
-        
+
         if (!hasBaseUrl || !hasApiSecret) {
-            logger.error(`MISSING QUIDAX CONFIG! baseUrl=${quidaxConfig.baseUrl?.substring(0, 20) || 'EMPTY'}, api_secret=${hasApiSecret ? 'SET' : 'MISSING'}`);
+            const errorMessage = `Missing Quidax configuration: baseUrl and api_secret are required (baseUrl=${hasBaseUrl ? "SET" : "MISSING"}, api_secret=${hasApiSecret ? "SET" : "MISSING"})`;
+
+            logger.error(errorMessage);
+            throw new Error(errorMessage);
         }
-        
+
         const quidax = new QuidaxLib({
             api_public: quidaxConfig.api_public,
             api_secret: quidaxConfig.api_secret,

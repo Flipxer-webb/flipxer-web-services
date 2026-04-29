@@ -1,5 +1,5 @@
 import * as e from "./errors";
-import Axios, { AxiosInstance, AxiosRequestConfig } from "axios";
+import Axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
 export * from "./errors";
 export * from "./types";
 import * as t from "./types";
@@ -16,9 +16,9 @@ export class QuidaxLib {
         },
     });
 
-    private readonly mainAxios: AxiosInstance = (async <T = any>(
+    private readonly mainAxios = async <T = any>(
         requestOptions: AxiosRequestConfig,
-    ): Promise<any> => {
+    ): Promise<AxiosResponse<T>> => {
         const bucket = this.getMainRequestBudgetBucket(requestOptions);
 
         if (bucket) {
@@ -34,7 +34,7 @@ export class QuidaxLib {
 
             throw error;
         }
-    }) as AxiosInstance;
+    };
 
     // Quidax Ramp API
     private readonly rampAxios: AxiosInstance = Axios.create({
