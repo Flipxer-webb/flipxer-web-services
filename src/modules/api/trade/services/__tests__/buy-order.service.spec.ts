@@ -26,13 +26,18 @@ import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { TransactionService } from "@/modules/api/auth/services/transaction.service";
+import { MIN_BUY_AMOUNT_USDT } from "@/modules/api/trade/constants";
 
 import { OrderStatus, PaymentMethod, TransactionStatus } from "@prisma/client";
 
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
     let prismaService: any;
-    let walletAddressService: any;
+    let tradeHelpers: { validateMinimumAmountInUSDT: jest.Mock };
+    let inboundFiatPaymentService: {
+        initializePayment: jest.Mock;
+        cleanupPendingPayment: jest.Mock;
+    };
 
     const mockUser = {
         id: 1,
@@ -128,6 +133,16 @@ describe("BuyOrderService", () => {
             cleanupPendingPayment: jest.fn().mockResolvedValue(true),
         };
 
+        const mockTradeHelpers = {
+            calculateFee: jest.fn(),
+            validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
+            normalizeNetworkInput: jest.fn((value) =>
+                typeof value === "string" && value.trim()
+                    ? value.trim().toLowerCase()
+                    : null
+            ),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 BuyOrderService,
@@ -135,18 +150,7 @@ describe("BuyOrderService", () => {
                 { provide: InboundFiatPaymentService, useValue: mockInboundFiatPaymentService },
                 { provide: WalletAddressService, useValue: mockWalletAddressService },
                 { provide: WsGateway, useValue: mockWsGateway },
-                {
-                    provide: TradeHelpersService,
-                    useValue: {
-                        calculateFee: jest.fn(),
-                        validateMinimumAmountInUSDT: jest.fn(),
-                        normalizeNetworkInput: jest.fn((value) =>
-                            typeof value === "string" && value.trim()
-                                ? value.trim().toLowerCase()
-                                : null
-                        ),
-                    },
-                },
+                { provide: TradeHelpersService, useValue: mockTradeHelpers },
                 { provide: SlackWebhookService, useValue: { sendWebhookFailureAlert: jest.fn() } },
                 { provide: LedgerService, useValue: { pairedCredit: jest.fn() } },
                 { provide: RateService, useValue: mockRateService },
@@ -158,7 +162,8 @@ describe("BuyOrderService", () => {
 
         service = module.get<BuyOrderService>(BuyOrderService);
         prismaService = module.get(PrismaService);
-        walletAddressService = module.get(WalletAddressService);
+        tradeHelpers = module.get(TradeHelpersService);
+        inboundFiatPaymentService = module.get(InboundFiatPaymentService);
     });
 
     it("should be defined", () => {
@@ -271,6 +276,25 @@ describe("BuyOrderService", () => {
 
             expect(res.message).toContain("Order already exists");
             expect(res.data.order.id).toBe(202);
+        });
+
+        it("rejects buy orders below the minimum before pending-order lookup", async () => {
+            tradeHelpers.validateMinimumAmountInUSDT.mockRejectedValue(
+                new Error("Minimum buy amount is 3 USDT equivalent."),
+            );
+
+            await expect(
+                service.buyCryptoOrder(mockUser as any, orderDto),
+            ).rejects.toThrow("Minimum buy amount is 3 USDT equivalent.");
+
+            expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
+                orderDto.amount,
+                orderDto.asset,
+                MIN_BUY_AMOUNT_USDT,
+                "buy",
+            );
+            expect(prismaService.payment.findFirst).not.toHaveBeenCalled();
+            expect(inboundFiatPaymentService.initializePayment).not.toHaveBeenCalled();
         });
 
         it("creates a new buy order and returns VA payment instructions", async () => {

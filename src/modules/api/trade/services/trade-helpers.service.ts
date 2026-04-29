@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable } from "@nestjs/common";
 import { NetworkTypes } from "@prisma/client";
 import {
     NETWORK_ALIAS_MAP,
     NETWORK_SEGMENT_SPLITTER,
 } from "../constants";
+import { InvalidTransactionAmountException } from "../errors";
+import { RateService } from "./rate.service";
 
 /**
  * Trade Helpers Service
@@ -21,6 +23,7 @@ export class TradeHelpersService {
     private readonly supportedNetworkSet = new Set<string>(
         Object.values(NetworkTypes)
     );
+    constructor(private readonly rateService: RateService) { }
 
     /**
      * Normalizes various network name formats to standardized NetworkTypes enum values.
@@ -191,23 +194,41 @@ export class TradeHelpersService {
         );
     }
 
-    validateMinimumAmountInUSDT(
+    async validateMinimumAmountInUSDT(
         amount: number,
         asset: string,
         minimumAmountInUsdt: number,
-        tradeType: "buy" | "sell"
-    ): void {
+        tradeType: "buy" | "sell" | "swap"
+    ): Promise<void> {
         if (!Number.isFinite(minimumAmountInUsdt) || minimumAmountInUsdt <= 0) {
             return;
         }
 
         if (!Number.isFinite(amount) || amount <= 0) {
-            throw new BadRequestException(`Invalid ${tradeType} amount for ${asset}`);
+            throw new InvalidTransactionAmountException(
+                `Invalid ${tradeType} amount for ${asset}`,
+                HttpStatus.BAD_REQUEST,
+            );
         }
 
-        if (amount < minimumAmountInUsdt) {
-            throw new BadRequestException(
-                `Minimum ${tradeType} amount for ${asset.toUpperCase()} is ${minimumAmountInUsdt}`
+        const normalizedAsset = asset.toUpperCase();
+        let amountInUsdt = amount;
+
+        if (normalizedAsset !== "USDT") {
+            const [assetRate, usdtRate] = await Promise.all([
+                this.rateService.getAssetRate(normalizedAsset),
+                this.rateService.getAssetRate("USDT"),
+            ]);
+
+            amountInUsdt =
+                (amount * Number(assetRate.buyRate)) / Number(usdtRate.buyRate);
+        }
+
+        if (amountInUsdt < minimumAmountInUsdt) {
+            throw new InvalidTransactionAmountException(
+                `Minimum ${tradeType} amount is ${minimumAmountInUsdt} USDT equivalent. ` +
+                    `Your amount is approximately ${amountInUsdt.toFixed(2)} USDT.`,
+                HttpStatus.BAD_REQUEST,
             );
         }
     }
