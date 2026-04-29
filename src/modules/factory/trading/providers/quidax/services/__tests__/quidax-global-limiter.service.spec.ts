@@ -52,6 +52,49 @@ describe("QuidaxGlobalLimiterService", () => {
         );
     });
 
+    it("ignores expired cooldowns and checks the shared main bucket", async () => {
+        jest.spyOn(Date, "now").mockReturnValue(10_000);
+        redisCacheService.get.mockResolvedValueOnce({
+            consecutiveThrottleCount: 1,
+            cooldownUntil: 9_000,
+        });
+
+        await expect(service.assertAllowed("main")).resolves.toBeUndefined();
+
+        expect(rateLimiterService.checkLimit).toHaveBeenCalledWith(
+            "shared",
+            expect.objectContaining({
+                limit: 240,
+                windowSeconds: 60,
+                keyPrefix: "quidax:budget:main:",
+            }),
+        );
+
+        jest.restoreAllMocks();
+    });
+
+    it("sets a shared cooldown and throws when the main bucket is exhausted", async () => {
+        jest.spyOn(Date, "now").mockReturnValue(10_000);
+        rateLimiterService.checkLimit.mockResolvedValueOnce({
+            allowed: false,
+            remaining: 0,
+            resetTime: 14_000,
+        });
+
+        await expect(service.assertAllowed("main")).rejects.toBeInstanceOf(QuidaxTooManyRequestError);
+
+        expect(redisCacheService.set).toHaveBeenCalledWith(
+            "quidax:cooldown:main",
+            expect.objectContaining({
+                consecutiveThrottleCount: 0,
+                cooldownUntil: 14_000,
+            }),
+            4,
+        );
+
+        jest.restoreAllMocks();
+    });
+
     it("sets a cooldown when Quidax returns a throttle/block response", async () => {
         jest.spyOn(Date, "now").mockReturnValue(10_000);
 
@@ -64,6 +107,27 @@ describe("QuidaxGlobalLimiterService", () => {
                 cooldownUntil: 130_000,
             }),
             120,
+        );
+
+        jest.restoreAllMocks();
+    });
+
+    it("keeps the longer existing cooldown when a new throttle arrives", async () => {
+        jest.spyOn(Date, "now").mockReturnValue(10_000);
+        redisCacheService.get.mockResolvedValueOnce({
+            consecutiveThrottleCount: 1,
+            cooldownUntil: 400_000,
+        });
+
+        await service.noteThrottle("wallet-address");
+
+        expect(redisCacheService.set).toHaveBeenCalledWith(
+            "quidax:cooldown:wallet-address",
+            expect.objectContaining({
+                consecutiveThrottleCount: 2,
+                cooldownUntil: 400_000,
+            }),
+            390,
         );
 
         jest.restoreAllMocks();

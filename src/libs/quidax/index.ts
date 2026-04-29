@@ -46,6 +46,7 @@ export class QuidaxLib {
     });
 
     private handleQuidaxError(error: unknown): never {
+        if (error instanceof e.QuidaxError) {
             if (error.constructor === e.QuidaxError) {
                 const err = new e.QuidaxGenericError(error.message);
 
