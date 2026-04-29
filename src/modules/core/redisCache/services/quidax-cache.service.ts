@@ -15,6 +15,7 @@ export class QuidaxCacheService {
     private readonly logger = new Logger(QuidaxCacheService.name);
     private inFlightMarketTickersRequest: Promise<Record<string, any>> | null = null;
     private marketTickersThrottleUntil = 0;
+    private lastSuccessfulMarketTickers: Record<string, any> | null = null;
 
     constructor(
         private readonly redisCacheService: RedisCacheService,
@@ -62,6 +63,7 @@ export class QuidaxCacheService {
                     this.redisCacheService.set(this.STALE_CACHE_KEY, data, this.STALE_TTL),
                 ]);
 
+                this.lastSuccessfulMarketTickers = data;
                 this.marketTickersThrottleUntil = 0;
                 this.logger.log(`[PERF] Quidax API fetch: ${Date.now() - startTime}ms`);
                 return data;
@@ -105,8 +107,14 @@ export class QuidaxCacheService {
         const staleData = await this.redisCacheService.get(this.STALE_CACHE_KEY);
 
         if (staleData) {
+            this.lastSuccessfulMarketTickers = staleData;
             this.logger.warn(logMessage);
             return staleData;
+        }
+
+        if (this.lastSuccessfulMarketTickers) {
+            this.logger.warn(`${logMessage}; using last successful in-memory fallback`);
+            return this.lastSuccessfulMarketTickers;
         }
 
         this.logger.warn(`${logMessage}; no stale cache available`);

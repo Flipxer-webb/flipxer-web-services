@@ -329,6 +329,11 @@ describe("UserService coverage wave", () => {
         } as any);
 
         expect(result.message).toContain("retrieved");
+        expect(result.data.tradeMinimums).toEqual({
+            buy: 3,
+            sell: 3,
+            swap: 10,
+        });
         expect(result.data.records[0]).toMatchObject({
             balance: "2",
             locked: "0.5",
