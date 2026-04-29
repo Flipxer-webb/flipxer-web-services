@@ -273,6 +273,7 @@ export const settingsSecuritySendOtpWindowSeconds = parsePositiveIntegerEnv(
     process.env.SETTINGS_SECURITY_SEND_OTP_WINDOW_SECONDS,
     300,
 );
+
 // JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;

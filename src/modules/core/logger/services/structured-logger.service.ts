@@ -1,5 +1,5 @@
+import { randomUUID } from "node:crypto";
 import { Injectable, LoggerService as NestLoggerService, Scope } from "@nestjs/common";
-import { v4 as uuidv4 } from "uuid";
 
 /**
  * Log levels in order of severity
@@ -93,7 +93,7 @@ export class StructuredLoggerService implements NestLoggerService {
      * Generate a new correlation ID
      */
     generateCorrelationId(): string {
-        return uuidv4();
+        return randomUUID();
     }
 
     /**

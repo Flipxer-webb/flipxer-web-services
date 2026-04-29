@@ -134,6 +134,8 @@ export interface CreateSwapQuoteOptions {
     toAmount?: string;
 }
 
+export type WithdrawalFeeValue = string | number | Array<{ min: number; max: number; type: string; value: number }>;
+
 export interface SwapQuote {
     id: string;
     fromCurrency: string;
@@ -141,7 +143,8 @@ export interface SwapQuote {
     fromAmount: string;
     toAmount: string;
     rate: string;
-    fee: string;
+    fee: WithdrawalFeeValue;
+    type?: string;
     expiresAt: Date;
 }
 
@@ -170,13 +173,16 @@ export interface CreateWithdrawalOptions {
     network?: string;
     reference?: string;
     narration?: string;
+    transactionNote?: string;
+    destinationTag?: string;
 }
 
 export interface WithdrawalResult {
     id: string;
     currency: string;
     amount: string;
-    fee: string;
+    fee: WithdrawalFeeValue;
+    type?: string;
     status: string;
     address: string;
     network?: string;
@@ -188,7 +194,8 @@ export interface WithdrawalResult {
 export interface WithdrawalFee {
     currency: string;
     network?: string;
-    fee: string;
+    fee: WithdrawalFeeValue;
+    type?: string;
     minimumAmount: string;
 }
 

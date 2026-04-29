@@ -260,7 +260,14 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.getWithdrawerFees.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { fee: [{ fee: "0.02" }], minimum: "0.1" },
+            data: {
+                fee: [
+                    { min: "0", max: "100", type: "flat", value: "5" },
+                    { min: "100", max: "1000", type: "percentage", value: "2" },
+                ],
+                minimum: "0.1",
+                type: "range",
+            },
         });
 
         const order = await provider.placeOrder({
@@ -303,7 +310,25 @@ describe("QuidaxTradingProvider", () => {
         expect(withdrawalById.data.id).toBe("w2");
         expect(withdrawalByRef.data.id).toBe("w3");
         expect(withdrawals.data).toHaveLength(1);
-        expect(fees.data.fee).toBe("0.02");
+        expect(fees.data.fee).toEqual([
+            { min: 0, max: 100, type: "flat", value: 5 },
+            { min: 100, max: 1000, type: "percentage", value: 2 },
+        ]);
+        expect(fees.data.type).toBe("range");
+    });
+
+    it("should normalize flat withdrawal fees to numbers", async () => {
+        quidaxService.getWithdrawerFees.mockResolvedValue({
+            status: "successful",
+            message: "ok",
+            data: { fee: "0.001", minimum: "0.1", type: "flat" },
+        });
+
+        const fees = await provider.getWithdrawalFees("u1", "BTC", "BTC");
+
+        expect(fees.data.fee).toBe(0.001);
+        expect(fees.data.type).toBe("flat");
+        expect(fees.data.minimumAmount).toBe("0.1");
     });
 
     it("should map deposits, market data, and purchase operations", async () => {

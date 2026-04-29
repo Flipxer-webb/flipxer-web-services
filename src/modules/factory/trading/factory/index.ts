@@ -1,6 +1,8 @@
 import * as t from "../types";
 import { QuidaxService } from "../providers/quidax/services";
 import { QuidaxTradingProvider } from "../providers/quidax/quidax-trading-provider";
+import { MockQuidaxTradingProvider } from "../providers/mock/mock-trading-provider";
+import { SafeQuidaxTradingProvider } from "../providers/safe/safe-trading-provider";
 import { QuidaxLib } from "@/libs/quidax";
 import { TradingConfig } from "@/config";
 import { Logger } from "@nestjs/common";
@@ -34,8 +36,21 @@ export class TradingFactory implements t.ITradingFactory {
      */
     buildProvider<T extends t.Provider>(options: t.BuildOptions<T>): ITradingProvider {
         if (options.provider === "quidax") {
+            const isMockEnabled = String(process.env.QUIDAX_MOCK).toLowerCase() === "true";
+            if (isMockEnabled) {
+                logger.warn("QUIDAX_MOCK=true detected — using MockQuidaxTradingProvider");
+                return new MockQuidaxTradingProvider();
+            }
+
             const quidaxService = this.createQuidaxService();
-            return new QuidaxTradingProvider(quidaxService);
+            const provider = new QuidaxTradingProvider(quidaxService);
+            const environment = process.env.NODE_ENV || "development";
+
+            if (environment !== "production") {
+                return new SafeQuidaxTradingProvider(provider, environment);
+            }
+
+            return provider;
         }
 
         throw new Error(`Unknown provider: ${options.provider}`);

@@ -24,7 +24,7 @@ import {
     User,
 } from "@prisma/client";
 import {
-    AssetNotFoundException,
+
     IncompleteAccountSetupException,
     WalletAddressNotFoundException,
 } from "../errors";
@@ -303,85 +303,6 @@ export class BuyOrderService {
         dto: InitiateBuyOrderDto
     ): Promise<BuyQuoteResponse> {
         const currency = dto.asset.toUpperCase();
-        const assetWalletWhere = {
-            userId: user.id,
-            assetCurrency: currency,
-        };
-
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        let assetWallet = await this.prisma.assetWallet.findFirst({
-            where: assetWalletWhere,
-        });
-
-        if (!assetWallet) {
-            throw new AssetNotFoundException(
-                `Asset ${dto.asset} not found for the user`,
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        let normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-            assetWallet.defaultNetwork
-        );
-
-        if (!normalizedDefaultNetwork) {
-            await this.walletAddressService.syncWallet(user.id, currency);
-
-            assetWallet =
-                (await this.prisma.assetWallet.findFirst({
-                    where: assetWalletWhere,
-                })) ?? assetWallet;
-
-            normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-                assetWallet.defaultNetwork
-            );
-        }
-
-        const fallbackWalletAddress =
-            !assetWallet.depositAddress || !normalizedDefaultNetwork
-                ? await this.getFallbackBuyWalletAddress({
-                    userId: user.id,
-                    assetSymbol: currency,
-                    normalizedDefaultNetwork,
-                })
-                : null;
-
-        let resolvedWalletAddress: {
-            address: string;
-            network: string | null;
-            destinationTag: string | null;
-        } | null = null;
-
-        if (assetWallet.depositAddress && normalizedDefaultNetwork) {
-            resolvedWalletAddress = {
-                address: assetWallet.depositAddress,
-                network: normalizedDefaultNetwork,
-                destinationTag: assetWallet.destinationTag ?? null,
-            };
-        } else if (fallbackWalletAddress) {
-            resolvedWalletAddress = {
-                address: fallbackWalletAddress.address,
-                network: fallbackWalletAddress.network,
-                destinationTag: fallbackWalletAddress.destination_tag ?? null,
-            };
-        }
-
-        const depositAddress = resolvedWalletAddress?.address ?? null;
-        const defaultNetwork = resolvedWalletAddress?.network ?? null;
-        const destinationTag = resolvedWalletAddress?.destinationTag ?? null;
-
-        if (!depositAddress || !defaultNetwork) {
-            throw new WalletAddressNotFoundException(
-                `No wallet address found for asset ${dto.asset}`,
-                HttpStatus.NOT_FOUND
-            );
-        }
 
         // sell rate is used when user is buying.
         const rate = await this.rateService.getAssetRate(currency);
@@ -408,8 +329,7 @@ export class BuyOrderService {
             totalToChargeViaPaymentGateway,
             currency: "NGN",
             paymentGateway: getPaymentMethodForBankProvider(buyPaymentProvider),
-            depositAddress,
-            destinationTag,
+
         };
     }
 
@@ -536,8 +456,7 @@ export class BuyOrderService {
                         ),
                         paymentStatus: TransactionStatus.PENDING,
                         currency: dto.asset.toUpperCase(),
-                        recipient: responseData.depositAddress,
-                        destinationTag: responseData.destinationTag,
+
                         userId: user.id,
                         amountInFiat: amtFiat?.amount,
                         rateAtConversion: amtFiat?.rate,
