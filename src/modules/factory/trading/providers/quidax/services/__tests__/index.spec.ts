@@ -20,6 +20,10 @@ type QuidaxMethodName =
     | "verifyAddress"
     | "fetchDeposits"
     | "fetchDeposit"
+    | "createWithdrawalRequest"
+    | "cancelWithdrawalRequest"
+    | "getWithdrawalList"
+    | "getWithdrawalDetail"
     | "createWithdrawerRequest"
     | "cancelWithdrawerRequest"
     | "getWithdrawerList"
@@ -61,6 +65,10 @@ function buildQuidaxMock() {
         "verifyAddress",
         "fetchDeposits",
         "fetchDeposit",
+        "createWithdrawalRequest",
+        "cancelWithdrawalRequest",
+        "getWithdrawalList",
+        "getWithdrawalDetail",
         "createWithdrawerRequest",
         "cancelWithdrawerRequest",
         "getWithdrawerList",
@@ -452,10 +460,10 @@ describe("QuidaxService facade", () => {
         expect(quidax.verifyAddress).toHaveBeenCalled();
         expect(quidax.fetchDeposits).toHaveBeenCalled();
         expect(quidax.fetchDeposit).toHaveBeenCalled();
-        expect(quidax.createWithdrawerRequest).toHaveBeenCalled();
-        expect(quidax.cancelWithdrawerRequest).toHaveBeenCalled();
-        expect(quidax.getWithdrawerList).toHaveBeenCalled();
-        expect(quidax.getWithdrawerDetail).toHaveBeenCalled();
+        expect(quidax.createWithdrawalRequest).toHaveBeenCalled();
+        expect(quidax.cancelWithdrawalRequest).toHaveBeenCalled();
+        expect(quidax.getWithdrawalList).toHaveBeenCalled();
+        expect(quidax.getWithdrawalDetail).toHaveBeenCalled();
         expect(quidax.getWithdrawerByReference).toHaveBeenCalled();
         expect(quidax.getWithdrawerFees).toHaveBeenCalled();
         expect(quidax.buyOrSellOrderRequest).toHaveBeenCalled();
