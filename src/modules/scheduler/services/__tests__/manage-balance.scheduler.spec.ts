@@ -74,7 +74,7 @@ describe("AssetBalanceSchedulerService", () => {
 
     describe("syncAllQuidaxAssetBalance", () => {
         it("should enqueue balance sync for each user id", async () => {
-            jest.spyOn(service, "getAllUserIdsWithSubAccounts").mockResolvedValue([1, 2, 3]);
+            jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([1, 2, 3]);
 
             await service.syncAllQuidaxAssetBalance();
 
@@ -93,7 +93,7 @@ describe("AssetBalanceSchedulerService", () => {
         });
 
         it("should swallow producer errors", async () => {
-            jest.spyOn(service, "getAllUserIdsWithSubAccounts").mockResolvedValue([9]);
+            jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([9]);
             cryptoAccountProducer.enqueueSyncBalance.mockRejectedValue(new Error("queue down"));
 
             await expect(service.syncAllQuidaxAssetBalance()).resolves.toBeUndefined();
@@ -242,8 +242,8 @@ describe("AssetBalanceSchedulerService", () => {
         });
     });
 
-    describe("getAllUserIdsWithSubAccounts", () => {
-        it("should collect ids across paginated batches", async () => {
+    describe("getEligibleUserIdsForBalanceSync", () => {
+        it("should collect ids across paginated eligible batches", async () => {
             const firstBatch = Array.from({ length: 1000 }, (_, idx) => ({ id: idx + 1 }));
             const secondBatch = [{ id: 1001 }, { id: 1002 }];
 
@@ -251,12 +251,24 @@ describe("AssetBalanceSchedulerService", () => {
                 .mockResolvedValueOnce(firstBatch)
                 .mockResolvedValueOnce(secondBatch);
 
-            const ids = await service.getAllUserIdsWithSubAccounts();
+            const ids = await service.getEligibleUserIdsForBalanceSync();
 
             expect(ids.length).toBe(1002);
             expect(ids[0]).toBe(1);
             expect(ids[1001]).toBe(1002);
             expect(prisma.user.findMany).toHaveBeenCalledTimes(2);
+            expect(prisma.user.findMany).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        cryptoSubAccountId: { not: null },
+                        OR: [
+                            { lastLogin: { gte: expect.any(Date) } },
+                            { createdAt: { gte: expect.any(Date) } },
+                        ],
+                    }),
+                }),
+            );
             expect(prisma.user.findMany).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     where: expect.objectContaining({
@@ -269,7 +281,7 @@ describe("AssetBalanceSchedulerService", () => {
         it("should return an empty list when no users match", async () => {
             prisma.user.findMany.mockResolvedValue([]);
 
-            const ids = await service.getAllUserIdsWithSubAccounts();
+            const ids = await service.getEligibleUserIdsForBalanceSync();
 
             expect(ids).toEqual([]);
         });

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>New Login - Flipxer</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            supported-color-schemes: light dark;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .wrapper {
+                background-color: #1a1a1a !important;
+            }
+
+            .container {
+                background-color: #2d2d2d !important;
+            }
+
+            .greeting {
+                color: #ffffff !important;
+            }
+
+            .message,
+            .footer-text {
+                color: #b3b3b3 !important;
+            }
+
+            .details-box {
+                background-color: #3d3d3d !important;
+                border-color: #4d4d4d !important;
+            }
+
+            .detail-value {
+                color: #ffffff !important;
+            }
+
+            .warning-box {
+                background-color: #4a2e2e !important;
+                border-left-color: #e40e0e !important;
+            }
+
+            .warning-title {
+                color: #ff6b6b !important;
+            }
+
+            .cta-button {
+                color: #ffffff !important;
+            }
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f5;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #020202;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        .wrapper {
+            width: 100%;
+            background-color: #f4f4f5;
+            padding: 40px 16px;
+        }
+
+        .container {
+            max-width: 520px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 28px rgba(222, 222, 222, 0.25);
+        }
+
+        .header {
+            text-align: center;
+            padding: 32px 24px 24px;
+            border-bottom: 3px solid #305DC9;
+        }
+
+        .logo {
+            width: 140px;
+            height: auto;
+        }
+
+        .content {
+            padding: 40px 28px;
+            text-align: center;
+        }
+
+        .icon-wrapper {
+            width: 100%;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .icon-circle {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, #305DC9 0%, #2850B0 100%);
+            border-radius: 50%;
+            text-align: center;
+            display: inline-block;
+        }
+
+        .greeting {
+            font-size: 22px;
+            font-weight: 600;
+            color: #020202;
+            margin: 0 0 16px;
+        }
+
+        .message {
+            color: #5a5b5b;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 0 0 32px;
+        }
+
+        .details-box {
+            background-color: #f4f4f5;
+            border: 2px solid #e1e4ea;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 28px;
+            text-align: left;
+        }
+
+        .detail-row {
+            padding: 10px 0;
+            border-bottom: 1px solid #e1e4ea;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #aaabac;
+            font-size: 13px;
+            display: inline-block;
+            width: 35%;
+        }
+
+        .detail-value {
+            color: #020202;
+            font-size: 13px;
+            font-weight: 500;
+            display: inline-block;
+            width: 63%;
+            text-align: right;
+            word-break: break-word;
+        }
+
+        .warning-box {
+            background-color: #ebf5ff;
+            border-left: 4px solid #e40e0e;
+            padding: 16px;
+            text-align: left;
+            font-size: 13px;
+            color: #5a5b5b;
+            margin-bottom: 28px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .warning-title {
+            color: #e40e0e;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .cta-button {
+            display: inline-block;
+            background-color: #305DC9;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .help-text {
+            color: #aaabac;
+            font-size: 13px;
+        }
+
+        .help-link {
+            color: #305DC9;
+            text-decoration: none;
+        }
+
+        .footer {
+            border-top: 3px solid #305DC9;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .footer-logo {
+            width: 90px;
+            height: auto;
+            margin-bottom: 12px;
+        }
+
+        .footer-text {
+            color: #5a5b5b;
+            font-size: 12px;
+            margin: 0 0 6px;
+        }
+
+        .footer-copyright {
+            color: #aaabac;
+            font-size: 11px;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrapper">
+        <div class="container">
+
+            <!-- Header -->
+            <div class="header">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer"
+                    class="logo">
+            </div>
+
+            <div class="content">
+                <!-- Icon -->
+                <div class="icon-wrapper">
+                    <div class="icon-circle">
+                        <img src="https://img.icons8.com/ios-filled/36/ffffff/lock--v1.png" alt="🔒" width="36"
+                            height="36" style="margin-top:18px;">
+                    </div>
+                </div>
+
+                <h1 class="greeting">New Login Detected</h1>
+                <p class="message">
+                    Hi {{name}},<br><br>
+                    We noticed a new login to your Flipxer account.
+                </p>
+
+                <!-- Login Details -->
+                <div class="details-box">
+                    <div class="detail-row">
+                        <span class="detail-label">Time</span>
+                        <span class="detail-value">{{login_time}}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">IP Address</span>
+                        <span class="detail-value">{{ip_address}}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Device</span>
+                        <span class="detail-value">{{user_agent}}</span>
+                    </div>
+                </div>
+
+                <div class="warning-box">
+                    <div class="warning-title">⚠️ If this wasn't you</div>
+                    Someone else may have accessed your account. Please secure your account immediately.
+                </div>
+
+                <a href="{{account_security_url}}" class="cta-button">
+                    Secure My Account
+                </a>
+
+                <p class="help-text">
+                    Need help? <a href="mailto:hello@flipxer.com" class="help-link">Contact Support</a>
+                </p>
+            </div>
+
+            <!-- Footer -->
+            <div class="footer">
+                <img src="https://ik.imagekit.io/tmgaa5sb4/auth-logo.png?updatedAt=1765135203240" alt="Flipxer"
+                    class="footer-logo">
+                <p class="footer-text">hello@flipxer.com • flipxer.com</p>
+                <p class="footer-copyright">© {{current_year}} Flipxer. All rights reserved.</p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
