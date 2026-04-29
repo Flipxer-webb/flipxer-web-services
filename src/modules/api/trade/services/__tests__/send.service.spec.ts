@@ -254,6 +254,89 @@ describe("SendService", () => {
             ).rejects.toThrow("Cannot withdraw to your own deposit address");
         });
 
+        it("should allow shared XRP address withdrawals when the destination tag differs from the sender's own tag", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: "12345",
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue(null);
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "67890",
+                ),
+            ).resolves.toBeUndefined();
+        });
+
+        it("should still block shared XRP address withdrawals when the destination tag matches the sender's own tag", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "12345",
+                ),
+            ).rejects.toThrow("Cannot withdraw to your own deposit address");
+        });
+
+        it("should allow shared XRP address withdrawals when the crypto wallet tag is missing but the legacy wallet tag differs", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: null,
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "67890",
+                ),
+            ).resolves.toBeUndefined();
+        });
+
+        it("should block shared XRP address withdrawals when the crypto wallet tag is missing but the legacy wallet tag matches", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: null,
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "12345",
+                ),
+            ).rejects.toThrow("Cannot withdraw to your own deposit address");
+        });
+
         it("should allow sending to other addresses", async () => {
             prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
             prisma.assetWallet.findFirst.mockResolvedValue(null);
@@ -277,6 +360,57 @@ describe("SendService", () => {
                     1, "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16", "ETH",
                 ),
             ).rejects.toThrow("Cannot withdraw to your own deposit address");
+        });
+
+        it("should allow shared-address withdrawals via legacy wallet metadata when the destination tag differs", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "67890",
+                ),
+            ).resolves.toBeUndefined();
+        });
+
+        it("should allow shared XRP address withdrawals when both stored tags are missing and log a warning", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: null,
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: null,
+            });
+            const warnSpy = jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
+
+            try {
+                await expect(
+                    (service as any).assertNotOwnDepositAddress(
+                        1,
+                        "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                        "XRP",
+                        "ripple",
+                        "67890",
+                    ),
+                ).resolves.toBeUndefined();
+
+                expect(warnSpy).toHaveBeenCalledWith(
+                    expect.stringContaining("sender deposit metadata is incomplete"),
+                );
+            } finally {
+                warnSpy.mockRestore();
+            }
         });
     });
 
@@ -492,6 +626,26 @@ describe("SendService", () => {
             await expect(service.withdrawerRequest(user, dto)).rejects.toThrow(
                 "Rate Limit Exceeded",
             );
+        });
+
+        it("blocks same-address XRP withdrawals when the sender tag is known but the recipient tag is omitted even if omission is confirmed", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: "12345",
+            });
+
+            await expect(
+                service.withdrawerRequest(user, {
+                    ...dto,
+                    currency: "xrp",
+                    recipientWalletAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    network: "ripple",
+                    destinationTag: undefined,
+                    destinationTagNotRequiredConfirmed: true,
+                }),
+            ).rejects.toThrow("Cannot withdraw to your own deposit address");
+            expect(tradingProvider.getWithdrawalFees).not.toHaveBeenCalled();
         });
     });
 

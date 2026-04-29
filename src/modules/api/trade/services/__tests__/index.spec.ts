@@ -1200,6 +1200,35 @@ describe("TradingService (index)", () => {
             });
         });
 
+        it("syncUserDeposits scans newly supported wallet-address currencies when resolved", async () => {
+            const { service, prisma, quidaxService } = makeDeps();
+
+            prisma.user.findUnique.mockResolvedValue({
+                id: 10,
+                email: "user@example.com",
+                firstName: "Test",
+                lastName: "User",
+                cryptoSubAccountId: "sub-10",
+            });
+            prisma.cryptoWalletAddress.findMany.mockResolvedValue([
+                { assetSymbol: "ADA" },
+                { assetSymbol: "DOGE" },
+                { assetSymbol: "LTC" },
+                { assetSymbol: "SHIB" },
+            ]);
+            quidaxService.fetchDeposits.mockResolvedValue({ data: [] });
+
+            await service.syncUserDeposits(10);
+
+            expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(4);
+            expect(quidaxService.fetchDeposits.mock.calls.map(([options]: any[]) => options.currency)).toEqual([
+                "ada",
+                "doge",
+                "ltc",
+                "shib",
+            ]);
+        });
+
         it("syncUserDeposits preserves the new-user fallback when no active deposit addresses exist", async () => {
             const { service, prisma, quidaxService } = makeDeps();
 

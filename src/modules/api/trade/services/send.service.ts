@@ -347,9 +347,14 @@ export class SendService {
         userId: number,
         destinationAddress: string,
         currency: string,
+        network?: NetworkTypes,
+        destinationTag?: string,
     ): Promise<void> {
         const addr = destinationAddress.trim();
         const isEVMOrTRC20 = /^(0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})$/.test(addr);
+        const normalizedDestinationTag = destinationTag?.trim() || null;
+        const compareByDestinationTag = this.requiresDestinationTag(currency, network);
+        const normalizeTag = (value: string | null | undefined): string | null => value?.trim() || null;
 
         // 1. Check CryptoWalletAddress table (per-network addresses)
         const ownCryptoAddress = await this.prisma.cryptoWalletAddress.findFirst({
@@ -359,18 +364,8 @@ export class SendService {
                     ? { address: { equals: addr, mode: "insensitive" as any } }
                     : { address: addr }),
             },
-            select: { address: true, network: true },
+            select: { address: true, network: true, destination_tag: true },
         });
-
-        if (ownCryptoAddress) {
-            this.logger.warn(
-                `Blocked self-send to own deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | matchedNetwork: ${ownCryptoAddress.network}`
-            );
-            throw new IncompleteAccountSetupException(
-                "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
-                HttpStatus.BAD_REQUEST
-            );
-        }
 
         // 2. Fallback: check AssetWallet.depositAddress (older storage)
         const ownWallet = await this.prisma.assetWallet.findFirst({
@@ -380,10 +375,24 @@ export class SendService {
                     ? { depositAddress: { equals: addr, mode: "insensitive" as any } }
                     : { depositAddress: addr }),
             },
-            select: { depositAddress: true, assetCurrency: true },
+            select: { depositAddress: true, assetCurrency: true, destinationTag: true },
         });
 
-        if (ownWallet) {
+        if (!ownCryptoAddress && !ownWallet) {
+            return;
+        }
+
+        const blockSelfSend = (): never => {
+            if (ownCryptoAddress) {
+                this.logger.warn(
+                    `Blocked self-send to own deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | matchedNetwork: ${ownCryptoAddress.network}`
+                );
+                throw new IncompleteAccountSetupException(
+                    "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
             this.logger.warn(
                 `Blocked self-send to own wallet deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${ownWallet.assetCurrency}`
             );
@@ -391,7 +400,34 @@ export class SendService {
                 "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
                 HttpStatus.BAD_REQUEST
             );
+        };
+
+        if (!compareByDestinationTag) {
+            blockSelfSend();
         }
+
+        const ownCryptoDestinationTag = normalizeTag(ownCryptoAddress?.destination_tag);
+        const ownWalletDestinationTag = normalizeTag(ownWallet?.destinationTag);
+        const effectiveOwnTag = ownCryptoDestinationTag ?? ownWalletDestinationTag;
+
+        if (effectiveOwnTag && normalizedDestinationTag && effectiveOwnTag === normalizedDestinationTag) {
+            blockSelfSend();
+        }
+
+        if (!effectiveOwnTag) {
+            this.logger.warn(
+                `Allowed same-address withdrawal because sender deposit metadata is incomplete | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`
+            );
+            return;
+        }
+
+        if (!normalizedDestinationTag) {
+            blockSelfSend();
+        }
+
+        this.logger.log(
+            `Allowed same-address withdrawal because destination tag differs from sender's own deposit tag | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`
+        );
     }
 
     /**
@@ -665,11 +701,6 @@ export class SendService {
             );
         }
 
-        // Block self-sends: prevent user from sending to their own deposit address.
-        // This avoids a wasted withdrawal fee (funds leave via on-chain withdrawal
-        // and immediately return as a new deposit on the same sub-account).
-        await this.assertNotOwnDepositAddress(user.id, recipientWalletAddress, currency);
-
         // Auto-detect network from address format when not provided by the client.
         const resolvedNetwork = this.resolveNetwork(user.id, dto.network, recipientWalletAddress);
 
@@ -689,6 +720,17 @@ export class SendService {
             resolvedNetwork,
             dto.destinationTag,
             dto.destinationTagNotRequiredConfirmed,
+        );
+
+        // Block self-sends: prevent user from sending to their own deposit address.
+        // This avoids a wasted withdrawal fee (funds leave via on-chain withdrawal
+        // and immediately return as a new deposit on the same sub-account).
+        await this.assertNotOwnDepositAddress(
+            user.id,
+            recipientWalletAddress,
+            currency,
+            resolvedNetwork,
+            dto.destinationTag,
         );
 
         // Verify address with provider, falling back to local regex validation.

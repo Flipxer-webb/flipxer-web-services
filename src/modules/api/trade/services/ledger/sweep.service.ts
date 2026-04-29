@@ -106,13 +106,23 @@ export class SweepService {
         USDC: new Decimal(0.01),
         BNB: new Decimal(0.001),
         SOL: new Decimal(0.01),
+        XRP: new Decimal(0.01),
+        ADA: new Decimal(0.01),
+        DOGE: new Decimal(0.01),
+        LTC: new Decimal(0.0001),
+        SHIB: new Decimal(1),
+        TRX: new Decimal(0.01),
+        MATIC: new Decimal(0.01),
+        AVAX: new Decimal(0.01),
     };
 
     // FIX: SW-003 — valid state machine transitions.
     // Only transitions in this map are permitted. Attempting any other
     // transition throws to prevent callers from corrupting sweep state.
+    // PENDING can fail directly when preflight checks reject the sweep before
+    // any provider call is started, or when a stale blocked deposit is auto-failed.
     private readonly VALID_TRANSITIONS: Partial<Record<SweepStatus, SweepStatus[]>> = {
-        [SweepStatus.PENDING]: [SweepStatus.IN_PROGRESS, SweepStatus.NOT_APPLICABLE, SweepStatus.COMPLETED],
+        [SweepStatus.PENDING]: [SweepStatus.IN_PROGRESS, SweepStatus.FAILED, SweepStatus.NOT_APPLICABLE, SweepStatus.COMPLETED],
         [SweepStatus.IN_PROGRESS]: [SweepStatus.COMPLETED, SweepStatus.FAILED, SweepStatus.PENDING],
         [SweepStatus.FAILED]: [SweepStatus.PENDING, SweepStatus.NOT_APPLICABLE],
         // COMPLETED and NOT_APPLICABLE are terminal — no valid next state

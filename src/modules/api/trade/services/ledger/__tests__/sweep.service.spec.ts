@@ -200,6 +200,70 @@ describe("SweepService", () => {
             expect(quidaxService.createWithdrawerRequest).not.toHaveBeenCalled();
         });
 
+        it("should sweep newly configured XRP deposits instead of treating them as unknown currency", async () => {
+            prisma.ledgerEntry.findUnique
+                .mockResolvedValueOnce({ ...entry, currency: "XRP", credit: new Decimal("5") })
+                .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT })
+                .mockResolvedValue({ ...entry, currency: "XRP", credit: new Decimal("5") });
+            prisma.ledgerEntry.update.mockResolvedValue(entry);
+            ledgerService.updateSweepStatus.mockResolvedValue(undefined);
+            quidaxService.createWithdrawerRequest.mockResolvedValue({
+                data: { id: "quidax-tx-xrp-1" },
+            });
+
+            const result = await service.initiateSweep("le-1");
+
+            expect(result).toEqual(
+                expect.objectContaining({
+                    success: true,
+                    ledgerEntryId: "le-1",
+                    transactionId: "quidax-tx-xrp-1",
+                }),
+            );
+            expect(quidaxService.createWithdrawerRequest).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    currency: "xrp",
+                    amount: "5",
+                }),
+            );
+        });
+
+        it.each([
+            { currency: "ADA", amount: "5" },
+            { currency: "DOGE", amount: "5" },
+            { currency: "LTC", amount: "0.5" },
+            { currency: "SHIB", amount: "1000" },
+        ])(
+            "should sweep newly configured $currency deposits instead of treating them as unknown currency",
+            async ({ currency, amount }) => {
+                prisma.ledgerEntry.findUnique
+                    .mockResolvedValueOnce({ ...entry, currency, credit: new Decimal(amount) })
+                    .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT })
+                    .mockResolvedValue({ ...entry, currency, credit: new Decimal(amount) });
+                prisma.ledgerEntry.update.mockResolvedValue(entry);
+                ledgerService.updateSweepStatus.mockResolvedValue(undefined);
+                quidaxService.createWithdrawerRequest.mockResolvedValue({
+                    data: { id: `quidax-tx-${currency.toLowerCase()}-1` },
+                });
+
+                const result = await service.initiateSweep("le-1");
+
+                expect(result).toEqual(
+                    expect.objectContaining({
+                        success: true,
+                        ledgerEntryId: "le-1",
+                        transactionId: `quidax-tx-${currency.toLowerCase()}-1`,
+                    }),
+                );
+                expect(quidaxService.createWithdrawerRequest).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        currency: currency.toLowerCase(),
+                        amount,
+                    }),
+                );
+            },
+        );
+
         it("should handle lock already acquired gracefully", async () => {
             lockService.withLock.mockRejectedValue(new Error("Failed to acquire lock"));
 
@@ -368,15 +432,25 @@ describe("SweepService", () => {
             user: { id: 1, cryptoSubAccountId: "sub-1" },
         };
 
-        it("should throw when unknown currency hits invalid transition path", async () => {
+        it("should mark unknown currencies as failed without rethrowing a transition error", async () => {
             prisma.ledgerEntry.findUnique
                 .mockResolvedValueOnce(baseEntry)
                 .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT });
             prisma.ledgerEntry.update.mockResolvedValue(baseEntry);
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
 
-            await expect(service.initiateSweep("le-unknown")).rejects.toThrow(
-                "Invalid sweep transition",
+            const result = await service.initiateSweep("le-unknown");
+
+            expect(result).toEqual(
+                expect.objectContaining({
+                    success: false,
+                    ledgerEntryId: "le-unknown",
+                    error: "No minimum sweep amount configured for XYZ",
+                }),
+            );
+            expect(ledgerService.updateSweepStatus).toHaveBeenCalledWith(
+                "le-unknown",
+                SweepStatus.FAILED,
             );
             expect(quidaxService.createWithdrawerRequest).not.toHaveBeenCalled();
         });
@@ -460,6 +534,27 @@ describe("SweepService", () => {
 
             const result = await service.hasPendingSweeps(1, "BTC");
             expect(result).toBe(false);
+        });
+
+        it("should auto-fail stale pending sweeps for sub-account users", async () => {
+            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: "sub-1" });
+            prisma.ledgerEntry.findMany.mockResolvedValue([
+                { id: "stale-1", sweepStatus: SweepStatus.PENDING },
+            ]);
+            prisma.ledgerEntry.findUnique.mockResolvedValue({
+                sweepStatus: SweepStatus.PENDING,
+                type: LedgerType.DEPOSIT,
+            });
+            prisma.ledgerEntry.count.mockResolvedValue(0);
+            ledgerService.updateSweepStatus.mockResolvedValue(undefined);
+
+            const result = await service.hasPendingSweeps(1, "BTC");
+
+            expect(result).toBe(false);
+            expect(ledgerService.updateSweepStatus).toHaveBeenCalledWith(
+                "stale-1",
+                SweepStatus.FAILED,
+            );
         });
     });
 
