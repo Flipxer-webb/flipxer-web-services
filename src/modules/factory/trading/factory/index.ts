@@ -81,7 +81,8 @@ export class TradingFactory implements t.ITradingFactory {
 
         const quidax = new QuidaxLib({
             api_public: quidaxConfig.api_public,
-            api_secret: quidaxConfig.api_secret,
+        throw new Error(`Missing Quidax configuration: baseUrl and api_secret are required (baseUrl=${hasBaseUrl ? 'SET' : 'MISSING'}, api_secret=${hasApiSecret ? 'SET' : 'MISSING'})`);
+              }
             baseURL: quidaxConfig.baseUrl,
             rampBaseURL: quidaxConfig.rampBaseUrl,
             ...(this.requestBudget ? { requestBudget: this.requestBudget } : {}),
