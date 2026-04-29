@@ -10,8 +10,8 @@ type QueueThrottleState = {
 
 /**
  * Default cooldown applied to a Bull queue when Quidax responds with a
- * throttling status (HTTP 429 or 444). 30s gives the provider headroom while
- * the queue's exponential backoff handles per-job retries.
+ * throttling status. 30s gives the provider headroom while the queue's
+ * exponential backoff handles per-job retries.
  */
 const DEFAULT_THROTTLE_PAUSE_MS = 30_000;
 const MAX_THROTTLE_PAUSE_MS = 5 * 60_000;
@@ -19,7 +19,7 @@ const queueThrottleStates = new Map<string, QueueThrottleState>();
 
 /**
  * Returns true when the given error originated from a Quidax throttling
- * response (HTTP 429 or 444). Matches both the raw QuidaxLib error and the
+ * response (HTTP 429/444). Matches both the raw QuidaxLib errors and the
  * QuidaxException wrapper produced by the provider's error handler.
  */
 export function isQuidaxThrottlingError(error: unknown): boolean {
