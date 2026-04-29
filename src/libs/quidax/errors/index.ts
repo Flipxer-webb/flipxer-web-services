@@ -34,6 +34,14 @@ export class QuidaxTooManyRequestError extends QuidaxError {
     status = 429;
 }
 
+function isQuidaxCloudflareBlock(error: { status?: number; message?: string }): boolean {
+    if (error.status !== 403 || typeof error.message !== "string") {
+        return false;
+    }
+
+    return /cloudflare|unable to access quidax\.io/i.test(error.message);
+}
+
 export function isQuidaxThrottleError(error: unknown): boolean {
     if (error instanceof QuidaxTooManyRequestError) {
         return true;
@@ -44,12 +52,29 @@ export function isQuidaxThrottleError(error: unknown): boolean {
     }
 
     if ("status" in error && typeof error.status === "number") {
-        return error.status === 429 || error.status === 444;
+        const message =
+            "message" in error && typeof error.message === "string"
+                ? error.message
+                : undefined;
+
+        return (
+            error.status === 429 ||
+            error.status === 444 ||
+            isQuidaxCloudflareBlock({ status: error.status, message })
+        );
     }
 
     if ("getStatus" in error && typeof error.getStatus === "function") {
         const status = error.getStatus();
-        return status === 429 || status === 444;
+        if (status === 429 || status === 444) {
+            return true;
+        }
+
+        if (status === 403 && "message" in error && typeof error.message === "string") {
+            return isQuidaxCloudflareBlock({ status, message: error.message });
+        }
+
+        return false;
     }
 
     return false;

@@ -28,6 +28,8 @@ import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { FailedRollbackQueueService } from "../failed-rollback-queue.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { TradeHelpersService } from "../trade-helpers.service";
+import { MIN_SWAP_AMOUNT_USDT } from "@/modules/api/trade/constants";
 import { OrderCategory, OrderStatus } from "@prisma/client";
 
 function makePrisma() {
@@ -61,8 +63,9 @@ describe("SwapService", () => {
     let prisma: ReturnType<typeof makePrisma>;
     let sellOrderService: { calculateSellQuote: jest.Mock; executeInternalSell: jest.Mock };
     let buyOrderService: { executeInternalBuy: jest.Mock };
-    let redisCache: { set: jest.Mock; getDel: jest.Mock };
+    let redisCache: { set: jest.Mock; get: jest.Mock; getDel: jest.Mock };
     let rateService: { getAssetRate: jest.Mock };
+    let tradeHelpers: { validateMinimumAmountInUSDT: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -75,6 +78,7 @@ describe("SwapService", () => {
         };
         const mockRedis = {
             set: jest.fn().mockResolvedValue(undefined),
+            get: jest.fn(),
             getDel: jest.fn(),
         };
         const mockTransaction = {
@@ -95,6 +99,9 @@ describe("SwapService", () => {
         const mockLock = {
             withLock: jest.fn().mockImplementation(async (_k: string, fn: () => Promise<any>) => fn()),
         };
+        const mockTradeHelpers = {
+            validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -112,6 +119,7 @@ describe("SwapService", () => {
                 { provide: NotificationDispatcher, useValue: mockNotification },
                 { provide: FailedRollbackQueueService, useValue: mockFailedRollback },
                 { provide: DistributedLockService, useValue: mockLock },
+                { provide: TradeHelpersService, useValue: mockTradeHelpers },
             ],
         }).compile();
 
@@ -120,6 +128,7 @@ describe("SwapService", () => {
         buyOrderService = module.get(BuyOrderService);
         redisCache = module.get(RedisCacheService);
         rateService = module.get(RateService);
+        tradeHelpers = module.get(TradeHelpersService);
     });
 
     afterEach(() => jest.clearAllMocks());
@@ -215,14 +224,35 @@ describe("SwapService", () => {
         });
 
         it("should throw when quote expired", async () => {
-            redisCache.getDel.mockResolvedValue(null);
+            redisCache.get.mockResolvedValue(null);
 
             await expect(
                 service.confirmInstantSwapQuote(mockUser, { quotationId: "q-1" } as any),
             ).rejects.toThrow();
         });
 
+        it("should validate minimum swap amount before consuming the quote", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
+            tradeHelpers.validateMinimumAmountInUSDT.mockRejectedValue(
+                new Error("Minimum swap amount is 10 USDT equivalent."),
+            );
+
+            await expect(
+                service.confirmInstantSwapQuote(mockUser, { quotationId: "quote-1" } as any),
+            ).rejects.toThrow("Minimum swap amount is 10 USDT equivalent.");
+
+            expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
+                quoteData.from_amount,
+                quoteData.from_currency,
+                MIN_SWAP_AMOUNT_USDT,
+                "swap",
+            );
+            expect(redisCache.getDel).not.toHaveBeenCalled();
+            expect(prisma.order.create).not.toHaveBeenCalled();
+        });
+
         it("should return existing order for duplicate quotation", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
             redisCache.getDel.mockResolvedValue(quoteData);
             prisma.order.findFirst.mockResolvedValue({ id: 99, transactionId: "TX-99" });
 
@@ -235,6 +265,7 @@ describe("SwapService", () => {
         });
 
         it("should execute sell and buy legs on success", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
             redisCache.getDel.mockResolvedValue(quoteData);
             prisma.order.findFirst.mockResolvedValue(null);
             prisma.order.create.mockResolvedValue({
@@ -270,6 +301,7 @@ describe("SwapService", () => {
         });
 
         it("should rollback on buy leg failure", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
             redisCache.getDel.mockResolvedValue(quoteData);
             prisma.order.findFirst.mockResolvedValue(null);
             prisma.order.create.mockResolvedValue({

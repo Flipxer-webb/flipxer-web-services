@@ -22,6 +22,7 @@ import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { MIN_SELL_AMOUNT_USDT } from "@/modules/api/trade/constants";
 
 function makePrisma() {
     return {
@@ -51,6 +52,7 @@ describe("SellOrderService", () => {
         releaseHoldWithPlatformEntry: jest.Mock;
         pairedCredit: jest.Mock;
     };
+    let tradeHelpers: { validateMinimumAmountInUSDT: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -63,6 +65,7 @@ describe("SellOrderService", () => {
         };
         const mockTradeHelpers = {
             calculateFee: jest.fn(),
+            validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
             normalizeNetworkInput: jest.fn((network?: string | null) =>
                 network?.trim().toLowerCase() ?? null,
             ),
@@ -111,6 +114,7 @@ describe("SellOrderService", () => {
 
         service = module.get(SellOrderService);
         ledgerService = module.get(LedgerService);
+        tradeHelpers = module.get(TradeHelpersService);
     });
 
     afterEach(() => jest.clearAllMocks());
@@ -201,6 +205,25 @@ describe("SellOrderService", () => {
                 depositAddress: "addr-1",
                 defaultNetwork: "btc",
             });
+        });
+
+        it("rejects sell orders below the minimum before idempotency and hold checks", async () => {
+            tradeHelpers.validateMinimumAmountInUSDT.mockRejectedValue(
+                new Error("Minimum sell amount is 3 USDT equivalent."),
+            );
+
+            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow(
+                "Minimum sell amount is 3 USDT equivalent.",
+            );
+
+            expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
+                dto.amount,
+                dto.asset,
+                MIN_SELL_AMOUNT_USDT,
+                "sell",
+            );
+            expect(prisma.order.findFirst).not.toHaveBeenCalled();
+            expect(ledgerService.hold).not.toHaveBeenCalled();
         });
 
         it("should return existing order on duplicate idempotency key", async () => {

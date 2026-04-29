@@ -372,7 +372,7 @@ export class BuyOrderService {
         }
 
         // Minimum amount validation
-        this.tradeHelpers.validateMinimumAmountInUSDT(dto.amount, dto.asset, MIN_BUY_AMOUNT_USDT, "buy");
+        await this.tradeHelpers.validateMinimumAmountInUSDT(dto.amount, dto.asset, MIN_BUY_AMOUNT_USDT, "buy");
 
 
         // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset + amount

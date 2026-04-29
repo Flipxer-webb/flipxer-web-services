@@ -20,7 +20,7 @@ import {
     RefreshInstantSwapRequestDto,
     ConfirmInstantSwapQuoteDto,
 } from "../dtos";
-import { QUOTE_EXPIRY_MS } from "../constants";
+import { MIN_SWAP_AMOUNT_USDT, QUOTE_EXPIRY_MS } from "../constants";
 import { SellOrderService } from "./sell-order.service";
 import { BuyOrderService } from "./buy-order.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -32,6 +32,7 @@ import { WalletManagementService } from "../../operations/services/wallet-manage
 import { getStreamlinedStatus } from "../interfaces/trade";
 import { FailedRollbackQueueService } from "./failed-rollback-queue.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { TradeHelpersService } from "./trade-helpers.service";
 
 /**
  * Swap Service
@@ -60,7 +61,8 @@ export class SwapService {
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly failedRollbackQueueService: FailedRollbackQueueService,
-        private readonly distributedLockService: DistributedLockService
+        private readonly distributedLockService: DistributedLockService,
+        private readonly tradeHelpers: TradeHelpersService
     ) { }
 
     /**
@@ -204,8 +206,26 @@ export class SwapService {
             );
         }
 
-        // 1. Atomic Read-and-Burn of Quote (Idempotency)
-        const quote = await this.redisCacheService.getDel<any>(`swap_quote:${dto.quotationId}`);
+        const quoteKey = `swap_quote:${dto.quotationId}`;
+
+        // 1. Load the quote for validation without consuming it.
+        const quotePreview = await this.redisCacheService.get<any>(quoteKey);
+
+        if (!quotePreview) {
+            throw new TransactionExpiredException(
+                "Swap quote expired or already processed. Please refresh."
+            );
+        }
+
+        await this.tradeHelpers.validateMinimumAmountInUSDT(
+            Number(quotePreview.from_amount),
+            quotePreview.from_currency,
+            MIN_SWAP_AMOUNT_USDT,
+            "swap",
+        );
+
+        // 2. Consume the quote atomically after validation passes.
+        const quote = await this.redisCacheService.getDel<any>(quoteKey);
 
         if (!quote) {
             throw new TransactionExpiredException(
@@ -213,7 +233,7 @@ export class SwapService {
             );
         }
 
-        // 2. Transaction Limit Check
+        // 3. Transaction Limit Check
         // Use the source crypto currency and amount for validation
         await this.transactionService.validateTransaction(
             user,
@@ -223,7 +243,7 @@ export class SwapService {
             "swap"
         );
 
-        // 3. Create Pending "Order-First" Record
+        // 4. Create Pending "Order-First" Record
         // We create one atomic SWAP order record.
         const reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });

@@ -166,10 +166,11 @@ export const EXTENDED_TRANSACTION_TIMEOUT_MS = 40000;
 export const DEFAULT_TRANSACTION_MAX_WAIT_MS = 5000;
 
 /**
- * Minimum buy size expressed in USDT-equivalent.
- * A zero default preserves current behavior until a product threshold is defined.
+ * Minimum trade sizes expressed in USDT-equivalent.
  */
-export const MIN_BUY_AMOUNT_USDT = 0;
+export const MIN_BUY_AMOUNT_USDT = 3;
+export const MIN_SELL_AMOUNT_USDT = 3;
+export const MIN_SWAP_AMOUNT_USDT = 10;
 
 // ==================== TIER & LIMITS ====================
 

@@ -19,6 +19,7 @@ import { BankDetailNotFoundException } from "../../banks/errors";
 import { SellQuoteResponse, getStreamlinedStatus } from "../interfaces/trade";
 import { InitiateSellOrderDto, SellCryptoOrderDto } from "../dtos";
 import { WsGateway } from "../gateway/v1";
+import { TradeHelpersService } from "./trade-helpers.service";
 import { WalletAddressService } from "./wallet-address.service";
 import { WalletManagementService } from "../../operations/services/wallet-management.service";
 import { WithdrawalWebhookHandler } from "./webhook-handlers/withdrawal-webhook.handler";
@@ -26,6 +27,7 @@ import { LedgerService } from "./ledger/ledger.service";
 import { TransactionMonitorService } from "./ledger/transaction-monitor.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { MIN_SELL_AMOUNT_USDT } from "../constants";
 
 /**
  * Sell Order Service
@@ -42,7 +44,7 @@ export class SellOrderService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly wsGateway: WsGateway,
-
+        private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
         private readonly walletManagementService: WalletManagementService,
         private readonly withdrawalWebhookHandler: WithdrawalWebhookHandler,
@@ -206,6 +208,13 @@ export class SellOrderService {
             `trade:sell:${user.id}`,
             async () => {
         const responseData = await this.calculateSellQuote(user, dto, true);
+
+        await this.tradeHelpers.validateMinimumAmountInUSDT(
+            dto.amount,
+            dto.asset,
+            MIN_SELL_AMOUNT_USDT,
+            "sell",
+        );
 
         // IDEMPOTENCY CHECK (TASK-008)
         // Check if an order with this idempotency key already exists to prevent double debits
