@@ -48,7 +48,8 @@ describe("TradingFactory", () => {
     });
 
     it("buildQuidaxService creates QuidaxLib and QuidaxService", () => {
-        const factory = new TradingFactory(tradingConfig);
+        const requestBudget = { assertAllowed: jest.fn(), noteThrottle: jest.fn() };
+        const factory = new TradingFactory(tradingConfig, requestBudget as any);
 
         const service = factory.buildQuidaxService() as any;
 
@@ -57,6 +58,7 @@ describe("TradingFactory", () => {
             api_secret: "secret-key",
             baseURL: "https://api.quidax.test",
             rampBaseURL: "https://ramp.quidax.test",
+            requestBudget,
         });
         expect(quidaxServiceCtor).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -144,7 +146,7 @@ describe("TradingFactory", () => {
         }
     });
 
-    it("logs missing config details when baseUrl or secret is absent", () => {
+    it("throws when required Quidax config is missing", () => {
         const loggerErrorSpy = jest
             .spyOn(Logger.prototype, "error")
             .mockImplementation(() => undefined);
@@ -158,7 +160,9 @@ describe("TradingFactory", () => {
             },
         } as any);
 
-        factory.buildQuidaxService();
+        expect(() => factory.buildQuidaxService()).toThrow(
+            "Missing Quidax configuration: baseUrl and api_secret are required",
+        );
 
         expect(loggerErrorSpy).toHaveBeenCalled();
         loggerErrorSpy.mockRestore();

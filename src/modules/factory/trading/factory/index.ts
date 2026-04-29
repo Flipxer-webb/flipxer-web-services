@@ -4,6 +4,7 @@ import { QuidaxTradingProvider } from "../providers/quidax/quidax-trading-provid
 import { MockQuidaxTradingProvider } from "../providers/mock/mock-trading-provider";
 import { SafeQuidaxTradingProvider } from "../providers/safe/safe-trading-provider";
 import { QuidaxLib } from "@/libs/quidax";
+import type { QuidaxRequestBudget } from "@/libs/quidax";
 import { TradingConfig } from "@/config";
 import { Logger } from "@nestjs/common";
 import { ITradingProvider } from "../interfaces/trading-provider.interface";
@@ -11,7 +12,10 @@ import { ITradingProvider } from "../interfaces/trading-provider.interface";
 const logger = new Logger("TradingFactory");
 
 export class TradingFactory implements t.ITradingFactory {
-    constructor(private readonly tradingConfig: TradingConfig) {}
+    constructor(
+        private readonly tradingConfig: TradingConfig,
+        private readonly requestBudget?: QuidaxRequestBudget,
+    ) {}
 
     buildQuidaxService(): QuidaxService {
         return this.createQuidaxService();
@@ -61,22 +65,26 @@ export class TradingFactory implements t.ITradingFactory {
      */
     private createQuidaxService(): QuidaxService {
         const quidaxConfig = this.tradingConfig.quidax;
-        
+
         // Debug: Log if Quidax config is properly loaded
         const hasBaseUrl = !!quidaxConfig.baseUrl;
         const hasApiSecret = !!quidaxConfig.api_secret;
         const hasApiPublic = !!quidaxConfig.api_public;
         logger.log(`Quidax config check - baseUrl: ${hasBaseUrl}, api_secret: ${hasApiSecret}, api_public: ${hasApiPublic}`);
-        
+
         if (!hasBaseUrl || !hasApiSecret) {
-            logger.error(`MISSING QUIDAX CONFIG! baseUrl=${quidaxConfig.baseUrl?.substring(0, 20) || 'EMPTY'}, api_secret=${hasApiSecret ? 'SET' : 'MISSING'}`);
+            const errorMessage = `Missing Quidax configuration: baseUrl and api_secret are required (baseUrl=${hasBaseUrl ? "SET" : "MISSING"}, api_secret=${hasApiSecret ? "SET" : "MISSING"})`;
+
+            logger.error(errorMessage);
+            throw new Error(errorMessage);
         }
-        
+
         const quidax = new QuidaxLib({
             api_public: quidaxConfig.api_public,
             api_secret: quidaxConfig.api_secret,
             baseURL: quidaxConfig.baseUrl,
             rampBaseURL: quidaxConfig.rampBaseUrl,
+            ...(this.requestBudget ? { requestBudget: this.requestBudget } : {}),
         });
 
         return new QuidaxService(quidax);

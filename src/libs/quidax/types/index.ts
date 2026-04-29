@@ -15,6 +15,14 @@ export interface QuidaxOptions {
     rampBaseURL: string;
     api_public: string;
     api_secret: string;
+    requestBudget?: QuidaxRequestBudget;
+}
+
+export type QuidaxRequestBudgetBucket = "main" | "wallet-address";
+
+export interface QuidaxRequestBudget {
+    assertAllowed(bucket: QuidaxRequestBudgetBucket): Promise<void>;
+    noteThrottle(bucket: QuidaxRequestBudgetBucket): Promise<void>;
 }
 
 export interface InstantOrdersRequeryOptions {

@@ -1,13 +1,18 @@
 const mockMainAxios = jest.fn();
 const mockRampAxios = jest.fn();
 const mockAxiosCreate = jest.fn();
+const mockIsAxiosError = jest.fn(
+    (value: unknown) => Boolean(value && typeof value === "object" && "response" in value),
+);
 
 jest.mock("axios", () => ({
     __esModule: true,
     default: {
         create: mockAxiosCreate,
+        isAxiosError: mockIsAxiosError,
     },
     create: mockAxiosCreate,
+    isAxiosError: mockIsAxiosError,
 }));
 
 import { QuidaxLib } from "../index";
@@ -35,19 +40,32 @@ const makeResponse = (data?: any) => {
 
 describe("QuidaxLib", () => {
     let lib: QuidaxLib;
+    let requestBudget: {
+        assertAllowed: jest.Mock;
+        noteThrottle: jest.Mock;
+    };
 
     beforeEach(() => {
         jest.clearAllMocks();
+        mockIsAxiosError.mockImplementation(
+            (value: unknown) => Boolean(value && typeof value === "object" && "response" in value),
+        );
 
         mockAxiosCreate
             .mockReset()
             .mockReturnValueOnce(mockMainAxios)
             .mockReturnValueOnce(mockRampAxios);
 
+        requestBudget = {
+            assertAllowed: jest.fn().mockResolvedValue(undefined),
+            noteThrottle: jest.fn().mockResolvedValue(undefined),
+        };
+
         lib = new QuidaxLib({
             baseURL: "https://quidax.example/api/v1",
             rampBaseURL: "https://ramp.example/api/v1/merchants",
             api_secret: "secret",
+            requestBudget,
         } as any);
     });
 
@@ -359,6 +377,35 @@ describe("QuidaxLib", () => {
             message: "500",
         });
         await expect(lib.getAllSubAccounts()).rejects.toBeInstanceOf(QuidaxGenericError);
+    });
+
+    it("blocks before sending requests when the shared budget is exhausted", async () => {
+        requestBudget.assertAllowed.mockRejectedValueOnce(
+            new QuidaxTooManyRequestError("cooldown active"),
+        );
+
+        await expect(lib.getAllSubAccounts()).rejects.toBeInstanceOf(QuidaxTooManyRequestError);
+        expect(requestBudget.assertAllowed).toHaveBeenCalledWith("main");
+        expect(mockMainAxios).not.toHaveBeenCalled();
+    });
+
+    it("uses the wallet-address budget bucket for address generation", async () => {
+        mockMainAxios.mockResolvedValueOnce(makeResponse());
+
+        await lib.createPaymentAddress({ user_id: VALID_USER_ID, currency: "eth" } as any);
+
+        expect(requestBudget.assertAllowed).toHaveBeenCalledWith("wallet-address");
+    });
+
+    it("records shared cooldown state when Quidax throttles a request", async () => {
+        mockMainAxios.mockRejectedValueOnce({
+            response: { status: 429, data: { message: "too many" } },
+            config: { url: "/users" },
+            message: "429",
+        });
+
+        await expect(lib.getAllSubAccounts()).rejects.toBeInstanceOf(QuidaxTooManyRequestError);
+        expect(requestBudget.noteThrottle).toHaveBeenCalledWith("main");
     });
 
     it("raises generic errors for empty payload responses across endpoints", async () => {
