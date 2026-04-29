@@ -41,13 +41,23 @@ export class NotificationEvent extends EventEmitter {
 
         if (
             error === null ||
-            error === undefined ||
+            error === undefined
+        ) {
+            return error === null ? "null" : "undefined";
+        }
+
+        if (
             typeof error === "number" ||
             typeof error === "boolean" ||
-            typeof error === "bigint" ||
-            typeof error === "symbol"
+            typeof error === "bigint"
         ) {
-            return String(error);
+            return error.toString();
+        }
+
+        if (typeof error === "symbol") {
+            return error.description
+                ? `Symbol(${error.description})`
+                : "Symbol()";
         }
 
         try {
