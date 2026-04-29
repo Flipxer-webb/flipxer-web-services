@@ -57,4 +57,54 @@ describe("EmailService", () => {
         ).rejects.toThrow("template send failed");
         expect(errorSpy).toHaveBeenCalled();
     });
+
+    it("logs nested provider error details for non-Error failures", async () => {
+        const err = {
+            error: {
+                message: "provider rejected request",
+                details: { code: "550", reason: "mailbox unavailable" },
+            },
+        };
+        client.sendMailWithTemplate.mockRejectedValue(err);
+        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+
+        await expect(
+            service.sendMailWithTemplate({ to: [{ email_address: { address: "bad@test.com" } }], template_key: "x" } as never),
+        ).rejects.toEqual(err);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+            'Failed to send email: provider rejected request details={"code":"550","reason":"mailbox unavailable"}',
+            undefined,
+        );
+    });
+
+    it("prefers a top-level message on non-Error failures", async () => {
+        const err = { message: "temporary outage" };
+        client.sendMailWithTemplate.mockRejectedValue(err);
+        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+
+        await expect(
+            service.sendMailWithTemplate({ to: [{ email_address: { address: "bad@test.com" } }], template_key: "x" } as never),
+        ).rejects.toEqual(err);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+            "Failed to send email: temporary outage",
+            undefined,
+        );
+    });
+
+    it("falls back to stringifying unknown non-Error failures", async () => {
+        const err = { status: 503, retryable: true };
+        client.sendMailWithTemplate.mockRejectedValue(err);
+        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+
+        await expect(
+            service.sendMailWithTemplate({ to: [{ email_address: { address: "bad@test.com" } }], template_key: "x" } as never),
+        ).rejects.toEqual(err);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+            'Failed to send email: {"status":503,"retryable":true}',
+            undefined,
+        );
+    });
 });
