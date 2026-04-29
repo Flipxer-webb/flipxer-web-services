@@ -1,5 +1,10 @@
 import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
-import { SUPPORTED_TRADE_ASSETS } from "@/modules/api/trade/constants";
+import {
+    MIN_BUY_AMOUNT_USDT,
+    MIN_SELL_AMOUNT_USDT,
+    MIN_SWAP_AMOUNT_USDT,
+    SUPPORTED_TRADE_ASSETS,
+} from "@/modules/api/trade/constants";
 import { createHmac } from "node:crypto";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -797,7 +802,13 @@ export class UserService {
         const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
 
         // Merge data into asset response
-        const responseData: DataWithPagination<any> = {
+        const responseData: DataWithPagination<any> & {
+            tradeMinimums: {
+                buy: number;
+                sell: number;
+                swap: number;
+            };
+        } = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
@@ -806,6 +817,11 @@ export class UserService {
                     paginatedAssets.length
                 ),
             }),
+            tradeMinimums: {
+                buy: MIN_BUY_AMOUNT_USDT,
+                sell: MIN_SELL_AMOUNT_USDT,
+                swap: MIN_SWAP_AMOUNT_USDT,
+            },
             records: paginatedAssets.map((asset) => {
                 const assetCurrency = asset.assetCurrency.toLowerCase();
                 const assetCurrencyUpper = asset.assetCurrency.toUpperCase();

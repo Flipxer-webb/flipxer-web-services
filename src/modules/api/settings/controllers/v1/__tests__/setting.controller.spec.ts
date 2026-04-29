@@ -57,12 +57,7 @@ jest.mock("@/modules/core/rate-limit/guards/rate-limiter.guard", () => ({
     __esModule: true,
 }));
 
-import {
-    settingsSecuritySendOtpRateLimit,
-    settingsSecuritySendOtpWindowSeconds,
-    settingsSecurityVerifyRateLimit,
-    settingsSecurityVerifyWindowSeconds,
-} from "@/config";
+import { settingsSecuritySendOtpRateLimit, settingsSecuritySendOtpWindowSeconds, settingsSecurityVerifyRateLimit, settingsSecurityVerifyWindowSeconds } from "@/config";
 import { RATE_LIMIT_KEY } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { SettingController } from "../index";
 
