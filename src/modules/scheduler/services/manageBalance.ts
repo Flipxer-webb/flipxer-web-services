@@ -16,6 +16,7 @@ export class AssetBalanceSchedulerService {
     private readonly walletAddressPendingMaxAgeMs = 30 * 60 * 1000;
     private readonly balanceSyncLockKey = "job:quidax-balance-sync:process";
     private readonly balanceSyncLockTtlMs = 20 * 60 * 1000;
+    private readonly activeSyncWindowDays = 7;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -71,7 +72,7 @@ export class AssetBalanceSchedulerService {
                 "Acquired lock: Running quidax asset balance sync job"
             );
 
-            const users = await this.getAllUserIdsWithSubAccounts();
+            const users = await this.getEligibleUserIdsForBalanceSync();
 
             const batchSize = 100;
 
@@ -201,8 +202,10 @@ export class AssetBalanceSchedulerService {
         }
     }
 
-    async getAllUserIdsWithSubAccounts(): Promise<number[]> {
+    async getEligibleUserIdsForBalanceSync(): Promise<number[]> {
         const batchSize = 1000;
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - this.activeSyncWindowDays);
         let hasMore = true;
         let lastId: number | null = null;
         const allUserIds: number[] = [];
@@ -211,6 +214,10 @@ export class AssetBalanceSchedulerService {
             const users = await this.prisma.user.findMany({
                 where: {
                     cryptoSubAccountId: { not: null },
+                    OR: [
+                        { lastLogin: { gte: cutoff } },
+                        { createdAt: { gte: cutoff } },
+                    ],
                     ...(lastId && { id: { gt: lastId } }), // for cursor-like pagination
                 },
                 orderBy: { id: "asc" },
@@ -296,7 +303,7 @@ export class AssetBalanceSchedulerService {
      */
     async getRecentlyActiveUsersWithSubAccounts(): Promise<number[]> {
         const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - this.activeSyncWindowDays);
 
         const users = await this.prisma.user.findMany({
             where: {

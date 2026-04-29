@@ -66,7 +66,7 @@ describe("AssetBalanceSchedulerService", () => {
     it("syncAllQuidaxAssetBalance enqueues users and releases lock", async () => {
         const release = jest.fn();
         (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
-        jest.spyOn(service, "getAllUserIdsWithSubAccounts").mockResolvedValue([1, 2, 3]);
+        jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([1, 2, 3]);
 
         await service.syncAllQuidaxAssetBalance();
 
@@ -92,7 +92,7 @@ describe("AssetBalanceSchedulerService", () => {
     it("syncAllQuidaxAssetBalance still releases lock when queueing fails", async () => {
         const release = jest.fn();
         (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
-        jest.spyOn(service, "getAllUserIdsWithSubAccounts").mockResolvedValue([1]);
+        jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([1]);
         cryptoAccountProducer.enqueueSyncBalance.mockRejectedValue(new Error("queue down"));
 
         await service.syncAllQuidaxAssetBalance();
@@ -210,7 +210,7 @@ describe("AssetBalanceSchedulerService", () => {
         expect(release).toHaveBeenCalledTimes(1);
     });
 
-    it("getAllUserIdsWithSubAccounts paginates until exhausted", async () => {
+    it("getEligibleUserIdsForBalanceSync paginates eligible users until exhausted", async () => {
         const firstBatch = Array.from({ length: 1000 }, (_, i) => ({ id: i + 1 }));
         const secondBatch = [{ id: 1001 }, { id: 1002 }];
 
@@ -219,9 +219,21 @@ describe("AssetBalanceSchedulerService", () => {
             .mockResolvedValueOnce(secondBatch)
             .mockResolvedValueOnce([]);
 
-        const result = await service.getAllUserIdsWithSubAccounts();
+        const result = await service.getEligibleUserIdsForBalanceSync();
 
         expect(prisma.user.findMany).toHaveBeenCalledTimes(2);
+        expect(prisma.user.findMany).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    cryptoSubAccountId: { not: null },
+                    OR: [
+                        { lastLogin: { gte: expect.any(Date) } },
+                        { createdAt: { gte: expect.any(Date) } },
+                    ],
+                }),
+            }),
+        );
         expect(result).toHaveLength(1002);
         expect(result[0]).toBe(1);
         expect(result.at(-1)).toBe(1002);
