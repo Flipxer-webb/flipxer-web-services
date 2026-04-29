@@ -1731,6 +1731,9 @@ describe("AuthService", () => {
 
         const base2FAUser = {
             id: 1,
+            email: "twofactor@example.com",
+            firstName: "Ada",
+            loginCount: 4,
             twoFactorSecret: "encrypted-secret",
             isTwoFactorEnabled: true,
             userType: "INDIVIDUAL",
@@ -1741,6 +1744,7 @@ describe("AuthService", () => {
             isDocumentVerified: false,
             businessRecordCompleted: false,
             businessDocumentVerificationStatus: null,
+            role: null,
         };
 
         it("rejects invalid or expired temporary 2FA token", async () => {
@@ -1847,6 +1851,24 @@ describe("AuthService", () => {
             expect((service as any).twoFactorRateLimitService.recordSuccessfulAttempt).toHaveBeenCalledWith("1", "login");
             expect(saveSpy).toHaveBeenCalledWith(1, "2fa-refresh");
             expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER" });
+            expect(prisma.user.update).toHaveBeenCalledWith({
+                where: { id: 1 },
+                data: {
+                    ipAddress: "127.0.0.1",
+                    loginCount: 5,
+                    lastLogin: expect.any(Date),
+                },
+            });
+            expect(notificationEvent.emit).toHaveBeenCalledWith(
+                "login_notification",
+                expect.objectContaining({
+                    email: "twofactor@example.com",
+                    userId: 1,
+                    name: "Ada",
+                    ipAddress: "127.0.0.1",
+                    userAgent: "Chrome - desktop - Chrome - Windows",
+                }),
+            );
 
             generateSpy.mockRestore();
             saveSpy.mockRestore();

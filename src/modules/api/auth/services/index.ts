@@ -3621,6 +3621,9 @@ export class AuthService {
             where: { id: payload.sub },
             select: {
                 id: true,
+                email: true,
+                firstName: true,
+                loginCount: true,
                 twoFactorSecret: true,
                 isTwoFactorEnabled: true,
                 userType: true,
@@ -3705,48 +3708,14 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-       
-        // Admin platform: return enriched response with permissions
-        if (payload.platform === LoginPlatform.ADMIN) {
-            const permissions = this.buildAdminPermissions(user);
+        await this.recordSuccessfulLogin(user, ip, dto);
 
-            return buildResponse({
-                message: "Login successful",
-                data: {
-                    accessToken: tokens.accessToken,
-                    refreshToken: tokens.refreshToken,
-                    userType: user.userType,
-                    role: user.role ? { name: user.role.name, slug: (user.role as any).slug } : null,
-                    permissions,
-                },
-            });
-        }
-
-        const verificationStatus: VerificationStatus = {
-            isEmailVerified: user.isEmailVerified,
-            isPhoneVerified: user.isPhoneVerified,
-            isPasswordCreated: user.isPasswordCreated,
-            isBvnVerified: user.isBvnVerified,
-            isDocumentVerified: user.isDocumentVerified,
-        };
-
-        if (user.userType.toLowerCase() === "business") {
-            verificationStatus.businessRecordCompleted =
-                user.businessRecordCompleted;
-            verificationStatus.businessDocumentVerificationStatus =
-                user.businessDocumentVerificationStatus || null;
-        }
-
-        return buildResponse({
-            message: "Login successful",
-            data: {
-                accessToken: tokens.accessToken,
-                refreshToken: tokens.refreshToken,
-                sessionId,
-                userType: user.userType.toLowerCase(),
-                verificationStatus,
-            },
-        });
+        return this.buildSuccessfulSignInResponse(
+            user,
+            payload.platform,
+            tokens,
+            sessionId,
+        );
     }
 
     /**

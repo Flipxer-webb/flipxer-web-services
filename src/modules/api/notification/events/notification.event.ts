@@ -39,12 +39,26 @@ export class NotificationEvent extends EventEmitter {
             return error;
         }
 
-        try {
-            const serialized = JSON.stringify(error);
-            return serialized ?? String(error);
-        } catch {
+        if (
+            error === null ||
+            error === undefined ||
+            typeof error === "number" ||
+            typeof error === "boolean" ||
+            typeof error === "bigint" ||
+            typeof error === "symbol"
+        ) {
             return String(error);
         }
+
+        try {
+            const serialized = JSON.stringify(error);
+            if (serialized) {
+                return serialized;
+            }
+        } catch {
+        }
+
+        return "Unserializable error object";
     }
 
     async sendTransactionNotification(options: t.SendTransactionNotification) {

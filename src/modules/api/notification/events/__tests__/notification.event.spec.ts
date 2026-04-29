@@ -1091,6 +1091,18 @@ describe("NotificationEvent", () => {
             loggerSpy.mockRestore();
         });
 
+        it("serializes object exceptions without logging [object Object]", async () => {
+            emailService.sendMailWithTemplate.mockRejectedValue({ detail: "SMTP failed", retryable: false });
+            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+
+            await expect(event.sendLoginNotification(baseLoginPayload)).resolves.toBeUndefined();
+            expect(loggerSpy).toHaveBeenCalledWith(
+                expect.stringContaining('{"detail":"SMTP failed","retryable":false}')
+            );
+
+            loggerSpy.mockRestore();
+        });
+
         it("emits login_notification event and triggers email", async () => {
             event.emit("login_notification", baseLoginPayload);
             await new Promise((resolve) => setTimeout(resolve, 100));
