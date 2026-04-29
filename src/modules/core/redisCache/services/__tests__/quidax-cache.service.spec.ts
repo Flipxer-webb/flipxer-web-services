@@ -123,6 +123,26 @@ describe("QuidaxCacheService", () => {
         expect(result).toEqual({});
     });
 
+    it("uses the last successful in-memory market data when stale cache expires", async () => {
+        redisCacheService.get.mockResolvedValueOnce(null);
+        quidaxService.getMarketTickers.mockResolvedValueOnce({
+            data: { btcngn: { buy: "9000" } },
+        });
+
+        await expect(service.getMarketTickers()).resolves.toEqual({
+            btcngn: { buy: "9000" },
+        });
+
+        redisCacheService.get
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+        quidaxService.getMarketTickers.mockRejectedValueOnce(new Error("timeout"));
+
+        await expect(service.getMarketTickers()).resolves.toEqual({
+            btcngn: { buy: "9000" },
+        });
+    });
+
     it("handles API response without data payload", async () => {
         redisCacheService.get.mockResolvedValueOnce(null);
         quidaxService.getMarketTickers.mockResolvedValue({});
