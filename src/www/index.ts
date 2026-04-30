@@ -134,6 +134,12 @@ export default async function createServer(
                         "https://api.livecoinwatch.com",
                         "https://api.coingecko.com",
                         "wss://*.intercom.io",
+                        // Firebase domains for push notifications
+                        "https://firebaseinstallations.googleapis.com",
+                        "https://fcm.googleapis.com",
+                        "https://*.firebaseio.com",
+                        "https://*.googleapis.com",
+                        "https://securetoken.googleapis.com",
                     ],
                     fontSrc: ["'self'", "https://fonts.gstatic.com"],
                     objectSrc: ["'none'"],
