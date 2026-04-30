@@ -1117,8 +1117,11 @@ export class UserService {
         }
 
         // Invalidate profile cache
-        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
-
+        try{
+            await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        } catch (error) {
+            this.logger.warn(`Failed to invalidate profile cache for user ${user.id}: ${error?.message || error}`);
+        }
         return {
             message: token
                 ? "Push notifications enabled"

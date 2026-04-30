@@ -39,12 +39,19 @@ describe('UserService', () => {
         user: {
             findUnique: jest.fn(),
             findFirst: jest.fn(),
+            update: jest.fn(),
+            updateMany: jest.fn(),
         },
         assetWallet: {
             findFirst: jest.fn(),
         },
         kycVerification: {
             findFirst: jest.fn(),
+        },
+        deviceToken: {
+            upsert: jest.fn(),
+            deleteMany: jest.fn(),
+            findMany: jest.fn(),
         },
     };
 
@@ -64,6 +71,20 @@ describe('UserService', () => {
     };
 
     beforeEach(async () => {
+        jest.clearAllMocks();
+
+        mockPrismaService.deviceToken.upsert.mockResolvedValue({
+            userId: 26,
+            token: 'token-abc',
+            deviceName: 'Test Device',
+            platform: 'web',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        });
+        mockPrismaService.user.update.mockResolvedValue({});
+        mockPrismaService.deviceToken.deleteMany.mockResolvedValue({ count: 1 });
+        mockRedisCacheService.del.mockResolvedValue(1);
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 UserService,
@@ -436,6 +457,232 @@ describe('UserService', () => {
 
             expect(result.data.verificationRequirements.nextStep).toBe('IDENTITY_DOCUMENT');
             expect(mockPrismaService.kycVerification.findFirst).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('updateNotificationToken', () => {
+        const mockUser = {
+            id: 26,
+            firstName: 'Test',
+            lastName: 'User',
+            email: 'test@example.com',
+            password: 'hashed-password',
+            status: 'active',
+            userType: UserType.INDIVIDUAL,
+        } as any;
+
+        beforeEach(() => {
+            jest.clearAllMocks();
+            mockPrismaService.deviceToken.upsert.mockResolvedValue({});
+            mockPrismaService.user.update.mockResolvedValue({});
+            mockPrismaService.deviceToken.deleteMany.mockResolvedValue({ count: 1 });
+            mockRedisCacheService.del.mockResolvedValue(1);
+        });
+
+        it('should enable push notifications and persist both device token and legacy token', async () => {
+            const result = await service.updateNotificationToken(
+                mockUser,
+                'token-abc',
+                'Chrome',
+                'web',
+            );
+
+            expect(mockPrismaService.deviceToken.upsert).toHaveBeenCalledWith({
+                where: {
+                    userId_token: { userId: mockUser.id, token: 'token-abc' },
+                },
+                update: {
+                    deviceName: 'Chrome',
+                    platform: 'web',
+                },
+                create: {
+                    userId: mockUser.id,
+                    token: 'token-abc',
+                    deviceName: 'Chrome',
+                    platform: 'web',
+                },
+            });
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+                where: { id: mockUser.id },
+                data: { notificationToken: 'token-abc' },
+            });
+            expect(mockRedisCacheService.del).toHaveBeenCalledWith(`user:profile:${mockUser.id}`);
+            expect(result.message).toContain('enabled');
+        });
+
+        it('should gracefully handle Redis invalidation failure after enabling push', async () => {
+            const redisError = new Error('Redis unavailable');
+            mockRedisCacheService.del.mockRejectedValueOnce(redisError);
+
+            const warnSpy = jest.spyOn(service['logger'], 'warn');
+            const result = await service.updateNotificationToken(mockUser, 'token-abc');
+
+            expect(result.message).toContain('enabled');
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`Failed to invalidate profile cache for user ${mockUser.id}`),
+            );
+            expect(mockPrismaService.deviceToken.upsert).toHaveBeenCalled();
+            expect(mockPrismaService.user.update).toHaveBeenCalled();
+        });
+
+        it('should disable push notifications and remove device tokens', async () => {
+            const result = await service.updateNotificationToken(mockUser, null);
+
+            expect(mockPrismaService.deviceToken.deleteMany).toHaveBeenCalledWith({
+                where: { userId: mockUser.id },
+            });
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+                where: { id: mockUser.id },
+                data: { notificationToken: null },
+            });
+            expect(mockRedisCacheService.del).toHaveBeenCalledWith(`user:profile:${mockUser.id}`);
+            expect(result.message).toContain('disabled');
+        });
+
+        it('should still succeed when DeviceToken upsert fails and fallback to legacy update', async () => {
+            mockPrismaService.deviceToken.upsert.mockRejectedValueOnce(new Error('upsert failed'));
+
+            const result = await service.updateNotificationToken(mockUser, 'legacy-token');
+
+            expect(result.message).toContain('enabled');
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+                where: { id: mockUser.id },
+                data: { notificationToken: 'legacy-token' },
+            });
+        });
+
+        it('should still return success when both DeviceToken upsert and Redis fail', async () => {
+            mockPrismaService.deviceToken.upsert.mockRejectedValueOnce(new Error('upsert failed'));
+            mockRedisCacheService.del.mockRejectedValueOnce(new Error('redis down'));
+
+            const result = await service.updateNotificationToken(mockUser, 'token-abc');
+
+            expect(result.message).toContain('enabled');
+            expect(mockPrismaService.user.update).toHaveBeenCalled();
+            expect(mockRedisCacheService.del).toHaveBeenCalled();
+        });
+
+        it('should return success (200 OK equivalent) even when Redis connection fails', async () => {
+            // Simulate Redis connection failure
+            const redisConnectionError = new Error('Redis connection refused');
+            mockRedisCacheService.del.mockRejectedValueOnce(redisConnectionError);
+            
+            // Spy on logger to verify Redis error is logged but not thrown
+            const warnSpy = jest.spyOn(service['logger'], 'warn');
+            
+            // Call the method, this should NOT throw an error
+            let thrownError = null;
+            let result = null;
+            
+            try {
+                result = await service.updateNotificationToken(
+                    mockUser,
+                    'test-token-123',
+                    'Chrome Browser',
+                    'web'
+                );
+            } catch (error) {
+                thrownError = error;
+            }
+                        
+            // No error was thrown (method succeeded)
+            expect(thrownError).toBeNull();
+            
+            // Method returned a success response (200 OK equivalent)
+            expect(result).toBeDefined();
+            expect(result.message).toBe('Push notifications enabled');
+            
+            // Database operations still succeeded despite Redis failure
+            expect(mockPrismaService.deviceToken.upsert).toHaveBeenCalled();
+            expect(mockPrismaService.user.update).toHaveBeenCalled();
+            
+            // Redis was attempted (proves we tried to use it)
+            expect(mockRedisCacheService.del).toHaveBeenCalledWith('user:profile:26');
+            
+            // Redis failure was logged as a warning (not an error that breaks the flow)
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining('Failed to invalidate profile cache for user 26')
+            );
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining('Redis connection refused')
+            );
+        });
+
+        // Multiple Redis failures
+        it('should handle multiple consecutive Redis failures gracefully', async () => {
+            // Simulate Redis failing multiple times
+            mockRedisCacheService.del.mockRejectedValue(new Error('Redis connection refused'));
+            
+            // Call the method multiple times
+            const results = await Promise.all([
+                service.updateNotificationToken(mockUser, 'token-1', 'Chrome', 'web'),
+                service.updateNotificationToken(mockUser, 'token-2', 'Firefox', 'web'),
+                service.updateNotificationToken(mockUser, 'token-3', 'Safari', 'web'),
+            ]);
+            
+            // All calls should succeed
+            results.forEach(result => {
+                expect(result.message).toBe('Push notifications enabled');
+            });
+            
+            // Redis was attempted each time
+            expect(mockRedisCacheService.del).toHaveBeenCalledTimes(3);
+            
+            // Database was updated each time
+            expect(mockPrismaService.user.update).toHaveBeenCalledTimes(3);
+        });
+
+        // DeviceToken fails but Redis also fails - should still succeed
+        it('should succeed when both DeviceToken upsert AND Redis fail', async () => {
+            // Simulate DeviceToken failure
+            mockPrismaService.deviceToken.upsert.mockRejectedValueOnce(
+                new Error('DeviceToken table constraint violation')
+            );
+            
+            // Simulate Redis failure
+            mockRedisCacheService.del.mockRejectedValueOnce(
+                new Error('Redis connection refused')
+            );
+            
+            const warnSpy = jest.spyOn(service['logger'], 'warn');
+            
+            const result = await service.updateNotificationToken(
+                mockUser,
+                'token-multi-fail',
+                'Chrome',
+                'web'
+            );
+            
+            // Should still return success (legacy token update should work)
+            expect(result.message).toBe('Push notifications enabled');
+            
+            // Both failures should be logged as warnings
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining('DeviceToken upsert failed')
+            );
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining('Failed to invalidate profile cache')
+            );
+            
+            // Legacy token update should still happen
+            expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+                where: { id: mockUser.id },
+                data: { notificationToken: 'token-multi-fail' },
+            });
+        });
+
+        it('should handle non-Error objects in Redis failure', async () => {
+            // Simulate Redis throwing a string (not an Error object)
+            mockRedisCacheService.del.mockRejectedValueOnce('Connection refused');
+            
+            const warnSpy = jest.spyOn(service['logger'], 'warn');
+            const result = await service.updateNotificationToken(mockUser, 'test-token');
+            
+            expect(result.message).toBe('Push notifications enabled');
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining('Failed to invalidate profile cache')
+            );
+           
         });
     });
 
