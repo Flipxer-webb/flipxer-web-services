@@ -694,16 +694,16 @@ export class SwapService {
             );
         }
 
-        if (!SWAP_ALLOWED_TARGET_CURRENCIES.has(to)) {
+         if (from === SWAP_TARGET_CURRENCY) {
             throw new GeneralTransactionException(
-                `Swap is only available to ${SWAP_TARGET_CURRENCY}. Please contact support for other pairs.`,
+                `${SWAP_TARGET_CURRENCY} swaps are limited to consolidation only. Please select a supported asset to swap into ${SWAP_TARGET_CURRENCY}`,
                 HttpStatus.BAD_REQUEST
             );
         }
 
-        if (from === SWAP_TARGET_CURRENCY) {
+        if (!SWAP_ALLOWED_TARGET_CURRENCIES.has(to)) {
             throw new GeneralTransactionException(
-                `${SWAP_TARGET_CURRENCY} swaps are limited to consolidation only. Please select a supported asset to swap into ${SWAP_TARGET_CURRENCY}`,
+                `Swap is only available to ${SWAP_TARGET_CURRENCY}. Please contact support for other pairs.`,
                 HttpStatus.BAD_REQUEST
             );
         }

@@ -107,7 +107,7 @@ describe("SwapService", () => {
         };
         const mockTradeHelpers = {
             ensureSupportedTradeAsset: jest.fn((asset: string) =>
-                String(asset).trim().toUpperCase()
+                String(asset).trim().toUpperCase(),
             ),
             validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
         };
@@ -191,7 +191,7 @@ describe("SwapService", () => {
                     from_amount: 1,
                 } as any),
             ).rejects.toThrow(
-                "Swap is only available to USDT. Please contact support for other pairs",
+                "USDT swaps are limited to consolidation only. Please select a supported asset to swap into USDT",
             );
             expect((prisma as any).swapPair.findUnique).not.toHaveBeenCalled();
         });
