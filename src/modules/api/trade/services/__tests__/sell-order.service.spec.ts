@@ -52,7 +52,10 @@ describe("SellOrderService", () => {
         releaseHoldWithPlatformEntry: jest.Mock;
         pairedCredit: jest.Mock;
     };
-    let tradeHelpers: { validateMinimumAmountInUSDT: jest.Mock };
+    let tradeHelpers: {
+        ensureSupportedTradeAsset: jest.Mock;
+        validateMinimumAmountInUSDT: jest.Mock;
+    };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -65,6 +68,9 @@ describe("SellOrderService", () => {
         };
         const mockTradeHelpers = {
             calculateFee: jest.fn(),
+            ensureSupportedTradeAsset: jest.fn((asset: string) =>
+                String(asset).trim().toUpperCase()
+            ),
             validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
             normalizeNetworkInput: jest.fn((network?: string | null) =>
                 network?.trim().toLowerCase() ?? null,
@@ -218,7 +224,7 @@ describe("SellOrderService", () => {
 
             expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
                 dto.amount,
-                dto.asset,
+                "BTC",
                 MIN_SELL_AMOUNT_USDT,
                 "sell",
             );

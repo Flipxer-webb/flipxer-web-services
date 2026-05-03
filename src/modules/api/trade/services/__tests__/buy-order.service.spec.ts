@@ -33,7 +33,10 @@ import { OrderStatus, PaymentMethod, TransactionStatus } from "@prisma/client";
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
     let prismaService: any;
-    let tradeHelpers: { validateMinimumAmountInUSDT: jest.Mock };
+    let tradeHelpers: {
+        ensureSupportedTradeAsset: jest.Mock;
+        validateMinimumAmountInUSDT: jest.Mock;
+    };
     let inboundFiatPaymentService: {
         initializePayment: jest.Mock;
         cleanupPendingPayment: jest.Mock;
@@ -135,6 +138,9 @@ describe("BuyOrderService", () => {
 
         const mockTradeHelpers = {
             calculateFee: jest.fn(),
+            ensureSupportedTradeAsset: jest.fn((asset: string) =>
+                String(asset).trim().toUpperCase()
+            ),
             validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
             normalizeNetworkInput: jest.fn((value) =>
                 typeof value === "string" && value.trim()
@@ -205,8 +211,31 @@ describe("BuyOrderService", () => {
             expect(quote).toBeDefined();
             expect(quote.buyRate).toBeDefined();
             expect(quote.cryptoBuyAmount).toBeDefined();
+            expect(quote.availablePaymentMethods).toEqual([
+                PaymentMethod.NOMBA,
+                PaymentMethod.FINCRA,
+            ]);
         });
 
+        it("honors the requested payment method on buy quotes", async () => {
+            const quote = await service.calculateBuyQuote(mockUser as any, {
+                asset: "BTC",
+                amount: 0.1,
+                paymentMethod: PaymentMethod.FINCRA,
+            });
+
+            expect(quote.paymentGateway).toBe(PaymentMethod.FINCRA);
+        });
+
+        it("rejects unsupported payment methods on buy quotes", async () => {
+            await expect(
+                service.calculateBuyQuote(mockUser as any, {
+                    asset: "BTC",
+                    amount: 0.1,
+                    paymentMethod: "CARD" as any,
+                }),
+            ).rejects.toThrow("Unsupported buy payment method selected");
+        });
     });
 
     describe("buyCryptoOrder", () => {
@@ -257,6 +286,31 @@ describe("BuyOrderService", () => {
             expect(res.data.paymentInfo.reference).toBe("idem-ref-2");
         });
 
+        it("rejects idempotency keys reused with a different payment method", async () => {
+            prismaService.payment.findUnique.mockResolvedValue({
+                id: 91,
+                userId: mockUser.id,
+                reference: "idem-ref-3",
+                createdAt: new Date(Date.now() - 5 * 60 * 1000),
+                totalAmount: "250000",
+                destinationBankAccountNumber: "0123456789",
+                destinationBankAccountName: "Test User",
+                destinationBankName: "Bank",
+                paymentMethod: PaymentMethod.FINCRA,
+                order: { id: 203, amount: 0.01, currency: "BTC" },
+            });
+
+            await expect(
+                service.buyCryptoOrder(mockUser as any, {
+                    ...orderDto,
+                    idempotencyKey: "idem-3",
+                    paymentMethod: PaymentMethod.NOMBA,
+                }),
+            ).rejects.toThrow(
+                "Idempotency key already used with a different payment method",
+            );
+        });
+
         it("returns an existing pending order for same user/asset/amount within expiry window", async () => {
             prismaService.payment.findUnique.mockResolvedValue(null);
             prismaService.payment.findFirst.mockResolvedValue({
@@ -289,7 +343,7 @@ describe("BuyOrderService", () => {
 
             expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
                 orderDto.amount,
-                orderDto.asset,
+                "BTC",
                 MIN_BUY_AMOUNT_USDT,
                 "buy",
             );
@@ -553,6 +607,65 @@ describe("BuyOrderService", () => {
             );
 
             Object.defineProperty(config, "buyPaymentProvider", { value: originalProvider, writable: true });
+        });
+
+        it("uses the requested payment method even when a different default provider is configured", async () => {
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                depositAddress: "bc1qexplicitfincra",
+                defaultNetwork: "btc",
+            });
+
+            (service as any).inboundFiatPaymentService.initializePayment = jest
+                .fn()
+                .mockResolvedValue({
+                    provider: "fincra",
+                    mode: "checkout",
+                    reference: "explicit-fincra-ref-1",
+                    amount: 100,
+                    expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                    authorizationUrl: "https://checkout.fincra.test/explicit-session-1",
+                });
+
+            const orderCreate = jest.fn().mockResolvedValue({
+                id: 304,
+                amount: 0.01,
+                currency: "BTC",
+                status: OrderStatus.pending,
+                orderCategory: "BUY",
+                transactionId: "buy-tx-304",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            });
+            const paymentCreate = jest.fn().mockResolvedValue({ id: 404 });
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    order: { create: orderCreate },
+                    payment: { create: paymentCreate },
+                }),
+            );
+
+            await service.buyCryptoOrder(mockUser as any, {
+                asset: "BTC",
+                amount: 0.01,
+                buyRate: 70000000,
+                charge: 750,
+                idempotencyKey: "explicit-fincra-idem-1",
+                paymentMethod: PaymentMethod.FINCRA,
+            } as any);
+
+            expect((service as any).inboundFiatPaymentService.initializePayment).toHaveBeenCalledWith(
+                expect.objectContaining({ provider: "fincra" }),
+            );
+            expect(paymentCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        paymentMethod: PaymentMethod.FINCRA,
+                    }),
+                }),
+            );
         });
     });
 

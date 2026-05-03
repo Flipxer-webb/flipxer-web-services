@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
     IsEnum,
+    IsIn,
     IsNotEmpty,
     IsNumber,
     IsOptional,
@@ -13,8 +14,12 @@ import {
     IsBoolean,
 } from "class-validator";
 import { SupportedAssets } from "../interfaces/trade";
-import { NetworkTypes } from "@prisma/client";
+import { NetworkTypes, PaymentMethod} from "@prisma/client";
 import { Transform, Type } from "class-transformer";
+import {
+    SUPPORTED_TRADE_ASSET_LOWERCASE_SYMBOLS,
+    SUPPORTED_TRADE_ASSET_SYMBOLS,
+} from "../constants";
 
 export class GetWalletDto {
     @ApiProperty({ enum: SupportedAssets })
@@ -51,8 +56,10 @@ export class InitiateWalletCreationDto {
 }
 
 export class InitiateBuyOrderDto {
-    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, example: "BTC" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     asset: string;
 
     @ApiProperty({
@@ -69,11 +76,24 @@ export class InitiateBuyOrderDto {
     @IsOptional()
     @IsString()
     verificationToken?: string;
+
+    @ApiPropertyOptional({
+        enum: PaymentMethod,
+        description: "Preferred payment method for the buy flow",
+    })
+    @Transform(({ value }) =>
+        typeof value === "string" ? value.trim().toUpperCase() : value
+    )
+    @IsOptional()
+    @IsEnum(PaymentMethod)
+    paymentMethod?: PaymentMethod;
 }
 
 export class InitiateSellOrderDto {
-    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, example: "BTC" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     asset: string;
 
     @ApiProperty({
@@ -88,8 +108,10 @@ export class InitiateSellOrderDto {
 }
 
 export class BuyCryptoOrderDto {
-    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, example: "BTC" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     asset: string;
 
     @ApiProperty({
@@ -141,6 +163,17 @@ export class BuyCryptoOrderDto {
     @IsNotEmpty()
     @IsString()
     idempotencyKey: string;
+
+    @ApiPropertyOptional({
+        enum: PaymentMethod,
+        description: "Preferred payment method for the buy order",
+    })
+    @Transform(({ value }) =>
+        typeof value === "string" ? value.trim().toUpperCase() : value
+    )
+    @IsOptional()
+    @IsEnum(PaymentMethod)
+    paymentMethod?: PaymentMethod;
 }
 
 export class BankDetailDto {
@@ -168,8 +201,10 @@ export class BankDetailDto {
 }
 
 export class SellCryptoOrderDto {
-    @ApiProperty({ example: "BTC, USDT, USDC" })
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, example: "BTC" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     asset: string;
 
     @ApiProperty({
@@ -277,17 +312,17 @@ export class GetCryptoWithdrawerFeeDto {
 }
 
 export class PlaceInstantSwapRequestDto {
-    @ApiProperty({ enum: SupportedAssets })
-    @Transform(({ value }) => value?.toLowerCase())
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
-    @IsEnum(SupportedAssets)
-    from_currency: SupportedAssets;
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
+    from_currency: string;
 
-    @ApiProperty({ enum: SupportedAssets })
-    @Transform(({ value }) => value?.toLowerCase())
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
-    @IsEnum(SupportedAssets)
-    to_currency: SupportedAssets; //the currency you are swapping to.
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
+    to_currency: string; //the currency you are swapping to.
 
     @ApiProperty({ required: false })
     @IsOptional()
@@ -316,17 +351,17 @@ export class ConfirmInstantSwapQuoteDto {
     quotationId: string;
 
     // Optional fields for auto-refresh if quote has expired
-    @ApiProperty({ enum: SupportedAssets, required: false, description: "Required for auto-refresh if quote expired" })
-    @Transform(({ value }) => value?.toLowerCase())
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, required: false, description: "Required for auto-refresh if quote expired" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsOptional()
-    @IsEnum(SupportedAssets)
-    from_currency?: SupportedAssets;
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
+    from_currency?: string;
 
-    @ApiProperty({ enum: SupportedAssets, required: false, description: "Required for auto-refresh if quote expired" })
-    @Transform(({ value }) => value?.toLowerCase())
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, required: false, description: "Required for auto-refresh if quote expired" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsOptional()
-    @IsEnum(SupportedAssets)
-    to_currency?: SupportedAssets;
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
+    to_currency?: string;
 
     @ApiProperty({ required: false, description: "Amount to swap (for auto-refresh)" })
     @IsOptional()
@@ -346,14 +381,16 @@ export class ConfirmInstantSwapQuoteDto {
  * This eliminates all timing issues with quote expiry.
  */
 export class ExecuteAtomicSwapDto {
-    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap from" })
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap from" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
-    @IsString()
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     from_currency: string;
 
-    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap to" })
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap to" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
-    @IsString()
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     to_currency: string;
 
     @ApiProperty({ description: "Amount to swap" })
@@ -466,11 +503,11 @@ export enum RampSide {
 }
 
 export class SupportedPaymentMethodDto {
-    @ApiProperty({ enum: SupportedAssets })
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_LOWERCASE_SYMBOLS })
     @Transform(({ value }) => value?.toLowerCase())
     @IsNotEmpty()
-    @IsEnum(SupportedAssets)
-    currency: SupportedAssets;
+    @IsIn(SUPPORTED_TRADE_ASSET_LOWERCASE_SYMBOLS)
+    currency: string;
 
     @ApiProperty({ enum: RampSide })
     @IsNotEmpty()
@@ -519,17 +556,17 @@ export class GetBatchSparklinesDto {
 // ==================== ADMIN SWAP DTOs ====================
 
 export class AdminSwapQuoteDto {
-    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap from" })
-    @Transform(({ value }) => value?.toLowerCase())
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap from" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
-    @IsEnum(SupportedAssets)
-    from_currency: SupportedAssets;
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
+    from_currency: string;
 
-    @ApiProperty({ enum: SupportedAssets, description: "Currency to swap to" })
-    @Transform(({ value }) => value?.toLowerCase())
+    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap to" })
+    @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
-    @IsEnum(SupportedAssets)
-    to_currency: SupportedAssets;
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
+    to_currency: string;
 
     @ApiProperty({ example: 100, description: "Amount to swap from" })
     @Transform(({ value }) => +value)

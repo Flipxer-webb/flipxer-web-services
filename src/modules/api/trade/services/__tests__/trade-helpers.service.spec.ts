@@ -167,6 +167,23 @@ describe("TradeHelpersService", () => {
         });
     });
 
+    describe("ensureSupportedTradeAsset", () => {
+        it("normalizes supported assets", () => {
+            expect(service.ensureSupportedTradeAsset("btc", "buy")).toBe("BTC");
+            expect(service.ensureSupportedTradeAsset(" usdt ", "swap")).toBe(
+                "USDT",
+            );
+        });
+
+        it("rejects assets outside the 12 supported trade set", () => {
+            expect(() =>
+                service.ensureSupportedTradeAsset("BUSD", "buy"),
+            ).toThrow(
+                "Unsupported buy asset. Only the 12 supported assets are enabled.",
+            );
+        });
+    });
+
     describe("validateMinimumAmountInUSDT", () => {
         it("should skip validation when the minimum is disabled", async () => {
             await expect(

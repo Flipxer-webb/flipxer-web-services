@@ -117,6 +117,23 @@ describe("AdminSwapPairController", () => {
         expect(result.message).toBe("Swap pair updated");
     });
 
+    it("rejects activating a non-launch swap direction", async () => {
+        await expect(
+            controller.upsertSwapPair({
+                    fromCurrency: "USDT",
+                    toCurrency: "BTC",
+                    rate: 42,
+                    isActive: true,
+                } as any,
+                mockReq as never,
+            ),
+        ).rejects.toThrow(
+            "Only supported asset to USDT swap pairs can be active.",
+        );
+
+        expect(prisma.swapPair.upsert).not.toHaveBeenCalled();
+    });
+
     it("generates all missing pair permutations", async () => {
         const tx = {
             swapPair: {
@@ -139,9 +156,8 @@ describe("AdminSwapPairController", () => {
 
     it("bulk updates matched pairs with rate multiplier", async () => {
         prisma.swapPair.findMany.mockResolvedValue([
-            { fromCurrency: "USDT", toCurrency: "BTC", rate: 10 },
-            { fromCurrency: "BTC", toCurrency: "USDT", rate: 0 },
-            { fromCurrency: "USDT", toCurrency: "ETH", rate: 15 },
+            { fromCurrency: "BTC", toCurrency: "USDT", rate: 10 },
+            { fromCurrency: "ETH", toCurrency: "USDT", rate: 15 },
         ]);
 
         const tx = {
@@ -159,19 +175,33 @@ describe("AdminSwapPairController", () => {
 
         expect(prisma.swapPair.findMany).toHaveBeenCalledWith({
             where: {
-                OR: [{ fromCurrency: "USDT" }, { toCurrency: "USDT" }],
+                toCurrency: "USDT",
+                fromCurrency: { not: "USDT" },
             },
         });
         expect(tx.swapPair.update).toHaveBeenCalledTimes(2);
         expect(tx.swapPair.update).toHaveBeenCalledWith({
-            where: { fromCurrency_toCurrency: { fromCurrency: "USDT", toCurrency: "BTC" } },
+            where: { fromCurrency_toCurrency: { fromCurrency: "BTC", toCurrency: "USDT" } },
             data: { rate: 20, isActive: true },
         });
         expect(tx.swapPair.update).toHaveBeenCalledWith({
-            where: { fromCurrency_toCurrency: { fromCurrency: "USDT", toCurrency: "ETH" } },
+            where: { fromCurrency_toCurrency: { fromCurrency: "ETH", toCurrency: "USDT" } },
             data: { rate: 30, isActive: true },
         });
         expect(result.message).toContain("Bulk updated rates for 2 pairs related to USDT");
+    });
+
+    it("rejects bulk activation for non-USDT targets", async () => {
+        await expect(
+            controller.bulkUpdate({
+                    targetCurrency: "btc",
+                    isActive: true,
+                } as any,
+                mockReq as never,
+            ),
+        ).rejects.toThrow("Only USDT-target swap pairs can be activated.");
+
+        expect(prisma.swapPair.updateMany).not.toHaveBeenCalled();
     });
 
     it("bulk updates matched pairs without rate multiplier", async () => {

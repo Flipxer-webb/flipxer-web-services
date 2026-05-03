@@ -3,8 +3,12 @@ import { NetworkTypes } from "@prisma/client";
 import {
     NETWORK_ALIAS_MAP,
     NETWORK_SEGMENT_SPLITTER,
+    SUPPORTED_ASSETS,
 } from "../constants";
-import { InvalidTransactionAmountException } from "../errors";
+import {
+    GeneralTransactionException,
+    InvalidTransactionAmountException,
+} from "../errors";
 import { RateService } from "./rate.service";
 
 /**
@@ -192,6 +196,24 @@ export class TradeHelpersService {
         return JSON.stringify(data, (_, value) =>
             typeof value === "bigint" ? value.toString() : value
         );
+    }
+
+    ensureSupportedTradeAsset(
+        asset: string,
+        tradeType: "buy" | "sell" | "swap"
+    ): string {
+        const normalizedAsset = String(asset ?? "")
+            .trim()
+            .toUpperCase();
+
+        if (!normalizedAsset || !SUPPORTED_ASSETS.has(normalizedAsset)) {
+            throw new GeneralTransactionException(
+                `Unsupported ${tradeType} asset. Only the 12 supported assets are enabled.`,
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
+        return normalizedAsset;
     }
 
     async validateMinimumAmountInUSDT(
