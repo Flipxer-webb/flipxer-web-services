@@ -99,7 +99,10 @@ export class SellOrderService {
         dto: InitiateSellOrderDto,
         internal = false
     ): Promise<SellQuoteResponse> {
-        const currency = dto.asset.toUpperCase();
+        const currency = this.tradeHelpers.ensureSupportedTradeAsset(
+            dto.asset,
+            "sell",
+        );
 
         // 1. Fetch bank detail and rate concurrently.
         const [bankDetail, rate] = await Promise.all([
@@ -207,11 +210,15 @@ export class SellOrderService {
         return this.distributedLockService.withLock(
             `trade:sell:${user.id}`,
             async () => {
+                const currency = this.tradeHelpers.ensureSupportedTradeAsset(
+                    dto.asset,
+                    "sell",
+                );
         const responseData = await this.calculateSellQuote(user, dto, true);
 
         await this.tradeHelpers.validateMinimumAmountInUSDT(
             dto.amount,
-            dto.asset,
+            currency,
             MIN_SELL_AMOUNT_USDT,
             "sell",
         );
@@ -235,7 +242,6 @@ export class SellOrderService {
         const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
 
         // Virtual Balance: HOLD the crypto amount on user's ledger before proceeding
-        const currency = dto.asset.toUpperCase();
         const holdAmount = totalCryptoToAdmin;
 
         // Use idempotencyKey for deterministic hold reference

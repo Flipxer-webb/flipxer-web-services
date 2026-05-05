@@ -20,7 +20,12 @@ import {
     RefreshInstantSwapRequestDto,
     ConfirmInstantSwapQuoteDto,
 } from "../dtos";
-import { MIN_SWAP_AMOUNT_USDT, QUOTE_EXPIRY_MS } from "../constants";
+import {
+    MIN_SWAP_AMOUNT_USDT,
+    QUOTE_EXPIRY_MS,
+    SWAP_ALLOWED_TARGET_CURRENCIES,
+    SWAP_TARGET_CURRENCY,
+} from "../constants";
 import { SellOrderService } from "./sell-order.service";
 import { BuyOrderService } from "./buy-order.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -76,6 +81,8 @@ export class SwapService {
             );
         }
 
+        this.ensureSwapDirectionIsAllowed(dto.from_currency, dto.to_currency);
+
         const quote = await this.generateInternalQuote(
             user,
             dto.from_currency,
@@ -105,6 +112,7 @@ export class SwapService {
         toCurrency: string,
         amount: number
     ) {
+        this.ensureSwapDirectionIsAllowed(fromCurrency, toCurrency);
         let rate: number;
         let fiatAmount: number | null = null;
 
@@ -216,6 +224,11 @@ export class SwapService {
                 "Swap quote expired or already processed. Please refresh."
             );
         }
+
+                this.ensureSwapDirectionIsAllowed(
+                    quotePreview.from_currency,
+                    quotePreview.to_currency,
+                );
 
         await this.tradeHelpers.validateMinimumAmountInUSDT(
             Number(quotePreview.from_amount),
@@ -664,6 +677,38 @@ export class SwapService {
             );
         }
     }
+    private ensureSwapDirectionIsAllowed(fromCurrency: string, toCurrency: string) {
+        const from = this.tradeHelpers.ensureSupportedTradeAsset(
+            fromCurrency,
+            "swap",
+        );
+        const to = this.tradeHelpers.ensureSupportedTradeAsset(
+            toCurrency,
+            "swap",
+        );
+
+        if (from === to) {
+            throw new GeneralTransactionException(
+                "Swap source and destination currencies must differ",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+         if (from === SWAP_TARGET_CURRENCY) {
+            throw new GeneralTransactionException(
+                `${SWAP_TARGET_CURRENCY} swaps are limited to consolidation only. Please select a supported asset to swap into ${SWAP_TARGET_CURRENCY}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (!SWAP_ALLOWED_TARGET_CURRENCIES.has(to)) {
+            throw new GeneralTransactionException(
+                `Swap is only available to ${SWAP_TARGET_CURRENCY}. Please contact support for other pairs.`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
     private mapToSwapResponse(order: any, quote: any, user: User) {
         const createdAt = order.createdAt ?? order.updatedAt ?? new Date();
         const updatedAt = order.updatedAt ?? order.createdAt ?? new Date();

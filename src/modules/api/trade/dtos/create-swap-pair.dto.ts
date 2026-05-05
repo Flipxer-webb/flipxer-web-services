@@ -1,15 +1,18 @@
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
 import { Transform } from "class-transformer";
+import { SUPPORTED_TRADE_ASSET_SYMBOLS } from "../constants";
 
 export class CreateSwapPairDto {
     @IsNotEmpty()
     @IsString()
     @Transform(({ value }) => value?.toUpperCase())
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     fromCurrency: string;
 
     @IsNotEmpty()
     @IsString()
     @Transform(({ value }) => value?.toUpperCase())
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     toCurrency: string;
 
     @IsNotEmpty()
@@ -33,6 +36,8 @@ export class UpdateSwapPairDto {
 
 export class BulkUpdateSwapPairDto {
     @IsNotEmpty()
+    @Transform(({ value }) => value?.toUpperCase())
+    @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     targetCurrency: string; // e.g. "USDT"
 
     @IsOptional()

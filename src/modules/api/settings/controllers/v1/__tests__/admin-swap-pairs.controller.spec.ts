@@ -34,6 +34,7 @@ describe("AdminSwapPairController", () => {
             findMany: jest.Mock;
             upsert: jest.Mock;
             updateMany: jest.Mock;
+            createMany: jest.Mock;
         };
     };
 
@@ -44,6 +45,7 @@ describe("AdminSwapPairController", () => {
                 findMany: jest.fn(),
                 upsert: jest.fn(),
                 updateMany: jest.fn(),
+                createMany: jest.fn(),
             },
         };
 
@@ -117,31 +119,125 @@ describe("AdminSwapPairController", () => {
         expect(result.message).toBe("Swap pair updated");
     });
 
-    it("generates all missing pair permutations", async () => {
-        const tx = {
-            swapPair: {
-                findUnique: jest.fn().mockResolvedValue(null),
-                create: jest.fn().mockResolvedValue(undefined),
-            },
-        };
+    it("rejects activating a non-launch swap direction", async () => {
+        await expect(
+            controller.upsertSwapPair({
+                    fromCurrency: "USDT",
+                    toCurrency: "BTC",
+                    rate: 42,
+                    isActive: true,
+                } as any,
+                mockReq as never,
+            ),
+        ).rejects.toThrow(
+            "Only supported asset to USDT swap pairs can be active.",
+        );
 
-        prisma.$transaction.mockImplementation(async (cb: any) => cb(tx));
+        expect(prisma.swapPair.upsert).not.toHaveBeenCalled();
+    });
 
-        const result = await controller.generateAllPairs(mockReq as never);
+    it("should generate all swap pairs using batch createMany", async () => {
         const assetsCount = Array.from(SUPPORTED_ASSETS).length;
         const expectedPermutations = assetsCount * (assetsCount - 1);
 
-        expect(tx.swapPair.findUnique).toHaveBeenCalledTimes(expectedPermutations);
-        expect(tx.swapPair.create).toHaveBeenCalledTimes(expectedPermutations);
+        prisma.swapPair.createMany.mockResolvedValue({
+            count: expectedPermutations,
+        });
+        const result = await controller.generateAllPairs(mockReq as never);
+
+        expect(prisma.swapPair.createMany).toHaveBeenCalledTimes(1);
+        expect(prisma.swapPair.createMany).toHaveBeenCalledWith({
+            data: expect.arrayContaining([
+                expect.objectContaining({
+                    fromCurrency: expect.any(String),
+                    toCurrency: expect.any(String),
+                    rate: 0,
+                    isActive: false
+                })
+            ]),
+            skipDuplicates: true
+        });
+
+        const callData = prisma.swapPair.createMany.mock.calls[0][0].data;
+        expect(callData).toHaveLength(expectedPermutations);
+
+        // Verify no self-pairs
+        const hasSelfPair = callData.some(
+            (pair: any) => pair.fromCurrency === pair.toCurrency,
+        );
+        expect(hasSelfPair).toBe(false);
+
         expect(result.data).toBe(expectedPermutations);
-        expect(result.message).toContain("Generated");
+        expect(result.message).toBe(
+            `Generated ${expectedPermutations} new swap pair records.`,
+        );
+    });
+
+    it("should skip existing pairs when skipDuplicates is true", async () => {
+        const newPairsCount = 50;
+        prisma.swapPair.createMany.mockResolvedValue({ count: newPairsCount });
+
+        const result = await controller.generateAllPairs(mockReq as never);
+
+        expect(prisma.swapPair.createMany).toHaveBeenCalledWith({
+            data: expect.any(Array),
+            skipDuplicates: true
+        });
+        expect(result.data).toBe(newPairsCount);
+        expect(result.message).toBe(
+            `Generated ${newPairsCount} new swap pair records.`,
+        );
+    });
+
+    it("should handle case when no new pairs are generated", async () => {
+        prisma.swapPair.createMany.mockResolvedValue({ count: 0 });
+        const result = await controller.generateAllPairs(mockReq as never);
+        expect(result.data).toBe(0);
+        expect(result.message).toBe("Generated 0 new swap pair records.");
+    });
+
+    it("should log audit trail with correct details", async () => {
+        const assetsCount = Array.from(SUPPORTED_ASSETS).length;
+        const expectedPermutations = assetsCount * (assetsCount - 1);
+
+        prisma.swapPair.createMany.mockResolvedValue({
+            count: expectedPermutations,
+        });
+        await controller.generateAllPairs(mockReq as never);
+
+        expect(mockAuditLogService.log).toHaveBeenCalledWith({
+            action: "GENERATE_SWAP_PAIRS",
+            resource: "swap_pair",
+            details: {
+                newPairsCount: expectedPermutations,
+                totalPairsAttempted: expectedPermutations
+            },
+            adminId: 1,
+            ipAddress: "127.0.0.1",
+            userAgent: "test",
+        });
+    });
+
+    it("should generate pairs for all supported assets only", async () => {
+        const expectedAssets = Array.from(SUPPORTED_ASSETS);
+        const expectedPermutations = expectedAssets.length * (expectedAssets.length - 1);
+        
+        prisma.swapPair.createMany.mockResolvedValue({ count: expectedPermutations });
+        
+        await controller.generateAllPairs(mockReq as never);
+        
+        const generatedPairs = prisma.swapPair.createMany.mock.calls[0][0].data;
+        const uniqueFromCurrencies = [...new Set(generatedPairs.map((p: any) => p.fromCurrency))];
+        const uniqueToCurrencies = [...new Set(generatedPairs.map((p: any) => p.toCurrency))];
+        
+        expect(uniqueFromCurrencies.sort()).toEqual(expectedAssets.sort());
+        expect(uniqueToCurrencies.sort()).toEqual(expectedAssets.sort());
     });
 
     it("bulk updates matched pairs with rate multiplier", async () => {
         prisma.swapPair.findMany.mockResolvedValue([
-            { fromCurrency: "USDT", toCurrency: "BTC", rate: 10 },
-            { fromCurrency: "BTC", toCurrency: "USDT", rate: 0 },
-            { fromCurrency: "USDT", toCurrency: "ETH", rate: 15 },
+            { fromCurrency: "BTC", toCurrency: "USDT", rate: 10 },
+            { fromCurrency: "ETH", toCurrency: "USDT", rate: 15 },
         ]);
 
         const tx = {
@@ -159,19 +255,33 @@ describe("AdminSwapPairController", () => {
 
         expect(prisma.swapPair.findMany).toHaveBeenCalledWith({
             where: {
-                OR: [{ fromCurrency: "USDT" }, { toCurrency: "USDT" }],
+                toCurrency: "USDT",
+                fromCurrency: { not: "USDT" },
             },
         });
         expect(tx.swapPair.update).toHaveBeenCalledTimes(2);
         expect(tx.swapPair.update).toHaveBeenCalledWith({
-            where: { fromCurrency_toCurrency: { fromCurrency: "USDT", toCurrency: "BTC" } },
+            where: { fromCurrency_toCurrency: { fromCurrency: "BTC", toCurrency: "USDT" } },
             data: { rate: 20, isActive: true },
         });
         expect(tx.swapPair.update).toHaveBeenCalledWith({
-            where: { fromCurrency_toCurrency: { fromCurrency: "USDT", toCurrency: "ETH" } },
+            where: { fromCurrency_toCurrency: { fromCurrency: "ETH", toCurrency: "USDT" } },
             data: { rate: 30, isActive: true },
         });
         expect(result.message).toContain("Bulk updated rates for 2 pairs related to USDT");
+    });
+
+    it("rejects bulk activation for non-USDT targets", async () => {
+        await expect(
+            controller.bulkUpdate({
+                    targetCurrency: "btc",
+                    isActive: true,
+                } as any,
+                mockReq as never,
+            ),
+        ).rejects.toThrow("Only USDT-target swap pairs can be activated.");
+
+        expect(prisma.swapPair.updateMany).not.toHaveBeenCalled();
     });
 
     it("bulk updates matched pairs without rate multiplier", async () => {

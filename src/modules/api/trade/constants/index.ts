@@ -98,6 +98,18 @@ export const SUPPORTED_TRADE_ASSETS = [
 ] as const satisfies readonly SupportedTradeAsset[];
 
 /**
+ * Uppercase asset symbols for the 12 launch-enabled trade assets.
+ */
+export const SUPPORTED_TRADE_ASSET_SYMBOLS: ReadonlyArray<string> =
+    SUPPORTED_TRADE_ASSETS.map((asset) => asset.symbol);
+
+/**
+ * Lowercase asset symbols for DTO validation / request normalization.
+ */
+export const SUPPORTED_TRADE_ASSET_LOWERCASE_SYMBOLS: ReadonlyArray<string> =
+    SUPPORTED_TRADE_ASSET_SYMBOLS.map((symbol) => symbol.toLowerCase());
+
+/**
  * Set of tradable cryptocurrency symbols used for validation and wallet creation filtering.
  */
 export const SUPPORTED_ASSETS: ReadonlySet<string> = new Set(
@@ -107,9 +119,17 @@ export const SUPPORTED_ASSETS: ReadonlySet<string> = new Set(
 /**
  * Array version of supported currencies for iteration (lowercase for Quidax API)
  */
-export const SUPPORTED_CURRENCIES: ReadonlyArray<string> = SUPPORTED_TRADE_ASSETS.map((asset) =>
-    asset.symbol.toLowerCase(),
-);
+export const SUPPORTED_CURRENCIES: ReadonlyArray<string> =
+    SUPPORTED_TRADE_ASSETS.map((asset) => asset.symbol.toLowerCase());
+
+/**
+ * Swap destinations enabled.
+ * Only asset consolidation into USDT is permitted initially.
+ */
+export const SWAP_TARGET_CURRENCY = "USDT";
+export const SWAP_ALLOWED_TARGET_CURRENCIES: ReadonlySet<string> = new Set([
+    SWAP_TARGET_CURRENCY,
+]);
 
 /**
  * All supported currencies for deposit sync (includes additional assets)

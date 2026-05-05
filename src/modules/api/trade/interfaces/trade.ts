@@ -165,7 +165,7 @@ export interface BuyQuoteResponse {
     totalToChargeViaPaymentGateway: number;
     currency: string;
     paymentGateway: PaymentMethod;
-
+    availablePaymentMethods: PaymentMethod[];
 }
 
 export interface SellQuoteResponse {
