@@ -1,6 +1,7 @@
 import {
     checkNameInText,
     combineAddressSignals,
+    detectAddressDocumentType,
     extractTextFromDocument,
     extractDocumentDate,
     OcrDocumentPreparationError,
@@ -190,6 +191,19 @@ describe("Document Date Extraction (extractDocumentDate)", () => {
             const text = "Historical date: 15/06/1999";
             expect(extractDocumentDate(text)).toBeNull();
         });
+    });
+});
+
+describe("Address document type detection", () => {
+    it("keeps bank statements with bill-payment transactions classified as bank statements", () => {
+        const text = [
+            "Bank Statement",
+            "Account number 0123456789",
+            "Transaction: BILL PAYMENT IKEDC electricity",
+            "Debit 12000 Balance 50000",
+        ].join("\n");
+
+        expect(detectAddressDocumentType(text)).toBe("BANK_STATEMENT");
     });
 });
 

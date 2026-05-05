@@ -419,6 +419,24 @@ export function detectAddressDocumentType(
     const hasAny = (keywords: string[]): boolean =>
         keywords.some((keyword) => normalizedText.includes(keyword));
 
+    const bankStatementKeywords = ["bank statement", "statement of account"];
+    const bankEvidenceKeywords = [
+        "bank",
+        "account",
+        "transaction",
+        "debit",
+        "credit",
+        "balance",
+    ];
+
+    if (hasAny(bankStatementKeywords)) {
+        return "BANK_STATEMENT";
+    }
+
+    if (normalizedText.includes("statement") && hasAny(bankEvidenceKeywords)) {
+        return "BANK_STATEMENT";
+    }
+
     const utilityBillKeywords = [
         "utility bill",
         "electricity bill",
@@ -453,24 +471,6 @@ export function detectAddressDocumentType(
 
     if (hasAny(utilityBillKeywords) && hasAny(utilityProviderKeywords)) {
         return "UTILITY_BILL";
-    }
-
-    const bankStatementKeywords = ["bank statement", "statement of account"];
-    const bankEvidenceKeywords = [
-        "bank",
-        "account",
-        "transaction",
-        "debit",
-        "credit",
-        "balance",
-    ];
-
-    if (hasAny(bankStatementKeywords)) {
-        return "BANK_STATEMENT";
-    }
-
-    if (normalizedText.includes("statement") && hasAny(bankEvidenceKeywords)) {
-        return "BANK_STATEMENT";
     }
 
     const governmentKeywords = [
