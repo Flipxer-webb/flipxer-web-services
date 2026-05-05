@@ -413,6 +413,7 @@ export class AdminUserService {
             kycStageAttempts: _kycStageAttempts,
             ...resolvedUserDetail
         } = userDetail;
+        const { bvn: _bvn, nin: _nin, ...sanitizedUserDetail } = resolvedUserDetail;
         const kycJourney = userDetail.userType === UserType.INDIVIDUAL
             ? this.userService.buildKycReadModel(userDetail).kycJourney
             : null;
@@ -422,7 +423,7 @@ export class AdminUserService {
         return buildResponse({
             message: "User personal info retrieved",
             data: {
-                ...resolvedUserDetail,
+                ...sanitizedUserDetail,
                 emailVerified: Boolean(isEmailVerified),
                 phoneVerified: Boolean(isPhoneVerified),
                 businessDocumentVerificationStatus,

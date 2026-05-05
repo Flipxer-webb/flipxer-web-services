@@ -4,7 +4,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Tesseract from "tesseract.js";
@@ -121,15 +121,6 @@ function isPdfDocument(documentBuffer: Buffer, mimeType?: string): boolean {
     return documentBuffer.subarray(0, PDF_FILE_SIGNATURE.length).toString("utf8") === PDF_FILE_SIGNATURE;
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
-    try {
-        await access(filePath);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 async function rasterizePdfToImages(documentBuffer: Buffer, outputPrefix: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
         const child = spawn(
@@ -198,14 +189,15 @@ async function rasterizePdfPages(documentBuffer: Buffer): Promise<Buffer[]> {
         await rasterizePdfToImages(documentBuffer, outputPrefix);
 
         const rasterizedPages: Buffer[] = [];
+        const generatedFiles = new Set(await readdir(tempDir));
 
         for (let pageIndex = 1; pageIndex <= MAX_PDF_PAGES_FOR_OCR; pageIndex += 1) {
-            const pagePath = `${outputPrefix}-${pageIndex}.png`;
-            if (!(await fileExists(pagePath))) {
+            const pageFileName = `page-${pageIndex}.png`;
+            if (!generatedFiles.has(pageFileName)) {
                 break;
             }
 
-            rasterizedPages.push(await readFile(pagePath));
+            rasterizedPages.push(await readFile(join(tempDir, pageFileName)));
         }
 
         if (rasterizedPages.length === 0) {
@@ -799,6 +791,24 @@ function hasNigerianAddressCountryHints(extractedText: string): boolean {
         " zenith bank ",
         " fidelity bank ",
         " fcmb ",
+        " stanbic ",
+        " stanbic ibtc ",
+        " standard chartered ",
+        " bank of industry ",
+        " polaris bank ",
+        " keystone bank ",
+        " heritage bank ",
+        " unity bank ",
+        " titan trust bank ",
+        " providus bank ",
+        " globus bank ",
+        " suntrust bank ",
+        " coronation merchant bank ",
+        " rand merchant bank ",
+        " jaiz bank ",
+        " taj bank ",
+        " lotus bank ",
+        " parallex bank ",
         " sterling bank ",
         " wema bank ",
         " union bank ",
@@ -1275,7 +1285,7 @@ function buildIncomeValidationResult(params: {
     providerReason: string | null;
 }): DocumentValidationResult {
     return {
-        isValid: params.decision !== "REJECT",
+        isValid: params.decision === "APPROVE",
         confidence: params.input.confidence,
         extractedText: params.input.extractedText,
         matchedName: params.matchedName,

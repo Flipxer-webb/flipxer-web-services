@@ -116,6 +116,8 @@ describe("AdminUserService", () => {
             userType: "INDIVIDUAL",
             firstName: "Test",
             lastName: "User",
+            bvn: "12345678901",
+            nin: "10987654321",
             identifier: "legacy-id",
             photo: "https://example.com/legacy.png",
             accountLimit: null,
@@ -153,6 +155,8 @@ describe("AdminUserService", () => {
         expect(result.data).not.toHaveProperty("isPasswordCreated");
         expect(result.data).not.toHaveProperty("documentVerificationStatus");
         expect(result.data).not.toHaveProperty("businessDocumentsUploaded");
+        expect(result.data).not.toHaveProperty("bvn");
+        expect(result.data).not.toHaveProperty("nin");
     });
 
     it("should return not-flagged response when unflagging a clean account", async () => {

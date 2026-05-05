@@ -435,6 +435,13 @@ export class UserService {
 
         this.logger.log(`[PERF] Profile DB queries (parallel) for user ${user.id}: ${Date.now() - dbStartTime}ms`);
 
+        if (!profile) {
+            throw new UserNotFoundException(
+                "User not found",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
         // Use DB-stored tier as single source of truth
         const userTier = (profile as any).tier ?? 0;
         const profileKycReadModel = this.buildKycReadModel(profile);
@@ -1113,18 +1120,28 @@ export class UserService {
             select: { amount: true, currency: true, orderCategory: true },
         });
 
+        const uniqueCurrencies = Array.from(new Set(
+            orders
+                .map((order) => order.currency?.toLowerCase())
+                .filter((currency): currency is string => Boolean(currency))
+        ));
+        const usdRates = new Map<string, number>();
+
+        await Promise.all(uniqueCurrencies.map(async (currency) => {
+            try {
+                const rate = await this.liveCoinWatchService.getPriceInUSD(currency);
+                usdRates.set(currency, rate || 0);
+            } catch (error) {
+                usdRates.set(currency, 0);
+                this.logger.warn(`Failed to fetch USD rate for ${currency}: ${this.getErrorMessage(error)}`);
+            }
+        }));
+
         // Build per-operation USD totals
         const usageByOp: Record<string, number> = { buy: 0, sell: 0, swap: 0, send: 0 };
         for (const order of orders) {
             if (order.amount && order.currency) {
-                let rate = 0;
-                try {
-                    rate = await this.liveCoinWatchService.getPriceInUSD(
-                        order.currency.toLowerCase()
-                    );
-                } catch (error) {
-                    this.logger.warn(`Failed to fetch USD rate for ${order.currency}: ${this.getErrorMessage(error)}`);
-                }
+                const rate = usdRates.get(order.currency.toLowerCase()) ?? 0;
                 const usdAmount = order.amount * (rate || 0);
 
                 const cat = order.orderCategory;
@@ -1826,8 +1843,9 @@ export class UserService {
         } else {
             // Disable: remove all device tokens for this user (best-effort)
             try {
+                const deviceTokenCleanupUserId = Number.parseInt(String(safeUserId), 10);
                 await this.prisma.deviceToken.deleteMany({
-                    where: { userId: safeUserId },
+                    where: { userId: deviceTokenCleanupUserId },
                 });
             } catch (error) {
                 this.logger.warn(

@@ -601,7 +601,7 @@ describe("Document Validators", () => {
             "Doe"
         );
 
-        expect(result.isValid).toBe(true);
+        expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(true);
         expect(result.decision).toBe("REVIEW");
         expect(result.matchedName).toBe(true);
@@ -635,7 +635,7 @@ describe("Document Validators", () => {
             },
         );
 
-        expect(result.isValid).toBe(true);
+        expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(true);
         expect(result.decision).toBe("REVIEW");
         expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
@@ -668,13 +668,34 @@ describe("Document Validators", () => {
             },
         );
 
-        expect(result.isValid).toBe(true);
+        expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(true);
         expect(result.decision).toBe("REVIEW");
         expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
         expect(result.documentDate).toBeUndefined();
         expect(result.isRecent).toBe(false);
         expect(result.reason).toContain("statement date");
+    });
+
+    it("recognizes major Nigerian banks as country hints for income statements", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `Stanbic IBTC Bank statement of account John Doe salary payment Date ${todayIso}`,
+                confidence: 92,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe"
+        );
+
+        expect(result.decision).toBe("REVIEW");
+        expect(result.countryConfirmed).toBe(true);
+        expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
+        expect(result.reason).not.toBe("Please upload a valid Nigerian bank statement.");
     });
 
     it("uses provider raw text when structured address type and date are missing", async () => {

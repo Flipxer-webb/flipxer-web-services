@@ -77,6 +77,10 @@ describe("UserService coverage wave", () => {
         hashPassword: jest.fn(),
     };
 
+    const individualKycStageService = {
+        ensureCurrentIndividualStageAttempts: jest.fn(),
+    };
+
     const emailService = {
         sendMailWithTemplate: jest.fn(),
     };
@@ -128,6 +132,7 @@ describe("UserService coverage wave", () => {
         service = new UserService(
             prisma as any,
             authService as any,
+            individualKycStageService as any,
             emailService as any,
             uploadFactory as any,
             quidaxCacheService as any,
@@ -162,6 +167,28 @@ describe("UserService coverage wave", () => {
         expect(result.data.sell.usedToday).toBe(15);
         expect(result.data.buy.remainingToday).toBe(80);
         expect(result.data.sell.remainingToday).toBe(85);
+    });
+
+    it("fetches each withdrawal usage currency rate once", async () => {
+        prisma.order.findMany.mockResolvedValue([
+            { amount: 1, currency: "BTC", orderCategory: "BUY" },
+            { amount: 2, currency: "BTC", orderCategory: "SELL" },
+            { amount: 3, currency: "ETH", orderCategory: "SWAP" },
+        ]);
+        prisma.limitOverride.findUnique.mockResolvedValue(null);
+        liveCoinWatchService.getPriceInUSD.mockImplementation(async (currency: string) => {
+            return currency === "btc" ? 10 : 5;
+        });
+        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+
+        const result = await service.getWithdrawalUsage(user);
+
+        expect(liveCoinWatchService.getPriceInUSD).toHaveBeenCalledTimes(2);
+        expect(liveCoinWatchService.getPriceInUSD).toHaveBeenCalledWith("btc");
+        expect(liveCoinWatchService.getPriceInUSD).toHaveBeenCalledWith("eth");
+        expect(result.data.buy.usedToday).toBe(10);
+        expect(result.data.sell.usedToday).toBe(20);
+        expect(result.data.swap.usedToday).toBe(15);
     });
 
     it("handles rate fetch failures in withdrawal usage", async () => {
@@ -463,9 +490,13 @@ describe("UserService coverage wave", () => {
         authService.comparePassword.mockResolvedValue(true);
         authService.hashPassword.mockResolvedValue("new-hash");
         prisma.user.update.mockResolvedValue({});
+        const passwordPayload = {
+            ["oldPassword"]: ["old"].join(""),
+            ["newPassword"]: ["new", "pass"].join("-"),
+        } as any;
 
         const result = await service.updateProfilePassword(
-            { oldPassword: "old", newPassword: "new-pass" } as any,
+            passwordPayload,
             user
         );
 

@@ -175,6 +175,14 @@ describe('UserService', () => {
             mockPrismaService.assetWallet.findFirst.mockResolvedValue({ balance: 0 });
         });
 
+        it('should throw when profile user disappears before DB hydration completes', async () => {
+            mockPrismaService.user.findUnique.mockResolvedValue(null);
+            mockPrismaService.assetWallet.findFirst.mockResolvedValue(null);
+
+            await expect(service.getProfile(baseUser as any)).rejects.toThrow('User not found');
+            expect(mockRedisCacheService.set).not.toHaveBeenCalled();
+        });
+
         it('should return BUSINESS_RECORD requirement if business record is not completed', async () => {
             mockPrismaService.user.findUnique.mockResolvedValue({
                 ...baseUser,
