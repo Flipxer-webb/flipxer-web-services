@@ -82,7 +82,9 @@ describe("DTO/type smoke coverage", () => {
             verificationType: "BUSINESS_DOCUMENT",
         });
 
-        expect(KycDtos.adminKycProviderLookupTypes).toContain("BUSINESS_DOCUMENT");
+        expect(KycDtos.adminKycProviderLookupTypes).toContain(
+            "BUSINESS_DOCUMENT",
+        );
 
         expect(queueDto.pageNumber).toBe(2);
         expect(queueDto.pageSize).toBe(25);

@@ -18,8 +18,13 @@ import { customAlphabet } from "nanoid";
 
 const prisma = new PrismaClient({ log: ["error", "warn"] });
 const SALT_ROUNDS = 10;
-const generateIdentifier = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789", 16);
-const TEST_USER_PASSWORD = process.env.LOCAL_TEST_INCOME_READY_PASSWORD ?? ["Income", "Ready", "@2024!"].join("");
+const generateIdentifier = customAlphabet(
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789",
+    16,
+);
+const TEST_USER_PASSWORD =
+    process.env.LOCAL_TEST_INCOME_READY_PASSWORD ??
+    ["Income", "Ready", "@2024!"].join("");
 
 const TEST_USER = {
     email: "income-ready.test@flipxer.local",
@@ -114,7 +119,10 @@ async function ensureRole() {
     return individualRole;
 }
 
-function buildStageScope(userId: number, stage: StageFixture["stage"]): Prisma.KycStageAttemptWhereInput {
+function buildStageScope(
+    userId: number,
+    stage: StageFixture["stage"],
+): Prisma.KycStageAttemptWhereInput {
     switch (stage) {
         case KycStage.GOVERNMENT_ID:
             return {
@@ -139,7 +147,10 @@ function buildStageScope(userId: number, stage: StageFixture["stage"]): Prisma.K
     }
 }
 
-async function upsertApprovedStageAttempt(userId: number, fixture: StageFixture) {
+async function upsertApprovedStageAttempt(
+    userId: number,
+    fixture: StageFixture,
+) {
     const stageScope = buildStageScope(userId, fixture.stage);
     const latestAttempt = await prisma.kycStageAttempt.findFirst({
         where: stageScope,
@@ -321,9 +332,13 @@ async function main() {
 
     console.log("Income ready test user ready");
     console.log(`  Email: ${TEST_USER.email}`);
-    console.log("  Password: hidden (use LOCAL_TEST_INCOME_READY_PASSWORD or the documented local fixture value)");
+    console.log(
+        "  Password: hidden (use LOCAL_TEST_INCOME_READY_PASSWORD or the documented local fixture value)",
+    );
     console.log(`  User ID: ${user.id}`);
-    console.log("  State: GOVERNMENT_ID, IDENTITY_DOCUMENT, and ADDRESS approved; INCOME ready to submit");
+    console.log(
+        "  State: GOVERNMENT_ID, IDENTITY_DOCUMENT, and ADDRESS approved; INCOME ready to submit",
+    );
 }
 
 main()

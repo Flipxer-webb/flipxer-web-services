@@ -47,16 +47,20 @@ describe("KycStateMachineService", () => {
 
         service = module.get(KycStateMachineService);
         jest.resetAllMocks();
-        mockPrismaService.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: null } });
+        mockPrismaService.kycStageAttempt.aggregate.mockResolvedValue({
+            _max: { attemptNo: null },
+        });
         mockPrismaService.kycAttemptEvent.create.mockResolvedValue({ id: 100 });
     });
 
     describe("first-time submission", () => {
         it("allows transition from null to PENDING", async () => {
             mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(null);
-            mockPrismaService.kycStageAttempt.create.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.SUBMITTED,
-            }));
+            mockPrismaService.kycStageAttempt.create.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.SUBMITTED,
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "PENDING");
 
@@ -64,7 +68,9 @@ describe("KycStateMachineService", () => {
             expect(result.version).toBe(1);
             expect(result.isActive).toBe(true);
             expect(mockPrismaService.kycStageAttempt.create).toHaveBeenCalled();
-            expect(mockPrismaService.kycAttemptEvent.create).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycAttemptEvent.create,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
                         attemptId: 1,
@@ -76,11 +82,13 @@ describe("KycStateMachineService", () => {
 
         it("allows transition from null to APPROVED (auto-approve)", async () => {
             mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(null);
-            mockPrismaService.kycStageAttempt.create.mockResolvedValue(buildAttempt({
-                id: 2,
-                status: KycAttemptStatus.APPROVED,
-                reviewedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.create.mockResolvedValue(
+                buildAttempt({
+                    id: 2,
+                    status: KycAttemptStatus.APPROVED,
+                    reviewedAt: new Date(),
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "APPROVED");
 
@@ -91,11 +99,13 @@ describe("KycStateMachineService", () => {
     describe("status alias mapping", () => {
         it("maps VERIFIED to APPROVED", async () => {
             mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(null);
-            mockPrismaService.kycStageAttempt.create.mockResolvedValue(buildAttempt({
-                id: 3,
-                status: KycAttemptStatus.APPROVED,
-                reviewedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.create.mockResolvedValue(
+                buildAttempt({
+                    id: 3,
+                    status: KycAttemptStatus.APPROVED,
+                    reviewedAt: new Date(),
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "VERIFIED");
 
@@ -103,13 +113,17 @@ describe("KycStateMachineService", () => {
         });
 
         it("maps DECLINED to REJECTED", async () => {
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.PENDING_REVIEW,
-            }));
-            mockPrismaService.kycStageAttempt.update.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.REJECTED,
-                reviewedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.PENDING_REVIEW,
+                }),
+            );
+            mockPrismaService.kycStageAttempt.update.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.REJECTED,
+                    reviewedAt: new Date(),
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "DECLINED");
 
@@ -119,65 +133,91 @@ describe("KycStateMachineService", () => {
 
     describe("illegal transitions", () => {
         it("rejects APPROVED → PENDING", async () => {
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.APPROVED,
-                reviewedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.APPROVED,
+                    reviewedAt: new Date(),
+                }),
+            );
 
-            await expect(service.transition(1, "BVN", "PENDING")).rejects.toThrow(BadRequestException);
+            await expect(
+                service.transition(1, "BVN", "PENDING"),
+            ).rejects.toThrow(BadRequestException);
         });
 
         it("rejects null → REJECTED (cannot reject before submission)", async () => {
             mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(null);
 
-            await expect(service.transition(1, "BVN", "REJECTED")).rejects.toThrow(BadRequestException);
+            await expect(
+                service.transition(1, "BVN", "REJECTED"),
+            ).rejects.toThrow(BadRequestException);
         });
 
         it("rejects unknown status", async () => {
             mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(null);
 
-            await expect(service.transition(1, "BVN", "INVALID_STATUS" as any)).rejects.toThrow(BadRequestException);
+            await expect(
+                service.transition(1, "BVN", "INVALID_STATUS" as any),
+            ).rejects.toThrow(BadRequestException);
         });
     });
 
     describe("idempotency", () => {
         it("returns existing record if already in target state", async () => {
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.APPROVED,
-                reviewedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.APPROVED,
+                    reviewedAt: new Date(),
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "APPROVED");
 
             expect(result.attemptId).toBe(1);
             expect(result.status).toBe(KycStatus.APPROVED);
-            expect(mockPrismaService.kycStageAttempt.create).not.toHaveBeenCalled();
-            expect(mockPrismaService.kycStageAttempt.update).not.toHaveBeenCalled();
+            expect(
+                mockPrismaService.kycStageAttempt.create,
+            ).not.toHaveBeenCalled();
+            expect(
+                mockPrismaService.kycStageAttempt.update,
+            ).not.toHaveBeenCalled();
         });
     });
 
     describe("optimistic locking", () => {
         it("throws ConflictException on version mismatch", async () => {
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.PENDING_REVIEW,
-                version: 3,
-            }));
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.PENDING_REVIEW,
+                    version: 3,
+                }),
+            );
 
-            await expect(service.transition(1, "BVN", "APPROVED", { expectedVersion: 2 })).rejects.toThrow(ConflictException);
+            await expect(
+                service.transition(1, "BVN", "APPROVED", {
+                    expectedVersion: 2,
+                }),
+            ).rejects.toThrow(ConflictException);
         });
 
         it("proceeds when version matches", async () => {
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.PENDING_REVIEW,
-                version: 2,
-            }));
-            mockPrismaService.kycStageAttempt.update.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.APPROVED,
-                reviewedAt: new Date(),
-                version: 2,
-            }));
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.PENDING_REVIEW,
+                    version: 2,
+                }),
+            );
+            mockPrismaService.kycStageAttempt.update.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.APPROVED,
+                    reviewedAt: new Date(),
+                    version: 2,
+                }),
+            );
 
-            const result = await service.transition(1, "BVN", "APPROVED", { expectedVersion: 2 });
+            const result = await service.transition(1, "BVN", "APPROVED", {
+                expectedVersion: 2,
+            });
 
             expect(result.status).toBe(KycStatus.APPROVED);
         });
@@ -185,36 +225,52 @@ describe("KycStateMachineService", () => {
 
     describe("resubmission flow", () => {
         it("deactivates old attempt and creates new pending attempt", async () => {
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(buildAttempt({
-                stage: "IDENTITY_DOCUMENT",
-                method: "OTHER",
-                status: KycAttemptStatus.REJECTED,
-                reviewedAt: new Date(),
-                version: 2,
-            }));
-            mockPrismaService.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 1 } });
-            mockPrismaService.kycStageAttempt.update.mockResolvedValue({ id: 1 });
-            mockPrismaService.kycStageAttempt.create.mockResolvedValue(buildAttempt({
-                id: 2,
-                stage: "IDENTITY_DOCUMENT",
-                method: "OTHER",
-                attemptNo: 2,
-                status: KycAttemptStatus.SUBMITTED,
-                version: 3,
-            }));
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(
+                buildAttempt({
+                    stage: "IDENTITY_DOCUMENT",
+                    method: "OTHER",
+                    status: KycAttemptStatus.REJECTED,
+                    reviewedAt: new Date(),
+                    version: 2,
+                }),
+            );
+            mockPrismaService.kycStageAttempt.aggregate.mockResolvedValue({
+                _max: { attemptNo: 1 },
+            });
+            mockPrismaService.kycStageAttempt.update.mockResolvedValue({
+                id: 1,
+            });
+            mockPrismaService.kycStageAttempt.create.mockResolvedValue(
+                buildAttempt({
+                    id: 2,
+                    stage: "IDENTITY_DOCUMENT",
+                    method: "OTHER",
+                    attemptNo: 2,
+                    status: KycAttemptStatus.SUBMITTED,
+                    version: 3,
+                }),
+            );
 
-            const result = await service.transition(1, "DOCUMENT", "RESUBMITTED");
+            const result = await service.transition(
+                1,
+                "DOCUMENT",
+                "RESUBMITTED",
+            );
 
             expect(result.version).toBe(3);
             expect(result.status).toBe(KycStatus.PENDING);
             expect(result.isActive).toBe(true);
-            expect(mockPrismaService.kycStageAttempt.update).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycStageAttempt.update,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { id: 1 },
                     data: expect.objectContaining({ isCurrent: false }),
                 }),
             );
-            expect(mockPrismaService.kycAttemptEvent.create).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycAttemptEvent.create,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
                         attemptId: 2,
@@ -227,18 +283,22 @@ describe("KycStateMachineService", () => {
 
     describe("PENDING → decision transitions", () => {
         beforeEach(() => {
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.PENDING_REVIEW,
-            }));
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.PENDING_REVIEW,
+                }),
+            );
         });
 
         it("allows PENDING → APPROVED", async () => {
-            mockPrismaService.kycStageAttempt.update.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.APPROVED,
-                reviewerId: 100,
-                reviewNote: "Looks good",
-                reviewedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.update.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.APPROVED,
+                    reviewerId: 100,
+                    reviewNote: "Looks good",
+                    reviewedAt: new Date(),
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "APPROVED", {
                 reviewerId: 100,
@@ -249,10 +309,12 @@ describe("KycStateMachineService", () => {
         });
 
         it("allows PENDING → REJECTED", async () => {
-            mockPrismaService.kycStageAttempt.update.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.REJECTED,
-                reviewedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.update.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.REJECTED,
+                    reviewedAt: new Date(),
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "REJECTED");
 
@@ -260,11 +322,13 @@ describe("KycStateMachineService", () => {
         });
 
         it("allows PENDING → ESCALATED", async () => {
-            mockPrismaService.kycStageAttempt.update.mockResolvedValue(buildAttempt({
-                status: KycAttemptStatus.ESCALATED,
-                reviewedAt: new Date(),
-                escalatedAt: new Date(),
-            }));
+            mockPrismaService.kycStageAttempt.update.mockResolvedValue(
+                buildAttempt({
+                    status: KycAttemptStatus.ESCALATED,
+                    reviewedAt: new Date(),
+                    escalatedAt: new Date(),
+                }),
+            );
 
             const result = await service.transition(1, "BVN", "ESCALATED");
 

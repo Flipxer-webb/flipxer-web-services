@@ -19,11 +19,7 @@ import {
 
 import { SettingService } from "../../services";
 import { RateService } from "@/modules/api/trade/services/rate.service";
-import {
-    ApiTags,
-    ApiOperation,
-    ApiBearerAuth,
-} from "@nestjs/swagger";
+import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import {
     // AddAllowedIpDto,
     GetCryptoTransactionFeePerAssetDto,
@@ -48,11 +44,10 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "settings",
 })
-
 export class SettingController {
     constructor(
         private readonly settingService: SettingService,
-        private readonly rateService: RateService
+        private readonly rateService: RateService,
     ) {}
 
     @HttpCode(HttpStatus.OK)
@@ -110,11 +105,11 @@ export class SettingController {
     @Get("crypto/transaction-fees/:asset_name")
     async getCryptoTransactionFeePerAsset(
         @Param("asset_name") asset_name: string,
-        @Query() query: GetCryptoTransactionFeePerAssetDto
+        @Query() query: GetCryptoTransactionFeePerAssetDto,
     ) {
         return this.settingService.getCryptoTransactionFeePerAsset(
             query,
-            asset_name
+            asset_name,
         );
     }
 
@@ -226,7 +221,7 @@ export class SettingController {
     @Post("security/preferences")
     async updateSecurityPreferences(
         @User() user: UserModel,
-        @Body() dto: UpdateSecurityPreferencesDto
+        @Body() dto: UpdateSecurityPreferencesDto,
     ) {
         return this.settingService.updateSecurityPreferences(user, dto);
     }
@@ -238,7 +233,7 @@ export class SettingController {
     @Post("security/trading-password")
     async setTradingPassword(
         @User() user: UserModel,
-        @Body() dto: SetTradingPasswordDto
+        @Body() dto: SetTradingPasswordDto,
     ) {
         return this.settingService.setTradingPassword(user, dto);
     }
@@ -273,7 +268,7 @@ export class SettingController {
     @Post("security/send-transaction-otp")
     async sendTransactionOtp(
         @User() user: UserModel,
-        @Body() dto: SendTransactionOtpDto
+        @Body() dto: SendTransactionOtpDto,
     ) {
         return this.settingService.sendTransactionOtp(user, dto.method);
     }
@@ -290,9 +285,12 @@ export class SettingController {
     @Post("security/verify")
     async verifySecurityMethod(
         @User() user: UserModel,
-        @Body() dto: VerifySecurityMethodDto
+        @Body() dto: VerifySecurityMethodDto,
     ) {
-        const result = await this.settingService.verifySecurityMethod(user, dto);
+        const result = await this.settingService.verifySecurityMethod(
+            user,
+            dto,
+        );
         return {
             success: true,
             message: "Verification successful",
@@ -303,15 +301,17 @@ export class SettingController {
     @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Get security requirements for transaction amount" })
+    @ApiOperation({
+        summary: "Get security requirements for transaction amount",
+    })
     @Get("security/requirements")
     async getTransactionSecurityRequirements(
         @User() user: UserModel,
-        @Query("amount") amount: string
+        @Query("amount") amount: string,
     ) {
         return this.settingService.getTransactionSecurityRequirements(
             user,
-            Number.parseFloat(amount) || 0
+            Number.parseFloat(amount) || 0,
         );
     }
 }

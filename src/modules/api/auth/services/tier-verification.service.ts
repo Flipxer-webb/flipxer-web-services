@@ -3,7 +3,14 @@
  * Handles Tier 2/3 verification flows: address and income verification
  */
 
-import { HttpException, HttpStatus, Inject, Injectable, Logger, forwardRef } from "@nestjs/common";
+import {
+    HttpException,
+    HttpStatus,
+    Inject,
+    Injectable,
+    Logger,
+    forwardRef,
+} from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
     DocumentVerificationStatus,
@@ -22,7 +29,12 @@ import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { ImagekitService } from "@/modules/core/upload/services/imagekit";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
-import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
+import {
+    storageDirConfig,
+    emailTemplateConfig,
+    COMPANY_NAME,
+    mailConfig,
+} from "@/config";
 import { generateRandomNum } from "@/utils";
 import { EmailService } from "@/modules/core/email/services";
 import {
@@ -34,9 +46,7 @@ import {
     validateAddressDocument,
     validateIncomeDocument,
 } from "@/libs/ocr";
-import {
-    CreateTradingPasswordDto,
-} from "../dtos";
+import { CreateTradingPasswordDto } from "../dtos";
 import type { AuthService } from "./index";
 import { TierService } from "./tier.service";
 import * as bcrypt from "bcryptjs";
@@ -92,8 +102,12 @@ export class TierVerificationService {
 
         return {
             documentVerified: verificationSnapshot.documentVerified,
-            addressVerified: verificationSnapshot.addressStatus === DocumentVerificationStatus.VERIFIED,
-            incomeVerified: verificationSnapshot.incomeStatus === DocumentVerificationStatus.VERIFIED,
+            addressVerified:
+                verificationSnapshot.addressStatus ===
+                DocumentVerificationStatus.VERIFIED,
+            incomeVerified:
+                verificationSnapshot.incomeStatus ===
+                DocumentVerificationStatus.VERIFIED,
             documentStatus: verificationSnapshot.documentStatus,
             addressStatus: verificationSnapshot.addressStatus,
             incomeStatus: verificationSnapshot.incomeStatus,
@@ -110,7 +124,11 @@ export class TierVerificationService {
                     where: {
                         journeyType: "INDIVIDUAL",
                         stage: {
-                            in: [KycStage.IDENTITY_DOCUMENT, KycStage.ADDRESS, KycStage.INCOME],
+                            in: [
+                                KycStage.IDENTITY_DOCUMENT,
+                                KycStage.ADDRESS,
+                                KycStage.INCOME,
+                            ],
                         },
                         isCurrent: true,
                     },
@@ -128,7 +146,9 @@ export class TierVerificationService {
         return this.buildStageManagedVerificationState(stageManagedState ?? {});
     }
 
-    private mapIndividualAttemptReasonCode(reason?: string | null): string | null {
+    private mapIndividualAttemptReasonCode(
+        reason?: string | null,
+    ): string | null {
         if (!reason) {
             return null;
         }
@@ -139,7 +159,10 @@ export class TierVerificationService {
             return "DOCUMENT_EXPIRED";
         }
 
-        if (normalized.includes("NOT_SUPPORTED") || normalized.includes("UNSUPPORTED")) {
+        if (
+            normalized.includes("NOT_SUPPORTED") ||
+            normalized.includes("UNSUPPORTED")
+        ) {
             return "DOCUMENT_UNSUPPORTED";
         }
 
@@ -159,7 +182,30 @@ export class TierVerificationService {
             return "INCOME_VALIDATION_REVIEW";
         }
 
-        return normalized.replaceAll(/[^A-Z0-9]+/g, "_").replaceAll(/^_+|_+$/g, "") || "REVIEW_REQUIRED";
+        return this.normalizeReasonCode(normalized) || "REVIEW_REQUIRED";
+    }
+
+    private normalizeReasonCode(value: string): string {
+        let normalizedReasonCode = "";
+
+        for (const character of value) {
+            const charCode = character.charCodeAt(0);
+            const isUpperAlpha = charCode >= 65 && charCode <= 90;
+            const isDigit = charCode >= 48 && charCode <= 57;
+
+            if (isUpperAlpha || isDigit) {
+                normalizedReasonCode += character;
+            } else if (
+                normalizedReasonCode.length > 0 &&
+                !normalizedReasonCode.endsWith("_")
+            ) {
+                normalizedReasonCode += "_";
+            }
+        }
+
+        return normalizedReasonCode.endsWith("_")
+            ? normalizedReasonCode.slice(0, -1)
+            : normalizedReasonCode;
     }
 
     private async createCurrentIndividualStageAttempt(input: {
@@ -201,10 +247,12 @@ export class TierVerificationService {
 
         if (currentAttempts.length > 0) {
             await this.prisma.$transaction(
-                currentAttempts.map((attempt) => this.prisma.kycStageAttempt.update({
-                    where: { id: attempt.id },
-                    data: { isCurrent: false },
-                })),
+                currentAttempts.map((attempt) =>
+                    this.prisma.kycStageAttempt.update({
+                        where: { id: attempt.id },
+                        data: { isCurrent: false },
+                    }),
+                ),
             );
         }
 
@@ -219,12 +267,17 @@ export class TierVerificationService {
                 providerName: KycProviderName.OCR,
                 providerStatus: input.providerStatus,
                 decisionMode: input.decisionMode,
-                reasonCode: this.mapIndividualAttemptReasonCode(input.reasonMessage),
+                reasonCode: this.mapIndividualAttemptReasonCode(
+                    input.reasonMessage,
+                ),
                 reasonMessage: input.reasonMessage ?? null,
                 reasonDetails: input.reasonDetails ?? undefined,
                 comparisonSummary: input.comparisonSummary ?? undefined,
                 evidenceSummary: input.evidenceSummary ?? undefined,
-                reviewedAt: input.status === KycAttemptStatus.APPROVED ? new Date() : null,
+                reviewedAt:
+                    input.status === KycAttemptStatus.APPROVED
+                        ? new Date()
+                        : null,
                 evidenceAssets: {
                     create: input.evidenceAssets.map((asset) => ({
                         kind: asset.kind,
@@ -252,7 +305,11 @@ export class TierVerificationService {
                 stage,
                 isCurrent: true,
             },
-            orderBy: [{ attemptNo: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
+            orderBy: [
+                { attemptNo: "desc" },
+                { updatedAt: "desc" },
+                { id: "desc" },
+            ],
             select: { id: true },
         });
 
@@ -276,17 +333,24 @@ export class TierVerificationService {
                 decisionMode: KycDecisionMode.MANUAL,
                 reasonCode: this.mapIndividualAttemptReasonCode(reasonMessage),
                 reasonMessage: reasonMessage ?? null,
-                reasonDetails: reasonMessage ? { reason: reasonMessage } : undefined,
-                reviewedAt: status === KycAttemptStatus.APPROVED || status === KycAttemptStatus.REJECTED
-                    ? new Date()
-                    : null,
+                reasonDetails: reasonMessage
+                    ? { reason: reasonMessage }
+                    : undefined,
+                reviewedAt:
+                    status === KycAttemptStatus.APPROVED ||
+                    status === KycAttemptStatus.REJECTED
+                        ? new Date()
+                        : null,
                 version: { increment: 1 },
             },
         });
     }
 
     private ensureAddressVerificationPrerequisites(
-        verificationState: Pick<StageManagedVerificationState, "documentVerified" | "documentStatus">,
+        verificationState: Pick<
+            StageManagedVerificationState,
+            "documentVerified" | "documentStatus"
+        >,
     ): void {
         if (verificationState.documentVerified) {
             return;
@@ -315,7 +379,10 @@ export class TierVerificationService {
             return;
         }
 
-        if (verificationState.addressStatus === DocumentVerificationStatus.PENDING) {
+        if (
+            verificationState.addressStatus ===
+            DocumentVerificationStatus.PENDING
+        ) {
             throw new HttpException(
                 "Address verification is pending review",
                 HttpStatus.BAD_REQUEST,
@@ -328,7 +395,9 @@ export class TierVerificationService {
         );
     }
 
-    private buildAddressPendingReviewResponse(reason?: string | null): ApiResponse {
+    private buildAddressPendingReviewResponse(
+        reason?: string | null,
+    ): ApiResponse {
         return buildResponse({
             message: "Address verification is pending review",
             data: {
@@ -380,19 +449,27 @@ export class TierVerificationService {
         });
 
         if (params.user.email && emailTemplateConfig.document_pending_review) {
-            this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: params.user.email } }],
-                template_key: emailTemplateConfig.document_pending_review,
-                merge_info: {
-                    name: params.user.firstName || "User",
-                    document_type: "Address Document",
-                    company_name: COMPANY_NAME,
-                },
-            }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send pending review email for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            this.emailService
+                .sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: params.user.email } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: params.user.firstName || "User",
+                        document_type: "Address Document",
+                        company_name: COMPANY_NAME,
+                    },
+                })
+                .catch((e) =>
+                    this.logger.error(
+                        `[KYC][ADDRESS] Failed to send pending review email for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                );
         }
 
-        return this.buildAddressPendingReviewResponse(params.responseReason ?? params.reasonMessage ?? null);
+        return this.buildAddressPendingReviewResponse(
+            params.responseReason ?? params.reasonMessage ?? null,
+        );
     }
 
     async verifyAddressFromPreview(
@@ -413,8 +490,12 @@ export class TierVerificationService {
         return this.verifyIncome(user, file, method, previewPayload);
     }
 
-    private buildAddressValidationResultFromPreview(previewPayload: Record<string, unknown>) {
-        const comparisonSummary = this.readJsonObject(previewPayload.comparisonSummary);
+    private buildAddressValidationResultFromPreview(
+        previewPayload: Record<string, unknown>,
+    ) {
+        const comparisonSummary = this.readJsonObject(
+            previewPayload.comparisonSummary,
+        );
         const decision = this.resolvePreviewDecision(
             comparisonSummary?.decision,
             previewPayload.outcome,
@@ -425,27 +506,52 @@ export class TierVerificationService {
             confidence: this.readNumberValue(comparisonSummary?.confidence),
             matchedName: comparisonSummary?.matchedName === true,
             matchedAddress: comparisonSummary?.matchedAddress === true,
-            matchedResidentialAddress: comparisonSummary?.matchedResidentialAddress === true,
-            addressDocumentType: this.readStringValue(comparisonSummary?.addressDocumentType),
-            isAllowedDocumentType: this.readBooleanValue(comparisonSummary?.isAllowedDocumentType),
-            providerVerified: this.readBooleanValue(comparisonSummary?.providerVerified),
-            providerReason: this.readStringValue(comparisonSummary?.providerReason),
-            providerDocumentType: this.readStringValue(comparisonSummary?.providerDocumentType),
-            providerNameMatches: this.readBooleanValue(comparisonSummary?.providerNameMatches),
-            providerDocumentDate: this.readStringValue(comparisonSummary?.providerDocumentDate),
-            providerCountry: this.readStringValue(comparisonSummary?.providerCountry),
-            providerCountryCode: this.readStringValue(comparisonSummary?.providerCountryCode),
+            matchedResidentialAddress:
+                comparisonSummary?.matchedResidentialAddress === true,
+            addressDocumentType: this.readStringValue(
+                comparisonSummary?.addressDocumentType,
+            ),
+            isAllowedDocumentType: this.readBooleanValue(
+                comparisonSummary?.isAllowedDocumentType,
+            ),
+            providerVerified: this.readBooleanValue(
+                comparisonSummary?.providerVerified,
+            ),
+            providerReason: this.readStringValue(
+                comparisonSummary?.providerReason,
+            ),
+            providerDocumentType: this.readStringValue(
+                comparisonSummary?.providerDocumentType,
+            ),
+            providerNameMatches: this.readBooleanValue(
+                comparisonSummary?.providerNameMatches,
+            ),
+            providerDocumentDate: this.readStringValue(
+                comparisonSummary?.providerDocumentDate,
+            ),
+            providerCountry: this.readStringValue(
+                comparisonSummary?.providerCountry,
+            ),
+            providerCountryCode: this.readStringValue(
+                comparisonSummary?.providerCountryCode,
+            ),
             documentDate: this.readStringValue(comparisonSummary?.documentDate),
             isRecent: this.readBooleanValue(comparisonSummary?.isRecent),
-            countryConfirmed: this.readBooleanValue(comparisonSummary?.countryConfirmed),
+            countryConfirmed: this.readBooleanValue(
+                comparisonSummary?.countryConfirmed,
+            ),
             requiresManualReview: decision === "REVIEW",
             decision,
             reason: this.readPreviewReasonMessage(previewPayload),
         };
     }
 
-    private buildIncomeValidationResultFromPreview(previewPayload: Record<string, unknown>) {
-        const comparisonSummary = this.readJsonObject(previewPayload.comparisonSummary);
+    private buildIncomeValidationResultFromPreview(
+        previewPayload: Record<string, unknown>,
+    ) {
+        const comparisonSummary = this.readJsonObject(
+            previewPayload.comparisonSummary,
+        );
         const decision = this.resolvePreviewDecision(
             comparisonSummary?.decision,
             previewPayload.outcome,
@@ -455,14 +561,28 @@ export class TierVerificationService {
         return {
             confidence: this.readNumberValue(comparisonSummary?.confidence),
             matchedName: comparisonSummary?.matchedName === true,
-            incomeDocumentType: this.readStringValue(comparisonSummary?.incomeDocumentType),
-            isAllowedDocumentType: this.readBooleanValue(comparisonSummary?.isAllowedDocumentType),
-            countryConfirmed: this.readBooleanValue(comparisonSummary?.countryConfirmed),
+            incomeDocumentType: this.readStringValue(
+                comparisonSummary?.incomeDocumentType,
+            ),
+            isAllowedDocumentType: this.readBooleanValue(
+                comparisonSummary?.isAllowedDocumentType,
+            ),
+            countryConfirmed: this.readBooleanValue(
+                comparisonSummary?.countryConfirmed,
+            ),
             isRecent: this.readBooleanValue(comparisonSummary?.isRecent),
-            providerVerified: this.readBooleanValue(comparisonSummary?.providerVerified),
-            providerReason: this.readStringValue(comparisonSummary?.providerReason),
-            providerDocumentType: this.readStringValue(comparisonSummary?.providerDocumentType),
-            providerNameMatches: this.readBooleanValue(comparisonSummary?.providerNameMatches),
+            providerVerified: this.readBooleanValue(
+                comparisonSummary?.providerVerified,
+            ),
+            providerReason: this.readStringValue(
+                comparisonSummary?.providerReason,
+            ),
+            providerDocumentType: this.readStringValue(
+                comparisonSummary?.providerDocumentType,
+            ),
+            providerNameMatches: this.readBooleanValue(
+                comparisonSummary?.providerNameMatches,
+            ),
             documentDate: this.readStringValue(comparisonSummary?.documentDate),
             requiresManualReview: decision === "REVIEW",
             decision,
@@ -475,10 +595,17 @@ export class TierVerificationService {
         outcome: unknown,
         providerStatus: unknown,
     ): "APPROVE" | "REJECT" | "REVIEW" {
-        const normalizedDecision = typeof rawDecision === "string" ? rawDecision.trim().toUpperCase() : "";
+        const normalizedDecision =
+            typeof rawDecision === "string"
+                ? rawDecision.trim().toUpperCase()
+                : "";
         let previewDecision: "APPROVE" | "REJECT" | "REVIEW" | null = null;
 
-        if (normalizedDecision === "APPROVE" || normalizedDecision === "REJECT" || normalizedDecision === "REVIEW") {
+        if (
+            normalizedDecision === "APPROVE" ||
+            normalizedDecision === "REJECT" ||
+            normalizedDecision === "REVIEW"
+        ) {
             previewDecision = normalizedDecision;
         }
 
@@ -486,7 +613,8 @@ export class TierVerificationService {
             return previewDecision;
         }
 
-        const normalizedOutcome = typeof outcome === "string" ? outcome.trim().toUpperCase() : "";
+        const normalizedOutcome =
+            typeof outcome === "string" ? outcome.trim().toUpperCase() : "";
 
         if (normalizedOutcome === "READY") {
             return "APPROVE";
@@ -500,7 +628,10 @@ export class TierVerificationService {
             return "REVIEW";
         }
 
-        const normalizedProviderStatus = typeof providerStatus === "string" ? providerStatus.trim().toUpperCase() : "";
+        const normalizedProviderStatus =
+            typeof providerStatus === "string"
+                ? providerStatus.trim().toUpperCase()
+                : "";
 
         if (normalizedProviderStatus === KycProviderStatus.FAILED) {
             return "REJECT";
@@ -513,14 +644,20 @@ export class TierVerificationService {
         return "REVIEW";
     }
 
-    private readPreviewReasonMessage(previewPayload: Record<string, unknown>): string | null {
-        return this.readStringValue(previewPayload.reasonMessage)
-            ?? this.readStringValue(previewPayload.message)
-            ?? null;
+    private readPreviewReasonMessage(
+        previewPayload: Record<string, unknown>,
+    ): string | null {
+        return (
+            this.readStringValue(previewPayload.reasonMessage) ??
+            this.readStringValue(previewPayload.message) ??
+            null
+        );
     }
 
     private isJsonObject(value: unknown): value is Record<string, any> {
-        return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+        return (
+            Boolean(value) && typeof value === "object" && !Array.isArray(value)
+        );
     }
 
     private readJsonObject(value: unknown): Record<string, any> | null {
@@ -540,7 +677,55 @@ export class TierVerificationService {
     }
 
     private readNumberValue(value: unknown): number | null {
-        return typeof value === "number" && Number.isFinite(value) ? value : null;
+        return typeof value === "number" && Number.isFinite(value)
+            ? value
+            : null;
+    }
+
+    private buildDocumentEvidence(
+        file: Express.Multer.File,
+        documentUrl: string,
+    ) {
+        const isPdf = file.mimetype === "application/pdf";
+
+        return {
+            evidenceSummary: {
+                documentUrl,
+                mimeType: file.mimetype,
+                originalName: file.originalname,
+            },
+            evidenceAssets: [
+                {
+                    kind: isPdf
+                        ? KycEvidenceKind.PDF
+                        : KycEvidenceKind.FRONT_IMAGE,
+                    storageUrl: documentUrl,
+                    mimeType: file.mimetype,
+                    originalName: file.originalname,
+                    side: isPdf ? null : KycEvidenceSide.FRONT,
+                },
+            ],
+        };
+    }
+
+    private resolveAddressDecision(ocrResult: {
+        decision?: string | null;
+        requiresManualReview?: boolean | null;
+    }): string {
+        return (
+            ocrResult.decision ??
+            (ocrResult.requiresManualReview ? "REVIEW" : "APPROVE")
+        );
+    }
+
+    private resolveIncomeDecision(ocrResult: {
+        decision?: string | null;
+        requiresManualReview?: boolean | null;
+    }): string {
+        return (
+            ocrResult.decision ??
+            (ocrResult.requiresManualReview ? "REVIEW" : "REJECT")
+        );
     }
 
     /**
@@ -553,7 +738,8 @@ export class TierVerificationService {
         previewPayload?: Record<string, unknown>,
     ): Promise<ApiResponse> {
         const resolvedMethod = method ?? KycMethod.OTHER;
-        const verificationState = await this.getStageManagedVerificationState(user);
+        const verificationState =
+            await this.getStageManagedVerificationState(user);
 
         // Check if already verified
         if (verificationState.addressVerified) {
@@ -565,7 +751,10 @@ export class TierVerificationService {
         this.ensureAddressVerificationPrerequisites(verificationState);
 
         // Block re-submission while a review is already in progress
-        if (verificationState.addressStatus === DocumentVerificationStatus.PENDING) {
+        if (
+            verificationState.addressStatus ===
+            DocumentVerificationStatus.PENDING
+        ) {
             return this.buildAddressPendingReviewResponse();
         }
 
@@ -580,7 +769,7 @@ export class TierVerificationService {
         if (!fileValidation.isValid) {
             throw new HttpException(
                 fileValidation.error || "Invalid file",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -592,44 +781,37 @@ export class TierVerificationService {
         const ocrResult = previewPayload
             ? this.buildAddressValidationResultFromPreview(previewPayload)
             : await (async () => {
-                providerSignals = await this.authService.analyzeAddressDocumentSignals(user, file) as Record<string, any> | null;
+                  providerSignals =
+                      (await this.authService.analyzeAddressDocumentSignals(
+                          user,
+                          file,
+                      )) as Record<string, any> | null;
 
-                return validateAddressDocument(
-                    file.buffer,
-                    user.firstName || "",
-                    user.lastName || "",
-                    user.residentialAddress || null,
-                    file.mimetype,
-                    providerSignals,
-                ).catch((error: unknown) => this.handleDocumentProcessingError(error));
-            })();
+                  return validateAddressDocument(
+                      file.buffer,
+                      user.firstName || "",
+                      user.lastName || "",
+                      user.residentialAddress || null,
+                      file.mimetype,
+                      providerSignals,
+                  ).catch((error: unknown) =>
+                      this.handleDocumentProcessingError(error),
+                  );
+              })();
         const providerInteraction = this.readJsonObject(
-            previewPayload ? previewPayload.providerInteraction : providerSignals?.providerInteraction,
+            previewPayload
+                ? previewPayload.providerInteraction
+                : providerSignals?.providerInteraction,
         );
-
-        let decision = ocrResult.decision;
-
-        if (!decision) {
-            decision = ocrResult.requiresManualReview ? "REVIEW" : "APPROVE";
-        }
+        const decision = this.resolveAddressDecision(ocrResult);
 
         this.logger.log(
-            `Address OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, matchedAddress=${ocrResult.matchedAddress}, matchedResidentialAddress=${ocrResult.matchedResidentialAddress}, isRecent=${ocrResult.isRecent}, decision=${decision}`
+            `Address OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, matchedAddress=${ocrResult.matchedAddress}, matchedResidentialAddress=${ocrResult.matchedResidentialAddress}, isRecent=${ocrResult.isRecent}, decision=${decision}`,
         );
-        const evidenceSummary = {
+        const { evidenceSummary, evidenceAssets } = this.buildDocumentEvidence(
+            file,
             documentUrl,
-            mimeType: file.mimetype,
-            originalName: file.originalname,
-        };
-        const evidenceAssets = [
-            {
-                kind: file.mimetype === "application/pdf" ? KycEvidenceKind.PDF : KycEvidenceKind.FRONT_IMAGE,
-                storageUrl: documentUrl,
-                mimeType: file.mimetype,
-                originalName: file.originalname,
-                side: file.mimetype === "application/pdf" ? null : KycEvidenceSide.FRONT,
-            },
-        ];
+        );
         const comparisonSummary = {
             matchedName: ocrResult.matchedName,
             matchedAddress: ocrResult.matchedAddress,
@@ -679,7 +861,8 @@ export class TierVerificationService {
         }
 
         if (decision === "REJECT") {
-            const rejectionReason = ocrResult.reason || "Address verification was rejected.";
+            const rejectionReason =
+                ocrResult.reason || "Address verification was rejected.";
 
             await this.createCurrentIndividualStageAttempt({
                 userId: user.id,
@@ -698,18 +881,24 @@ export class TierVerificationService {
             await this.tierService.syncTierAndCache(user.id);
 
             if (user.email && emailTemplateConfig.document_rejected) {
-                this.emailService.sendMailWithTemplate({
-                    from: { address: mailConfig.senderMail },
-                    to: [{ email_address: { address: user.email } }],
-                    template_key: emailTemplateConfig.document_rejected,
-                    merge_info: {
-                        first_name: user.firstName || "User",
-                        document_type: "Address",
-                        company_name: COMPANY_NAME,
-                        rejection_reason: rejectionReason,
-                        status: "Rejected",
-                    },
-                }).catch((e) => this.logger.error(`[KYC][ADDRESS] Failed to send rejection email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+                this.emailService
+                    .sendMailWithTemplate({
+                        from: { address: mailConfig.senderMail },
+                        to: [{ email_address: { address: user.email } }],
+                        template_key: emailTemplateConfig.document_rejected,
+                        merge_info: {
+                            first_name: user.firstName || "User",
+                            document_type: "Address",
+                            company_name: COMPANY_NAME,
+                            rejection_reason: rejectionReason,
+                            status: "Rejected",
+                        },
+                    })
+                    .catch((e) =>
+                        this.logger.error(
+                            `[KYC][ADDRESS] Failed to send rejection email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                        ),
+                    );
             }
 
             await this.notificationDispatcher.notify({
@@ -735,7 +924,8 @@ export class TierVerificationService {
             user,
             method: resolvedMethod,
             providerStatus: KycProviderStatus.PASSED,
-            reasonMessage: "Address document passed automated checks and is pending manual review.",
+            reasonMessage:
+                "Address document passed automated checks and is pending manual review.",
             responseReason: null,
             reasonDetails,
             comparisonSummary,
@@ -754,7 +944,8 @@ export class TierVerificationService {
         previewPayload?: Record<string, unknown>,
     ): Promise<ApiResponse> {
         const resolvedMethod = method ?? KycMethod.OTHER;
-        const verificationState = await this.getStageManagedVerificationState(user);
+        const verificationState =
+            await this.getStageManagedVerificationState(user);
 
         // Check if already verified
         if (verificationState.incomeVerified) {
@@ -776,7 +967,7 @@ export class TierVerificationService {
         if (!fileValidation.isValid) {
             throw new HttpException(
                 fileValidation.error || "Invalid file",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -788,43 +979,36 @@ export class TierVerificationService {
         const ocrResult = previewPayload
             ? this.buildIncomeValidationResultFromPreview(previewPayload)
             : await (async () => {
-                providerSignals = await this.authService.analyzeIncomeDocumentSignals(user, file) as Record<string, any> | null;
+                  providerSignals =
+                      (await this.authService.analyzeIncomeDocumentSignals(
+                          user,
+                          file,
+                      )) as Record<string, any> | null;
 
-                return validateIncomeDocument(
-                    file.buffer,
-                    user.firstName || "",
-                    user.lastName || "",
-                    file.mimetype,
-                    providerSignals,
-                ).catch((error: unknown) => this.handleDocumentProcessingError(error));
-            })();
+                  return validateIncomeDocument(
+                      file.buffer,
+                      user.firstName || "",
+                      user.lastName || "",
+                      file.mimetype,
+                      providerSignals,
+                  ).catch((error: unknown) =>
+                      this.handleDocumentProcessingError(error),
+                  );
+              })();
         const providerInteraction = this.readJsonObject(
-            previewPayload ? previewPayload.providerInteraction : providerSignals?.providerInteraction,
+            previewPayload
+                ? previewPayload.providerInteraction
+                : providerSignals?.providerInteraction,
         );
-
-        let decision = ocrResult.decision;
-
-        if (!decision) {
-            decision = ocrResult.requiresManualReview ? "REVIEW" : "REJECT";
-        }
+        const decision = this.resolveIncomeDecision(ocrResult);
 
         this.logger.log(
-            `Income OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, isRecent=${ocrResult.isRecent}, countryConfirmed=${ocrResult.countryConfirmed}, isAllowedDocumentType=${ocrResult.isAllowedDocumentType}, decision=${decision}`
+            `Income OCR result for user ${user.id}: confidence=${ocrResult.confidence}, matchedName=${ocrResult.matchedName}, isRecent=${ocrResult.isRecent}, countryConfirmed=${ocrResult.countryConfirmed}, isAllowedDocumentType=${ocrResult.isAllowedDocumentType}, decision=${decision}`,
         );
-        const evidenceSummary = {
+        const { evidenceSummary, evidenceAssets } = this.buildDocumentEvidence(
+            file,
             documentUrl,
-            mimeType: file.mimetype,
-            originalName: file.originalname,
-        };
-        const evidenceAssets = [
-            {
-                kind: file.mimetype === "application/pdf" ? KycEvidenceKind.PDF : KycEvidenceKind.FRONT_IMAGE,
-                storageUrl: documentUrl,
-                mimeType: file.mimetype,
-                originalName: file.originalname,
-                side: file.mimetype === "application/pdf" ? null : KycEvidenceSide.FRONT,
-            },
-        ];
+        );
         const comparisonSummary = {
             matchedName: ocrResult.matchedName,
             confidence: ocrResult.confidence,
@@ -856,7 +1040,8 @@ export class TierVerificationService {
         };
 
         if (decision === "REJECT") {
-            const rejectionReason = ocrResult.reason || "Income verification was rejected.";
+            const rejectionReason =
+                ocrResult.reason || "Income verification was rejected.";
 
             await this.createCurrentIndividualStageAttempt({
                 userId: user.id,
@@ -875,18 +1060,24 @@ export class TierVerificationService {
             await this.tierService.syncTierAndCache(user.id);
 
             if (user.email && emailTemplateConfig.document_rejected) {
-                this.emailService.sendMailWithTemplate({
-                    from: { address: mailConfig.senderMail },
-                    to: [{ email_address: { address: user.email } }],
-                    template_key: emailTemplateConfig.document_rejected,
-                    merge_info: {
-                        first_name: user.firstName || "User",
-                        document_type: "Income",
-                        company_name: COMPANY_NAME,
-                        rejection_reason: rejectionReason,
-                        status: "Rejected",
-                    },
-                }).catch((e) => this.logger.error(`[KYC][INCOME] Failed to send rejection email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+                this.emailService
+                    .sendMailWithTemplate({
+                        from: { address: mailConfig.senderMail },
+                        to: [{ email_address: { address: user.email } }],
+                        template_key: emailTemplateConfig.document_rejected,
+                        merge_info: {
+                            first_name: user.firstName || "User",
+                            document_type: "Income",
+                            company_name: COMPANY_NAME,
+                            rejection_reason: rejectionReason,
+                            status: "Rejected",
+                        },
+                    })
+                    .catch((e) =>
+                        this.logger.error(
+                            `[KYC][INCOME] Failed to send rejection email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                        ),
+                    );
             }
 
             await this.notificationDispatcher.notify({
@@ -909,7 +1100,8 @@ export class TierVerificationService {
         }
 
         if (decision === "REVIEW") {
-            const pendingReviewReason = "Your bank statement passed automated checks and is pending manual review.";
+            const pendingReviewReason =
+                "Your bank statement passed automated checks and is pending manual review.";
 
             await this.createCurrentIndividualStageAttempt({
                 userId: user.id,
@@ -937,16 +1129,23 @@ export class TierVerificationService {
 
             // Email notification for pending review
             if (user.email && emailTemplateConfig.document_pending_review) {
-                this.emailService.sendMailWithTemplate({
-                    from: { address: mailConfig.senderMail },
-                    to: [{ email_address: { address: user.email } }],
-                    template_key: emailTemplateConfig.document_pending_review,
-                    merge_info: {
-                        name: user.firstName || "User",
-                        document_type: "Bank Statement",
-                        company_name: COMPANY_NAME,
-                    },
-                }).catch((e) => this.logger.error(`[KYC][INCOME] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`));
+                this.emailService
+                    .sendMailWithTemplate({
+                        from: { address: mailConfig.senderMail },
+                        to: [{ email_address: { address: user.email } }],
+                        template_key:
+                            emailTemplateConfig.document_pending_review,
+                        merge_info: {
+                            name: user.firstName || "User",
+                            document_type: "Bank Statement",
+                            company_name: COMPANY_NAME,
+                        },
+                    })
+                    .catch((e) =>
+                        this.logger.error(
+                            `[KYC][INCOME] Failed to send pending review email for user ${user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                        ),
+                    );
             }
 
             return buildResponse({
@@ -959,7 +1158,8 @@ export class TierVerificationService {
         }
 
         return buildResponse({
-            message: "Your bank statement passed automated checks and is pending manual review.",
+            message:
+                "Your bank statement passed automated checks and is pending manual review.",
             data: {
                 status: "PENDING",
                 reason: "Your bank statement passed automated checks and is pending manual review.",
@@ -972,18 +1172,18 @@ export class TierVerificationService {
      */
     async createTradingPassword(
         user: User,
-        dto: CreateTradingPasswordDto
+        dto: CreateTradingPasswordDto,
     ): Promise<ApiResponse> {
         if (dto.tradingPassword !== dto.confirmTradingPassword) {
             throw new HttpException(
                 "Passwords do not match",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         const hashedPassword = await bcrypt.hash(
             dto.tradingPassword,
-            this.SALT_ROUNDS
+            this.SALT_ROUNDS,
         );
 
         await this.prisma.user.update({
@@ -1049,7 +1249,8 @@ export class TierVerificationService {
             throw new HttpException("User not found", HttpStatus.NOT_FOUND);
         }
 
-        const verificationState = this.buildStageManagedVerificationState(userWithStatus);
+        const verificationState =
+            this.buildStageManagedVerificationState(userWithStatus);
 
         return buildResponse({
             message: "Verification status",
@@ -1073,7 +1274,7 @@ export class TierVerificationService {
      */
     private async uploadDocument(
         file: Express.Multer.File,
-        type: "address" | "income"
+        type: "address" | "income",
     ) {
         const date = Date.now();
         const documentDir = `${storageDirConfig.document}/${type}`;
@@ -1105,7 +1306,10 @@ export class TierVerificationService {
                 width: 1200,
             });
         } catch (error) {
-            if (error instanceof Error && error.name === "ImageCompressionError") {
+            if (
+                error instanceof Error &&
+                error.name === "ImageCompressionError"
+            ) {
                 throw new HttpException(
                     "Unsupported document format. Please upload a JPEG, PNG, or PDF file.",
                     HttpStatus.BAD_REQUEST,
@@ -1131,7 +1335,7 @@ export class TierVerificationService {
         userId: number,
         documentType: DocumentType,
         approved: boolean,
-        rejectionReason?: string
+        rejectionReason?: string,
     ): Promise<void> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -1139,7 +1343,9 @@ export class TierVerificationService {
         });
 
         if (!user?.email) {
-            this.logger.warn(`Cannot send notification: user ${userId} has no email`);
+            this.logger.warn(
+                `Cannot send notification: user ${userId} has no email`,
+            );
             return;
         }
 
@@ -1148,7 +1354,9 @@ export class TierVerificationService {
             : emailTemplateConfig.document_rejected;
 
         if (!templateKey) {
-            this.logger.warn(`Email template not configured for document ${approved ? "approval" : "rejection"}`);
+            this.logger.warn(
+                `Email template not configured for document ${approved ? "approval" : "rejection"}`,
+            );
             return;
         }
 
@@ -1157,7 +1365,8 @@ export class TierVerificationService {
             income: "Income",
             business: "Business Documents",
         };
-        const documentTypeFriendly = documentTypeFriendlyMap[documentType] || documentType;
+        const documentTypeFriendly =
+            documentTypeFriendlyMap[documentType] || documentType;
 
         try {
             await this.emailService.sendMailWithTemplate({
@@ -1174,11 +1383,11 @@ export class TierVerificationService {
             });
 
             this.logger.log(
-                `Review notification sent to ${user.email} for ${documentType} document - ${approved ? "approved" : "rejected"}`
+                `Review notification sent to ${user.email} for ${documentType} document - ${approved ? "approved" : "rejected"}`,
             );
         } catch (error) {
             this.logger.error(
-                `Failed to send review notification to ${user.email}: ${error.message}`
+                `Failed to send review notification to ${user.email}: ${error.message}`,
             );
         }
     }
@@ -1188,12 +1397,13 @@ export class TierVerificationService {
      */
     async approveDocument(
         userId: number,
-        documentType: "address" | "income" | "business"
+        documentType: "address" | "income" | "business",
     ): Promise<ApiResponse> {
         const updateData: Record<string, unknown> = {};
 
         if (documentType === "business") {
-            updateData.businessDocumentVerificationStatus = DocumentVerificationStatus.VERIFIED;
+            updateData.businessDocumentVerificationStatus =
+                DocumentVerificationStatus.VERIFIED;
             updateData.isDocumentVerified = true;
         }
 
@@ -1236,7 +1446,9 @@ export class TierVerificationService {
         // Push real-time profile update to connected client
         this.wsGateway.notifyProfileUpdate(userId);
 
-        this.logger.log(`Admin approved ${documentType} document for user ${userId}`);
+        this.logger.log(
+            `Admin approved ${documentType} document for user ${userId}`,
+        );
 
         return buildResponse({
             message: `${friendlyType} approved successfully`,
@@ -1249,12 +1461,13 @@ export class TierVerificationService {
     async rejectDocument(
         userId: number,
         documentType: "address" | "income" | "business",
-        reason: string
+        reason: string,
     ): Promise<ApiResponse> {
         const updateData: Record<string, unknown> = {};
 
         if (documentType === "business") {
-            updateData.businessDocumentVerificationStatus = DocumentVerificationStatus.DECLINED;
+            updateData.businessDocumentVerificationStatus =
+                DocumentVerificationStatus.DECLINED;
             updateData.businessDocumentsUploaded = false;
         }
 
@@ -1298,7 +1511,9 @@ export class TierVerificationService {
         // Push real-time profile update to connected client
         this.wsGateway.notifyProfileUpdate(userId);
 
-        this.logger.log(`Admin rejected ${documentType} document for user ${userId}: ${reason}`);
+        this.logger.log(
+            `Admin rejected ${documentType} document for user ${userId}: ${reason}`,
+        );
 
         return buildResponse({
             message: `${friendlyType} rejected`,

@@ -155,10 +155,10 @@ export const ALL_SUPPORTED_CURRENCIES_FOR_SYNC = [
 
 /**
  * Quote expiration time in milliseconds (displayed to user).
- * 
+ *
  * IMPORTANT: Quidax quotes are only valid for 15 seconds on their end.
  * We match this timing exactly. If quote expires, request a fresh quote.
- * 
+ *
  * @see https://docs.quidax.com - Instant Swap documentation
  */
 export const QUOTE_EXPIRY_MS = 25 * 1000;

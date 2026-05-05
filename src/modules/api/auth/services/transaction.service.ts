@@ -1,10 +1,10 @@
+import { Injectable, Logger, HttpStatus, Inject } from "@nestjs/common";
 import {
-    Injectable,
-    Logger,
-    HttpStatus,
-    Inject,
-} from "@nestjs/common";
-import { User, OrderCategory, OrderStatus, OrderStreamlinedStatus } from "@prisma/client";
+    User,
+    OrderCategory,
+    OrderStatus,
+    OrderStreamlinedStatus,
+} from "@prisma/client";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
@@ -49,11 +49,15 @@ export class TransactionService {
         private readonly emailService: EmailService,
         private readonly tierService: TierService,
         private readonly redisCacheService: RedisCacheService,
-    ) { }
+    ) {}
 
     /** Sum order amounts in USD, optionally filtering by a cutoff date. */
     private sumOrdersInUsd(
-        orders: Array<{ amount: number | null; currency: string | null; createdAt: Date }>,
+        orders: Array<{
+            amount: number | null;
+            currency: string | null;
+            createdAt: Date;
+        }>,
         since: Date | null,
         rateCache: Record<string, number>,
     ): number {
@@ -71,9 +75,11 @@ export class TransactionService {
         amount: number,
         currency: string,
         orderCategory: OrderCategory,
-        path: string
+        path: string,
     ): Promise<void> {
-        this.logger.log(`validateTransaction called with user: ${user.id}, currency: ${currency}, amount: ${amount}, path: ${path}`);
+        this.logger.log(
+            `validateTransaction called with user: ${user.id}, currency: ${currency}, amount: ${amount}, path: ${path}`,
+        );
 
         // Check flagged status
         const flagged = await this.prisma.flagged.findUnique({
@@ -82,15 +88,28 @@ export class TransactionService {
 
         if (flagged?.flagged) {
             const transactionId = randomUUID();
-            await this.recordFailedTransaction(user, amount, currency, flagged.reason, path, transactionId);
+            await this.recordFailedTransaction(
+                user,
+                amount,
+                currency,
+                flagged.reason,
+                path,
+                transactionId,
+            );
             await this.sendFlaggedEmail(user, flagged.reason, transactionId);
             throw new GeneralTransactionException(
                 `Transaction is pending. Kindly contact support for further assistance. Transaction ID: ${transactionId}`,
-                HttpStatus.FORBIDDEN
+                HttpStatus.FORBIDDEN,
             );
         }
 
-        await this.validateTransactionLimits(user, amount, currency, orderCategory, path);
+        await this.validateTransactionLimits(
+            user,
+            amount,
+            currency,
+            orderCategory,
+            path,
+        );
     }
 
     async validateTransactionLimits(
@@ -98,33 +117,58 @@ export class TransactionService {
         amount: number,
         currency: string,
         orderCategory: OrderCategory,
-        path: string
+        path: string,
     ): Promise<void> {
-        this.logger.log(`validateTransactionLimits called with currency: ${currency}, amount: ${amount}, category: ${orderCategory}, path: ${path}`);
+        this.logger.log(
+            `validateTransactionLimits called with currency: ${currency}, amount: ${amount}, category: ${orderCategory}, path: ${path}`,
+        );
 
         // Validate currency
         const allowedCurrencies = Object.values(SupportedAssets);
-        if (!currency || typeof currency !== 'string' || !allowedCurrencies.some(ac => ac.toLowerCase() === currency.toLowerCase())) {
+        if (
+            !currency ||
+            typeof currency !== "string" ||
+            !allowedCurrencies.some(
+                (ac) => ac.toLowerCase() === currency.toLowerCase(),
+            )
+        ) {
             const transactionId = randomUUID();
-            const reason = `Invalid currency: ${currency || 'null'}. Must be one of ${allowedCurrencies.join(', ')}.`;
-            await this.recordFailedTransaction(user, amount, currency || 'UNKNOWN', reason, path, transactionId);
+            const reason = `Invalid currency: ${currency || "null"}. Must be one of ${allowedCurrencies.join(", ")}.`;
+            await this.recordFailedTransaction(
+                user,
+                amount,
+                currency || "UNKNOWN",
+                reason,
+                path,
+                transactionId,
+            );
             throw new GeneralTransactionException(
                 reason,
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         // Normalize currency to lowercase for USD conversion
         const normalizedCurrency = currency.toLowerCase() as SupportedAssets;
 
-        const amountInUSD = await this.getAmountInUSD(normalizedCurrency, amount);
+        const amountInUSD = await this.getAmountInUSD(
+            normalizedCurrency,
+            amount,
+        );
         if (!amountInUSD?.amount) {
             const transactionId = randomUUID();
             const reason = `Failed to convert ${amount} ${currency} to USD. Please try again later.`;
-            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+            await this.recordFailedTransaction(
+                user,
+                amount,
+                currency,
+                reason,
+                path,
+                transactionId,
+            );
             throw new GeneralTransactionException(
                 reason,
-                HttpStatus.INTERNAL_SERVER_ERROR
+                HttpStatus.INTERNAL_SERVER_ERROR,
             );
         }
 
@@ -152,10 +196,17 @@ export class TransactionService {
         if (!tierInfo.canTransact) {
             const transactionId = randomUUID();
             const reason = `Transaction blocked: Complete KYC verification to unlock transactions. Current tier: ${tierInfo.tier}`;
-            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+            await this.recordFailedTransaction(
+                user,
+                amount,
+                currency,
+                reason,
+                path,
+                transactionId,
+            );
             throw new GeneralTransactionException(
                 "Complete KYC verification to unlock transactions. Visit your profile to verify your identity.",
-                HttpStatus.FORBIDDEN
+                HttpStatus.FORBIDDEN,
             );
         }
 
@@ -167,7 +218,9 @@ export class TransactionService {
         // Admin override replaces the per-operation limit for each op type.
         const override = await this.getActiveLimitOverride(user.id);
         if (override && override.dailyLimitUSD !== null) {
-            this.logger.log(`Active limit override for user ${user.id}: daily=${override.dailyLimitUSD} per operation`);
+            this.logger.log(
+                `Active limit override for user ${user.id}: daily=${override.dailyLimitUSD} per operation`,
+            );
             dailyLimit = override.dailyLimitUSD;
             hasUnlimited = false;
         }
@@ -184,8 +237,14 @@ export class TransactionService {
         if (!hasUnlimited) {
             const numericLimit = dailyLimit as number;
             const consumed = await this.checkRedisDailyLimit({
-                user, amount, currency, amountUSD,
-                key: dailyKey, limit: numericLimit, tierInfo, path,
+                user,
+                amount,
+                currency,
+                amountUSD,
+                key: dailyKey,
+                limit: numericLimit,
+                tierInfo,
+                path,
                 operationLabel,
             });
             if (consumed) usedRedis = true;
@@ -193,33 +252,67 @@ export class TransactionService {
 
         // ==================== DB FALLBACK (if Redis unavailable) ====================
         if (!usedRedis && !hasUnlimited) {
-            this.logger.warn(`Redis unavailable for user ${user.id} - using DB fallback for limit check`);
+            this.logger.warn(
+                `Redis unavailable for user ${user.id} - using DB fallback for limit check`,
+            );
             await this.validateLimitsWithDbFallback({
-                user, amount, currency, amountUSD, tierInfo,
-                hasUnlimited, dailyLimit: dailyLimit as number,
-                orderCategory, operationLabel, path,
+                user,
+                amount,
+                currency,
+                amountUSD,
+                tierInfo,
+                hasUnlimited,
+                dailyLimit: dailyLimit as number,
+                orderCategory,
+                operationLabel,
+                path,
             });
         }
     }
 
     /** Atomic Redis daily limit check per operation. Returns true if Redis responded. */
-    private async checkRedisDailyLimit(opts: RedisLimitCheckOptions): Promise<boolean> {
-        const { user, amount, currency, amountUSD, key: dailyKey, limit: dailyLimit, tierInfo, path, operationLabel } = opts;
-        const newDailyTotal = await this.redisCacheService.incrbyfloat(dailyKey, amountUSD, 86400);
+    private async checkRedisDailyLimit(
+        opts: RedisLimitCheckOptions,
+    ): Promise<boolean> {
+        const {
+            user,
+            amount,
+            currency,
+            amountUSD,
+            key: dailyKey,
+            limit: dailyLimit,
+            tierInfo,
+            path,
+            operationLabel,
+        } = opts;
+        const newDailyTotal = await this.redisCacheService.incrbyfloat(
+            dailyKey,
+            amountUSD,
+            86400,
+        );
         if (newDailyTotal === null) return false;
 
         if (newDailyTotal > dailyLimit) {
             await this.redisCacheService.decrbyfloat(dailyKey, amountUSD);
             const transactionId = randomUUID();
             const reason = `Daily ${operationLabel.toLowerCase()} limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)} - Transaction ID: ${transactionId}`;
-            await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
+            await this.recordFailedTransaction(
+                user,
+                amount,
+                currency,
+                reason,
+                path,
+                transactionId,
+            );
             await this.sendFlaggedEmail(user, reason, transactionId);
             throw new GeneralTransactionException(
                 `Daily ${operationLabel.toLowerCase()} limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
-                HttpStatus.FORBIDDEN
+                HttpStatus.FORBIDDEN,
             );
         }
-        this.logger.debug(`Redis daily ${operationLabel.toLowerCase()} limit check passed: ${newDailyTotal.toFixed(2)}/${dailyLimit}`);
+        this.logger.debug(
+            `Redis daily ${operationLabel.toLowerCase()} limit check passed: ${newDailyTotal.toFixed(2)}/${dailyLimit}`,
+        );
         return true;
     }
 
@@ -241,42 +334,76 @@ export class TransactionService {
         operationLabel: string;
         path: string;
     }): Promise<void> {
-        const { user, amount, currency, amountUSD, tierInfo, hasUnlimited, dailyLimit, orderCategory, operationLabel, path } = opts;
+        const {
+            user,
+            amount,
+            currency,
+            amountUSD,
+            tierInfo,
+            hasUnlimited,
+            dailyLimit,
+            orderCategory,
+            operationLabel,
+            path,
+        } = opts;
         if (hasUnlimited) return;
 
-        await this.prisma.$transaction(async (tx) => {
-            // Acquire row-level lock on user to serialize concurrent limit checks
-            await tx.$queryRaw`SELECT id FROM "Users" WHERE id = ${user.id} FOR UPDATE`;
+        await this.prisma.$transaction(
+            async (tx) => {
+                // Acquire row-level lock on user to serialize concurrent limit checks
+                await tx.$queryRaw`SELECT id FROM "Users" WHERE id = ${user.id} FOR UPDATE`;
 
-            const now = new Date();
-            // Use calendar-day boundary (midnight UTC) to match Redis key behavior
-            const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-
-            // Fetch today's orders for this specific operation type
-            const orders = await tx.order.findMany({
-                where: {
-                    userId: user.id,
-                    createdAt: { gte: startOfToday },
-                    orderCategory,
-                    status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
-                },
-                select: { amount: true, currency: true, createdAt: true },
-            });
-
-            const rateCache = await this.buildRateCache(tx, orders);
-
-            const newDailyTotal = this.sumOrdersInUsd(orders, null, rateCache) + amountUSD;
-            if (newDailyTotal > dailyLimit) {
-                const transactionId = randomUUID();
-                const reason = `Daily ${operationLabel.toLowerCase()} limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)}`;
-                await this.recordFailedTransaction(user, amount, currency, reason, path, transactionId);
-                await this.sendFlaggedEmail(user, reason, transactionId);
-                throw new GeneralTransactionException(
-                    `Daily ${operationLabel.toLowerCase()} limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
-                    HttpStatus.FORBIDDEN
+                const now = new Date();
+                // Use calendar-day boundary (midnight UTC) to match Redis key behavior
+                const startOfToday = new Date(
+                    Date.UTC(
+                        now.getUTCFullYear(),
+                        now.getUTCMonth(),
+                        now.getUTCDate(),
+                    ),
                 );
-            }
-        }, { timeout: 10000 });
+
+                // Fetch today's orders for this specific operation type
+                const orders = await tx.order.findMany({
+                    where: {
+                        userId: user.id,
+                        createdAt: { gte: startOfToday },
+                        orderCategory,
+                        status: {
+                            in: [
+                                OrderStatus.filled,
+                                OrderStatus.completed,
+                                OrderStatus.done,
+                            ],
+                        },
+                    },
+                    select: { amount: true, currency: true, createdAt: true },
+                });
+
+                const rateCache = await this.buildRateCache(tx, orders);
+
+                const newDailyTotal =
+                    this.sumOrdersInUsd(orders, null, rateCache) + amountUSD;
+                if (newDailyTotal > dailyLimit) {
+                    const transactionId = randomUUID();
+                    const reason = `Daily ${operationLabel.toLowerCase()} limit exceeded for Tier ${tierInfo.tier}. Limit: $${dailyLimit}, Attempted: $${newDailyTotal.toFixed(2)}`;
+                    await this.recordFailedTransaction(
+                        user,
+                        amount,
+                        currency,
+                        reason,
+                        path,
+                        transactionId,
+                    );
+                    await this.sendFlaggedEmail(user, reason, transactionId);
+                    throw new GeneralTransactionException(
+                        `Daily ${operationLabel.toLowerCase()} limit of $${dailyLimit.toLocaleString()} exceeded. Upgrade your verification tier to increase limits.`,
+                        HttpStatus.FORBIDDEN,
+                    );
+                }
+            },
+            { timeout: 10000 },
+        );
     }
 
     /** Build a currency→USD-rate cache for a set of orders within a transaction. */
@@ -284,10 +411,13 @@ export class TransactionService {
         tx: any,
         orders: Array<{ currency: string | null }>,
     ): Promise<Record<string, number>> {
-        const usdtRate = await tx.cryptoRate.findUnique({ where: { currency: 'USDT' } });
-        const ngnToUsd = usdtRate && usdtRate.sellRate > 0 ? 1 / usdtRate.sellRate : 0;
+        const usdtRate = await tx.cryptoRate.findUnique({
+            where: { currency: "USDT" },
+        });
+        const ngnToUsd =
+            usdtRate && usdtRate.sellRate > 0 ? 1 / usdtRate.sellRate : 0;
 
-        const uniqueCurrencies = [...new Set(orders.map(o => o.currency))];
+        const uniqueCurrencies = [...new Set(orders.map((o) => o.currency))];
         const rateCache: Record<string, number> = {};
 
         for (const curr of uniqueCurrencies) {
@@ -295,9 +425,10 @@ export class TransactionService {
             const cryptoRate = await tx.cryptoRate.findUnique({
                 where: { currency: curr.toUpperCase() },
             });
-            rateCache[curr] = cryptoRate && cryptoRate.sellRate > 0 && ngnToUsd > 0
-                ? cryptoRate.sellRate * ngnToUsd
-                : 0;
+            rateCache[curr] =
+                cryptoRate && cryptoRate.sellRate > 0 && ngnToUsd > 0
+                    ? cryptoRate.sellRate * ngnToUsd
+                    : 0;
         }
 
         return rateCache;
@@ -315,20 +446,30 @@ export class TransactionService {
             if (!override) return null;
             // Check expiration
             if (override.expiresAt && override.expiresAt < new Date()) {
-                this.logger.debug(`Limit override for user ${userId} has expired (${override.expiresAt.toISOString()})`);
+                this.logger.debug(
+                    `Limit override for user ${userId} has expired (${override.expiresAt.toISOString()})`,
+                );
                 return null;
             }
             return override;
         } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : JSON.stringify(error);
-            this.logger.warn(`Failed to fetch limit override for user ${userId}, proceeding with tier defaults: ${msg}`);
+            const msg =
+                error instanceof Error ? error.message : JSON.stringify(error);
+            this.logger.warn(
+                `Failed to fetch limit override for user ${userId}, proceeding with tier defaults: ${msg}`,
+            );
             return null;
         }
     }
 
-    private async getAmountInUSD(asset: string, amount: number): Promise<{ amount?: number; rate?: number } | null> {
-        if (!asset || typeof asset !== 'string') {
-            this.logger.error(`Invalid asset provided to getAmountInUSD: ${asset}`);
+    private async getAmountInUSD(
+        asset: string,
+        amount: number,
+    ): Promise<{ amount?: number; rate?: number } | null> {
+        if (!asset || typeof asset !== "string") {
+            this.logger.error(
+                `Invalid asset provided to getAmountInUSD: ${asset}`,
+            );
             return null;
         }
 
@@ -337,29 +478,44 @@ export class TransactionService {
         // Primary: Use in-house CryptoRate table (rates are in NGN)
         try {
             const [cryptoRate, usdtRate] = await Promise.all([
-                this.prisma.cryptoRate.findUnique({ where: { currency: normalizedAsset } }),
-                this.prisma.cryptoRate.findUnique({ where: { currency: 'USDT' } }),
+                this.prisma.cryptoRate.findUnique({
+                    where: { currency: normalizedAsset },
+                }),
+                this.prisma.cryptoRate.findUnique({
+                    where: { currency: "USDT" },
+                }),
             ]);
 
-            if (cryptoRate && cryptoRate.sellRate > 0 && usdtRate && usdtRate.sellRate > 0) {
+            if (
+                cryptoRate &&
+                cryptoRate.sellRate > 0 &&
+                usdtRate &&
+                usdtRate.sellRate > 0
+            ) {
                 // Convert crypto to NGN, then NGN to USD using USDT rate (USDT ≈ $1)
                 const amountInNGN = amount * cryptoRate.sellRate;
                 const usdRate = cryptoRate.sellRate / usdtRate.sellRate;
                 const amountInUSD = amountInNGN / usdtRate.sellRate;
 
-                this.logger.log(`In-house rate for ${asset}: ${cryptoRate.sellRate} NGN, USD equivalent: $${usdRate.toFixed(2)}`);
+                this.logger.log(
+                    `In-house rate for ${asset}: ${cryptoRate.sellRate} NGN, USD equivalent: $${usdRate.toFixed(2)}`,
+                );
                 return {
                     amount: amountInUSD,
                     rate: usdRate,
                 };
             }
         } catch (error) {
-            this.logger.warn(`In-house rate lookup failed for ${asset}: ${error.message}, falling back to external APIs`);
+            this.logger.warn(
+                `In-house rate lookup failed for ${asset}: ${error.message}, falling back to external APIs`,
+            );
         }
 
         // Fallback: Try LiveCoinWatch
         try {
-            const rate = await this.liveCoinWatchService.getPriceInUSD(normalizedAsset.toLowerCase());
+            const rate = await this.liveCoinWatchService.getPriceInUSD(
+                normalizedAsset.toLowerCase(),
+            );
             if (rate) {
                 this.logger.log(`LiveCoinWatch price for ${asset}: $${rate}`);
                 return {
@@ -368,21 +524,29 @@ export class TransactionService {
                 };
             }
         } catch (error) {
-            this.logger.warn(`LiveCoinWatch failed for ${asset}: ${error.message}, falling back to CoinCap`);
+            this.logger.warn(
+                `LiveCoinWatch failed for ${asset}: ${error.message}, falling back to CoinCap`,
+            );
         }
 
         // Backup: Fall back to CoinCap
         try {
-            const rate = await this.coinCapService.getPriceInUSD(normalizedAsset.toLowerCase());
+            const rate = await this.coinCapService.getPriceInUSD(
+                normalizedAsset.toLowerCase(),
+            );
             if (rate) {
-                this.logger.log(`CoinCap fallback price for ${asset}: $${rate}`);
+                this.logger.log(
+                    `CoinCap fallback price for ${asset}: $${rate}`,
+                );
                 return {
                     amount: amount * rate,
                     rate,
                 };
             }
         } catch (error) {
-            this.logger.error(`CoinCap fallback also failed for ${asset}: ${error.message}`);
+            this.logger.error(
+                `CoinCap fallback also failed for ${asset}: ${error.message}`,
+            );
         }
 
         this.logger.error(`All price sources failed for ${asset}`);
@@ -396,14 +560,17 @@ export class TransactionService {
         reason: string,
         path: string,
         transactionId: string,
-        tx: any = this.prisma
+        tx: any = this.prisma,
     ): Promise<void> {
         let orderCategory: OrderCategory;
         if (path.includes("buy/order") || path.includes("buy/quote")) {
             orderCategory = OrderCategory.BUY;
         } else if (path.includes("sell/order") || path.includes("sell/quote")) {
             orderCategory = OrderCategory.SELL;
-        } else if (path.includes("request-instant-swap-quote") || path.includes("refresh-instant-swap-quote")) {
+        } else if (
+            path.includes("request-instant-swap-quote") ||
+            path.includes("refresh-instant-swap-quote")
+        ) {
             orderCategory = OrderCategory.SWAP;
         } else if (path.includes("withdrawer-request")) {
             orderCategory = OrderCategory.SEND;
@@ -415,7 +582,7 @@ export class TransactionService {
             data: {
                 userId: user.id,
                 orderCategory,
-                currency: currency || 'UNKNOWN',
+                currency: currency || "UNKNOWN",
                 amount,
                 transactionId,
                 status: OrderStatus.failed,
@@ -438,7 +605,10 @@ export class TransactionService {
             return;
         }
 
-        const amountInUSD = await this.getAmountInUSD(order.currency, Number(order.amount));
+        const amountInUSD = await this.getAmountInUSD(
+            order.currency,
+            Number(order.amount),
+        );
         if (!amountInUSD?.amount) {
             this.logger.warn(
                 `Unable to release reserved ${order.orderCategory.toLowerCase()} limit for user ${order.userId}: USD conversion failed`,
@@ -449,7 +619,8 @@ export class TransactionService {
         const opKey = getOperationKey(order.orderCategory);
         const dateStr = order.createdAt.toISOString().slice(0, 10);
         const dailyKey = `limits:user:${order.userId}:daily:${opKey}:${dateStr}`;
-        const currentDailyTotal = await this.redisCacheService.getCounter(dailyKey);
+        const currentDailyTotal =
+            await this.redisCacheService.getCounter(dailyKey);
 
         if (currentDailyTotal === null) {
             this.logger.warn(
@@ -463,7 +634,10 @@ export class TransactionService {
         }
 
         const decrement = Math.min(currentDailyTotal, amountInUSD.amount);
-        const newDailyTotal = await this.redisCacheService.decrbyfloat(dailyKey, decrement);
+        const newDailyTotal = await this.redisCacheService.decrbyfloat(
+            dailyKey,
+            decrement,
+        );
 
         if (newDailyTotal === null) {
             this.logger.warn(
@@ -475,7 +649,10 @@ export class TransactionService {
         if (newDailyTotal < 0) {
             const endOfDay = new Date(order.createdAt);
             endOfDay.setUTCHours(23, 59, 59, 999);
-            const ttlSeconds = Math.max(1, Math.ceil((endOfDay.getTime() - Date.now()) / 1000));
+            const ttlSeconds = Math.max(
+                1,
+                Math.ceil((endOfDay.getTime() - Date.now()) / 1000),
+            );
             await this.redisCacheService.set(dailyKey, 0, ttlSeconds);
         }
 
@@ -484,7 +661,11 @@ export class TransactionService {
         );
     }
 
-    private async sendFlaggedEmail(user: User, reason: string, transactionId: string): Promise<void> {
+    private async sendFlaggedEmail(
+        user: User,
+        reason: string,
+        transactionId: string,
+    ): Promise<void> {
         const team = COMPANY_NAME;
 
         await this.emailService.sendMailWithTemplate({
@@ -492,10 +673,12 @@ export class TransactionService {
             to: [{ email_address: { address: user.email } }],
             template_key: emailTemplateConfig.transaction_failed,
             merge_info: {
-                name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User",
+                name:
+                    `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+                    "User",
                 transactionId,
                 team,
-                reason
+                reason,
             },
         });
     }

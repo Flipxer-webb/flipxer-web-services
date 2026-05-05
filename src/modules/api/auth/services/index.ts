@@ -1,4 +1,12 @@
-import { BadRequestException, GoneException, HttpStatus, Inject, Injectable, Logger, forwardRef } from "@nestjs/common";
+import {
+    BadRequestException,
+    GoneException,
+    HttpStatus,
+    Inject,
+    Injectable,
+    Logger,
+    forwardRef,
+} from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import {
     SignUpDto,
@@ -30,7 +38,12 @@ import * as bcrypt from "bcryptjs";
 import { ApiResponse, buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
-import { generateFileName, generateId, generateRandomNum, decryptField } from "@/utils";
+import {
+    generateFileName,
+    generateId,
+    generateRandomNum,
+    decryptField,
+} from "@/utils";
 import { customAlphabet } from "nanoid";
 import { DuplicateUserException } from "@/modules/api/user/errors";
 import {
@@ -166,7 +179,10 @@ type DocumentReviewDisposition = {
     hardRejectMessage: string | null;
 };
 
-type IdentityDocumentDecisionDisposition = "APPROVE" | "AUTO_REJECT" | "MANUAL_REVIEW";
+type IdentityDocumentDecisionDisposition =
+    | "APPROVE"
+    | "AUTO_REJECT"
+    | "MANUAL_REVIEW";
 
 type IdentityDocumentDecision = {
     disposition: IdentityDocumentDecisionDisposition;
@@ -189,17 +205,20 @@ type IdentityDocumentDecision = {
 type GovernmentIdentityMatchResult =
     | { disposition: "MATCHED" }
     | {
-        disposition: "AUTO_REJECT";
-        responseMessage: string;
-        reasonMessage: string;
-    }
+          disposition: "AUTO_REJECT";
+          responseMessage: string;
+          reasonMessage: string;
+      }
     | {
-        disposition: "MANUAL_REVIEW";
-        responseMessage: string;
-        reasonMessage: string;
-    };
+          disposition: "MANUAL_REVIEW";
+          responseMessage: string;
+          reasonMessage: string;
+      };
 
-type ProviderAnalysisFile = Pick<Express.Multer.File, "buffer" | "mimetype" | "originalname">;
+type ProviderAnalysisFile = Pick<
+    Express.Multer.File,
+    "buffer" | "mimetype" | "originalname"
+>;
 
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
@@ -224,7 +243,11 @@ import { SettingService } from "../../settings/services";
 import { TierService } from "./tier.service";
 import { KycStateMachineService } from "./kyc-state-machine.service";
 import { IdentityResolutionService } from "./identity-resolution.service";
-import { matchNames, matchDateOfBirth, normaliseName } from "@/utils/name-matcher";
+import {
+    matchNames,
+    matchDateOfBirth,
+    normaliseName,
+} from "@/utils/name-matcher";
 import { prepareDocumentForProviderAnalysis } from "@/libs/ocr";
 import type { AddressProviderSignals, IncomeProviderSignals } from "@/libs/ocr";
 import { buildIndividualVerificationSnapshot } from "../utils/individual-kyc-stage-state.util";
@@ -271,7 +294,9 @@ function fileFieldCreate(
     return {
         [urlProp]: file?.url || null,
         [fieldIdProp]: file?.fileId || null,
-        [fileNameProp]: file ? generateFileName(metaKey, userId, file.originalName) : null,
+        [fileNameProp]: file
+            ? generateFileName(metaKey, userId, file.originalName)
+            : null,
     };
 }
 
@@ -281,7 +306,8 @@ export class AuthService {
     private readonly uploadService: ImagekitService | CloudinaryService;
     private readonly SALT_ROUNDS = 10;
     private readonly SIGNUP_CACHE_TTL = 3600; // 1 hour
-    private readonly getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
+    private readonly getProfileCacheKey = (userId: number) =>
+        `user:profile:${userId}`;
 
     private maskSensitiveId(value?: string, visibleDigits: number = 4): string {
         if (!value) return "N/A";
@@ -290,7 +316,9 @@ export class AuthService {
     }
 
     private deriveAdminUserType(roleSlug: string): UserType {
-        return roleSlug === "super-admin" ? UserType.SUPER_ADMIN : UserType.ADMIN;
+        return roleSlug === "super-admin"
+            ? UserType.SUPER_ADMIN
+            : UserType.ADMIN;
     }
 
     private buildGovernmentVerificationState(user: {
@@ -311,10 +339,10 @@ export class AuthService {
 
         return {
             governmentIdVerified:
-                verificationSnapshot.bvnVerified
-                || verificationSnapshot.ninVerified
-                || Boolean(user.bvn)
-                || Boolean(user.nin),
+                verificationSnapshot.bvnVerified ||
+                verificationSnapshot.ninVerified ||
+                Boolean(user.bvn) ||
+                Boolean(user.nin),
         };
     }
 
@@ -326,17 +354,18 @@ export class AuthService {
 
         if (identifier) {
             // If the current attempt is REJECTED, the user is in NEEDS_RESUBMISSION — allow re-verification
-            const rejectedCurrentAttempt = await this.prisma.kycStageAttempt.findFirst({
-                where: {
-                    userId: user.id,
-                    journeyType: "INDIVIDUAL",
-                    stage: KycStage.GOVERNMENT_ID,
-                    method,
-                    isCurrent: true,
-                    status: KycAttemptStatus.REJECTED,
-                },
-                select: { id: true },
-            });
+            const rejectedCurrentAttempt =
+                await this.prisma.kycStageAttempt.findFirst({
+                    where: {
+                        userId: user.id,
+                        journeyType: "INDIVIDUAL",
+                        stage: KycStage.GOVERNMENT_ID,
+                        method,
+                        isCurrent: true,
+                        status: KycAttemptStatus.REJECTED,
+                    },
+                    select: { id: true },
+                });
             if (rejectedCurrentAttempt) {
                 return false;
             }
@@ -345,22 +374,24 @@ export class AuthService {
 
         const approvedAttemptPromise = this.prisma.kycStageAttempt?.findFirst
             ? this.prisma.kycStageAttempt.findFirst({
-                where: {
-                    userId: user.id,
-                    journeyType: "INDIVIDUAL",
-                    stage: KycStage.GOVERNMENT_ID,
-                    method,
-                    isCurrent: true,
-                    status: KycAttemptStatus.APPROVED,
-                },
-                select: { id: true },
-            })
+                  where: {
+                      userId: user.id,
+                      journeyType: "INDIVIDUAL",
+                      stage: KycStage.GOVERNMENT_ID,
+                      method,
+                      isCurrent: true,
+                      status: KycAttemptStatus.APPROVED,
+                  },
+                  select: { id: true },
+              })
             : Promise.resolve(null);
 
         return Boolean(await approvedAttemptPromise);
     }
 
-    private mapIndividualAttemptReasonCode(reason?: string | null): string | null {
+    private mapIndividualAttemptReasonCode(
+        reason?: string | null,
+    ): string | null {
         if (!reason) {
             return null;
         }
@@ -371,7 +402,10 @@ export class AuthService {
             return "DOCUMENT_EXPIRED";
         }
 
-        if (normalized.includes("NOT_SUPPORTED") || normalized.includes("UNSUPPORTED")) {
+        if (
+            normalized.includes("NOT_SUPPORTED") ||
+            normalized.includes("UNSUPPORTED")
+        ) {
             return "DOCUMENT_UNSUPPORTED";
         }
 
@@ -410,12 +444,16 @@ export class AuthService {
     }
 
     private extractBase64MimeType(encodedFile: string | undefined): string {
-        const detectedType = /^data:([^;]+);base64,/.exec(encodedFile ?? "")?.[1];
+        const detectedType = /^data:([^;]+);base64,/.exec(
+            encodedFile ?? "",
+        )?.[1];
 
         return detectedType || "image/jpeg";
     }
 
-    private extractGovernmentProviderPhoneNumber(entity?: Record<string, any>): string | null {
+    private extractGovernmentProviderPhoneNumber(
+        entity?: Record<string, any>,
+    ): string | null {
         if (typeof entity?.phone_number1 === "string") {
             return entity.phone_number1;
         }
@@ -437,7 +475,9 @@ export class AuthService {
     ) {
         const profileDateOfBirth = this.getUserDateOfBirth(user);
         const hasProviderProfile = Boolean(
-            providerProfile.firstName || providerProfile.lastName || providerProfile.dateOfBirth,
+            providerProfile.firstName ||
+            providerProfile.lastName ||
+            providerProfile.dateOfBirth,
         );
 
         if (!hasProviderProfile) {
@@ -451,7 +491,10 @@ export class AuthService {
             providerProfile.lastName || "",
         );
         const dobMatches = profileDateOfBirth
-            ? matchDateOfBirth(profileDateOfBirth, providerProfile.dateOfBirth || "")
+            ? matchDateOfBirth(
+                  profileDateOfBirth,
+                  providerProfile.dateOfBirth || "",
+              )
             : null;
 
         return {
@@ -467,8 +510,13 @@ export class AuthService {
         };
     }
 
-    private getReviewedAtForAttemptStatus(status: KycAttemptStatus): Date | null {
-        if (status === KycAttemptStatus.APPROVED || status === KycAttemptStatus.REJECTED) {
+    private getReviewedAtForAttemptStatus(
+        status: KycAttemptStatus,
+    ): Date | null {
+        if (
+            status === KycAttemptStatus.APPROVED ||
+            status === KycAttemptStatus.REJECTED
+        ) {
             return new Date();
         }
 
@@ -507,7 +555,10 @@ export class AuthService {
             }>;
         },
     ): Promise<{ id: number }> {
-        const userId = this.normalizePositiveInt(input.userId, "KYC attempt user id");
+        const userId = this.normalizePositiveInt(
+            input.userId,
+            "KYC attempt user id",
+        );
         const stage = this.normalizeKycStage(input.stage);
 
         const nextAttemptAggregate = await db.kycStageAttempt.aggregate({
@@ -551,15 +602,15 @@ export class AuthService {
                 escalatedAt: input.escalatedAt ?? null,
                 evidenceAssets: input.evidenceAssets?.length
                     ? {
-                        create: input.evidenceAssets.map((asset) => ({
-                            kind: asset.kind,
-                            storageUrl: asset.storageUrl,
-                            storageFieldId: asset.storageFieldId ?? null,
-                            originalName: asset.originalName ?? null,
-                            mimeType: asset.mimeType,
-                            side: asset.side ?? null,
-                        })),
-                    }
+                          create: input.evidenceAssets.map((asset) => ({
+                              kind: asset.kind,
+                              storageUrl: asset.storageUrl,
+                              storageFieldId: asset.storageFieldId ?? null,
+                              originalName: asset.originalName ?? null,
+                              mimeType: asset.mimeType,
+                              side: asset.side ?? null,
+                          })),
+                      }
                     : undefined,
             },
             select: { id: true },
@@ -622,50 +673,74 @@ export class AuthService {
         eventNote?: string | null;
         eventPayload?: Prisma.InputJsonValue | null;
     }): Promise<void> {
-        const entity = params.providerRawResponse?.entity as Record<string, any> | undefined;
-        const providerFirstName = typeof entity?.first_name === "string" ? entity.first_name : null;
-        const providerLastName = typeof entity?.last_name === "string" ? entity.last_name : null;
-        const providerDateOfBirth = typeof entity?.date_of_birth === "string" ? entity.date_of_birth : null;
-        const providerPhoneNumber = this.extractGovernmentProviderPhoneNumber(entity);
-        const comparisonSummary = this.buildGovernmentComparisonSummary(params.user, {
-            firstName: providerFirstName,
-            lastName: providerLastName,
-            dateOfBirth: providerDateOfBirth,
-        });
-        const reviewedAt = this.getReviewedAtForAttemptStatus(params.status);
-
-        const attempt = await this.createCurrentIndividualStageAttempt(this.prisma, {
-            userId: params.user.id,
-            stage: KycStage.GOVERNMENT_ID,
-            method: params.identityType === "BVN" ? KycMethod.BVN : KycMethod.NIN,
-            status: params.status,
-            providerName: params.providerRawResponse ? KycProviderName.DOJAH : KycProviderName.NONE,
-            providerStatus: params.providerStatus,
-            decisionMode: params.decisionMode,
-            providerRef: params.providerRef ?? null,
-            reasonCode: this.mapIndividualAttemptReasonCode(params.reasonMessage),
-            reasonMessage: params.reasonMessage ?? null,
-            reasonDetails: params.reasonDetails ?? undefined,
-            extractedFields: {
-                identifierType: params.identityType,
-                identifier: params.identifier,
+        const entity = params.providerRawResponse?.entity as
+            | Record<string, any>
+            | undefined;
+        const providerFirstName =
+            typeof entity?.first_name === "string" ? entity.first_name : null;
+        const providerLastName =
+            typeof entity?.last_name === "string" ? entity.last_name : null;
+        const providerDateOfBirth =
+            typeof entity?.date_of_birth === "string"
+                ? entity.date_of_birth
+                : null;
+        const providerPhoneNumber =
+            this.extractGovernmentProviderPhoneNumber(entity);
+        const comparisonSummary = this.buildGovernmentComparisonSummary(
+            params.user,
+            {
                 firstName: providerFirstName,
                 lastName: providerLastName,
                 dateOfBirth: providerDateOfBirth,
-                phoneNumber: providerPhoneNumber,
             },
-            comparisonSummary,
-            evidenceSummary: {
-                identifierType: params.identityType,
-                identifier: this.maskSensitiveId(params.identifier),
-                registeredPhoneNumber: providerPhoneNumber ? this.maskSensitiveId(providerPhoneNumber) : null,
-            },
-            reviewedAt,
-        });
+        );
+        const reviewedAt = this.getReviewedAtForAttemptStatus(params.status);
 
-        const eventProviderName = params.providerRef === "DEV_BYPASS" || !params.providerRawResponse
-            ? KycProviderName.NONE
-            : KycProviderName.DOJAH;
+        const attempt = await this.createCurrentIndividualStageAttempt(
+            this.prisma,
+            {
+                userId: params.user.id,
+                stage: KycStage.GOVERNMENT_ID,
+                method:
+                    params.identityType === "BVN"
+                        ? KycMethod.BVN
+                        : KycMethod.NIN,
+                status: params.status,
+                providerName: params.providerRawResponse
+                    ? KycProviderName.DOJAH
+                    : KycProviderName.NONE,
+                providerStatus: params.providerStatus,
+                decisionMode: params.decisionMode,
+                providerRef: params.providerRef ?? null,
+                reasonCode: this.mapIndividualAttemptReasonCode(
+                    params.reasonMessage,
+                ),
+                reasonMessage: params.reasonMessage ?? null,
+                reasonDetails: params.reasonDetails ?? undefined,
+                extractedFields: {
+                    identifierType: params.identityType,
+                    identifier: params.identifier,
+                    firstName: providerFirstName,
+                    lastName: providerLastName,
+                    dateOfBirth: providerDateOfBirth,
+                    phoneNumber: providerPhoneNumber,
+                },
+                comparisonSummary,
+                evidenceSummary: {
+                    identifierType: params.identityType,
+                    identifier: this.maskSensitiveId(params.identifier),
+                    registeredPhoneNumber: providerPhoneNumber
+                        ? this.maskSensitiveId(providerPhoneNumber)
+                        : null,
+                },
+                reviewedAt,
+            },
+        );
+
+        const eventProviderName =
+            params.providerRef === "DEV_BYPASS" || !params.providerRawResponse
+                ? KycProviderName.NONE
+                : KycProviderName.DOJAH;
 
         if (params.preApprovalEventType) {
             await this.appendIndividualStageAttemptEvent(this.prisma, {
@@ -673,12 +748,14 @@ export class AuthService {
                 userId: params.user.id,
                 stage: KycStage.GOVERNMENT_ID,
                 eventType: params.preApprovalEventType,
-                actorType: params.preApprovalEventActorType ?? KycActorType.SYSTEM,
+                actorType:
+                    params.preApprovalEventActorType ?? KycActorType.SYSTEM,
                 actorId: params.preApprovalEventActorId ?? null,
                 providerName: eventProviderName,
                 providerStatus: params.providerStatus,
                 providerRef: params.providerRef ?? null,
-                note: params.preApprovalEventNote ?? params.reasonMessage ?? null,
+                note:
+                    params.preApprovalEventNote ?? params.reasonMessage ?? null,
                 payload: params.preApprovalEventPayload ?? undefined,
             });
         }
@@ -712,7 +789,11 @@ export class AuthService {
                 method,
                 isCurrent: true,
             },
-            orderBy: [{ attemptNo: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
+            orderBy: [
+                { attemptNo: "desc" },
+                { updatedAt: "desc" },
+                { id: "desc" },
+            ],
             select: { status: true },
         });
 
@@ -730,16 +811,18 @@ export class AuthService {
         note: string;
         payload: Prisma.InputJsonValue;
     } {
-        const eventType = params.currentAttemptStatus === KycAttemptStatus.REJECTED
-            || params.currentAttemptStatus === KycAttemptStatus.EXPIRED
-            ? KycAttemptEventType.RESUBMITTED
-            : KycAttemptEventType.SUBMITTED;
+        const eventType =
+            params.currentAttemptStatus === KycAttemptStatus.REJECTED ||
+            params.currentAttemptStatus === KycAttemptStatus.EXPIRED
+                ? KycAttemptEventType.RESUBMITTED
+                : KycAttemptEventType.SUBMITTED;
 
         return {
             eventType,
-            note: eventType === KycAttemptEventType.RESUBMITTED
-                ? `${params.identityType} resubmitted for verification.`
-                : `${params.identityType} submitted for verification.`,
+            note:
+                eventType === KycAttemptEventType.RESUBMITTED
+                    ? `${params.identityType} resubmitted for verification.`
+                    : `${params.identityType} submitted for verification.`,
             payload: {
                 source: params.source,
                 verificationType: params.identityType,
@@ -750,7 +833,9 @@ export class AuthService {
         };
     }
 
-    private async getCurrentBusinessDocumentAttemptStatus(userId: number): Promise<KycAttemptStatus | null> {
+    private async getCurrentBusinessDocumentAttemptStatus(
+        userId: number,
+    ): Promise<KycAttemptStatus | null> {
         const attempt = await this.prisma.kycStageAttempt.findFirst({
             where: {
                 userId,
@@ -758,7 +843,11 @@ export class AuthService {
                 stage: KycStage.BUSINESS_DOCUMENT,
                 isCurrent: true,
             },
-            orderBy: [{ attemptNo: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
+            orderBy: [
+                { attemptNo: "desc" },
+                { updatedAt: "desc" },
+                { id: "desc" },
+            ],
             select: { status: true },
         });
 
@@ -776,7 +865,10 @@ export class AuthService {
             evidenceSummary?: Prisma.InputJsonValue;
         },
     ): Promise<{ id: number }> {
-        const userId = this.normalizePositiveInt(input.userId, "business KYC attempt user id");
+        const userId = this.normalizePositiveInt(
+            input.userId,
+            "business KYC attempt user id",
+        );
 
         const nextAttemptAggregate = await db.kycStageAttempt.aggregate({
             where: {
@@ -809,7 +901,9 @@ export class AuthService {
                 providerStatus: KycProviderStatus.NOT_REQUESTED,
                 decisionMode: KycDecisionMode.MANUAL,
                 providerRef: input.providerRef ?? null,
-                reasonCode: this.mapIndividualAttemptReasonCode(input.reasonMessage),
+                reasonCode: this.mapIndividualAttemptReasonCode(
+                    input.reasonMessage,
+                ),
                 reasonMessage: input.reasonMessage ?? null,
                 extractedFields: input.extractedFields,
                 evidenceSummary: input.evidenceSummary,
@@ -841,9 +935,13 @@ export class AuthService {
                 stage: KycStage.BUSINESS_DOCUMENT,
                 eventType: params.eventType,
                 actorType: params.actorType ?? KycActorType.USER,
-                actorId: typeof params.actorId === "number" ? params.actorId : params.actorId ?? params.userId,
+                actorId:
+                    typeof params.actorId === "number"
+                        ? params.actorId
+                        : (params.actorId ?? params.userId),
                 providerName: params.providerName ?? KycProviderName.NONE,
-                providerStatus: params.providerStatus ?? KycProviderStatus.NOT_REQUESTED,
+                providerStatus:
+                    params.providerStatus ?? KycProviderStatus.NOT_REQUESTED,
                 providerRef: params.providerRef ?? undefined,
                 note: params.note ?? undefined,
                 payload: params.payload ?? undefined,
@@ -873,10 +971,11 @@ export class AuthService {
             } as Prisma.InputJsonValue,
             evidenceSummary: params.evidenceSummary,
         });
-        const eventType = params.currentAttemptStatus === KycAttemptStatus.REJECTED
-            || params.currentAttemptStatus === KycAttemptStatus.EXPIRED
-            ? KycAttemptEventType.RESUBMITTED
-            : KycAttemptEventType.SUBMITTED;
+        const eventType =
+            params.currentAttemptStatus === KycAttemptStatus.REJECTED ||
+            params.currentAttemptStatus === KycAttemptStatus.EXPIRED
+                ? KycAttemptEventType.RESUBMITTED
+                : KycAttemptEventType.SUBMITTED;
 
         await this.appendBusinessStageAttemptEvent(db, {
             attemptId: attempt.id,
@@ -922,13 +1021,19 @@ export class AuthService {
             },
         ].filter((check) => check.applicable);
 
-        const allPassed = checks.every((check) => check.verified === true && check.matched !== false);
+        const allPassed = checks.every(
+            (check) => check.verified === true && check.matched !== false,
+        );
         if (allPassed) {
             return KycProviderStatus.PASSED;
         }
 
-        const hasFailure = checks.some((check) => check.verified === false || check.matched === false);
-        return hasFailure ? KycProviderStatus.FAILED : KycProviderStatus.INCONCLUSIVE;
+        const hasFailure = checks.some(
+            (check) => check.verified === false || check.matched === false,
+        );
+        return hasFailure
+            ? KycProviderStatus.FAILED
+            : KycProviderStatus.INCONCLUSIVE;
     }
 
     private async syncBusinessProviderCheckAttempt(params: {
@@ -964,20 +1069,24 @@ export class AuthService {
         const attempt = await this.prisma.kycStageAttempt.findFirst({
             where: params.attemptId
                 ? {
-                    id: params.attemptId,
-                    userId: params.userId,
-                    journeyType: "BUSINESS",
-                    stage: KycStage.BUSINESS_DOCUMENT,
-                }
+                      id: params.attemptId,
+                      userId: params.userId,
+                      journeyType: "BUSINESS",
+                      stage: KycStage.BUSINESS_DOCUMENT,
+                  }
                 : {
-                    userId: params.userId,
-                    journeyType: "BUSINESS",
-                    stage: KycStage.BUSINESS_DOCUMENT,
-                    isCurrent: true,
-                },
+                      userId: params.userId,
+                      journeyType: "BUSINESS",
+                      stage: KycStage.BUSINESS_DOCUMENT,
+                      isCurrent: true,
+                  },
             orderBy: params.attemptId
                 ? undefined
-                : [{ attemptNo: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
+                : [
+                      { attemptNo: "desc" },
+                      { updatedAt: "desc" },
+                      { id: "desc" },
+                  ],
             select: {
                 id: true,
                 status: true,
@@ -993,38 +1102,51 @@ export class AuthService {
             hasTinCheck: params.hasTinCheck,
             hasOcrCheck: params.hasOcrCheck,
         });
-        const shouldPreserveStatus = attempt.status === KycAttemptStatus.APPROVED
-            || attempt.status === KycAttemptStatus.REJECTED
-            || attempt.status === KycAttemptStatus.EXPIRED
-            || attempt.status === KycAttemptStatus.ESCALATED;
+        const shouldPreserveStatus =
+            attempt.status === KycAttemptStatus.APPROVED ||
+            attempt.status === KycAttemptStatus.REJECTED ||
+            attempt.status === KycAttemptStatus.EXPIRED ||
+            attempt.status === KycAttemptStatus.ESCALATED;
         const note = "Business document provider checks completed.";
 
         await this.prisma.kycStageAttempt.update({
             where: { id: attempt.id },
             data: {
-                status: shouldPreserveStatus ? attempt.status : KycAttemptStatus.PENDING_REVIEW,
+                status: shouldPreserveStatus
+                    ? attempt.status
+                    : KycAttemptStatus.PENDING_REVIEW,
                 providerName: KycProviderName.DOJAH,
                 providerStatus,
                 providerRef: params.cacDocumentNumber,
                 decisionMode: KycDecisionMode.MANUAL,
-                reasonMessage: providerStatus === KycProviderStatus.PASSED ? null : note,
+                reasonMessage:
+                    providerStatus === KycProviderStatus.PASSED ? null : note,
                 extractedFields: {
-                    cacCompanyName: params.verificationResult.cac.companyName ?? null,
-                    cacCompanyStatus: params.verificationResult.cac.companyStatus ?? null,
-                    cacRegistrationDate: params.verificationResult.cac.registrationDate ?? null,
-                    tinTaxpayerName: params.verificationResult.tin.taxpayerName ?? null,
-                    cacOcrExtractedNumber: params.verificationResult.ocr.extractedNumber ?? null,
-                    cacOcrExtractedName: params.verificationResult.ocr.extractedName ?? null,
+                    cacCompanyName:
+                        params.verificationResult.cac.companyName ?? null,
+                    cacCompanyStatus:
+                        params.verificationResult.cac.companyStatus ?? null,
+                    cacRegistrationDate:
+                        params.verificationResult.cac.registrationDate ?? null,
+                    tinTaxpayerName:
+                        params.verificationResult.tin.taxpayerName ?? null,
+                    cacOcrExtractedNumber:
+                        params.verificationResult.ocr.extractedNumber ?? null,
+                    cacOcrExtractedName:
+                        params.verificationResult.ocr.extractedName ?? null,
                 } as Prisma.InputJsonValue,
                 comparisonSummary: {
                     hasTinCheck: params.hasTinCheck,
                     hasOcrCheck: params.hasOcrCheck,
                     cacVerified: params.verificationResult.cac.verified,
-                    cacNameMatches: params.verificationResult.cac.nameMatches ?? null,
+                    cacNameMatches:
+                        params.verificationResult.cac.nameMatches ?? null,
                     tinVerified: params.verificationResult.tin.verified,
-                    tinNameMatches: params.verificationResult.tin.nameMatches ?? null,
+                    tinNameMatches:
+                        params.verificationResult.tin.nameMatches ?? null,
                     ocrVerified: params.verificationResult.ocr.verified,
-                    ocrNumberMatches: params.verificationResult.ocr.numberMatches ?? null,
+                    ocrNumberMatches:
+                        params.verificationResult.ocr.numberMatches ?? null,
                 } as Prisma.InputJsonValue,
             },
         });
@@ -1058,14 +1180,20 @@ export class AuthService {
             return KycProviderStatus.PASSED;
         }
 
-        if (params.isDocumentValid || params.dojahParsed?.firstName || params.dojahParsed?.documentNumber) {
+        if (
+            params.isDocumentValid ||
+            params.dojahParsed?.firstName ||
+            params.dojahParsed?.documentNumber
+        ) {
             return KycProviderStatus.INCONCLUSIVE;
         }
 
         return KycProviderStatus.FAILED;
     }
 
-    private async getCurrentIdentityDocumentAttemptStatus(userId: number): Promise<KycAttemptStatus | null> {
+    private async getCurrentIdentityDocumentAttemptStatus(
+        userId: number,
+    ): Promise<KycAttemptStatus | null> {
         const attempt = await this.prisma.kycStageAttempt.findFirst({
             where: {
                 userId,
@@ -1073,7 +1201,11 @@ export class AuthService {
                 stage: KycStage.IDENTITY_DOCUMENT,
                 isCurrent: true,
             },
-            orderBy: [{ attemptNo: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
+            orderBy: [
+                { attemptNo: "desc" },
+                { updatedAt: "desc" },
+                { id: "desc" },
+            ],
             select: { status: true },
         });
 
@@ -1100,14 +1232,19 @@ export class AuthService {
             documentProfileMatch: DocumentProfileMatch;
         },
     ): Promise<void> {
-        const providerRef = typeof params.dojahParsed?.documentNumber === "string"
-            ? params.dojahParsed.documentNumber
-            : null;
-        const expectedDocumentNumber = this.normalizeSubmittedDocumentNumber(params.submittedDocumentNumber);
-        const extractedDocumentNumber = this.normalizeSubmittedDocumentNumber(providerRef);
-        const documentNumberMatches = expectedDocumentNumber && extractedDocumentNumber
-            ? expectedDocumentNumber === extractedDocumentNumber
-            : null;
+        const providerRef =
+            typeof params.dojahParsed?.documentNumber === "string"
+                ? params.dojahParsed.documentNumber
+                : null;
+        const expectedDocumentNumber = this.normalizeSubmittedDocumentNumber(
+            params.submittedDocumentNumber,
+        );
+        const extractedDocumentNumber =
+            this.normalizeSubmittedDocumentNumber(providerRef);
+        const documentNumberMatches =
+            expectedDocumentNumber && extractedDocumentNumber
+                ? expectedDocumentNumber === extractedDocumentNumber
+                : null;
 
         const attempt = await this.createCurrentIndividualStageAttempt(db, {
             userId: params.user.id,
@@ -1120,16 +1257,18 @@ export class AuthService {
             providerRef,
             reasonCode: params.decision.attemptReasonCode,
             reasonMessage: params.decision.attemptReasonMessage,
-            reasonDetails: params.decision.disposition === "APPROVE"
-                ? undefined
-                : params.decision.decisionContext,
+            reasonDetails:
+                params.decision.disposition === "APPROVE"
+                    ? undefined
+                    : params.decision.decisionContext,
             extractedFields: {
                 documentType: params.documentType,
                 country: params.country,
                 documentNumber: params.documentNumber,
                 submittedDocumentNumber: params.submittedDocumentNumber ?? null,
                 extractedDocumentType: params.dojahParsed?.documentType ?? null,
-                normalizedExtractedDocumentType: params.documentTypeAssessment.detectedDocumentType ?? null,
+                normalizedExtractedDocumentType:
+                    params.documentTypeAssessment.detectedDocumentType ?? null,
                 extractedCountryCode: params.dojahParsed?.countryCode ?? null,
                 extractedFirstName: params.dojahParsed?.firstName ?? null,
                 extractedLastName: params.dojahParsed?.lastName ?? null,
@@ -1138,7 +1277,8 @@ export class AuthService {
             },
             comparisonSummary: {
                 nameMatches: params.documentProfileMatch.nameMatches,
-                partialNameMatches: params.documentProfileMatch.partialNameMatches,
+                partialNameMatches:
+                    params.documentProfileMatch.partialNameMatches,
                 dobMatches: params.documentProfileMatch.dobMatches,
                 profileMatches: params.documentProfileMatch.profileMatches,
                 documentTypeMatches: params.documentTypeAssessment.matches,
@@ -1148,7 +1288,10 @@ export class AuthService {
                 frontImageUrl: params.documentImage1.url,
                 backImageUrl: params.documentImage2?.url ?? null,
             },
-            reviewedAt: params.decision.disposition === "MANUAL_REVIEW" ? null : new Date(),
+            reviewedAt:
+                params.decision.disposition === "MANUAL_REVIEW"
+                    ? null
+                    : new Date(),
             evidenceAssets: [
                 {
                     kind: KycEvidenceKind.FRONT_IMAGE,
@@ -1158,13 +1301,17 @@ export class AuthService {
                     side: KycEvidenceSide.FRONT,
                 },
                 ...(params.documentImage2
-                    ? [{
-                        kind: KycEvidenceKind.BACK_IMAGE,
-                        storageUrl: params.documentImage2.url,
-                        storageFieldId: params.documentImage2.fileId ?? null,
-                        mimeType: params.backMimeType || params.frontMimeType,
-                        side: KycEvidenceSide.BACK,
-                    }]
+                    ? [
+                          {
+                              kind: KycEvidenceKind.BACK_IMAGE,
+                              storageUrl: params.documentImage2.url,
+                              storageFieldId:
+                                  params.documentImage2.fileId ?? null,
+                              mimeType:
+                                  params.backMimeType || params.frontMimeType,
+                              side: KycEvidenceSide.BACK,
+                          },
+                      ]
                     : []),
             ],
         });
@@ -1185,15 +1332,18 @@ export class AuthService {
             profileMatch: params.documentProfileMatch,
             decisionContext: params.decision.decisionContext,
         } as Prisma.InputJsonValue;
-        const shouldResubmit = params.currentAttemptStatus === KycAttemptStatus.REJECTED
-            || params.currentAttemptStatus === KycAttemptStatus.EXPIRED;
+        const shouldResubmit =
+            params.currentAttemptStatus === KycAttemptStatus.REJECTED ||
+            params.currentAttemptStatus === KycAttemptStatus.EXPIRED;
 
         const submissionEventType = shouldResubmit
             ? KycAttemptEventType.RESUBMITTED
             : KycAttemptEventType.SUBMITTED;
         const submissionNote = shouldResubmit
-            ? params.decision.submissionNote ?? "Identity document resubmitted for verification."
-            : params.decision.submissionNote ?? "Identity document submitted for verification.";
+            ? (params.decision.submissionNote ??
+              "Identity document resubmitted for verification.")
+            : (params.decision.submissionNote ??
+              "Identity document submitted for verification.");
 
         await this.appendIndividualStageAttemptEvent(db, {
             attemptId: attempt.id,
@@ -1228,48 +1378,79 @@ export class AuthService {
     /**
      * Map Dojah error types to user-friendly messages
      */
-    private mapDojahErrorToUserMessage(error: { name: string; message: string; status?: number }): string {
-        const errorName = error.name?.toLowerCase() || '';
-        const errorMessage = error.message?.toLowerCase() || '';
+    private serializeUnknownError(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+
+        if (typeof error === "string") {
+            return error;
+        }
+
+        try {
+            const serializedError = JSON.stringify(error);
+            return serializedError ?? "Unknown error";
+        } catch {
+            return "Unknown error";
+        }
+    }
+
+    private mapDojahErrorToUserMessage(error: {
+        name: string;
+        message: string;
+        status?: number;
+    }): string {
+        const errorName = error.name?.toLowerCase() || "";
+        const errorMessage = error.message?.toLowerCase() || "";
 
         // Network/timeout errors
-        if (errorName.includes('network') || errorName.includes('timeout') || errorMessage.includes('timeout')) {
-            return 'Connection issue with verification service. Please try again in a moment.';
+        if (
+            errorName.includes("network") ||
+            errorName.includes("timeout") ||
+            errorMessage.includes("timeout")
+        ) {
+            return "Connection issue with verification service. Please try again in a moment.";
         }
 
         // Validation errors - usually means image quality or format issues
-        if (errorName.includes('validation') || error.status === 400) {
-            if (errorMessage.includes('base64') || errorMessage.includes('image')) {
-                return 'Invalid image format. Please upload a clear photo of your document.';
+        if (errorName.includes("validation") || error.status === 400) {
+            if (
+                errorMessage.includes("base64") ||
+                errorMessage.includes("image")
+            ) {
+                return "Invalid image format. Please upload a clear photo of your document.";
             }
-            if (errorMessage.includes('size') || errorMessage.includes('large')) {
-                return 'Image file is too large. Please upload a smaller image.';
+            if (
+                errorMessage.includes("size") ||
+                errorMessage.includes("large")
+            ) {
+                return "Image file is too large. Please upload a smaller image.";
             }
-            return 'Document image could not be processed. Please ensure the image is clear and try again.';
+            return "Document image could not be processed. Please ensure the image is clear and try again.";
         }
 
         // Not found - document type not recognized
-        if (errorName.includes('notfound') || error.status === 404) {
-            return 'Could not recognize this document type. Please upload a valid government-issued ID.';
+        if (errorName.includes("notfound") || error.status === 404) {
+            return "Could not recognize this document type. Please upload a valid government-issued ID.";
         }
 
         // Third party service failure
-        if (errorName.includes('thirdparty') || error.status === 424) {
-            return 'Verification service is temporarily unavailable. Please try again in a few minutes.';
+        if (errorName.includes("thirdparty") || error.status === 424) {
+            return "Verification service is temporarily unavailable. Please try again in a few minutes.";
         }
 
         // Rate limiting
-        if (errorName.includes('toomany') || error.status === 429) {
-            return 'Too many verification attempts. Please wait a few minutes before trying again.';
+        if (errorName.includes("toomany") || error.status === 429) {
+            return "Too many verification attempts. Please wait a few minutes before trying again.";
         }
 
         // Authorization errors (internal issue)
-        if (errorName.includes('authorization') || error.status === 401) {
-            return 'Verification service configuration error. Please contact support.';
+        if (errorName.includes("authorization") || error.status === 401) {
+            return "Verification service configuration error. Please contact support.";
         }
 
         // Default message with the original error for debugging
-        const originalMessage = error.message || 'Unknown error';
+        const originalMessage = error.message || "Unknown error";
         return `Document verification failed: ${originalMessage}. Please try with a clearer image.`;
     }
 
@@ -1293,12 +1474,18 @@ export class AuthService {
         country?: string | null;
         countryCode?: string | null;
     }): boolean {
-        const normalizedCountry = String(params.country || "").trim().toLowerCase();
-        const normalizedCountryCode = String(params.countryCode || "").trim().toLowerCase();
+        const normalizedCountry = String(params.country || "")
+            .trim()
+            .toLowerCase();
+        const normalizedCountryCode = String(params.countryCode || "")
+            .trim()
+            .toLowerCase();
 
-        return normalizedCountryCode === "ng"
-            || normalizedCountry === "nigeria"
-            || normalizedCountry === "federal republic of nigeria";
+        return (
+            normalizedCountryCode === "ng" ||
+            normalizedCountry === "nigeria" ||
+            normalizedCountry === "federal republic of nigeria"
+        );
     }
 
     /**
@@ -1313,47 +1500,56 @@ export class AuthService {
     ): DocumentReviewDisposition {
         let validatedDocument = isDocumentValid;
 
-        if (validatedDocument && this.isDocumentExpired(dojahParsed?.expiryDate)) {
-            logger.warn(`Document for user ${userId} is expired: ${dojahParsed?.expiryDate}`);
+        if (
+            validatedDocument &&
+            this.isDocumentExpired(dojahParsed?.expiryDate)
+        ) {
+            logger.warn(
+                `Document for user ${userId} is expired: ${dojahParsed?.expiryDate}`,
+            );
             if (dojahParsed) {
                 dojahParsed.reason = "Document has expired";
             }
             validatedDocument = false;
         }
 
-        if (validatedDocument && !this.isNigeriaDocumentCountry({
-            country: dojahParsed?.country,
-            countryCode: dojahParsed?.countryCode,
-        })) {
+        if (
+            validatedDocument &&
+            !this.isNigeriaDocumentCountry({
+                country: dojahParsed?.country,
+                countryCode: dojahParsed?.countryCode,
+            })
+        ) {
             logger.warn(
-                `Document for user ${userId} is not confirmed as Nigerian: `
-                + `country=${dojahParsed?.country || "unknown"}, countryCode=${dojahParsed?.countryCode || "unknown"}`,
+                `Document for user ${userId} is not confirmed as Nigerian: ` +
+                    `country=${dojahParsed?.country || "unknown"}, countryCode=${dojahParsed?.countryCode || "unknown"}`,
             );
             if (dojahParsed) {
-                dojahParsed.reason = dojahParsed?.country || dojahParsed?.countryCode
-                    ? "DOCUMENT_COUNTRY_NOT_NIGERIA"
-                    : "DOCUMENT_COUNTRY_NOT_CONFIRMED";
+                dojahParsed.reason =
+                    dojahParsed?.country || dojahParsed?.countryCode
+                        ? "DOCUMENT_COUNTRY_NOT_NIGERIA"
+                        : "DOCUMENT_COUNTRY_NOT_CONFIRMED";
             }
             validatedDocument = false;
         }
 
         logger.log(
             `Document analysis for user ${userId}: ` +
-            `valid=${validatedDocument}, ` +
-            `docType=${dojahParsed?.documentType || "unknown"}, ` +
-            `expiryDate=${dojahParsed?.expiryDate || "unknown"}, ` +
-            `reason=${dojahParsed?.reason || "unknown"}`
+                `valid=${validatedDocument}, ` +
+                `docType=${dojahParsed?.documentType || "unknown"}, ` +
+                `expiryDate=${dojahParsed?.expiryDate || "unknown"}, ` +
+                `reason=${dojahParsed?.reason || "unknown"}`,
         );
 
         const hardRejectMessage = validatedDocument
             ? null
-            : this.getHardRejectDocumentMessage(dojahParsed?.reason)
-                || this.mapDojahReasonToUserMessage(dojahParsed?.reason);
+            : this.getHardRejectDocumentMessage(dojahParsed?.reason) ||
+              this.mapDojahReasonToUserMessage(dojahParsed?.reason);
 
         if (!validatedDocument) {
             logger.log(
                 `Document for user ${userId} is invalid (reason=${dojahParsed?.reason || "unknown"}), ` +
-                `hasExtractedText=${dojahParsed?.hasExtractedText} — blocking submission`
+                    `hasExtractedText=${dojahParsed?.hasExtractedText} — blocking submission`,
             );
         }
 
@@ -1363,7 +1559,9 @@ export class AuthService {
         };
     }
 
-    private getHardRejectDocumentMessage(reason?: string | null): string | null {
+    private getHardRejectDocumentMessage(
+        reason?: string | null,
+    ): string | null {
         if (!reason) {
             return null;
         }
@@ -1402,17 +1600,25 @@ export class AuthService {
         logger: Logger,
     ) {
         try {
-            const providerBackImage = this.resolveIdentityProviderBackImage(dto.documentType, cleanBackBase64);
-            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
-                {
-                    inputType: "base64",
-                    imageFrontSide: cleanFrontBase64,
-                    ...(providerBackImage && { imageBackSide: providerBackImage }),
-                },
-                user.firstName,
-                user.lastName
+            const providerBackImage = this.resolveIdentityProviderBackImage(
+                dto.documentType,
+                cleanBackBase64,
             );
-            logger.log(`Dojah API completed in ${Date.now() - startTime}ms for user ${user.id}`);
+            const verificationResult =
+                await this.dojahService.verifyDocumentWithNameMatch(
+                    {
+                        inputType: "base64",
+                        imageFrontSide: cleanFrontBase64,
+                        ...(providerBackImage && {
+                            imageBackSide: providerBackImage,
+                        }),
+                    },
+                    user.firstName,
+                    user.lastName,
+                );
+            logger.log(
+                `Dojah API completed in ${Date.now() - startTime}ms for user ${user.id}`,
+            );
             return {
                 success: true,
                 isValid: verificationResult.isValid,
@@ -1456,16 +1662,22 @@ export class AuthService {
         logger: Logger,
     ) {
         try {
-            const providerBackImage = this.resolveIdentityProviderBackImage(documentType, imageBackSide);
-            const verificationResult = await this.dojahService.verifyDocumentWithNameMatch(
-                {
-                    inputType: "url",
-                    imageFrontSide,
-                    ...(providerBackImage && { imageBackSide: providerBackImage }),
-                },
-                user.firstName,
-                user.lastName,
+            const providerBackImage = this.resolveIdentityProviderBackImage(
+                documentType,
+                imageBackSide,
             );
+            const verificationResult =
+                await this.dojahService.verifyDocumentWithNameMatch(
+                    {
+                        inputType: "url",
+                        imageFrontSide,
+                        ...(providerBackImage && {
+                            imageBackSide: providerBackImage,
+                        }),
+                    },
+                    user.firstName,
+                    user.lastName,
+                );
 
             return {
                 success: true,
@@ -1476,7 +1688,7 @@ export class AuthService {
             };
         } catch (error) {
             logger.warn(
-                `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${error instanceof Error ? error.message : String(error)}`,
+                `Dojah document analysis failed for user ${user.id}, falling back to manual review: ${this.serializeUnknownError(error)}`,
             );
 
             return {
@@ -1493,7 +1705,9 @@ export class AuthService {
      * Check if a document is expired based on expiry date string
      * Returns true if expired, false if valid or no expiry date
      */
-    private isDocumentExpired(expiryDateStr: string | null | undefined): boolean {
+    private isDocumentExpired(
+        expiryDateStr: string | null | undefined,
+    ): boolean {
         if (!expiryDateStr) return false;
 
         try {
@@ -1505,11 +1719,11 @@ export class AuthService {
                 expiryDate = new Date(expiryDateStr);
             } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(expiryDateStr)) {
                 // DD/MM/YYYY format
-                const [day, month, year] = expiryDateStr.split('/');
+                const [day, month, year] = expiryDateStr.split("/");
                 expiryDate = new Date(`${year}-${month}-${day}`);
             } else if (/^\d{2}-\d{2}-\d{4}$/.test(expiryDateStr)) {
                 // DD-MM-YYYY format
-                const [day, month, year] = expiryDateStr.split('-');
+                const [day, month, year] = expiryDateStr.split("-");
                 expiryDate = new Date(`${year}-${month}-${day}`);
             } else {
                 // Try parsing as generic date
@@ -1517,7 +1731,9 @@ export class AuthService {
             }
 
             if (Number.isNaN(expiryDate.getTime())) {
-                this.logger.warn(`Could not parse expiry date: ${expiryDateStr}`);
+                this.logger.warn(
+                    `Could not parse expiry date: ${expiryDateStr}`,
+                );
                 return false;
             }
 
@@ -1526,7 +1742,10 @@ export class AuthService {
 
             return expiryDate < today;
         } catch (error) {
-            this.logger.warn(`Error parsing expiry date ${expiryDateStr}:`, error);
+            this.logger.warn(
+                `Error parsing expiry date ${expiryDateStr}:`,
+                error,
+            );
             return false;
         }
     }
@@ -1580,7 +1799,10 @@ export class AuthService {
         }
     }
 
-    private normalizeRequiredBusinessText(value: string, fieldName: string): string {
+    private normalizeRequiredBusinessText(
+        value: string,
+        fieldName: string,
+    ): string {
         const normalized = typeof value === "string" ? value.trim() : "";
         if (!normalized) {
             throw new BadRequestException(`Invalid ${fieldName}`);
@@ -1589,7 +1811,9 @@ export class AuthService {
         return normalized;
     }
 
-    private normalizeOptionalBusinessText(value?: string | null): string | null {
+    private normalizeOptionalBusinessText(
+        value?: string | null,
+    ): string | null {
         const normalized = typeof value === "string" ? value.trim() : "";
         return normalized || null;
     }
@@ -1604,7 +1828,12 @@ export class AuthService {
     }
 
     private normalizeOwnershipPercentage(value: number): number {
-        if (typeof value !== "number" || !Number.isFinite(value) || value < 5 || value > 100) {
+        if (
+            typeof value !== "number" ||
+            !Number.isFinite(value) ||
+            value < 5 ||
+            value > 100
+        ) {
             throw new BadRequestException("Invalid ownership percentage");
         }
 
@@ -1614,14 +1843,14 @@ export class AuthService {
     // Separated platform validation logic
     private validateLoginPlatform(
         userType: UserType,
-        loginPlatform: LoginPlatform
+        loginPlatform: LoginPlatform,
     ): void {
         switch (loginPlatform) {
             case LoginPlatform.ADMIN:
                 if (!ADMIN_USER_TYPES.includes(userType)) {
                     throw new InvalidCredentialException(
                         "Incorrect email or password",
-                        HttpStatus.UNAUTHORIZED
+                        HttpStatus.UNAUTHORIZED,
                     );
                 }
                 break;
@@ -1629,14 +1858,14 @@ export class AuthService {
                 if (ADMIN_USER_TYPES.includes(userType)) {
                     throw new InvalidCredentialException(
                         "Incorrect email or password",
-                        HttpStatus.UNAUTHORIZED
+                        HttpStatus.UNAUTHORIZED,
                     );
                 }
                 break;
             default:
                 throw new AuthGenericException(
                     "Invalid login platform",
-                    HttpStatus.INTERNAL_SERVER_ERROR
+                    HttpStatus.INTERNAL_SERVER_ERROR,
                 );
         }
     }
@@ -1646,24 +1875,32 @@ export class AuthService {
     private readonly LOCKOUT_DURATION_MINUTES = 30;
 
     private async handleFailedLogin(
-        user: Pick<SignInUser, "id"> & Partial<SignInUser> & {
-            failedLoginAttempts?: number | null;
-            lastFailedLogin?: Date | null;
-            lockedUntil?: Date | null;
-        },
-        ip: string
+        user: Pick<SignInUser, "id"> &
+            Partial<SignInUser> & {
+                failedLoginAttempts?: number | null;
+                lastFailedLogin?: Date | null;
+                lockedUntil?: Date | null;
+            },
+        ip: string,
     ): Promise<void> {
         const now = new Date();
-        const lockoutWindow = new Date(now.getTime() - this.LOCKOUT_DURATION_MINUTES * 60 * 1000);
+        const lockoutWindow = new Date(
+            now.getTime() - this.LOCKOUT_DURATION_MINUTES * 60 * 1000,
+        );
 
         // Check if user is currently locked out
-        if ((user as any).lockedUntil && new Date((user as any).lockedUntil) > now) {
+        if (
+            (user as any).lockedUntil &&
+            new Date((user as any).lockedUntil) > now
+        ) {
             const remainingMinutes = Math.ceil(
-                (new Date((user as any).lockedUntil).getTime() - now.getTime()) / 60000
+                (new Date((user as any).lockedUntil).getTime() -
+                    now.getTime()) /
+                    60000,
             );
             throw new UserAccountDisabledException(
                 `Account temporarily locked due to too many failed attempts. Try again in ${remainingMinutes} minutes.`,
-                HttpStatus.TOO_MANY_REQUESTS
+                HttpStatus.TOO_MANY_REQUESTS,
             );
         }
 
@@ -1684,7 +1921,9 @@ export class AuthService {
 
         // Lock account after MAX_FAILED_ATTEMPTS
         if (failedAttempts >= this.MAX_FAILED_ATTEMPTS) {
-            updateData.lockedUntil = new Date(now.getTime() + this.LOCKOUT_DURATION_MINUTES * 60 * 1000);
+            updateData.lockedUntil = new Date(
+                now.getTime() + this.LOCKOUT_DURATION_MINUTES * 60 * 1000,
+            );
 
             // Also flag the account
             await this.prisma.$transaction(async (tx) => {
@@ -1711,11 +1950,13 @@ export class AuthService {
                 });
             });
 
-            this.logger.warn(`Account locked for user ${user.id} after ${this.MAX_FAILED_ATTEMPTS} failed attempts from IP: ${ip}`);
+            this.logger.warn(
+                `Account locked for user ${user.id} after ${this.MAX_FAILED_ATTEMPTS} failed attempts from IP: ${ip}`,
+            );
 
             throw new UserAccountDisabledException(
                 `Account temporarily locked due to too many failed attempts. Try again in ${this.LOCKOUT_DURATION_MINUTES} minutes.`,
-                HttpStatus.TOO_MANY_REQUESTS
+                HttpStatus.TOO_MANY_REQUESTS,
             );
         }
 
@@ -1748,12 +1989,17 @@ export class AuthService {
     /**
      * Get or create security methods for a user by email
      */
-    private async getOrCreateSecurityMethods(email: string, _methodType: 'email' | 'sms') {
+    private async getOrCreateSecurityMethods(
+        email: string,
+        _methodType: "email" | "sms",
+    ) {
         const user = await this.prisma.user.findUnique({
             where: { email },
             select: { securityMethods: true },
         });
-        return (user?.securityMethods as any) || this.getDefaultSecurityMethods();
+        return (
+            (user?.securityMethods as any) || this.getDefaultSecurityMethods()
+        );
     }
 
     /**
@@ -1764,7 +2010,9 @@ export class AuthService {
             where: { phone },
             select: { securityMethods: true },
         });
-        return (user?.securityMethods as any) || this.getDefaultSecurityMethods();
+        return (
+            (user?.securityMethods as any) || this.getDefaultSecurityMethods()
+        );
     }
 
     async generateTokens(payload: any) {
@@ -1782,7 +2030,7 @@ export class AuthService {
     }
 
     async requestPasswordReset(
-        dto: SendForgotPasswordDto
+        dto: SendForgotPasswordDto,
     ): Promise<ApiResponse> {
         const email = dto.email.toLowerCase().trim();
         const user = await this.prisma.user.findUnique({
@@ -1792,7 +2040,10 @@ export class AuthService {
             throw new UserNotFoundException("User not found");
         }
 
-        const userId = this.normalizePositiveInt(user.id, "password reset user id");
+        const userId = this.normalizePositiveInt(
+            user.id,
+            "password reset user id",
+        );
 
         const code = crypto.randomBytes(4).toString("hex").toUpperCase();
 
@@ -1823,21 +2074,26 @@ export class AuthService {
                 merge_info: {
                     name,
                     product_name: COMPANY_NAME,
-                    otp: code,                  // Use otp instead of password_reset_link
-                    expiry_minutes: "30",       // Match template variable
+                    otp: code, // Use otp instead of password_reset_link
+                    expiry_minutes: "30", // Match template variable
                     username,
                     team,
                 },
             });
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.error(`Failed to send password reset email: ${errorMessage}`);
+            const errorMessage = this.serializeUnknownError(error);
+            this.logger.error(
+                `Failed to send password reset email: ${errorMessage}`,
+            );
             throw new AuthGenericException(
                 "Failed to send password reset email",
                 HttpStatus.BAD_REQUEST,
                 {
-                    cause: error instanceof Error ? error : new Error(errorMessage),
-                }
+                    cause:
+                        error instanceof Error
+                            ? error
+                            : new Error(errorMessage),
+                },
             );
         }
 
@@ -1856,7 +2112,7 @@ export class AuthService {
 
         if (!user?.passwordResetRequest) {
             throw new InvalidResetRequestException(
-                "Invalid password reset request"
+                "Invalid password reset request",
             );
         }
 
@@ -1864,7 +2120,7 @@ export class AuthService {
             user.passwordResetRequest.code.length === dto.resetCode.length &&
             crypto.timingSafeEqual(
                 Buffer.from(user.passwordResetRequest.code, "utf8"),
-                Buffer.from(dto.resetCode, "utf8")
+                Buffer.from(dto.resetCode, "utf8"),
             );
         if (!resetCodeMatch) {
             throw new InvalidResetCodeException("Invalid reset code");
@@ -1880,13 +2136,13 @@ export class AuthService {
 
         const isSameAsCurrentPassword = await this.comparePassword(
             dto.password,
-            user.password
+            user.password,
         );
 
         if (isSameAsCurrentPassword) {
             throw new InvalidResetRequestException(
                 "Your new password must be different from your current password",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -1910,7 +2166,9 @@ export class AuthService {
         });
     }
 
-    async validateAdminInvite(dto: ValidateAdminInviteDto): Promise<ApiResponse> {
+    async validateAdminInvite(
+        dto: ValidateAdminInviteDto,
+    ): Promise<ApiResponse> {
         const token = dto.token.trim();
 
         const invite = await (this.prisma as any).adminInvite.findUnique({
@@ -2055,15 +2313,15 @@ export class AuthService {
         const existingUser = await this.prisma.user.findUnique({
             where: { email },
             include: {
-                flaggedRecord: true
-            }
+                flaggedRecord: true,
+            },
         });
 
         // Allow re-registration if user was deleted
         if (existingUser && !existingUser.isDeleted) {
             throw new DuplicateUserException(
                 "An account with this email already exist. Please login",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -2073,20 +2331,22 @@ export class AuthService {
             if (existingUser.status === Status.BLOCKED) {
                 throw new UserAccountDisabledException(
                     "This account has been permanently blocked. Please contact support.",
-                    HttpStatus.FORBIDDEN
+                    HttpStatus.FORBIDDEN,
                 );
             }
 
             // Check if user was flagged
             if (existingUser.flaggedRecord?.flagged) {
                 throw new UserAccountDisabledException(
-                    `This account has been flagged: ${existingUser.flaggedRecord.reason || 'Policy violation'}. Please contact support.`,
-                    HttpStatus.FORBIDDEN
+                    `This account has been flagged: ${existingUser.flaggedRecord.reason || "Policy violation"}. Please contact support.`,
+                    HttpStatus.FORBIDDEN,
                 );
             }
 
             // Allow re-registration for non-blocked, non-flagged deleted accounts
-            Logger.log(`Removing deleted account for re-registration: ${existingUser.email}`);
+            Logger.log(
+                `Removing deleted account for re-registration: ${existingUser.email}`,
+            );
             await this.prisma.user.delete({
                 where: { id: existingUser.id },
             });
@@ -2102,7 +2362,7 @@ export class AuthService {
         if (!role) {
             throw new RoleNotFoundException(
                 "Role not found",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
@@ -2113,20 +2373,25 @@ export class AuthService {
             email, // Store normalized email
             residentialAddress: options.residentialAddress?.trim() || null,
             ipAddress: ip,
-            roleId: role.id
+            roleId: role.id,
         };
 
-        await this.redisCacheService.set(cacheKey, signupData, this.SIGNUP_CACHE_TTL);
+        await this.redisCacheService.set(
+            cacheKey,
+            signupData,
+            this.SIGNUP_CACHE_TTL,
+        );
 
         // DO NOT send email here. It will be sent when user selects verification method.
 
         return buildResponse({
-            message: "Account initialization successful. Please proceed to verification.",
+            message:
+                "Account initialization successful. Please proceed to verification.",
         });
     }
 
     async sendAccountVerificationEmail(
-        options: SendEmailVerificationCodeDto
+        options: SendEmailVerificationCodeDto,
     ): Promise<ApiResponse> {
         const verificationCode = customAlphabet("1234567890", 6)();
         const email = options.email.toLowerCase().trim();
@@ -2144,19 +2409,20 @@ export class AuthService {
             if (emailExist.isEmailVerified) {
                 throw new DuplicateUserException(
                     "Account already verified. Kindly login",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
             firstName = emailExist.firstName || "User";
         } else {
             // Case 2: Check Redis for pending signup
             const cacheKey = `pending_signup:${email}`;
-            const cachedSignup = await this.redisCacheService.get<any>(cacheKey);
+            const cachedSignup =
+                await this.redisCacheService.get<any>(cacheKey);
 
             if (!cachedSignup) {
                 throw new UserNotFoundException(
                     "Account with email not found. Kindly register first",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
             firstName = cachedSignup.firstName || "User";
@@ -2182,21 +2448,26 @@ export class AuthService {
                 template_key: emailTemplateConfig.verify_account,
                 merge_info: {
                     otp: verificationCode, // Matches {{otp}}
-                    expiry_minutes: "10",  // Matches {{expiry_minutes}}
-                    name: firstName,       // Matches {{name}}
+                    expiry_minutes: "10", // Matches {{expiry_minutes}}
+                    name: firstName, // Matches {{name}}
                     product_name: COMPANY_NAME,
                     team: COMPANY_NAME,
                 },
             });
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.error(`Failed to send account verification email: ${errorMessage}`);
+            const errorMessage = this.serializeUnknownError(error);
+            this.logger.error(
+                `Failed to send account verification email: ${errorMessage}`,
+            );
             throw new AuthGenericException(
                 "Failed to send account verification email",
                 HttpStatus.BAD_REQUEST,
                 {
-                    cause: error instanceof Error ? error : new Error(errorMessage),
-                }
+                    cause:
+                        error instanceof Error
+                            ? error
+                            : new Error(errorMessage),
+                },
             );
         }
 
@@ -2222,18 +2493,19 @@ export class AuthService {
             if (emailExist.isEmailVerified) {
                 throw new DuplicateUserException(
                     "Account already verified. Kindly login",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
         } else {
             // Check Redis for pending signup
             const cacheKey = `pending_signup:${email}`;
-            const cachedSignup = await this.redisCacheService.get<any>(cacheKey);
+            const cachedSignup =
+                await this.redisCacheService.get<any>(cacheKey);
 
             if (!cachedSignup) {
                 throw new UserNotFoundException(
                     "Account with email not found or signup session expired. Kindly register again",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
             isNewUser = true;
@@ -2249,7 +2521,7 @@ export class AuthService {
         if (!verificationData) {
             throw new InvalidEmailVerificationCodeException(
                 "Invalid verification code",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -2260,20 +2532,23 @@ export class AuthService {
 
         if (timeDifference > TEN_MINUTES_MS) {
             // Clean up expired code
-            await this.prisma.accountVerificationRequest.delete({
-                where: { email },
-            }).catch(() => { }); // Ignore if already deleted
+            await this.prisma.accountVerificationRequest
+                .delete({
+                    where: { email },
+                })
+                .catch(() => {}); // Ignore if already deleted
 
             throw new VerificationCodeExpiredException(
                 "Your verification code has expired (valid for 10 minutes). Please request a new one.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         if (isNewUser) {
             // Create the user now
             const cacheKey = `pending_signup:${email}`;
-            const cachedSignup = await this.redisCacheService.get<any>(cacheKey); // Fetch again to be safe
+            const cachedSignup =
+                await this.redisCacheService.get<any>(cacheKey); // Fetch again to be safe
 
             const createUserOptions: Prisma.UserUncheckedCreateInput = {
                 email: cachedSignup.email,
@@ -2285,7 +2560,8 @@ export class AuthService {
                 lastName: cachedSignup.lastName,
                 businessName: cachedSignup.businessName?.trim() || null,
                 dateOfBirth: new Date(cachedSignup.dateOfBirth),
-                residentialAddress: cachedSignup.residentialAddress?.trim() || null,
+                residentialAddress:
+                    cachedSignup.residentialAddress?.trim() || null,
                 isEmailVerified: true,
                 securityMethods: {
                     sms: false,
@@ -2309,7 +2585,10 @@ export class AuthService {
                     isEmailVerified: true,
                     // Auto-enable email as a security method
                     securityMethods: {
-                        ...await this.getOrCreateSecurityMethods(email, 'email'),
+                        ...(await this.getOrCreateSecurityMethods(
+                            email,
+                            "email",
+                        )),
                         email: true,
                     },
                 },
@@ -2337,14 +2616,14 @@ export class AuthService {
 
     async sendPhoneVerificationOtp(
         user: User,
-        options: SendPhoneVerificationCodeDto
+        options: SendPhoneVerificationCodeDto,
     ): Promise<ApiResponse> {
         const verificationCode = customAlphabet("1234567890", 6)();
 
         if (user.isPhoneVerified) {
             throw new DuplicateVerificationException(
                 "Phone number is already verified",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -2355,7 +2634,7 @@ export class AuthService {
         if (alreadyInUse) {
             throw new VerificationGenericException(
                 "Phone is already in use by another account",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -2378,7 +2657,10 @@ export class AuthService {
         });
 
         // Send verification code via SMS
-        await this.smsService.sendVerificationCode(options.phone, verificationCode);
+        await this.smsService.sendVerificationCode(
+            options.phone,
+            verificationCode,
+        );
 
         return buildResponse({
             message: `A phone verification code has been sent to your phone, ${options.phone}`,
@@ -2390,12 +2672,12 @@ export class AuthService {
 
     async verifyPhoneOtp(
         user: User,
-        options: VerifyPhoneOtpDto
+        options: VerifyPhoneOtpDto,
     ): Promise<ApiResponse> {
         if (user.isPhoneVerified) {
             throw new DuplicateVerificationException(
                 "Phone number already verified",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -2409,7 +2691,7 @@ export class AuthService {
         if (!verificationData) {
             throw new InvalidVerificationCodeException(
                 "Invalid phone verification code",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -2421,7 +2703,7 @@ export class AuthService {
         if (timeDifference > FIVE_MINUTES_MS) {
             throw new VerificationCodeExpiredException(
                 "Your verification code has expired (valid for 5 minutes). Please request a new one.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -2431,7 +2713,9 @@ export class AuthService {
                 isPhoneVerified: true,
                 // Auto-enable SMS as a security method
                 securityMethods: {
-                    ...await this.getOrCreateSecurityMethodsByPhone(options.phone),
+                    ...(await this.getOrCreateSecurityMethodsByPhone(
+                        options.phone,
+                    )),
                     sms: true,
                 },
             },
@@ -2465,26 +2749,38 @@ export class AuthService {
         logger: Logger,
     ): void {
         if (emailTemplateConfig.document_approved) {
-            this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: userEmail } }],
-                template_key: emailTemplateConfig.document_approved,
-                merge_info: {
-                    first_name: firstName || "User",
-                    document_type: documentType,
-                    company_name: COMPANY_NAME,
-                    rejection_reason: "",
-                    status: "Approved",
-                },
-            }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send approval email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+            this.emailService
+                .sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: userEmail } }],
+                    template_key: emailTemplateConfig.document_approved,
+                    merge_info: {
+                        first_name: firstName || "User",
+                        document_type: documentType,
+                        company_name: COMPANY_NAME,
+                        rejection_reason: "",
+                        status: "Approved",
+                    },
+                })
+                .catch((e) =>
+                    logger.error(
+                        `[KYC][DOCUMENT] Failed to send approval email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                );
         }
-        this.notificationDispatcher.notify({
-            userId,
-            title: "Document Verified",
-            body: "Your identity document has been verified successfully.",
-            category: "security",
-            enablePush: true,
-        }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send notification for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+        this.notificationDispatcher
+            .notify({
+                userId,
+                title: "Document Verified",
+                body: "Your identity document has been verified successfully.",
+                category: "security",
+                enablePush: true,
+            })
+            .catch((e) =>
+                logger.error(
+                    `[KYC][DOCUMENT] Failed to send notification for user ${userId}: ${e instanceof Error ? e.message : String(e)}`,
+                ),
+            );
         this.wsGateway.notifyProfileUpdate(userId);
     }
 
@@ -2495,16 +2791,22 @@ export class AuthService {
         documentType: string,
     ): void {
         if (userEmail && emailTemplateConfig.document_pending_review) {
-            this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: userEmail } }],
-                template_key: emailTemplateConfig.document_pending_review,
-                merge_info: {
-                    name: firstName || "User",
-                    document_type: documentType,
-                    company_name: COMPANY_NAME,
-                },
-            }).catch((e) => this.logger.error(`[KYC] Failed to send pending review email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+            this.emailService
+                .sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: userEmail } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: firstName || "User",
+                        document_type: documentType,
+                        company_name: COMPANY_NAME,
+                    },
+                })
+                .catch((e) =>
+                    this.logger.error(
+                        `[KYC] Failed to send pending review email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                );
         }
     }
 
@@ -2517,36 +2819,52 @@ export class AuthService {
         logger: Logger,
     ): void {
         if (userEmail && emailTemplateConfig.document_rejected) {
-            this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: userEmail } }],
-                template_key: emailTemplateConfig.document_rejected,
-                merge_info: {
-                    first_name: firstName || "User",
-                    document_type: documentType,
-                    company_name: COMPANY_NAME,
-                    rejection_reason: rejectionReason,
-                    status: "Rejected",
-                },
-            }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send rejection email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+            this.emailService
+                .sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: userEmail } }],
+                    template_key: emailTemplateConfig.document_rejected,
+                    merge_info: {
+                        first_name: firstName || "User",
+                        document_type: documentType,
+                        company_name: COMPANY_NAME,
+                        rejection_reason: rejectionReason,
+                        status: "Rejected",
+                    },
+                })
+                .catch((e) =>
+                    logger.error(
+                        `[KYC][DOCUMENT] Failed to send rejection email for user ${userId}: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                );
         }
 
-        this.notificationDispatcher.notify({
-            userId,
-            title: "Document Rejected",
-            body: rejectionReason,
-            category: "security",
-            enablePush: true,
-        }).catch((e) => logger.error(`[KYC][DOCUMENT] Failed to send rejection notification for user ${userId}: ${e instanceof Error ? e.message : String(e)}`));
+        this.notificationDispatcher
+            .notify({
+                userId,
+                title: "Document Rejected",
+                body: rejectionReason,
+                category: "security",
+                enablePush: true,
+            })
+            .catch((e) =>
+                logger.error(
+                    `[KYC][DOCUMENT] Failed to send rejection notification for user ${userId}: ${e instanceof Error ? e.message : String(e)}`,
+                ),
+            );
 
         this.wsGateway.notifyProfileUpdate(userId);
     }
 
-    private getGovernmentIdentityRejectMessage(identityType: "BVN" | "NIN"): string {
+    private getGovernmentIdentityRejectMessage(
+        identityType: "BVN" | "NIN",
+    ): string {
         return `The submitted ${identityType} details do not match your profile. Please submit the correct ${identityType} that belongs to you and matches your name and date of birth.`;
     }
 
-    private getGovernmentIdentityPendingReviewMessage(identityType: "BVN" | "NIN"): string {
+    private getGovernmentIdentityPendingReviewMessage(
+        identityType: "BVN" | "NIN",
+    ): string {
         return `We couldn't confidently compare the submitted ${identityType} details to your profile. Your verification has been sent for manual review.`;
     }
 
@@ -2560,9 +2878,13 @@ export class AuthService {
         nameMatchDetail: string | null;
         dobMatches: boolean | null;
     }): Promise<GovernmentIdentityMatchResult> {
-        const reasonMessage = this.getGovernmentIdentityRejectMessage(params.identityType);
+        const reasonMessage = this.getGovernmentIdentityRejectMessage(
+            params.identityType,
+        );
 
-        this.logger.warn(`[KYC][${params.identityType}] User data mismatch for user ${params.user.id} after Dojah response`);
+        this.logger.warn(
+            `[KYC][${params.identityType}] User data mismatch for user ${params.user.id} after Dojah response`,
+        );
         await this.persistGovernmentStageAttempt({
             user: params.user,
             identityType: params.identityType,
@@ -2594,29 +2916,43 @@ export class AuthService {
                 dobMatches: params.dobMatches,
             },
         });
-        await this.redisCacheService.del(this.getProfileCacheKey(params.user.id));
+        await this.redisCacheService.del(
+            this.getProfileCacheKey(params.user.id),
+        );
 
-        this.notificationDispatcher.notify({
-            userId: params.user.id,
-            title: "Identity Verification Unsuccessful",
-            body: reasonMessage,
-            category: "security",
-            enablePush: true,
-        }).catch((e) => this.logger.error(`[KYC][${params.identityType}] Failed to send rejection notification for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`));
+        this.notificationDispatcher
+            .notify({
+                userId: params.user.id,
+                title: "Identity Verification Unsuccessful",
+                body: reasonMessage,
+                category: "security",
+                enablePush: true,
+            })
+            .catch((e) =>
+                this.logger.error(
+                    `[KYC][${params.identityType}] Failed to send rejection notification for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                ),
+            );
 
         if (params.user.email && emailTemplateConfig.document_rejected) {
-            this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: params.user.email } }],
-                template_key: emailTemplateConfig.document_rejected,
-                merge_info: {
-                    first_name: params.user.firstName || "User",
-                    document_type: params.identityType,
-                    company_name: COMPANY_NAME,
-                    rejection_reason: reasonMessage,
-                    status: "Rejected",
-                },
-            }).catch((e) => this.logger.error(`[KYC][${params.identityType}] Failed to send rejection email for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            this.emailService
+                .sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: params.user.email } }],
+                    template_key: emailTemplateConfig.document_rejected,
+                    merge_info: {
+                        first_name: params.user.firstName || "User",
+                        document_type: params.identityType,
+                        company_name: COMPANY_NAME,
+                        rejection_reason: reasonMessage,
+                        status: "Rejected",
+                    },
+                })
+                .catch((e) =>
+                    this.logger.error(
+                        `[KYC][${params.identityType}] Failed to send rejection email for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                );
         }
 
         return {
@@ -2636,15 +2972,24 @@ export class AuthService {
         nameMatchDetail: string | null;
         dobMatches: boolean | null;
     }): Promise<GovernmentIdentityMatchResult> {
-        const currentAttemptStatus = await this.getCurrentGovernmentAttemptStatus(params.user.id, params.identityType);
-        const eventType = currentAttemptStatus === KycAttemptStatus.REJECTED
-            || currentAttemptStatus === KycAttemptStatus.EXPIRED
-            ? KycAttemptEventType.RESUBMITTED
-            : KycAttemptEventType.SUBMITTED;
-        const reviewMessage = this.getGovernmentIdentityPendingReviewMessage(params.identityType);
+        const currentAttemptStatus =
+            await this.getCurrentGovernmentAttemptStatus(
+                params.user.id,
+                params.identityType,
+            );
+        const eventType =
+            currentAttemptStatus === KycAttemptStatus.REJECTED ||
+            currentAttemptStatus === KycAttemptStatus.EXPIRED
+                ? KycAttemptEventType.RESUBMITTED
+                : KycAttemptEventType.SUBMITTED;
+        const reviewMessage = this.getGovernmentIdentityPendingReviewMessage(
+            params.identityType,
+        );
         const reviewNote = `Manual review needed: hasComparableName=${params.hasComparableName}, hasComparableDob=${params.hasComparableDob}, nameMatches=${params.nameMatchDetail ? "evaluated" : "unknown"}, dobMatches=${params.dobMatches ?? "unknown"}`;
 
-        this.logger.warn(`[KYC][${params.identityType}] Incomplete provider identity data for user ${params.user.id}; routing to manual review`);
+        this.logger.warn(
+            `[KYC][${params.identityType}] Incomplete provider identity data for user ${params.user.id}; routing to manual review`,
+        );
         await this.persistGovernmentStageAttempt({
             user: params.user,
             identityType: params.identityType,
@@ -2676,27 +3021,41 @@ export class AuthService {
                 dobMatches: params.dobMatches,
             },
         });
-        await this.redisCacheService.del(this.getProfileCacheKey(params.user.id));
+        await this.redisCacheService.del(
+            this.getProfileCacheKey(params.user.id),
+        );
 
-        this.notificationDispatcher.notify({
-            userId: params.user.id,
-            title: "Identity Verification Under Review",
-            body: reviewMessage,
-            category: "security",
-            enablePush: true,
-        }).catch((e) => this.logger.error(`[KYC][${params.identityType}] Failed to send pending notification for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`));
+        this.notificationDispatcher
+            .notify({
+                userId: params.user.id,
+                title: "Identity Verification Under Review",
+                body: reviewMessage,
+                category: "security",
+                enablePush: true,
+            })
+            .catch((e) =>
+                this.logger.error(
+                    `[KYC][${params.identityType}] Failed to send pending notification for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                ),
+            );
 
         if (params.user.email && emailTemplateConfig.document_pending_review) {
-            this.emailService.sendMailWithTemplate({
-                from: { address: mailConfig.senderMail },
-                to: [{ email_address: { address: params.user.email } }],
-                template_key: emailTemplateConfig.document_pending_review,
-                merge_info: {
-                    name: params.user.firstName || "User",
-                    document_type: params.identityType,
-                    company_name: COMPANY_NAME,
-                },
-            }).catch((e) => this.logger.error(`[KYC][${params.identityType}] Failed to send pending review email for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`));
+            this.emailService
+                .sendMailWithTemplate({
+                    from: { address: mailConfig.senderMail },
+                    to: [{ email_address: { address: params.user.email } }],
+                    template_key: emailTemplateConfig.document_pending_review,
+                    merge_info: {
+                        name: params.user.firstName || "User",
+                        document_type: params.identityType,
+                        company_name: COMPANY_NAME,
+                    },
+                })
+                .catch((e) =>
+                    this.logger.error(
+                        `[KYC][${params.identityType}] Failed to send pending review email for user ${params.user.id}: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                );
         }
 
         return {
@@ -2706,7 +3065,9 @@ export class AuthService {
         };
     }
 
-    private normalizeSubmittedDocumentType(value: SubmittedDocumentTypeInput = null): DocumentType | null {
+    private normalizeSubmittedDocumentType(
+        value: SubmittedDocumentTypeInput = null,
+    ): DocumentType | null {
         if (!value) {
             return null;
         }
@@ -2743,26 +3104,36 @@ export class AuthService {
         return null;
     }
 
-    private shouldSendIdentityBackImageToProvider(documentType: SubmittedDocumentTypeInput = null): boolean {
-        const normalizedDocumentType = this.normalizeSubmittedDocumentType(documentType);
+    private shouldSendIdentityBackImageToProvider(
+        documentType: SubmittedDocumentTypeInput = null,
+    ): boolean {
+        const normalizedDocumentType =
+            this.normalizeSubmittedDocumentType(documentType);
 
-        return normalizedDocumentType !== DocumentType.INTERNATIONAL_PASSPORT
-            && normalizedDocumentType !== DocumentType.DRIVER_LICENSE
-            && normalizedDocumentType !== DocumentType.NIN;
+        return (
+            normalizedDocumentType !== DocumentType.INTERNATIONAL_PASSPORT &&
+            normalizedDocumentType !== DocumentType.DRIVER_LICENSE &&
+            normalizedDocumentType !== DocumentType.NIN
+        );
     }
 
     private resolveIdentityProviderBackImage(
         documentType: SubmittedDocumentTypeInput = null,
         imageBackSide?: string,
     ): string | undefined {
-        if (!imageBackSide || !this.shouldSendIdentityBackImageToProvider(documentType)) {
+        if (
+            !imageBackSide ||
+            !this.shouldSendIdentityBackImageToProvider(documentType)
+        ) {
             return undefined;
         }
 
         return imageBackSide;
     }
 
-    private formatSubmittedDocumentTypeLabel(value: SubmittedDocumentTypeInput = null): string {
+    private formatSubmittedDocumentTypeLabel(
+        value: SubmittedDocumentTypeInput = null,
+    ): string {
         switch (this.normalizeSubmittedDocumentType(value)) {
             case DocumentType.INTERNATIONAL_PASSPORT:
                 return "Passport";
@@ -2775,7 +3146,9 @@ export class AuthService {
         }
     }
 
-    private formatSubmittedDocumentTypePromptLabel(value: SubmittedDocumentTypeInput = null): string {
+    private formatSubmittedDocumentTypePromptLabel(
+        value: SubmittedDocumentTypeInput = null,
+    ): string {
         switch (this.normalizeSubmittedDocumentType(value)) {
             case DocumentType.INTERNATIONAL_PASSPORT:
                 return "passport";
@@ -2792,8 +3165,10 @@ export class AuthService {
         expectedDocumentType: SubmittedDocumentTypeInput = null,
         providerDocumentType: SubmittedDocumentTypeInput = null,
     ): IdentityDocumentTypeAssessment {
-        const expected = this.normalizeSubmittedDocumentType(expectedDocumentType);
-        const detected = this.normalizeSubmittedDocumentType(providerDocumentType);
+        const expected =
+            this.normalizeSubmittedDocumentType(expectedDocumentType);
+        const detected =
+            this.normalizeSubmittedDocumentType(providerDocumentType);
 
         if (!expected || !detected) {
             return {
@@ -2813,7 +3188,8 @@ export class AuthService {
             };
         }
 
-        const expectedLabel = this.formatSubmittedDocumentTypePromptLabel(expected);
+        const expectedLabel =
+            this.formatSubmittedDocumentTypePromptLabel(expected);
 
         return {
             expectedDocumentType: expected,
@@ -2823,7 +3199,9 @@ export class AuthService {
         };
     }
 
-    private normalizeSubmittedDocumentNumber(value?: string | null): string | null {
+    private normalizeSubmittedDocumentNumber(
+        value?: string | null,
+    ): string | null {
         if (!value) {
             return null;
         }
@@ -2887,11 +3265,15 @@ export class AuthService {
             return "Document upload completed.";
         }
 
-        return params.reviewDisposition.hardRejectMessage
-            || this.mapDojahReasonToUserMessage(params.providerReason);
+        return (
+            params.reviewDisposition.hardRejectMessage ||
+            this.mapDojahReasonToUserMessage(params.providerReason)
+        );
     }
 
-    private resolveIdentityPreviewProviderStatus(previewIsValid: boolean): "PASSED" | "FAILED" {
+    private resolveIdentityPreviewProviderStatus(
+        previewIsValid: boolean,
+    ): "PASSED" | "FAILED" {
         if (previewIsValid) {
             return "PASSED";
         }
@@ -2910,7 +3292,9 @@ export class AuthService {
         return providerReason;
     }
 
-    private buildIdentityPreviewAutofill(documentNumber?: string | null): { documentNumber: string } | null {
+    private buildIdentityPreviewAutofill(
+        documentNumber?: string | null,
+    ): { documentNumber: string } | null {
         if (!documentNumber) {
             return null;
         }
@@ -2922,7 +3306,9 @@ export class AuthService {
         return base64String.replace(/^data:image\/\w+;base64,/, "");
     }
 
-    private stripOptionalImageBase64Prefix(base64String?: string | null): string | undefined {
+    private stripOptionalImageBase64Prefix(
+        base64String?: string | null,
+    ): string | undefined {
         if (!base64String) {
             return undefined;
         }
@@ -2943,29 +3329,40 @@ export class AuthService {
         return extractedValue || null;
     }
 
-    private buildIdentityDocumentDecision(params: BuildIdentityDocumentDecisionParams): IdentityDocumentDecision {
-        const providerDocumentNumber = typeof params.dojahParsed?.documentNumber === "string"
-            ? params.dojahParsed.documentNumber
-            : null;
-        const expectedDocumentNumber = this.normalizeSubmittedDocumentNumber(params.documentNumber);
-        const extractedDocumentNumber = this.normalizeSubmittedDocumentNumber(providerDocumentNumber);
-        const profileDocumentNumber = this.normalizeSubmittedDocumentNumber(params.profileDocumentNumber);
-        const documentNumberMatches = expectedDocumentNumber && extractedDocumentNumber
-            ? expectedDocumentNumber === extractedDocumentNumber
-            : null;
-        const profileDocumentNumberMatches = profileDocumentNumber && extractedDocumentNumber
-            ? profileDocumentNumber === extractedDocumentNumber
-            : null;
+    private buildIdentityDocumentDecision(
+        params: BuildIdentityDocumentDecisionParams,
+    ): IdentityDocumentDecision {
+        const providerDocumentNumber =
+            typeof params.dojahParsed?.documentNumber === "string"
+                ? params.dojahParsed.documentNumber
+                : null;
+        const expectedDocumentNumber = this.normalizeSubmittedDocumentNumber(
+            params.documentNumber,
+        );
+        const extractedDocumentNumber = this.normalizeSubmittedDocumentNumber(
+            providerDocumentNumber,
+        );
+        const profileDocumentNumber = this.normalizeSubmittedDocumentNumber(
+            params.profileDocumentNumber,
+        );
+        const documentNumberMatches =
+            expectedDocumentNumber && extractedDocumentNumber
+                ? expectedDocumentNumber === extractedDocumentNumber
+                : null;
+        const profileDocumentNumberMatches =
+            profileDocumentNumber && extractedDocumentNumber
+                ? profileDocumentNumber === extractedDocumentNumber
+                : null;
         const hasComparableName = Boolean(
-            (params.dojahParsed?.firstName || params.dojahParsed?.givenNames)
-            && params.dojahParsed?.lastName,
+            (params.dojahParsed?.firstName || params.dojahParsed?.givenNames) &&
+            params.dojahParsed?.lastName,
         );
         const hasComparableDob = Boolean(params.dojahParsed?.dateOfBirth);
         const hasExtractedText = Boolean(
-            params.dojahParsed?.hasExtractedText
-            || hasComparableName
-            || params.dojahParsed?.documentNumber
-            || hasComparableDob,
+            params.dojahParsed?.hasExtractedText ||
+            hasComparableName ||
+            params.dojahParsed?.documentNumber ||
+            hasComparableDob,
         );
 
         const decisionContextDetails = {
@@ -2979,8 +3376,9 @@ export class AuthService {
         };
 
         if (!params.isDocumentValid) {
-            const userReasonMessage = params.hardRejectMessage
-                || this.mapDojahReasonToUserMessage(params.dojahParsed?.reason);
+            const userReasonMessage =
+                params.hardRejectMessage ||
+                this.mapDojahReasonToUserMessage(params.dojahParsed?.reason);
 
             return {
                 disposition: "AUTO_REJECT",
@@ -2989,7 +3387,8 @@ export class AuthService {
                 providerStatus: KycProviderStatus.FAILED,
                 decisionMode: KycDecisionMode.AUTO,
                 responseMessage: userReasonMessage,
-                attemptReasonCode: this.mapIndividualAttemptReasonCode(userReasonMessage),
+                attemptReasonCode:
+                    this.mapIndividualAttemptReasonCode(userReasonMessage),
                 attemptReasonMessage: userReasonMessage,
                 submissionNote: null,
                 decisionEventType: KycAttemptEventType.REJECTED,
@@ -3005,13 +3404,15 @@ export class AuthService {
             };
         }
 
-        const hasProfileNinMismatch = params.documentType === DocumentType.NIN
-            && Boolean(profileDocumentNumber)
-            && Boolean(extractedDocumentNumber)
-            && profileDocumentNumber !== extractedDocumentNumber;
+        const hasProfileNinMismatch =
+            params.documentType === DocumentType.NIN &&
+            Boolean(profileDocumentNumber) &&
+            Boolean(extractedDocumentNumber) &&
+            profileDocumentNumber !== extractedDocumentNumber;
 
         if (hasProfileNinMismatch) {
-            const userReasonMessage = "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.";
+            const userReasonMessage =
+                "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.";
 
             return {
                 disposition: "AUTO_REJECT",
@@ -3036,7 +3437,10 @@ export class AuthService {
             };
         }
 
-        if (params.isDocumentValid && params.documentProfileMatch.profileMatches) {
+        if (
+            params.isDocumentValid &&
+            params.documentProfileMatch.profileMatches
+        ) {
             return {
                 disposition: "APPROVE",
                 attemptStatus: KycAttemptStatus.APPROVED,
@@ -3048,7 +3452,8 @@ export class AuthService {
                 attemptReasonMessage: null,
                 submissionNote: null,
                 decisionEventType: KycAttemptEventType.APPROVED,
-                decisionEventNote: "Auto-approved: document valid, name matched, and DOB matched",
+                decisionEventNote:
+                    "Auto-approved: document valid, name matched, and DOB matched",
                 decisionContext: this.createIdentityDocumentDecisionContext(
                     params,
                     "APPROVE",
@@ -3057,8 +3462,10 @@ export class AuthService {
             };
         }
 
-        const hasNameMismatch = hasComparableName && !params.documentProfileMatch.nameMatches;
-        const hasDobMismatch = hasComparableDob && !params.documentProfileMatch.dobMatches;
+        const hasNameMismatch =
+            hasComparableName && !params.documentProfileMatch.nameMatches;
+        const hasDobMismatch =
+            hasComparableDob && !params.documentProfileMatch.dobMatches;
         const shouldAutoReject = this.shouldAutoRejectIdentityDocument({
             isDocumentValid: params.isDocumentValid,
             hasNameMismatch,
@@ -3066,7 +3473,8 @@ export class AuthService {
         });
 
         if (shouldAutoReject) {
-            const userReasonMessage = "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.";
+            const userReasonMessage =
+                "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.";
 
             return {
                 disposition: "AUTO_REJECT",
@@ -3097,12 +3505,14 @@ export class AuthService {
             disposition: "MANUAL_REVIEW",
             attemptStatus: KycAttemptStatus.PENDING_REVIEW,
             verificationStatus: DocumentVerificationStatus.PENDING,
-            providerStatus: params.isDocumentValid || hasExtractedText
-                ? KycProviderStatus.INCONCLUSIVE
-                : KycProviderStatus.FAILED,
+            providerStatus:
+                params.isDocumentValid || hasExtractedText
+                    ? KycProviderStatus.INCONCLUSIVE
+                    : KycProviderStatus.FAILED,
             decisionMode: KycDecisionMode.MANUAL,
             responseMessage: "Document verification is pending review",
-            attemptReasonCode: this.mapIndividualAttemptReasonCode(manualReviewNote),
+            attemptReasonCode:
+                this.mapIndividualAttemptReasonCode(manualReviewNote),
             attemptReasonMessage: manualReviewNote,
             submissionNote: manualReviewNote,
             decisionEventType: null,
@@ -3130,7 +3540,8 @@ export class AuthService {
             hasComparableDob: details.hasComparableDob,
             expectedDocumentType: params.documentType,
             extractedDocumentType: params.dojahParsed?.documentType ?? null,
-            normalizedExtractedDocumentType: params.documentTypeAssessment.detectedDocumentType ?? null,
+            normalizedExtractedDocumentType:
+                params.documentTypeAssessment.detectedDocumentType ?? null,
             documentTypeMatches: params.documentTypeAssessment.matches,
             expectedDocumentNumber: params.documentNumber
                 ? this.maskSensitiveId(params.documentNumber)
@@ -3154,20 +3565,28 @@ export class AuthService {
         hasNameMismatch: boolean;
         hasDobMismatch: boolean;
     }): boolean {
-        return params.isDocumentValid && (params.hasNameMismatch || params.hasDobMismatch);
+        return (
+            params.isDocumentValid &&
+            (params.hasNameMismatch || params.hasDobMismatch)
+        );
     }
 
-    private ensureIdentityProfilePresent(user: User, identityType: "BVN" | "NIN"): void {
+    private ensureIdentityProfilePresent(
+        user: User,
+        identityType: "BVN" | "NIN",
+    ): void {
         if (!user.firstName || !user.lastName || !user.dateOfBirth) {
             throw new VerificationGenericException(
                 `Please complete your profile (name and date of birth) before verifying ${identityType}`,
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
     }
 
     private getUserDateOfBirth(user: Pick<User, "dateOfBirth">): string | null {
-        return user.dateOfBirth ? user.dateOfBirth.toISOString().split("T")[0] : null;
+        return user.dateOfBirth
+            ? user.dateOfBirth.toISOString().split("T")[0]
+            : null;
     }
 
     private evaluateDocumentProfileMatch(
@@ -3181,7 +3600,9 @@ export class AuthService {
             parsedDocument?.dateOfBirth &&
             matchDateOfBirth(profileDateOfBirth, parsedDocument.dateOfBirth),
         );
-        const partialNameMatches = nameMatches || this.hasPartialDocumentNameMatch(user, parsedDocument);
+        const partialNameMatches =
+            nameMatches ||
+            this.hasPartialDocumentNameMatch(user, parsedDocument);
 
         return {
             nameMatches,
@@ -3191,7 +3612,9 @@ export class AuthService {
         };
     }
 
-    private isDocumentProfileNameAccepted(documentProfileMatch: DocumentProfileMatch): boolean {
+    private isDocumentProfileNameAccepted(
+        documentProfileMatch: DocumentProfileMatch,
+    ): boolean {
         return documentProfileMatch.nameMatches;
     }
 
@@ -3212,10 +3635,18 @@ export class AuthService {
             parsedDocument?.lastName,
             parsedDocument?.givenNames,
         ]
-            .flatMap((name) => this.normalizeIdentityNameText(name)?.split(" ") ?? [])
-            .filter((name, index, names) => name.length > 1 && names.indexOf(name) === index);
+            .flatMap(
+                (name) =>
+                    this.normalizeIdentityNameText(name)?.split(" ") ?? [],
+            )
+            .filter(
+                (name, index, names) =>
+                    name.length > 1 && names.indexOf(name) === index,
+            );
 
-        return extractedTokens.some((extractedName) => profileTokens.includes(extractedName));
+        return extractedTokens.some((extractedName) =>
+            profileTokens.includes(extractedName),
+        );
     }
 
     private normalizeIdentityNameText(value?: string | null): string | null {
@@ -3244,7 +3675,10 @@ export class AuthService {
                 data,
             });
         } catch (err) {
-            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+            if (
+                err instanceof Prisma.PrismaClientKnownRequestError &&
+                err.code === "P2002"
+            ) {
                 throw new VerificationGenericException(
                     `This ${identityType} is already linked to another account. If this is yours, please contact support.`,
                     HttpStatus.CONFLICT,
@@ -3263,24 +3697,29 @@ export class AuthService {
         const providerFirstName = result?.data?.entity?.first_name || "";
         const providerLastName = result?.data?.entity?.last_name || "";
         const providerDateOfBirth = result?.data?.entity?.date_of_birth || "";
-        const hasComparableName = Boolean(providerFirstName && providerLastName);
+        const hasComparableName = Boolean(
+            providerFirstName && providerLastName,
+        );
         const hasComparableDob = Boolean(providerDateOfBirth);
         const nameResult = hasComparableName
             ? matchNames(
-                user.firstName,
-                user.lastName,
-                providerFirstName,
-                providerLastName,
-            )
+                  user.firstName,
+                  user.lastName,
+                  providerFirstName,
+                  providerLastName,
+              )
             : { matches: false, detail: "Provider name data unavailable" };
         const dobMatches = hasComparableDob
             ? matchDateOfBirth(
-                user.dateOfBirth.toISOString().split("T")[0],
-                providerDateOfBirth,
-            )
+                  user.dateOfBirth.toISOString().split("T")[0],
+                  providerDateOfBirth,
+              )
             : false;
 
-        if ((hasComparableDob && !dobMatches) || (hasComparableName && !nameResult.matches)) {
+        if (
+            (hasComparableDob && !dobMatches) ||
+            (hasComparableName && !nameResult.matches)
+        ) {
             return this.handleGovernmentIdentityAutoReject({
                 user,
                 result,
@@ -3316,7 +3755,11 @@ export class AuthService {
         const generatedValue = generateId({ type: "numeric" });
 
         if (identityType === "BVN") {
-            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, generatedValue, userId);
+            await this.identityResolution.resolveOrCreate(
+                IdentityIdType.BVN,
+                generatedValue,
+                userId,
+            );
             await this.prisma.user.update({
                 where: { id: userId },
                 data: {
@@ -3324,7 +3767,11 @@ export class AuthService {
                 },
             });
         } else {
-            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, generatedValue, userId);
+            await this.identityResolution.resolveOrCreate(
+                IdentityIdType.NIN,
+                generatedValue,
+                userId,
+            );
             await this.prisma.user.update({
                 where: { id: userId },
                 data: {
@@ -3338,15 +3785,24 @@ export class AuthService {
         };
     }
 
-    private async finalizeIdentityVerification(userId: number, identityType: "BVN" | "NIN"): Promise<void> {
+    private async finalizeIdentityVerification(
+        userId: number,
+        identityType: "BVN" | "NIN",
+    ): Promise<void> {
         await this.tierService.syncTierAndCache(userId);
-        this.logger.log(`[KYC][${identityType}] Tier/profile cache refreshed for user ${userId}`);
+        this.logger.log(
+            `[KYC][${identityType}] Tier/profile cache refreshed for user ${userId}`,
+        );
 
         try {
             await this.cryptoAccountQueueProducer.enqueue(userId);
-            this.logger.log(`[KYC][${identityType}] Crypto account enqueue successful for user ${userId}`);
+            this.logger.log(
+                `[KYC][${identityType}] Crypto account enqueue successful for user ${userId}`,
+            );
         } catch (error) {
-            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(
+                `Error in sub account setup: ${this.serializeUnknownError(error)}`,
+            );
         }
 
         try {
@@ -3368,12 +3824,18 @@ export class AuthService {
                         status: "Approved",
                     },
                 });
-                this.logger.log(`[KYC][${identityType}] Approval email sent to user ${userId}`);
+                this.logger.log(
+                    `[KYC][${identityType}] Approval email sent to user ${userId}`,
+                );
             } else {
-                this.logger.warn(`[KYC][${identityType}] Skipped approval email for user ${userId}: missing email or template`);
+                this.logger.warn(
+                    `[KYC][${identityType}] Skipped approval email for user ${userId}: missing email or template`,
+                );
             }
         } catch (error) {
-            this.logger.error(`[KYC][${identityType}] Failed to send approval email for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(
+                `[KYC][${identityType}] Failed to send approval email for user ${userId}: ${this.serializeUnknownError(error)}`,
+            );
         }
 
         try {
@@ -3385,21 +3847,31 @@ export class AuthService {
                 enablePush: true,
             });
             this.wsGateway.notifyProfileUpdate(userId);
-            this.logger.log(`[KYC][${identityType}] In-app notification sent to user ${userId}`);
+            this.logger.log(
+                `[KYC][${identityType}] In-app notification sent to user ${userId}`,
+            );
         } catch (error) {
-            this.logger.error(`[KYC][${identityType}] Failed to send notification for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(
+                `[KYC][${identityType}] Failed to send notification for user ${userId}: ${this.serializeUnknownError(error)}`,
+            );
         }
     }
 
     async bvnVerification(user: User, dto: BvnVerificationDto) {
         const maskedBvn = this.maskSensitiveId(dto.bvn);
-        this.logger.log(`[KYC][BVN] Verification initiated for user ${user.id} (bvn=${maskedBvn})`);
+        this.logger.log(
+            `[KYC][BVN] Verification initiated for user ${user.id} (bvn=${maskedBvn})`,
+        );
 
-        if (await this.hasCompletedGovernmentVerification(user, KycMethod.BVN)) {
-            this.logger.warn(`[KYC][BVN] Duplicate verification attempt for user ${user.id}`);
+        if (
+            await this.hasCompletedGovernmentVerification(user, KycMethod.BVN)
+        ) {
+            this.logger.warn(
+                `[KYC][BVN] Duplicate verification attempt for user ${user.id}`,
+            );
             throw new DuplicateBvnVerificationException(
                 "Bvn verification already completed",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -3408,10 +3880,12 @@ export class AuthService {
         });
 
         if (bvnInUseByAnother) {
-            this.logger.warn(`[KYC][BVN] BVN already in use (user=${user.id}, bvn=${maskedBvn})`);
+            this.logger.warn(
+                `[KYC][BVN] BVN already in use (user=${user.id}, bvn=${maskedBvn})`,
+            );
             throw new VerificationGenericException(
                 "This BVN is already linked to another account. If this is your BVN, please contact support for assistance.",
-                HttpStatus.CONFLICT
+                HttpStatus.CONFLICT,
             );
         }
 
@@ -3421,23 +3895,30 @@ export class AuthService {
         // SECURITY: Block test BVN bypass in production
         if (dto.bvn === "22222222222") {
             if (isProdEnvironment) {
-                this.logger.warn(`[SECURITY] Blocked test BVN bypass attempt for user ${user.id}`);
+                this.logger.warn(
+                    `[SECURITY] Blocked test BVN bypass attempt for user ${user.id}`,
+                );
                 throw new VerificationGenericException(
                     "Invalid BVN number",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
             // Development only - log the bypass usage
-            this.logger.warn(`[SECURITY][DEV-ONLY] Test BVN bypass used for user ${user.id}`);
-            const { identifier: generatedBvn } = await this.processDevIdentityBypass(user.id, "BVN");
-            const currentAttemptStatus = await this.getCurrentGovernmentAttemptStatus(user.id, "BVN");
-            const submissionEvent = this.buildGovernmentAutoApprovalSubmissionEvent({
-                currentAttemptStatus,
-                identityType: "BVN",
-                identifier: generatedBvn,
-                source: "DEV_IDENTITY_BYPASS",
-                providerRef: "DEV_BYPASS",
-            });
+            this.logger.warn(
+                `[SECURITY][DEV-ONLY] Test BVN bypass used for user ${user.id}`,
+            );
+            const { identifier: generatedBvn } =
+                await this.processDevIdentityBypass(user.id, "BVN");
+            const currentAttemptStatus =
+                await this.getCurrentGovernmentAttemptStatus(user.id, "BVN");
+            const submissionEvent =
+                this.buildGovernmentAutoApprovalSubmissionEvent({
+                    currentAttemptStatus,
+                    identityType: "BVN",
+                    identifier: generatedBvn,
+                    source: "DEV_IDENTITY_BYPASS",
+                    providerRef: "DEV_BYPASS",
+                });
             await this.persistGovernmentStageAttempt({
                 user,
                 identityType: "BVN",
@@ -3452,7 +3933,8 @@ export class AuthService {
                 preApprovalEventPayload: submissionEvent.payload,
                 eventType: KycAttemptEventType.APPROVED,
                 eventActorType: KycActorType.SYSTEM,
-                eventNote: "Development-only BVN bypass approved directly on the stage attempt.",
+                eventNote:
+                    "Development-only BVN bypass approved directly on the stage attempt.",
                 eventPayload: {
                     source: "DEV_IDENTITY_BYPASS",
                     verificationType: "BVN",
@@ -3460,16 +3942,25 @@ export class AuthService {
                 },
             });
         } else {
-            this.logger.debug(`[KYC][BVN] Calling Dojah verification for user ${user.id}`);
+            this.logger.debug(
+                `[KYC][BVN] Calling Dojah verification for user ${user.id}`,
+            );
             const result = await this.dojahService.verifyBvn({
                 bvn: dto.bvn,
                 first_name: user.firstName || undefined,
                 last_name: user.lastName || undefined,
                 dob: profileDateOfBirth || undefined,
             });
-            this.logger.log(`[KYC][BVN] Dojah verification response received for user ${user.id}`);
+            this.logger.log(
+                `[KYC][BVN] Dojah verification response received for user ${user.id}`,
+            );
 
-            const identityMatchDecision = await this.rejectOnIdentityMismatch(user, result, "BVN", dto.bvn);
+            const identityMatchDecision = await this.rejectOnIdentityMismatch(
+                user,
+                result,
+                "BVN",
+                dto.bvn,
+            );
             if (identityMatchDecision.disposition === "AUTO_REJECT") {
                 return buildResponse({
                     message: identityMatchDecision.responseMessage,
@@ -3491,20 +3982,27 @@ export class AuthService {
                     },
                 });
             }
-            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, dto.bvn, user.id, {
-                firstName: result.data.entity.first_name,
-                lastName: result.data.entity.last_name,
-                dateOfBirth: result.data.entity.date_of_birth,
-            });
+            await this.identityResolution.resolveOrCreate(
+                IdentityIdType.BVN,
+                dto.bvn,
+                user.id,
+                {
+                    firstName: result.data.entity.first_name,
+                    lastName: result.data.entity.last_name,
+                    dateOfBirth: result.data.entity.date_of_birth,
+                },
+            );
             const providerRef = result?.data?.entity?.reference_id ?? null;
-            const currentAttemptStatus = await this.getCurrentGovernmentAttemptStatus(user.id, "BVN");
-            const submissionEvent = this.buildGovernmentAutoApprovalSubmissionEvent({
-                currentAttemptStatus,
-                identityType: "BVN",
-                identifier: dto.bvn,
-                source: "PROVIDER_GOVERNMENT_ID_CHECK",
-                providerRef,
-            });
+            const currentAttemptStatus =
+                await this.getCurrentGovernmentAttemptStatus(user.id, "BVN");
+            const submissionEvent =
+                this.buildGovernmentAutoApprovalSubmissionEvent({
+                    currentAttemptStatus,
+                    identityType: "BVN",
+                    identifier: dto.bvn,
+                    source: "PROVIDER_GOVERNMENT_ID_CHECK",
+                    providerRef,
+                });
             await this.updateIdentityWithConflictGuard(user.id, "BVN", {
                 bvn: dto.bvn,
                 bvnRegisteredPhone: result.data.entity.phone_number1,
@@ -3532,7 +4030,9 @@ export class AuthService {
                 },
             });
         }
-        this.logger.log(`[KYC][BVN] Verification persisted for user ${user.id}`);
+        this.logger.log(
+            `[KYC][BVN] Verification persisted for user ${user.id}`,
+        );
 
         await this.finalizeIdentityVerification(user.id, "BVN");
 
@@ -3543,13 +4043,19 @@ export class AuthService {
 
     async ninVerification(user: User, dto: NinVerificationDto) {
         const maskedNin = this.maskSensitiveId(dto.nin);
-        this.logger.log(`[KYC][NIN] Verification initiated for user ${user.id} (nin=${maskedNin})`);
+        this.logger.log(
+            `[KYC][NIN] Verification initiated for user ${user.id} (nin=${maskedNin})`,
+        );
 
-        if (await this.hasCompletedGovernmentVerification(user, KycMethod.NIN)) {
-            this.logger.warn(`[KYC][NIN] Duplicate verification attempt for user ${user.id}`);
+        if (
+            await this.hasCompletedGovernmentVerification(user, KycMethod.NIN)
+        ) {
+            this.logger.warn(
+                `[KYC][NIN] Duplicate verification attempt for user ${user.id}`,
+            );
             throw new DuplicateVerificationException(
                 "NIN verification already completed",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -3558,10 +4064,12 @@ export class AuthService {
         });
 
         if (ninInUseByAnother) {
-            this.logger.warn(`[KYC][NIN] NIN already in use (user=${user.id}, nin=${maskedNin})`);
+            this.logger.warn(
+                `[KYC][NIN] NIN already in use (user=${user.id}, nin=${maskedNin})`,
+            );
             throw new VerificationGenericException(
                 "This NIN is already linked to another account. If this is your NIN, please contact support for assistance.",
-                HttpStatus.CONFLICT
+                HttpStatus.CONFLICT,
             );
         }
 
@@ -3571,23 +4079,30 @@ export class AuthService {
         // SECURITY: Block test NIN bypass in production
         if (dto.nin === "00000000001") {
             if (isProdEnvironment) {
-                this.logger.warn(`[SECURITY] Blocked test NIN bypass attempt for user ${user.id}`);
+                this.logger.warn(
+                    `[SECURITY] Blocked test NIN bypass attempt for user ${user.id}`,
+                );
                 throw new VerificationGenericException(
                     "Invalid NIN number",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
             // Development only - log the bypass usage
-            this.logger.warn(`[SECURITY][DEV-ONLY] Test NIN bypass used for user ${user.id}`);
-            const { identifier: generatedNin } = await this.processDevIdentityBypass(user.id, "NIN");
-            const currentAttemptStatus = await this.getCurrentGovernmentAttemptStatus(user.id, "NIN");
-            const submissionEvent = this.buildGovernmentAutoApprovalSubmissionEvent({
-                currentAttemptStatus,
-                identityType: "NIN",
-                identifier: generatedNin,
-                source: "DEV_IDENTITY_BYPASS",
-                providerRef: "DEV_BYPASS",
-            });
+            this.logger.warn(
+                `[SECURITY][DEV-ONLY] Test NIN bypass used for user ${user.id}`,
+            );
+            const { identifier: generatedNin } =
+                await this.processDevIdentityBypass(user.id, "NIN");
+            const currentAttemptStatus =
+                await this.getCurrentGovernmentAttemptStatus(user.id, "NIN");
+            const submissionEvent =
+                this.buildGovernmentAutoApprovalSubmissionEvent({
+                    currentAttemptStatus,
+                    identityType: "NIN",
+                    identifier: generatedNin,
+                    source: "DEV_IDENTITY_BYPASS",
+                    providerRef: "DEV_BYPASS",
+                });
             await this.persistGovernmentStageAttempt({
                 user,
                 identityType: "NIN",
@@ -3602,7 +4117,8 @@ export class AuthService {
                 preApprovalEventPayload: submissionEvent.payload,
                 eventType: KycAttemptEventType.APPROVED,
                 eventActorType: KycActorType.SYSTEM,
-                eventNote: "Development-only NIN bypass approved directly on the stage attempt.",
+                eventNote:
+                    "Development-only NIN bypass approved directly on the stage attempt.",
                 eventPayload: {
                     source: "DEV_IDENTITY_BYPASS",
                     verificationType: "NIN",
@@ -3610,16 +4126,25 @@ export class AuthService {
                 },
             });
         } else {
-            this.logger.debug(`[KYC][NIN] Calling Dojah verification for user ${user.id}`);
+            this.logger.debug(
+                `[KYC][NIN] Calling Dojah verification for user ${user.id}`,
+            );
             const result = await this.dojahService.verifyNin({
                 nin: dto.nin,
                 first_name: user.firstName || undefined,
                 last_name: user.lastName || undefined,
                 dob: profileDateOfBirth || undefined,
             });
-            this.logger.log(`[KYC][NIN] Dojah verification response received for user ${user.id}`);
+            this.logger.log(
+                `[KYC][NIN] Dojah verification response received for user ${user.id}`,
+            );
 
-            const identityMatchDecision = await this.rejectOnIdentityMismatch(user, result, "NIN", dto.nin);
+            const identityMatchDecision = await this.rejectOnIdentityMismatch(
+                user,
+                result,
+                "NIN",
+                dto.nin,
+            );
             if (identityMatchDecision.disposition === "AUTO_REJECT") {
                 return buildResponse({
                     message: identityMatchDecision.responseMessage,
@@ -3641,20 +4166,27 @@ export class AuthService {
                     },
                 });
             }
-            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, dto.nin, user.id, {
-                firstName: result.data.entity.first_name,
-                lastName: result.data.entity.last_name,
-                dateOfBirth: result.data.entity.date_of_birth,
-            });
+            await this.identityResolution.resolveOrCreate(
+                IdentityIdType.NIN,
+                dto.nin,
+                user.id,
+                {
+                    firstName: result.data.entity.first_name,
+                    lastName: result.data.entity.last_name,
+                    dateOfBirth: result.data.entity.date_of_birth,
+                },
+            );
             const providerRef = result?.data?.entity?.reference_id ?? null;
-            const currentAttemptStatus = await this.getCurrentGovernmentAttemptStatus(user.id, "NIN");
-            const submissionEvent = this.buildGovernmentAutoApprovalSubmissionEvent({
-                currentAttemptStatus,
-                identityType: "NIN",
-                identifier: dto.nin,
-                source: "PROVIDER_GOVERNMENT_ID_CHECK",
-                providerRef,
-            });
+            const currentAttemptStatus =
+                await this.getCurrentGovernmentAttemptStatus(user.id, "NIN");
+            const submissionEvent =
+                this.buildGovernmentAutoApprovalSubmissionEvent({
+                    currentAttemptStatus,
+                    identityType: "NIN",
+                    identifier: dto.nin,
+                    source: "PROVIDER_GOVERNMENT_ID_CHECK",
+                    providerRef,
+                });
             await this.updateIdentityWithConflictGuard(user.id, "NIN", {
                 nin: dto.nin,
                 ninRegisteredPhone: result.data.entity.phone_number,
@@ -3682,7 +4214,9 @@ export class AuthService {
                 },
             });
         }
-        this.logger.log(`[KYC][NIN] Verification persisted for user ${user.id}`);
+        this.logger.log(
+            `[KYC][NIN] Verification persisted for user ${user.id}`,
+        );
 
         await this.finalizeIdentityVerification(user.id, "NIN");
 
@@ -3696,7 +4230,7 @@ export class AuthService {
         if (user.firstName && user.lastName && user.dateOfBirth) {
             throw new VerificationGenericException(
                 "User profile already completed",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -3713,7 +4247,9 @@ export class AuthService {
         try {
             await this.cryptoAccountQueueProducer.enqueue(user.id);
         } catch (error) {
-            this.logger.error(`Error in sub account setup: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(
+                `Error in sub account setup: ${this.serializeUnknownError(error)}`,
+            );
         }
 
         return buildResponse({
@@ -3724,27 +4260,28 @@ export class AuthService {
     async documentVerification(
         user: User,
         files: DocumentVerificationFileInterface,
-        dto: DocumentVerificationDto
+        dto: DocumentVerificationDto,
     ) {
         const logger = new Logger("DocumentVerification");
 
-        const currentAttemptStatus = await this.getCurrentIdentityDocumentAttemptStatus(user.id);
+        const currentAttemptStatus =
+            await this.getCurrentIdentityDocumentAttemptStatus(user.id);
 
         if (currentAttemptStatus === KycAttemptStatus.APPROVED) {
             throw new VerificationGenericException(
                 "Document has already been verified",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         if (
-            currentAttemptStatus === KycAttemptStatus.SUBMITTED
-            || currentAttemptStatus === KycAttemptStatus.PENDING_REVIEW
-            || currentAttemptStatus === KycAttemptStatus.ESCALATED
+            currentAttemptStatus === KycAttemptStatus.SUBMITTED ||
+            currentAttemptStatus === KycAttemptStatus.PENDING_REVIEW ||
+            currentAttemptStatus === KycAttemptStatus.ESCALATED
         ) {
             throw new VerificationGenericException(
                 "Document verification is pending review",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -3773,18 +4310,27 @@ export class AuthService {
             raw: dojahRawResponse,
         } = dojahResult;
 
-        const postValidation = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
+        const postValidation = this.applyDojahPostValidation(
+            isDocumentValid,
+            dojahParsed,
+            user.id,
+            logger,
+        );
         isDocumentValid = postValidation.isDocumentValid;
 
         if (dojahResult.success && !nameMatches) {
             logger.warn(
                 `Name mismatch for user ${user.id}: ` +
-                `expected "${user.firstName} ${user.lastName}", ` +
-                `got "${dojahParsed?.firstName || ""} ${dojahParsed?.lastName || ""}"`
+                    `expected "${user.firstName} ${user.lastName}", ` +
+                    `got "${dojahParsed?.firstName || ""} ${dojahParsed?.lastName || ""}"`,
             );
         }
 
-        const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);
+        const documentProfileMatch = this.evaluateDocumentProfileMatch(
+            user,
+            dojahParsed,
+            nameMatches,
+        );
 
         if (isDocumentValid && !documentProfileMatch.dobMatches) {
             logger.warn(
@@ -3805,7 +4351,9 @@ export class AuthService {
 
         const resolvedDocumentNumber = this.resolveStoredDocumentNumber(
             dto.documentNumber,
-            typeof dojahParsed?.documentNumber === "string" ? dojahParsed.documentNumber : null,
+            typeof dojahParsed?.documentNumber === "string"
+                ? dojahParsed.documentNumber
+                : null,
         );
 
         if (!resolvedDocumentNumber) {
@@ -3818,7 +4366,10 @@ export class AuthService {
         const decision = this.buildIdentityDocumentDecision({
             documentType: dto.documentType,
             documentNumber: dto.documentNumber,
-            profileDocumentNumber: dto.documentType === DocumentType.NIN ? user.nin ?? null : null,
+            profileDocumentNumber:
+                dto.documentType === DocumentType.NIN
+                    ? (user.nin ?? null)
+                    : null,
             isDocumentValid,
             hardRejectMessage: postValidation.hardRejectMessage,
             dojahParsed,
@@ -3848,9 +4399,14 @@ export class AuthService {
                         dojahExtractedFirstName: dojahParsed?.firstName || null,
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
-                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: this.isDocumentProfileNameAccepted(documentProfileMatch),
+                        dojahExtractedDocNumber:
+                            dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate:
+                            dojahParsed?.expiryDate || null,
+                        dojahNameMatches:
+                            this.isDocumentProfileNameAccepted(
+                                documentProfileMatch,
+                            ),
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                         updatedAt: new Date(),
@@ -3874,9 +4430,14 @@ export class AuthService {
                         dojahExtractedFirstName: dojahParsed?.firstName || null,
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
-                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: this.isDocumentProfileNameAccepted(documentProfileMatch),
+                        dojahExtractedDocNumber:
+                            dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate:
+                            dojahParsed?.expiryDate || null,
+                        dojahNameMatches:
+                            this.isDocumentProfileNameAccepted(
+                                documentProfileMatch,
+                            ),
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                     },
@@ -3899,14 +4460,20 @@ export class AuthService {
                     documentProfileMatch,
                 });
             },
-            { timeout: 30000 }
+            { timeout: 30000 },
         );
 
         // Sync tier & flush profile cache after document verification
         await this.tierService.syncTierAndCache(user.id);
 
         if (decision.disposition === "APPROVE") {
-            this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
+            this.sendDocumentAutoApprovalNotifications(
+                user.id,
+                user.email,
+                user.firstName,
+                "Identity Document",
+                logger,
+            );
             return buildResponse({
                 message: decision.responseMessage,
             });
@@ -3940,7 +4507,12 @@ export class AuthService {
             category: "security",
         });
 
-        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Identity Document");
+        this.sendPendingReviewEmail(
+            user.id,
+            user.email,
+            user.firstName,
+            "Identity Document",
+        );
 
         return buildResponse({
             message: decision.responseMessage,
@@ -3953,7 +4525,7 @@ export class AuthService {
     }
 
     private async uploadDocumentImage(
-        file: string
+        file: string,
     ): Promise<UploadResponse | UploadApiResponse> {
         const date = Date.now();
         const body = Buffer.from(file, "base64");
@@ -4060,8 +4632,12 @@ export class AuthService {
         const logger = new Logger("DocumentPreview");
 
         // Strip data:image prefix for Dojah API
-        const cleanFrontBase64 = this.stripImageBase64Prefix(dto.imageFrontBase64);
-        const cleanBackBase64 = this.stripOptionalImageBase64Prefix(dto.imageBackBase64);
+        const cleanFrontBase64 = this.stripImageBase64Prefix(
+            dto.imageFrontBase64,
+        );
+        const cleanBackBase64 = this.stripOptionalImageBase64Prefix(
+            dto.imageBackBase64,
+        );
 
         logger.log(`Document preview starting for user ${user.id}`, {
             frontImageSize: dto.imageFrontBase64?.length || 0,
@@ -4069,7 +4645,10 @@ export class AuthService {
         });
 
         const startTime = Date.now();
-        const providerBackImage = this.resolveIdentityProviderBackImage(dto.documentType, cleanBackBase64);
+        const providerBackImage = this.resolveIdentityProviderBackImage(
+            dto.documentType,
+            cleanBackBase64,
+        );
         const providerRequest = {
             inputType: "base64",
             imageFrontSide: cleanFrontBase64,
@@ -4077,7 +4656,8 @@ export class AuthService {
         } as const;
 
         try {
-            const result = await this.dojahService.analyzeDocument(providerRequest);
+            const result =
+                await this.dojahService.analyzeDocument(providerRequest);
             return this.buildIdentityPreviewSuccessResponse({
                 user,
                 dto,
@@ -4139,38 +4719,55 @@ export class AuthService {
             reviewDisposition,
             providerReason: parsed.reason,
         });
-        const outcome = this.resolveIdentityPreviewOutcome(isDocumentTypeMismatch, previewIsValid);
-        const providerStatus = this.resolveIdentityPreviewProviderStatus(previewIsValid);
-        const reasonCode = this.resolveIdentityPreviewReasonCode(isDocumentTypeMismatch, previewIsValid);
-        const reason = this.resolveIdentityPreviewReason(isDocumentTypeMismatch, parsed.reason);
-        const autofill = this.buildIdentityPreviewAutofill(parsed.documentNumber);
+        const outcome = this.resolveIdentityPreviewOutcome(
+            isDocumentTypeMismatch,
+            previewIsValid,
+        );
+        const providerStatus =
+            this.resolveIdentityPreviewProviderStatus(previewIsValid);
+        const reasonCode = this.resolveIdentityPreviewReasonCode(
+            isDocumentTypeMismatch,
+            previewIsValid,
+        );
+        const reason = this.resolveIdentityPreviewReason(
+            isDocumentTypeMismatch,
+            parsed.reason,
+        );
+        const autofill = this.buildIdentityPreviewAutofill(
+            parsed.documentNumber,
+        );
         const durationMs = Date.now() - params.startTime;
 
         params.logger.log(
             `Document preview completed in ${durationMs}ms for user ${params.user.id}: ` +
-            `valid=${previewIsValid}, outcome=${outcome}, providerStatus=${providerStatus}, ` +
-            `canSubmit=${canProceedForReview}, type=${parsed.documentType}, ` +
-            `reasonCode=${reasonCode}, reason=${reason ?? parsed.reason ?? "none"}`,
+                `valid=${previewIsValid}, outcome=${outcome}, providerStatus=${providerStatus}, ` +
+                `canSubmit=${canProceedForReview}, type=${parsed.documentType}, ` +
+                `reasonCode=${reasonCode}, reason=${reason ?? parsed.reason ?? "none"}`,
         );
 
-        this.logInvalidIdentityPreview(params.user.id, previewIsValid, {
-            outcome,
-            providerStatus,
-            canSubmit: canProceedForReview,
-            reasonCode,
-            reason: reason ?? parsed.reason,
-            documentType: parsed.documentType,
-            country: parsed.country,
-            hasPortrait: parsed.hasPortrait,
-            hasFrontSide: parsed.hasFrontSide,
-            hasBackSide: parsed.hasBackSide,
-            extractedFields: {
-                firstName: !!parsed.firstName,
-                lastName: !!parsed.lastName,
-                documentNumber: !!parsed.documentNumber,
-                dateOfBirth: !!parsed.dateOfBirth,
+        this.logInvalidIdentityPreview(
+            params.user.id,
+            previewIsValid,
+            {
+                outcome,
+                providerStatus,
+                canSubmit: canProceedForReview,
+                reasonCode,
+                reason: reason ?? parsed.reason,
+                documentType: parsed.documentType,
+                country: parsed.country,
+                hasPortrait: parsed.hasPortrait,
+                hasFrontSide: parsed.hasFrontSide,
+                hasBackSide: parsed.hasBackSide,
+                extractedFields: {
+                    firstName: !!parsed.firstName,
+                    lastName: !!parsed.lastName,
+                    documentNumber: !!parsed.documentNumber,
+                    dateOfBirth: !!parsed.dateOfBirth,
+                },
             },
-        }, params.logger);
+            params.logger,
+        );
 
         return {
             success: true,
@@ -4225,18 +4822,25 @@ export class AuthService {
         providerInteraction: Record<string, unknown>;
     } {
         const durationMs = Date.now() - params.startTime;
-        const errorStatus = typeof (params.error as { status?: unknown })?.status === "number"
-            ? (params.error as { status: number }).status
-            : undefined;
+        const errorStatus =
+            typeof (params.error as { status?: unknown })?.status === "number"
+                ? (params.error as { status: number }).status
+                : undefined;
+        const errorName =
+            params.error instanceof Error ? params.error.name : "UnknownError";
+        const errorMessage = this.serializeUnknownError(params.error);
 
-        params.logger.error(`Document preview failed in ${durationMs}ms for user ${params.userId}`, {
-            errorName: params.error instanceof Error ? params.error.name : "UnknownError",
-            errorMessage: params.error instanceof Error ? params.error.message : String(params.error),
-        });
+        params.logger.error(
+            `Document preview failed in ${durationMs}ms for user ${params.userId}`,
+            {
+                errorName,
+                errorMessage,
+            },
+        );
 
         const userMessage = this.mapDojahErrorToUserMessage({
-            name: params.error instanceof Error ? params.error.name : "UnknownError",
-            message: params.error instanceof Error ? params.error.message : String(params.error),
+            name: errorName,
+            message: errorMessage,
             status: errorStatus,
         });
 
@@ -4249,8 +4853,8 @@ export class AuthService {
                 request: params.providerRequest,
                 response: null,
                 error: {
-                    name: params.error instanceof Error ? params.error.name : "UnknownError",
-                    message: params.error instanceof Error ? params.error.message : String(params.error),
+                    name: errorName,
+                    message: errorMessage,
                     status: errorStatus ?? null,
                 },
             },
@@ -4301,8 +4905,8 @@ export class AuthService {
             return null;
         }
 
-        return providerNameText.includes(normaliseName(user.firstName))
-            && providerNameText.includes(normaliseName(user.lastName))
+        return providerNameText.includes(normaliseName(user.firstName)) &&
+            providerNameText.includes(normaliseName(user.lastName))
             ? true
             : null;
     }
@@ -4320,7 +4924,10 @@ export class AuthService {
             return null;
         }
 
-        const preparedBuffer = await prepareDocumentForProviderAnalysis(file.buffer, file.mimetype);
+        const preparedBuffer = await prepareDocumentForProviderAnalysis(
+            file.buffer,
+            file.mimetype,
+        );
 
         if (!preparedBuffer.length) {
             return null;
@@ -4341,13 +4948,21 @@ export class AuthService {
                 originalByteLength: file.buffer.length,
                 preparedByteLength: preparedBuffer.length,
                 preparedBase64Length: imageFrontSide.length,
-                originalSha256: crypto.createHash("sha256").update(file.buffer).digest("hex"),
-                preparedSha256: crypto.createHash("sha256").update(preparedBuffer).digest("hex"),
+                originalSha256: crypto
+                    .createHash("sha256")
+                    .update(file.buffer)
+                    .digest("hex"),
+                preparedSha256: crypto
+                    .createHash("sha256")
+                    .update(preparedBuffer)
+                    .digest("hex"),
             },
         };
     }
 
-    private buildProviderAnalysisErrorPayload(error: unknown): Record<string, unknown> {
+    private buildProviderAnalysisErrorPayload(
+        error: unknown,
+    ): Record<string, unknown> {
         const errorLike = error as {
             name?: unknown;
             message?: unknown;
@@ -4369,14 +4984,22 @@ export class AuthService {
         }
 
         return {
-            name: typeof errorLike?.name === "string" ? errorLike.name : "Error",
-            message: typeof errorLike?.message === "string" ? errorLike.message : String(error),
+            name:
+                typeof errorLike?.name === "string" ? errorLike.name : "Error",
+            message:
+                typeof errorLike?.message === "string"
+                    ? errorLike.message
+                    : this.serializeUnknownError(error),
             status,
-            ...(typeof errorLike?.providerErrorName === "string" ? { providerErrorName: errorLike.providerErrorName } : {}),
-            responseBody: errorLike?.responseBody ?? errorLike?.response?.data ?? null,
+            ...(typeof errorLike?.providerErrorName === "string"
+                ? { providerErrorName: errorLike.providerErrorName }
+                : {}),
+            responseBody:
+                errorLike?.responseBody ?? errorLike?.response?.data ?? null,
             requestMetadata:
-                errorLike?.requestMetadata && typeof errorLike.requestMetadata === "object"
-                    ? errorLike.requestMetadata as Record<string, unknown>
+                errorLike?.requestMetadata &&
+                typeof errorLike.requestMetadata === "object"
+                    ? (errorLike.requestMetadata as Record<string, unknown>)
                     : null,
         };
     }
@@ -4404,9 +5027,11 @@ export class AuthService {
             return null;
         }
 
-        const providerAnalysisRequest = await this.buildProviderAnalysisRequest(file).catch((error: unknown) => {
+        const providerAnalysisRequest = await this.buildProviderAnalysisRequest(
+            file,
+        ).catch((error: unknown) => {
             this.logger.warn(
-                `[KYC][ADDRESS] Failed to prepare address document preview for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
+                `[KYC][ADDRESS] Failed to prepare address document preview for user ${user.id}: ${this.serializeUnknownError(error)}`,
             );
             return null;
         });
@@ -4416,7 +5041,9 @@ export class AuthService {
         }
 
         try {
-            const result = await this.dojahService.analyzeDocument(providerAnalysisRequest.providerRequest);
+            const result = await this.dojahService.analyzeDocument(
+                providerAnalysisRequest.providerRequest,
+            );
 
             return {
                 isValid: result.parsed.isValid,
@@ -4439,14 +5066,15 @@ export class AuthService {
             };
         } catch (error) {
             this.logger.warn(
-                `[KYC][ADDRESS] Failed to analyze address document preview for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
+                `[KYC][ADDRESS] Failed to analyze address document preview for user ${user.id}: ${this.serializeUnknownError(error)}`,
             );
 
             return {
-                providerInteraction: this.buildProviderAnalysisFailureInteraction(
-                    providerAnalysisRequest.requestMetadata,
-                    error,
-                ),
+                providerInteraction:
+                    this.buildProviderAnalysisFailureInteraction(
+                        providerAnalysisRequest.requestMetadata,
+                        error,
+                    ),
             };
         }
     }
@@ -4459,9 +5087,11 @@ export class AuthService {
             return null;
         }
 
-        const providerAnalysisRequest = await this.buildProviderAnalysisRequest(file).catch((error: unknown) => {
+        const providerAnalysisRequest = await this.buildProviderAnalysisRequest(
+            file,
+        ).catch((error: unknown) => {
             this.logger.warn(
-                `[KYC][INCOME] Failed to prepare income document preview for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
+                `[KYC][INCOME] Failed to prepare income document preview for user ${user.id}: ${this.serializeUnknownError(error)}`,
             );
             return null;
         });
@@ -4471,7 +5101,9 @@ export class AuthService {
         }
 
         try {
-            const result = await this.dojahService.analyzeDocument(providerAnalysisRequest.providerRequest);
+            const result = await this.dojahService.analyzeDocument(
+                providerAnalysisRequest.providerRequest,
+            );
 
             return {
                 isValid: result.parsed.isValid,
@@ -4494,17 +5126,17 @@ export class AuthService {
             };
         } catch (error) {
             this.logger.warn(
-                `[KYC][INCOME] Failed to analyze income document preview for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
+                `[KYC][INCOME] Failed to analyze income document preview for user ${user.id}: ${this.serializeUnknownError(error)}`,
             );
 
             return {
-                providerInteraction: this.buildProviderAnalysisFailureInteraction(
-                    providerAnalysisRequest.requestMetadata,
-                    error,
-                ),
+                providerInteraction:
+                    this.buildProviderAnalysisFailureInteraction(
+                        providerAnalysisRequest.requestMetadata,
+                        error,
+                    ),
             };
         }
-
     }
     /**
      * Map Dojah reason codes to user-friendly messages
@@ -4525,7 +5157,10 @@ export class AuthService {
         if (upperReason.includes("EXPIRED")) {
             return "Document is expired. Please upload a valid, unexpired document.";
         }
-        if (upperReason.includes("NOT_SUPPORTED") || upperReason.includes("UNSUPPORTED")) {
+        if (
+            upperReason.includes("NOT_SUPPORTED") ||
+            upperReason.includes("UNSUPPORTED")
+        ) {
             return "This document is not supported. Please upload a valid passport, driver's license, or NIN slip.";
         }
 
@@ -4533,14 +5168,27 @@ export class AuthService {
     }
 
     /** Map Dojah/client document type strings to internal DocumentType enum. */
-    private mapDojahToDocumentType(dojahDocTypeRaw?: string, fallbackDocType?: string): DocumentType {
+    private mapDojahToDocumentType(
+        dojahDocTypeRaw?: string,
+        fallbackDocType?: string,
+    ): DocumentType {
         const dojahDocType = dojahDocTypeRaw?.toLowerCase();
-        if (dojahDocType?.includes("passport")) return DocumentType.INTERNATIONAL_PASSPORT;
-        if (dojahDocType?.includes("driver") || dojahDocType?.includes("license")) return DocumentType.DRIVER_LICENSE;
+        if (dojahDocType?.includes("passport"))
+            return DocumentType.INTERNATIONAL_PASSPORT;
+        if (
+            dojahDocType?.includes("driver") ||
+            dojahDocType?.includes("license")
+        )
+            return DocumentType.DRIVER_LICENSE;
 
         const providedType = fallbackDocType?.toLowerCase();
-        if (providedType?.includes("passport")) return DocumentType.INTERNATIONAL_PASSPORT;
-        if (providedType?.includes("driver") || providedType?.includes("license")) return DocumentType.DRIVER_LICENSE;
+        if (providedType?.includes("passport"))
+            return DocumentType.INTERNATIONAL_PASSPORT;
+        if (
+            providedType?.includes("driver") ||
+            providedType?.includes("license")
+        )
+            return DocumentType.DRIVER_LICENSE;
 
         return DocumentType.NIN;
     }
@@ -4549,9 +5197,16 @@ export class AuthService {
      * Submit Dojah Widget verification result
      * Receives verification data from Dojah Widget and saves to database
      */
-    async submitDojahWidgetVerification(user: User, _dto: DojahWidgetVerificationDto) {
-        this.logger.warn(`[KYC][DOCUMENT] Retired Dojah widget endpoint hit for user ${user.id}`);
-        throw new GoneException("Dojah widget verification has been retired. Use the document upload flow instead.");
+    async submitDojahWidgetVerification(
+        user: User,
+        _dto: DojahWidgetVerificationDto,
+    ) {
+        this.logger.warn(
+            `[KYC][DOCUMENT] Retired Dojah widget endpoint hit for user ${user.id}`,
+        );
+        throw new GoneException(
+            "Dojah widget verification has been retired. Use the document upload flow instead.",
+        );
     }
 
     /**
@@ -4561,27 +5216,28 @@ export class AuthService {
      */
     async documentVerificationBase64(
         user: User,
-        dto: DocumentVerificationBase64Dto
+        dto: DocumentVerificationBase64Dto,
     ) {
         const logger = new Logger("DocumentVerificationBase64");
 
-        const currentAttemptStatus = await this.getCurrentIdentityDocumentAttemptStatus(user.id);
+        const currentAttemptStatus =
+            await this.getCurrentIdentityDocumentAttemptStatus(user.id);
 
         if (currentAttemptStatus === KycAttemptStatus.APPROVED) {
             throw new VerificationGenericException(
                 "Document has already been verified",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         if (
-            currentAttemptStatus === KycAttemptStatus.SUBMITTED
-            || currentAttemptStatus === KycAttemptStatus.PENDING_REVIEW
-            || currentAttemptStatus === KycAttemptStatus.ESCALATED
+            currentAttemptStatus === KycAttemptStatus.SUBMITTED ||
+            currentAttemptStatus === KycAttemptStatus.PENDING_REVIEW ||
+            currentAttemptStatus === KycAttemptStatus.ESCALATED
         ) {
             throw new VerificationGenericException(
                 "Document verification is pending review",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -4594,17 +5250,25 @@ export class AuthService {
                 return imageBase64;
             }
 
-            const markerIndex = imageBase64.indexOf(base64Marker, dataImagePrefix.length);
+            const markerIndex = imageBase64.indexOf(
+                base64Marker,
+                dataImagePrefix.length,
+            );
             if (markerIndex === -1) {
                 return imageBase64;
             }
 
-            const imageType = imageBase64.slice(dataImagePrefix.length, markerIndex);
+            const imageType = imageBase64.slice(
+                dataImagePrefix.length,
+                markerIndex,
+            );
             return /^\w+$/.test(imageType)
                 ? imageBase64.slice(markerIndex + base64Marker.length)
                 : imageBase64;
         };
-        const cleanFrontBase64 = stripDataImageBase64Prefix(dto.imageFrontBase64);
+        const cleanFrontBase64 = stripDataImageBase64Prefix(
+            dto.imageFrontBase64,
+        );
         const cleanBackBase64 = dto.imageBackBase64
             ? stripDataImageBase64Prefix(dto.imageBackBase64)
             : undefined;
@@ -4620,26 +5284,52 @@ export class AuthService {
         const startTime = Date.now();
 
         // Upload images to storage (for manual review if needed) and verify with Dojah in parallel
-        const [documentImage1, documentImage2, dojahResult] = await Promise.all([
-            this.uploadBase64Image(dto.imageFrontBase64),
-            dto.imageBackBase64 ? this.uploadBase64Image(dto.imageBackBase64) : Promise.resolve(null),
-            this.callDojahDocumentVerification(cleanFrontBase64, cleanBackBase64, user, dto, startTime, logger),
-        ]);
+        const [documentImage1, documentImage2, dojahResult] = await Promise.all(
+            [
+                this.uploadBase64Image(dto.imageFrontBase64),
+                dto.imageBackBase64
+                    ? this.uploadBase64Image(dto.imageBackBase64)
+                    : Promise.resolve(null),
+                this.callDojahDocumentVerification(
+                    cleanFrontBase64,
+                    cleanBackBase64,
+                    user,
+                    dto,
+                    startTime,
+                    logger,
+                ),
+            ],
+        );
 
-        let { isValid: isDocumentValid, nameMatches, parsed: dojahParsed, raw: dojahRawResponse, error: dojahError } = dojahResult;
+        let {
+            isValid: isDocumentValid,
+            nameMatches,
+            parsed: dojahParsed,
+            raw: dojahRawResponse,
+            error: dojahError,
+        } = dojahResult;
 
         // If Dojah failed with an error, throw it to the frontend with a user-friendly message
         if (!dojahResult.success && dojahError) {
             const userMessage = this.mapDojahErrorToUserMessage(dojahError);
             throw new VerificationGenericException(
                 userMessage,
-                dojahError.status || HttpStatus.BAD_REQUEST
+                dojahError.status || HttpStatus.BAD_REQUEST,
             );
         }
 
-        const postValidation = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
+        const postValidation = this.applyDojahPostValidation(
+            isDocumentValid,
+            dojahParsed,
+            user.id,
+            logger,
+        );
         isDocumentValid = postValidation.isDocumentValid;
-        const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);
+        const documentProfileMatch = this.evaluateDocumentProfileMatch(
+            user,
+            dojahParsed,
+            nameMatches,
+        );
 
         if (isDocumentValid && !documentProfileMatch.dobMatches) {
             logger.warn(
@@ -4660,7 +5350,9 @@ export class AuthService {
 
         const resolvedDocumentNumber = this.resolveStoredDocumentNumber(
             dto.documentNumber,
-            typeof dojahParsed?.documentNumber === "string" ? dojahParsed.documentNumber : null,
+            typeof dojahParsed?.documentNumber === "string"
+                ? dojahParsed.documentNumber
+                : null,
         );
 
         if (!resolvedDocumentNumber) {
@@ -4673,7 +5365,10 @@ export class AuthService {
         const decision = this.buildIdentityDocumentDecision({
             documentType: dto.documentType,
             documentNumber: dto.documentNumber,
-            profileDocumentNumber: dto.documentType === DocumentType.NIN ? user.nin ?? null : null,
+            profileDocumentNumber:
+                dto.documentType === DocumentType.NIN
+                    ? (user.nin ?? null)
+                    : null,
             isDocumentValid,
             hardRejectMessage: postValidation.hardRejectMessage,
             dojahParsed,
@@ -4703,9 +5398,14 @@ export class AuthService {
                         dojahExtractedFirstName: dojahParsed?.firstName || null,
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
-                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: this.isDocumentProfileNameAccepted(documentProfileMatch),
+                        dojahExtractedDocNumber:
+                            dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate:
+                            dojahParsed?.expiryDate || null,
+                        dojahNameMatches:
+                            this.isDocumentProfileNameAccepted(
+                                documentProfileMatch,
+                            ),
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                         updatedAt: new Date(),
@@ -4729,9 +5429,14 @@ export class AuthService {
                         dojahExtractedFirstName: dojahParsed?.firstName || null,
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
-                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: this.isDocumentProfileNameAccepted(documentProfileMatch),
+                        dojahExtractedDocNumber:
+                            dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate:
+                            dojahParsed?.expiryDate || null,
+                        dojahNameMatches:
+                            this.isDocumentProfileNameAccepted(
+                                documentProfileMatch,
+                            ),
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                     },
@@ -4745,8 +5450,12 @@ export class AuthService {
                     submittedDocumentNumber: dto.documentNumber,
                     documentImage1,
                     documentImage2,
-                    frontMimeType: this.extractBase64MimeType(dto.imageFrontBase64),
-                    backMimeType: dto.imageBackBase64 ? this.extractBase64MimeType(dto.imageBackBase64) : null,
+                    frontMimeType: this.extractBase64MimeType(
+                        dto.imageFrontBase64,
+                    ),
+                    backMimeType: dto.imageBackBase64
+                        ? this.extractBase64MimeType(dto.imageBackBase64)
+                        : null,
                     dojahParsed,
                     isDocumentValid,
                     decision,
@@ -4755,14 +5464,20 @@ export class AuthService {
                     documentProfileMatch,
                 });
             },
-            { timeout: 30000 }
+            { timeout: 30000 },
         );
 
         // Sync tier & flush profile cache after base64 document verification
         await this.tierService.syncTierAndCache(user.id);
 
         if (decision.disposition === "APPROVE") {
-            this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
+            this.sendDocumentAutoApprovalNotifications(
+                user.id,
+                user.email,
+                user.firstName,
+                "Identity Document",
+                logger,
+            );
             return buildResponse({
                 message: decision.responseMessage,
             });
@@ -4796,7 +5511,12 @@ export class AuthService {
             category: "security",
         });
 
-        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Identity Document");
+        this.sendPendingReviewEmail(
+            user.id,
+            user.email,
+            user.firstName,
+            "Identity Document",
+        );
 
         return buildResponse({
             message: decision.responseMessage,
@@ -4815,38 +5535,45 @@ export class AuthService {
     ) {
         const logger = new Logger("DocumentVerificationBase64FromPreview");
 
-        const currentAttemptStatus = await this.getCurrentIdentityDocumentAttemptStatus(user.id);
+        const currentAttemptStatus =
+            await this.getCurrentIdentityDocumentAttemptStatus(user.id);
 
         if (currentAttemptStatus === KycAttemptStatus.APPROVED) {
             throw new VerificationGenericException(
                 "Document has already been verified",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         if (
-            currentAttemptStatus === KycAttemptStatus.SUBMITTED
-            || currentAttemptStatus === KycAttemptStatus.PENDING_REVIEW
-            || currentAttemptStatus === KycAttemptStatus.ESCALATED
+            currentAttemptStatus === KycAttemptStatus.SUBMITTED ||
+            currentAttemptStatus === KycAttemptStatus.PENDING_REVIEW ||
+            currentAttemptStatus === KycAttemptStatus.ESCALATED
         ) {
             throw new VerificationGenericException(
                 "Document verification is pending review",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
-        logger.log(`Document verification starting from persisted preview for user ${user.id}`, {
-            frontImageSize: dto.imageFrontBase64?.length || 0,
-            backImageSize: dto.imageBackBase64?.length || 0,
-            documentType: dto.documentType,
-            country: dto.country,
-        });
+        logger.log(
+            `Document verification starting from persisted preview for user ${user.id}`,
+            {
+                frontImageSize: dto.imageFrontBase64?.length || 0,
+                backImageSize: dto.imageBackBase64?.length || 0,
+                documentType: dto.documentType,
+                country: dto.country,
+            },
+        );
 
-        const persistedPreviewResult = this.buildIdentityVerificationResultFromPreview(previewPayload);
+        const persistedPreviewResult =
+            this.buildIdentityVerificationResultFromPreview(previewPayload);
 
         const [documentImage1, documentImage2] = await Promise.all([
             this.uploadBase64Image(dto.imageFrontBase64),
-            dto.imageBackBase64 ? this.uploadBase64Image(dto.imageBackBase64) : Promise.resolve(null),
+            dto.imageBackBase64
+                ? this.uploadBase64Image(dto.imageBackBase64)
+                : Promise.resolve(null),
         ]);
 
         let {
@@ -4866,9 +5593,18 @@ export class AuthService {
             nameMatches = previewNameMatch;
         }
 
-        const postValidation = this.applyDojahPostValidation(isDocumentValid, dojahParsed, user.id, logger);
+        const postValidation = this.applyDojahPostValidation(
+            isDocumentValid,
+            dojahParsed,
+            user.id,
+            logger,
+        );
         isDocumentValid = postValidation.isDocumentValid;
-        const documentProfileMatch = this.evaluateDocumentProfileMatch(user, dojahParsed, nameMatches);
+        const documentProfileMatch = this.evaluateDocumentProfileMatch(
+            user,
+            dojahParsed,
+            nameMatches,
+        );
 
         if (isDocumentValid && !documentProfileMatch.dobMatches) {
             logger.warn(
@@ -4889,7 +5625,9 @@ export class AuthService {
 
         const resolvedDocumentNumber = this.resolveStoredDocumentNumber(
             dto.documentNumber,
-            typeof dojahParsed?.documentNumber === "string" ? dojahParsed.documentNumber : null,
+            typeof dojahParsed?.documentNumber === "string"
+                ? dojahParsed.documentNumber
+                : null,
         );
 
         if (!resolvedDocumentNumber) {
@@ -4902,7 +5640,10 @@ export class AuthService {
         const decision = this.buildIdentityDocumentDecision({
             documentType: dto.documentType,
             documentNumber: dto.documentNumber,
-            profileDocumentNumber: dto.documentType === DocumentType.NIN ? user.nin ?? null : null,
+            profileDocumentNumber:
+                dto.documentType === DocumentType.NIN
+                    ? (user.nin ?? null)
+                    : null,
             isDocumentValid,
             hardRejectMessage: postValidation.hardRejectMessage,
             dojahParsed,
@@ -4931,9 +5672,14 @@ export class AuthService {
                         dojahExtractedFirstName: dojahParsed?.firstName || null,
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
-                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: this.isDocumentProfileNameAccepted(documentProfileMatch),
+                        dojahExtractedDocNumber:
+                            dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate:
+                            dojahParsed?.expiryDate || null,
+                        dojahNameMatches:
+                            this.isDocumentProfileNameAccepted(
+                                documentProfileMatch,
+                            ),
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                         updatedAt: new Date(),
@@ -4956,9 +5702,14 @@ export class AuthService {
                         dojahExtractedFirstName: dojahParsed?.firstName || null,
                         dojahExtractedLastName: dojahParsed?.lastName || null,
                         dojahExtractedDob: dojahParsed?.dateOfBirth || null,
-                        dojahExtractedDocNumber: dojahParsed?.documentNumber || null,
-                        dojahExtractedExpiryDate: dojahParsed?.expiryDate || null,
-                        dojahNameMatches: this.isDocumentProfileNameAccepted(documentProfileMatch),
+                        dojahExtractedDocNumber:
+                            dojahParsed?.documentNumber || null,
+                        dojahExtractedExpiryDate:
+                            dojahParsed?.expiryDate || null,
+                        dojahNameMatches:
+                            this.isDocumentProfileNameAccepted(
+                                documentProfileMatch,
+                            ),
                         dojahVerifiedAt: new Date(),
                         dojahRawResponse,
                     },
@@ -4972,8 +5723,12 @@ export class AuthService {
                     submittedDocumentNumber: dto.documentNumber,
                     documentImage1,
                     documentImage2,
-                    frontMimeType: this.extractBase64MimeType(dto.imageFrontBase64),
-                    backMimeType: dto.imageBackBase64 ? this.extractBase64MimeType(dto.imageBackBase64) : null,
+                    frontMimeType: this.extractBase64MimeType(
+                        dto.imageFrontBase64,
+                    ),
+                    backMimeType: dto.imageBackBase64
+                        ? this.extractBase64MimeType(dto.imageBackBase64)
+                        : null,
                     dojahParsed,
                     isDocumentValid,
                     decision,
@@ -4982,13 +5737,19 @@ export class AuthService {
                     documentProfileMatch,
                 });
             },
-            { timeout: 30000 }
+            { timeout: 30000 },
         );
 
         await this.tierService.syncTierAndCache(user.id);
 
         if (decision.disposition === "APPROVE") {
-            this.sendDocumentAutoApprovalNotifications(user.id, user.email, user.firstName, "Identity Document", logger);
+            this.sendDocumentAutoApprovalNotifications(
+                user.id,
+                user.email,
+                user.firstName,
+                "Identity Document",
+                logger,
+            );
             return buildResponse({
                 message: decision.responseMessage,
             });
@@ -5021,7 +5782,12 @@ export class AuthService {
             category: "security",
         });
 
-        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Identity Document");
+        this.sendPendingReviewEmail(
+            user.id,
+            user.email,
+            user.firstName,
+            "Identity Document",
+        );
 
         return buildResponse({
             message: decision.responseMessage,
@@ -5033,72 +5799,135 @@ export class AuthService {
         });
     }
 
-    private buildIdentityVerificationResultFromPreview(previewPayload: Record<string, unknown>): {
+    private buildIdentityVerificationResultFromPreview(
+        previewPayload: Record<string, unknown>,
+    ): {
         isValid: boolean;
         nameMatches: boolean;
         parsed: Record<string, any>;
         raw: string;
     } {
-        const comparisonSummary = this.readPreviewDocumentObject(previewPayload.comparisonSummary);
-        const extractedFields = this.readPreviewDocumentObject(previewPayload.extractedFields);
-        const providerInteraction = this.readPreviewDocumentObject(previewPayload.providerInteraction);
-        const providerResponse = this.readPreviewDocumentObject(providerInteraction?.response);
-        const providerParsed = this.readPreviewDocumentObject(providerResponse?.parsed);
-        const previewIsValid = typeof previewPayload.isValid === "boolean"
-            ? previewPayload.isValid
-            : null;
+        const comparisonSummary = this.readPreviewDocumentObject(
+            previewPayload.comparisonSummary,
+        );
+        const extractedFields = this.readPreviewDocumentObject(
+            previewPayload.extractedFields,
+        );
+        const providerInteraction = this.readPreviewDocumentObject(
+            previewPayload.providerInteraction,
+        );
+        const providerResponse = this.readPreviewDocumentObject(
+            providerInteraction?.response,
+        );
+        const providerParsed = this.readPreviewDocumentObject(
+            providerResponse?.parsed,
+        );
+        const previewIsValid =
+            typeof previewPayload.isValid === "boolean"
+                ? previewPayload.isValid
+                : null;
 
         return {
-            isValid: previewIsValid ?? (providerParsed?.isValid === true),
-            nameMatches: typeof providerResponse?.nameMatches === "boolean"
-                ? providerResponse.nameMatches
-                : comparisonSummary?.nameMatches === true,
+            isValid: previewIsValid ?? providerParsed?.isValid === true,
+            nameMatches:
+                typeof providerResponse?.nameMatches === "boolean"
+                    ? providerResponse.nameMatches
+                    : comparisonSummary?.nameMatches === true,
             parsed: {
-                reason: this.readPreviewDocumentString(previewPayload.reason)
-                    ?? this.readPreviewDocumentString(previewPayload.reasonMessage)
-                    ?? this.readPreviewDocumentString(providerParsed?.reason),
-                documentType: this.readPreviewDocumentString(providerParsed?.documentType)
-                    ?? this.readPreviewDocumentString(previewPayload.documentType),
-                country: this.readPreviewDocumentString(providerParsed?.country)
-                    ?? this.readPreviewDocumentString(previewPayload.country)
-                    ?? this.readPreviewDocumentString(extractedFields?.country),
-                countryCode: this.readPreviewDocumentString(providerParsed?.countryCode)
-                    ?? this.readPreviewDocumentString(previewPayload.countryCode)
-                    ?? this.readPreviewDocumentString(extractedFields?.countryCode),
-                firstName: this.readPreviewDocumentString(providerParsed?.firstName)
-                    ?? this.readPreviewDocumentString(previewPayload.firstName),
-                lastName: this.readPreviewDocumentString(providerParsed?.lastName)
-                    ?? this.readPreviewDocumentString(previewPayload.lastName),
-                givenNames: this.readPreviewDocumentString(providerParsed?.givenNames)
-                    ?? this.readPreviewDocumentString(previewPayload.givenNames),
-                documentNumber: this.readPreviewDocumentString(providerParsed?.documentNumber)
-                    ?? this.readPreviewDocumentString(previewPayload.documentNumber)
-                    ?? this.readPreviewDocumentString(extractedFields?.documentNumber),
-                dateOfBirth: this.readPreviewDocumentString(providerParsed?.dateOfBirth)
-                    ?? this.readPreviewDocumentString(previewPayload.dateOfBirth),
-                expiryDate: this.readPreviewDocumentString(providerParsed?.expiryDate)
-                    ?? this.readPreviewDocumentString(previewPayload.expiryDate)
-                    ?? this.readPreviewDocumentString(extractedFields?.expiryDate),
-                issueDate: this.readPreviewDocumentString(providerParsed?.issueDate)
-                    ?? this.readPreviewDocumentString(previewPayload.issueDate)
-                    ?? this.readPreviewDocumentString(extractedFields?.issueDate),
-                sex: this.readPreviewDocumentString(providerParsed?.sex)
-                    ?? this.readPreviewDocumentString(previewPayload.sex),
-                nationality: this.readPreviewDocumentString(providerParsed?.nationality)
-                    ?? this.readPreviewDocumentString(previewPayload.nationality),
-                hasExtractedText: providerParsed?.hasExtractedText === true || previewPayload.hasExtractedText === true,
-                hasPortrait: providerParsed?.hasPortrait === true || previewPayload.hasPortrait === true,
-                hasFrontSide: providerParsed?.hasFrontSide === true || previewPayload.hasFrontSide === true,
-                hasBackSide: providerParsed?.hasBackSide === true || previewPayload.hasBackSide === true,
+                reason:
+                    this.readPreviewDocumentString(previewPayload.reason) ??
+                    this.readPreviewDocumentString(
+                        previewPayload.reasonMessage,
+                    ) ??
+                    this.readPreviewDocumentString(providerParsed?.reason),
+                documentType:
+                    this.readPreviewDocumentString(
+                        providerParsed?.documentType,
+                    ) ??
+                    this.readPreviewDocumentString(previewPayload.documentType),
+                country:
+                    this.readPreviewDocumentString(providerParsed?.country) ??
+                    this.readPreviewDocumentString(previewPayload.country) ??
+                    this.readPreviewDocumentString(extractedFields?.country),
+                countryCode:
+                    this.readPreviewDocumentString(
+                        providerParsed?.countryCode,
+                    ) ??
+                    this.readPreviewDocumentString(
+                        previewPayload.countryCode,
+                    ) ??
+                    this.readPreviewDocumentString(
+                        extractedFields?.countryCode,
+                    ),
+                firstName:
+                    this.readPreviewDocumentString(providerParsed?.firstName) ??
+                    this.readPreviewDocumentString(previewPayload.firstName),
+                lastName:
+                    this.readPreviewDocumentString(providerParsed?.lastName) ??
+                    this.readPreviewDocumentString(previewPayload.lastName),
+                givenNames:
+                    this.readPreviewDocumentString(
+                        providerParsed?.givenNames,
+                    ) ??
+                    this.readPreviewDocumentString(previewPayload.givenNames),
+                documentNumber:
+                    this.readPreviewDocumentString(
+                        providerParsed?.documentNumber,
+                    ) ??
+                    this.readPreviewDocumentString(
+                        previewPayload.documentNumber,
+                    ) ??
+                    this.readPreviewDocumentString(
+                        extractedFields?.documentNumber,
+                    ),
+                dateOfBirth:
+                    this.readPreviewDocumentString(
+                        providerParsed?.dateOfBirth,
+                    ) ??
+                    this.readPreviewDocumentString(previewPayload.dateOfBirth),
+                expiryDate:
+                    this.readPreviewDocumentString(
+                        providerParsed?.expiryDate,
+                    ) ??
+                    this.readPreviewDocumentString(previewPayload.expiryDate) ??
+                    this.readPreviewDocumentString(extractedFields?.expiryDate),
+                issueDate:
+                    this.readPreviewDocumentString(providerParsed?.issueDate) ??
+                    this.readPreviewDocumentString(previewPayload.issueDate) ??
+                    this.readPreviewDocumentString(extractedFields?.issueDate),
+                sex:
+                    this.readPreviewDocumentString(providerParsed?.sex) ??
+                    this.readPreviewDocumentString(previewPayload.sex),
+                nationality:
+                    this.readPreviewDocumentString(
+                        providerParsed?.nationality,
+                    ) ??
+                    this.readPreviewDocumentString(previewPayload.nationality),
+                hasExtractedText:
+                    providerParsed?.hasExtractedText === true ||
+                    previewPayload.hasExtractedText === true,
+                hasPortrait:
+                    providerParsed?.hasPortrait === true ||
+                    previewPayload.hasPortrait === true,
+                hasFrontSide:
+                    providerParsed?.hasFrontSide === true ||
+                    previewPayload.hasFrontSide === true,
+                hasBackSide:
+                    providerParsed?.hasBackSide === true ||
+                    previewPayload.hasBackSide === true,
             },
-            raw: JSON.stringify(providerInteraction ?? {
-                source: "PERSISTED_PREVIEW",
-                previewPayload,
-            }),
+            raw: JSON.stringify(
+                providerInteraction ?? {
+                    source: "PERSISTED_PREVIEW",
+                    previewPayload,
+                },
+            ),
         };
     }
 
-    private readPreviewDocumentObject(value: unknown): Record<string, any> | null {
+    private readPreviewDocumentObject(
+        value: unknown,
+    ): Record<string, any> | null {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
             return null;
         }
@@ -5113,21 +5942,26 @@ export class AuthService {
     async updloadBusinessDocuments(
         user: User,
         files: UploadBusinessDocumentsFileInterface,
-        dto: BusinessDocumentUploadDto
+        dto: BusinessDocumentUploadDto,
     ) {
-        const currentAttemptStatus = await this.getCurrentBusinessDocumentAttemptStatus(user.id);
+        const currentAttemptStatus =
+            await this.getCurrentBusinessDocumentAttemptStatus(user.id);
         let stageAttemptId: number | undefined;
 
-        if (currentAttemptStatus && currentAttemptStatus !== KycAttemptStatus.REJECTED && currentAttemptStatus !== KycAttemptStatus.EXPIRED) {
+        if (
+            currentAttemptStatus &&
+            currentAttemptStatus !== KycAttemptStatus.REJECTED &&
+            currentAttemptStatus !== KycAttemptStatus.EXPIRED
+        ) {
             throw new VerificationGenericException(
                 `Document has already been uploaded and is ${currentAttemptStatus}`,
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         const safeUpload = async (
             file: Express.Multer.File[] | undefined,
-            label: string
+            label: string,
         ) => {
             if (!file) return null;
             try {
@@ -5135,7 +5969,7 @@ export class AuthService {
             } catch (err) {
                 this.logger.error(
                     `[BusinessDocumentsUpload][UploadPhase] File "${label}" failed for user ${user.id}: ${err?.name} - ${err?.message}`,
-                    err?.stack
+                    err?.stack,
                 );
                 throw err;
             }
@@ -5156,15 +5990,27 @@ export class AuthService {
                 meansOfIdImage,
             ] = await Promise.all([
                 safeUpload(files.cacImage, "cacImage"),
-                safeUpload(files.articleOfAssociationImage, "articleOfAssociationImage"),
-                safeUpload(files.boardResolutionAuthorizedAcctOpeningImage, "boardResolutionImage"),
-                safeUpload(files.proofOfAddressForBeneficialOwner, "proofOfAddress"),
-                safeUpload(files.meansOfIdentificationForBeneficialOwner, "meansOfId"),
+                safeUpload(
+                    files.articleOfAssociationImage,
+                    "articleOfAssociationImage",
+                ),
+                safeUpload(
+                    files.boardResolutionAuthorizedAcctOpeningImage,
+                    "boardResolutionImage",
+                ),
+                safeUpload(
+                    files.proofOfAddressForBeneficialOwner,
+                    "proofOfAddress",
+                ),
+                safeUpload(
+                    files.meansOfIdentificationForBeneficialOwner,
+                    "meansOfId",
+                ),
             ]);
         } catch (error) {
             this.logger.error(
                 `[BusinessDocumentsUpload][UploadPhase] Failed for user ${user.id} | ${error?.name}: ${error?.message}`,
-                error?.stack
+                error?.stack,
             );
             throw error;
         }
@@ -5182,10 +6028,10 @@ export class AuthService {
                             cacImageUrlFieldId: cacImage?.fileId || null,
                             cacImageFileName: cacImage?.url
                                 ? generateFileName(
-                                    DocumentMetaMap.cacImage,
-                                    user.id,
-                                    files.cacImage?.[0]?.originalname
-                                )
+                                      DocumentMetaMap.cacImage,
+                                      user.id,
+                                      files.cacImage?.[0]?.originalname,
+                                  )
                                 : null,
                             articleOfAssociationNumber:
                                 dto.articleOfAssociationNumber || null,
@@ -5195,11 +6041,11 @@ export class AuthService {
                                 articleImage?.fileId || null,
                             articleOfAssociationFileName: articleImage?.url
                                 ? generateFileName(
-                                    DocumentMetaMap.articleOfAssociationImage,
-                                    user.id,
-                                    files.articleOfAssociationImage?.[0]
-                                        ?.originalname
-                                )
+                                      DocumentMetaMap.articleOfAssociationImage,
+                                      user.id,
+                                      files.articleOfAssociationImage?.[0]
+                                          ?.originalname,
+                                  )
                                 : null,
                             boardResolutionAuthorizedAcctOpeningImageUrl:
                                 boardResolutionImage?.url || null,
@@ -5208,12 +6054,12 @@ export class AuthService {
                             boardResolutionAuthorizedAcctOpeningFileName:
                                 boardResolutionImage?.url
                                     ? generateFileName(
-                                        DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
-                                        user.id,
-                                        files
-                                            .boardResolutionAuthorizedAcctOpeningImage?.[0]
-                                            ?.originalname
-                                    )
+                                          DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                                          user.id,
+                                          files
+                                              .boardResolutionAuthorizedAcctOpeningImage?.[0]
+                                              ?.originalname,
+                                      )
                                     : null,
                             meansOfIdentificationForBeneficialOwner:
                                 meansOfIdImage?.url || null,
@@ -5222,12 +6068,12 @@ export class AuthService {
                             meansOfIdentificationForBeneficialOwnerFileName:
                                 meansOfIdImage?.url
                                     ? generateFileName(
-                                        DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
-                                        user.id,
-                                        files
-                                            .meansOfIdentificationForBeneficialOwner?.[0]
-                                            ?.originalname
-                                    )
+                                          DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                                          user.id,
+                                          files
+                                              .meansOfIdentificationForBeneficialOwner?.[0]
+                                              ?.originalname,
+                                      )
                                     : null,
                             proofOfAddressForBeneficialOwner:
                                 proofOfAddressImage?.url || null,
@@ -5236,12 +6082,12 @@ export class AuthService {
                             proofOfAddressForBeneficialOwnerFileName:
                                 proofOfAddressImage?.url
                                     ? generateFileName(
-                                        DocumentMetaMap.proofOfAddressForBeneficialOwner,
-                                        user.id,
-                                        files
-                                            .proofOfAddressForBeneficialOwner?.[0]
-                                            ?.originalname
-                                    )
+                                          DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                                          user.id,
+                                          files
+                                              .proofOfAddressForBeneficialOwner?.[0]
+                                              ?.originalname,
+                                      )
                                     : null,
                         },
                     });
@@ -5255,27 +6101,32 @@ export class AuthService {
                         },
                     });
 
-                    const attempt = await this.persistBusinessDocumentStageAttempt(tx, {
-                        user,
-                        currentAttemptStatus,
-                        submissionSource: "MULTIPART_UPLOAD",
-                        cacDocumentNumber: dto.cacDocumentNumber,
-                        evidenceSummary: {
-                            cacImageUrl: cacImage?.url ?? null,
-                            articleOfAssociationImageUrl: articleImage?.url ?? null,
-                            boardResolutionImageUrl: boardResolutionImage?.url ?? null,
-                            proofOfAddressUrl: proofOfAddressImage?.url ?? null,
-                            meansOfIdentificationUrl: meansOfIdImage?.url ?? null,
-                        } as Prisma.InputJsonValue,
-                    });
+                    const attempt =
+                        await this.persistBusinessDocumentStageAttempt(tx, {
+                            user,
+                            currentAttemptStatus,
+                            submissionSource: "MULTIPART_UPLOAD",
+                            cacDocumentNumber: dto.cacDocumentNumber,
+                            evidenceSummary: {
+                                cacImageUrl: cacImage?.url ?? null,
+                                articleOfAssociationImageUrl:
+                                    articleImage?.url ?? null,
+                                boardResolutionImageUrl:
+                                    boardResolutionImage?.url ?? null,
+                                proofOfAddressUrl:
+                                    proofOfAddressImage?.url ?? null,
+                                meansOfIdentificationUrl:
+                                    meansOfIdImage?.url ?? null,
+                            } as Prisma.InputJsonValue,
+                        });
                     stageAttemptId = attempt.id;
                 },
-                { timeout: 30000 }
+                { timeout: 30000 },
             );
         } catch (error) {
             this.logger.error(
                 `[BusinessDocumentsUpload][DatabasePhase] Failed for user ${user.id} | ${error?.name}: ${error?.message} | prismaCode=${error?.code}`,
-                error?.stack
+                error?.stack,
             );
             throw error;
         }
@@ -5291,17 +6142,26 @@ export class AuthService {
             category: "security",
         });
 
-        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Business Documents");
+        this.sendPendingReviewEmail(
+            user.id,
+            user.email,
+            user.firstName,
+            "Business Documents",
+        );
 
         // Fire-and-forget: Run Dojah business verification in background
         // This does NOT block the user response — results are stored async
-        this.runDojahBusinessVerification(user.id, dto.cacDocumentNumber, files.cacImage?.[0], stageAttemptId)
-            .catch((err) => {
-                this.logger.error(
-                    `[BusinessDocumentsUpload][DojahVerification] Background verification failed for user ${user.id}: ${err?.message}`,
-                    err?.stack
-                );
-            });
+        this.runDojahBusinessVerification(
+            user.id,
+            dto.cacDocumentNumber,
+            files.cacImage?.[0],
+            stageAttemptId,
+        ).catch((err) => {
+            this.logger.error(
+                `[BusinessDocumentsUpload][DojahVerification] Background verification failed for user ${user.id}: ${err?.message}`,
+                err?.stack,
+            );
+        });
 
         return buildResponse({
             message: "Document Verification successfully",
@@ -5316,12 +6176,12 @@ export class AuthService {
     async uploadSingleBusinessDocumentFile(
         user: User,
         file: Express.Multer.File,
-        dto: UploadBusinessDocumentFileDto
+        dto: UploadBusinessDocumentFileDto,
     ) {
         if (!this.isValidBusinessDocumentFieldName(dto.fieldName)) {
             throw new VerificationGenericException(
                 `Invalid field name: ${dto.fieldName}`,
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -5339,7 +6199,7 @@ export class AuthService {
         } catch (error) {
             this.logger.error(
                 `[BusinessDocumentFile] Upload failed for user ${user.id}, field ${dto.fieldName}: ${error?.message}`,
-                error?.stack
+                error?.stack,
             );
             throw error;
         }
@@ -5351,27 +6211,32 @@ export class AuthService {
      */
     async submitBusinessDocumentsFromUrls(
         user: User,
-        dto: SubmitBusinessDocumentsDto
+        dto: SubmitBusinessDocumentsDto,
     ) {
-        const currentAttemptStatus = await this.getCurrentBusinessDocumentAttemptStatus(user.id);
+        const currentAttemptStatus =
+            await this.getCurrentBusinessDocumentAttemptStatus(user.id);
         let stageAttemptId: number | undefined;
 
-        if (currentAttemptStatus && currentAttemptStatus !== KycAttemptStatus.REJECTED && currentAttemptStatus !== KycAttemptStatus.EXPIRED) {
+        if (
+            currentAttemptStatus &&
+            currentAttemptStatus !== KycAttemptStatus.REJECTED &&
+            currentAttemptStatus !== KycAttemptStatus.EXPIRED
+        ) {
             throw new VerificationGenericException(
                 `Document has already been uploaded and is ${currentAttemptStatus}`,
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         const { uploadedFiles } = dto;
         const invalidFieldName = Object.keys(uploadedFiles).find(
-            (fieldName) => !this.isValidBusinessDocumentFieldName(fieldName)
+            (fieldName) => !this.isValidBusinessDocumentFieldName(fieldName),
         );
 
         if (invalidFieldName) {
             throw new VerificationGenericException(
                 `Invalid field name: ${invalidFieldName}`,
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -5379,7 +6244,7 @@ export class AuthService {
         if (!uploadedFiles.cacImage?.url) {
             throw new VerificationGenericException(
                 "CAC image is required",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -5387,26 +6252,117 @@ export class AuthService {
         const getPersonField = (
             kind: "directors" | "shareholders",
             index: number,
-            name: "idDocument" | "proofOfAddress"
+            name: "idDocument" | "proofOfAddress",
         ) => getField(`${kind}[${index}].${name}`);
 
         // Pre-build upsert data outside the transaction callback to reduce its cognitive complexity.
         const updateData = {
             cacDocumentNumber: dto.cacDocumentNumber,
-            ...fileFieldUpdate(getField("cacImage"), "cacImageUrl", "cacImageUrlFieldId", "cacImageFileName", DocumentMetaMap.cacImage, user.id),
+            ...fileFieldUpdate(
+                getField("cacImage"),
+                "cacImageUrl",
+                "cacImageUrlFieldId",
+                "cacImageFileName",
+                DocumentMetaMap.cacImage,
+                user.id,
+            ),
             articleOfAssociationNumber: dto.articleOfAssociationNumber || null,
-            ...fileFieldUpdate(getField("articleOfAssociationImage"), "articleOfAssociationImageUrl", "articleOfAssociationImageUrlFieldId", "articleOfAssociationFileName", DocumentMetaMap.articleOfAssociationImage, user.id),
-            ...fileFieldUpdate(getField("boardResolutionAuthorizedAcctOpeningImage"), "boardResolutionAuthorizedAcctOpeningImageUrl", "boardResolutionAuthorizedAcctOpeningImageUrlFieldId", "boardResolutionAuthorizedAcctOpeningFileName", DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage, user.id),
-            ...fileFieldUpdate(getField("meansOfIdentificationForBeneficialOwner"), "meansOfIdentificationForBeneficialOwner", "meansOfIdentificationForBeneficialOwnerImageFieldId", "meansOfIdentificationForBeneficialOwnerFileName", DocumentMetaMap.meansOfIdentificationForBeneficialOwner, user.id),
-            ...fileFieldUpdate(getField("proofOfAddressForBeneficialOwner"), "proofOfAddressForBeneficialOwner", "proofOfAddressForBeneficialOwnerImageFieldId", "proofOfAddressForBeneficialOwnerFileName", DocumentMetaMap.proofOfAddressForBeneficialOwner, user.id),
-            ...fileFieldUpdate(getField("applicationForRegistration"), "applicationForRegistrationUrl", "applicationForRegistrationFieldId", "applicationForRegistrationFileName", "application_for_registration", user.id),
-            ...fileFieldUpdate(getField("memart"), "memartUrl", "memartFieldId", "memartFileName", "memart", user.id),
-            ...fileFieldUpdate(getField("companyUtilityBills"), "companyUtilityBillsUrl", "companyUtilityBillsFieldId", "companyUtilityBillsFileName", "company_utility_bills", user.id),
-            ...fileFieldUpdate(getField("companyAmlPolicy"), "companyAmlPolicyUrl", "companyAmlPolicyFieldId", "companyAmlPolicyFileName", "company_aml_policy", user.id),
-            ...fileFieldUpdate(getField("scumlCertificate"), "scumlCertificateUrl", "scumlCertificateFieldId", "scumlCertificateFileName", "scuml_certificate", user.id),
-            ...fileFieldUpdate(getField("companyOrganogram"), "companyOrganogramUrl", "companyOrganogramFieldId", "companyOrganogramFileName", "company_organogram", user.id),
-            ...fileFieldUpdate(getField("companyLicense"), "companyLicenseUrl", "companyLicenseFieldId", "companyLicenseFileName", "company_license", user.id),
-            ...fileFieldUpdate(getField("flowsBusinessFunds"), "flowsBusinessFundsUrl", "flowsBusinessFundsFieldId", "flowsBusinessFundsFileName", "flows_business_funds", user.id),
+            ...fileFieldUpdate(
+                getField("articleOfAssociationImage"),
+                "articleOfAssociationImageUrl",
+                "articleOfAssociationImageUrlFieldId",
+                "articleOfAssociationFileName",
+                DocumentMetaMap.articleOfAssociationImage,
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("boardResolutionAuthorizedAcctOpeningImage"),
+                "boardResolutionAuthorizedAcctOpeningImageUrl",
+                "boardResolutionAuthorizedAcctOpeningImageUrlFieldId",
+                "boardResolutionAuthorizedAcctOpeningFileName",
+                DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("meansOfIdentificationForBeneficialOwner"),
+                "meansOfIdentificationForBeneficialOwner",
+                "meansOfIdentificationForBeneficialOwnerImageFieldId",
+                "meansOfIdentificationForBeneficialOwnerFileName",
+                DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("proofOfAddressForBeneficialOwner"),
+                "proofOfAddressForBeneficialOwner",
+                "proofOfAddressForBeneficialOwnerImageFieldId",
+                "proofOfAddressForBeneficialOwnerFileName",
+                DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("applicationForRegistration"),
+                "applicationForRegistrationUrl",
+                "applicationForRegistrationFieldId",
+                "applicationForRegistrationFileName",
+                "application_for_registration",
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("memart"),
+                "memartUrl",
+                "memartFieldId",
+                "memartFileName",
+                "memart",
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("companyUtilityBills"),
+                "companyUtilityBillsUrl",
+                "companyUtilityBillsFieldId",
+                "companyUtilityBillsFileName",
+                "company_utility_bills",
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("companyAmlPolicy"),
+                "companyAmlPolicyUrl",
+                "companyAmlPolicyFieldId",
+                "companyAmlPolicyFileName",
+                "company_aml_policy",
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("scumlCertificate"),
+                "scumlCertificateUrl",
+                "scumlCertificateFieldId",
+                "scumlCertificateFileName",
+                "scuml_certificate",
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("companyOrganogram"),
+                "companyOrganogramUrl",
+                "companyOrganogramFieldId",
+                "companyOrganogramFileName",
+                "company_organogram",
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("companyLicense"),
+                "companyLicenseUrl",
+                "companyLicenseFieldId",
+                "companyLicenseFileName",
+                "company_license",
+                user.id,
+            ),
+            ...fileFieldUpdate(
+                getField("flowsBusinessFunds"),
+                "flowsBusinessFundsUrl",
+                "flowsBusinessFundsFieldId",
+                "flowsBusinessFundsFileName",
+                "flows_business_funds",
+                user.id,
+            ),
             companyWebsite: dto.companyWebsite ?? null,
             companyTaxId: dto.companyTaxId ?? null,
             companyAddress: dto.companyAddress ?? null,
@@ -5418,20 +6374,111 @@ export class AuthService {
         const createData = {
             userId: user.id,
             cacDocumentNumber: dto.cacDocumentNumber,
-            ...fileFieldCreate(getField("cacImage"), "cacImageUrl", "cacImageUrlFieldId", "cacImageFileName", DocumentMetaMap.cacImage, user.id),
+            ...fileFieldCreate(
+                getField("cacImage"),
+                "cacImageUrl",
+                "cacImageUrlFieldId",
+                "cacImageFileName",
+                DocumentMetaMap.cacImage,
+                user.id,
+            ),
             articleOfAssociationNumber: dto.articleOfAssociationNumber || null,
-            ...fileFieldCreate(getField("articleOfAssociationImage"), "articleOfAssociationImageUrl", "articleOfAssociationImageUrlFieldId", "articleOfAssociationFileName", DocumentMetaMap.articleOfAssociationImage, user.id),
-            ...fileFieldCreate(getField("boardResolutionAuthorizedAcctOpeningImage"), "boardResolutionAuthorizedAcctOpeningImageUrl", "boardResolutionAuthorizedAcctOpeningImageUrlFieldId", "boardResolutionAuthorizedAcctOpeningFileName", DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage, user.id),
-            ...fileFieldCreate(getField("meansOfIdentificationForBeneficialOwner"), "meansOfIdentificationForBeneficialOwner", "meansOfIdentificationForBeneficialOwnerImageFieldId", "meansOfIdentificationForBeneficialOwnerFileName", DocumentMetaMap.meansOfIdentificationForBeneficialOwner, user.id),
-            ...fileFieldCreate(getField("proofOfAddressForBeneficialOwner"), "proofOfAddressForBeneficialOwner", "proofOfAddressForBeneficialOwnerImageFieldId", "proofOfAddressForBeneficialOwnerFileName", DocumentMetaMap.proofOfAddressForBeneficialOwner, user.id),
-            ...fileFieldCreate(getField("applicationForRegistration"), "applicationForRegistrationUrl", "applicationForRegistrationFieldId", "applicationForRegistrationFileName", "application_for_registration", user.id),
-            ...fileFieldCreate(getField("memart"), "memartUrl", "memartFieldId", "memartFileName", "memart", user.id),
-            ...fileFieldCreate(getField("companyUtilityBills"), "companyUtilityBillsUrl", "companyUtilityBillsFieldId", "companyUtilityBillsFileName", "company_utility_bills", user.id),
-            ...fileFieldCreate(getField("companyAmlPolicy"), "companyAmlPolicyUrl", "companyAmlPolicyFieldId", "companyAmlPolicyFileName", "company_aml_policy", user.id),
-            ...fileFieldCreate(getField("scumlCertificate"), "scumlCertificateUrl", "scumlCertificateFieldId", "scumlCertificateFileName", "scuml_certificate", user.id),
-            ...fileFieldCreate(getField("companyOrganogram"), "companyOrganogramUrl", "companyOrganogramFieldId", "companyOrganogramFileName", "company_organogram", user.id),
-            ...fileFieldCreate(getField("companyLicense"), "companyLicenseUrl", "companyLicenseFieldId", "companyLicenseFileName", "company_license", user.id),
-            ...fileFieldCreate(getField("flowsBusinessFunds"), "flowsBusinessFundsUrl", "flowsBusinessFundsFieldId", "flowsBusinessFundsFileName", "flows_business_funds", user.id),
+            ...fileFieldCreate(
+                getField("articleOfAssociationImage"),
+                "articleOfAssociationImageUrl",
+                "articleOfAssociationImageUrlFieldId",
+                "articleOfAssociationFileName",
+                DocumentMetaMap.articleOfAssociationImage,
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("boardResolutionAuthorizedAcctOpeningImage"),
+                "boardResolutionAuthorizedAcctOpeningImageUrl",
+                "boardResolutionAuthorizedAcctOpeningImageUrlFieldId",
+                "boardResolutionAuthorizedAcctOpeningFileName",
+                DocumentMetaMap.boardResolutionAuthorizedAcctOpeningImage,
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("meansOfIdentificationForBeneficialOwner"),
+                "meansOfIdentificationForBeneficialOwner",
+                "meansOfIdentificationForBeneficialOwnerImageFieldId",
+                "meansOfIdentificationForBeneficialOwnerFileName",
+                DocumentMetaMap.meansOfIdentificationForBeneficialOwner,
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("proofOfAddressForBeneficialOwner"),
+                "proofOfAddressForBeneficialOwner",
+                "proofOfAddressForBeneficialOwnerImageFieldId",
+                "proofOfAddressForBeneficialOwnerFileName",
+                DocumentMetaMap.proofOfAddressForBeneficialOwner,
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("applicationForRegistration"),
+                "applicationForRegistrationUrl",
+                "applicationForRegistrationFieldId",
+                "applicationForRegistrationFileName",
+                "application_for_registration",
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("memart"),
+                "memartUrl",
+                "memartFieldId",
+                "memartFileName",
+                "memart",
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("companyUtilityBills"),
+                "companyUtilityBillsUrl",
+                "companyUtilityBillsFieldId",
+                "companyUtilityBillsFileName",
+                "company_utility_bills",
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("companyAmlPolicy"),
+                "companyAmlPolicyUrl",
+                "companyAmlPolicyFieldId",
+                "companyAmlPolicyFileName",
+                "company_aml_policy",
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("scumlCertificate"),
+                "scumlCertificateUrl",
+                "scumlCertificateFieldId",
+                "scumlCertificateFileName",
+                "scuml_certificate",
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("companyOrganogram"),
+                "companyOrganogramUrl",
+                "companyOrganogramFieldId",
+                "companyOrganogramFileName",
+                "company_organogram",
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("companyLicense"),
+                "companyLicenseUrl",
+                "companyLicenseFieldId",
+                "companyLicenseFileName",
+                "company_license",
+                user.id,
+            ),
+            ...fileFieldCreate(
+                getField("flowsBusinessFunds"),
+                "flowsBusinessFundsUrl",
+                "flowsBusinessFundsFieldId",
+                "flowsBusinessFundsFileName",
+                "flows_business_funds",
+                user.id,
+            ),
             companyWebsite: dto.companyWebsite ?? null,
             companyTaxId: dto.companyTaxId ?? null,
             companyAddress: dto.companyAddress ?? null,
@@ -5454,47 +6501,174 @@ export class AuthService {
                     );
 
                     // Directors/shareholders are stored as structured rows tied to BusinessDocument
-                    const directors = Array.isArray(dto.directors) ? dto.directors : [];
-                    const shareholders = Array.isArray(dto.shareholders) ? dto.shareholders : [];
-                    const directorRows: Prisma.BusinessDirectorCreateManyInput[] = directors.map((director, index) => ({
-                        businessDocumentId,
-                        fullName: this.normalizeRequiredBusinessText(director.fullName, "director full name"),
-                        nationality: this.normalizeRequiredBusinessText(director.nationality, "director nationality"),
-                        dateOfBirth: this.normalizeBusinessDate(director.dateOfBirth, "director date of birth"),
-                        residentialAddress: this.normalizeRequiredBusinessText(director.residentialAddress, "director residential address"),
-                        businessAddress: this.normalizeRequiredBusinessText(director.businessAddress, "director business address"),
-                        nin: this.normalizeOptionalBusinessText(director.nin),
-                        idDocumentUrl: getPersonField("directors", index, "idDocument")?.url || null,
-                        idDocumentFieldId: getPersonField("directors", index, "idDocument")?.fileId || null,
-                        idDocumentFileName: getPersonField("directors", index, "idDocument")
-                            ? generateFileName("director_id_document", user.id, getPersonField("directors", index, "idDocument")?.originalName)
-                            : null,
-                        proofOfAddressUrl: getPersonField("directors", index, "proofOfAddress")?.url || null,
-                        proofOfAddressFieldId: getPersonField("directors", index, "proofOfAddress")?.fileId || null,
-                        proofOfAddressFileName: getPersonField("directors", index, "proofOfAddress")
-                            ? generateFileName("director_proof_of_address", user.id, getPersonField("directors", index, "proofOfAddress")?.originalName)
-                            : null,
-                    }));
-                    const shareholderRows: Prisma.BusinessShareholderCreateManyInput[] = shareholders.map((shareholder, index) => ({
-                        businessDocumentId,
-                        fullName: this.normalizeRequiredBusinessText(shareholder.fullName, "shareholder full name"),
-                        nationality: this.normalizeRequiredBusinessText(shareholder.nationality, "shareholder nationality"),
-                        dateOfBirth: this.normalizeBusinessDate(shareholder.dateOfBirth, "shareholder date of birth"),
-                        residentialAddress: this.normalizeRequiredBusinessText(shareholder.residentialAddress, "shareholder residential address"),
-                        businessAddress: this.normalizeRequiredBusinessText(shareholder.businessAddress, "shareholder business address"),
-                        nin: this.normalizeOptionalBusinessText(shareholder.nin),
-                        ownershipPercentage: this.normalizeOwnershipPercentage(shareholder.ownershipPercentage),
-                        idDocumentUrl: getPersonField("shareholders", index, "idDocument")?.url || null,
-                        idDocumentFieldId: getPersonField("shareholders", index, "idDocument")?.fileId || null,
-                        idDocumentFileName: getPersonField("shareholders", index, "idDocument")
-                            ? generateFileName("shareholder_id_document", user.id, getPersonField("shareholders", index, "idDocument")?.originalName)
-                            : null,
-                        proofOfAddressUrl: getPersonField("shareholders", index, "proofOfAddress")?.url || null,
-                        proofOfAddressFieldId: getPersonField("shareholders", index, "proofOfAddress")?.fileId || null,
-                        proofOfAddressFileName: getPersonField("shareholders", index, "proofOfAddress")
-                            ? generateFileName("shareholder_proof_of_address", user.id, getPersonField("shareholders", index, "proofOfAddress")?.originalName)
-                            : null,
-                    }));
+                    const directors = Array.isArray(dto.directors)
+                        ? dto.directors
+                        : [];
+                    const shareholders = Array.isArray(dto.shareholders)
+                        ? dto.shareholders
+                        : [];
+                    const directorRows: Prisma.BusinessDirectorCreateManyInput[] =
+                        directors.map((director, index) => ({
+                            businessDocumentId,
+                            fullName: this.normalizeRequiredBusinessText(
+                                director.fullName,
+                                "director full name",
+                            ),
+                            nationality: this.normalizeRequiredBusinessText(
+                                director.nationality,
+                                "director nationality",
+                            ),
+                            dateOfBirth: this.normalizeBusinessDate(
+                                director.dateOfBirth,
+                                "director date of birth",
+                            ),
+                            residentialAddress:
+                                this.normalizeRequiredBusinessText(
+                                    director.residentialAddress,
+                                    "director residential address",
+                                ),
+                            businessAddress: this.normalizeRequiredBusinessText(
+                                director.businessAddress,
+                                "director business address",
+                            ),
+                            nin: this.normalizeOptionalBusinessText(
+                                director.nin,
+                            ),
+                            idDocumentUrl:
+                                getPersonField("directors", index, "idDocument")
+                                    ?.url || null,
+                            idDocumentFieldId:
+                                getPersonField("directors", index, "idDocument")
+                                    ?.fileId || null,
+                            idDocumentFileName: getPersonField(
+                                "directors",
+                                index,
+                                "idDocument",
+                            )
+                                ? generateFileName(
+                                      "director_id_document",
+                                      user.id,
+                                      getPersonField(
+                                          "directors",
+                                          index,
+                                          "idDocument",
+                                      )?.originalName,
+                                  )
+                                : null,
+                            proofOfAddressUrl:
+                                getPersonField(
+                                    "directors",
+                                    index,
+                                    "proofOfAddress",
+                                )?.url || null,
+                            proofOfAddressFieldId:
+                                getPersonField(
+                                    "directors",
+                                    index,
+                                    "proofOfAddress",
+                                )?.fileId || null,
+                            proofOfAddressFileName: getPersonField(
+                                "directors",
+                                index,
+                                "proofOfAddress",
+                            )
+                                ? generateFileName(
+                                      "director_proof_of_address",
+                                      user.id,
+                                      getPersonField(
+                                          "directors",
+                                          index,
+                                          "proofOfAddress",
+                                      )?.originalName,
+                                  )
+                                : null,
+                        }));
+                    const shareholderRows: Prisma.BusinessShareholderCreateManyInput[] =
+                        shareholders.map((shareholder, index) => ({
+                            businessDocumentId,
+                            fullName: this.normalizeRequiredBusinessText(
+                                shareholder.fullName,
+                                "shareholder full name",
+                            ),
+                            nationality: this.normalizeRequiredBusinessText(
+                                shareholder.nationality,
+                                "shareholder nationality",
+                            ),
+                            dateOfBirth: this.normalizeBusinessDate(
+                                shareholder.dateOfBirth,
+                                "shareholder date of birth",
+                            ),
+                            residentialAddress:
+                                this.normalizeRequiredBusinessText(
+                                    shareholder.residentialAddress,
+                                    "shareholder residential address",
+                                ),
+                            businessAddress: this.normalizeRequiredBusinessText(
+                                shareholder.businessAddress,
+                                "shareholder business address",
+                            ),
+                            nin: this.normalizeOptionalBusinessText(
+                                shareholder.nin,
+                            ),
+                            ownershipPercentage:
+                                this.normalizeOwnershipPercentage(
+                                    shareholder.ownershipPercentage,
+                                ),
+                            idDocumentUrl:
+                                getPersonField(
+                                    "shareholders",
+                                    index,
+                                    "idDocument",
+                                )?.url || null,
+                            idDocumentFieldId:
+                                getPersonField(
+                                    "shareholders",
+                                    index,
+                                    "idDocument",
+                                )?.fileId || null,
+                            idDocumentFileName: getPersonField(
+                                "shareholders",
+                                index,
+                                "idDocument",
+                            )
+                                ? generateFileName(
+                                      "shareholder_id_document",
+                                      user.id,
+                                      getPersonField(
+                                          "shareholders",
+                                          index,
+                                          "idDocument",
+                                      )?.originalName,
+                                  )
+                                : null,
+                            proofOfAddressUrl:
+                                getPersonField(
+                                    "shareholders",
+                                    index,
+                                    "proofOfAddress",
+                                )?.url || null,
+                            proofOfAddressFieldId:
+                                getPersonField(
+                                    "shareholders",
+                                    index,
+                                    "proofOfAddress",
+                                )?.fileId || null,
+                            proofOfAddressFileName: getPersonField(
+                                "shareholders",
+                                index,
+                                "proofOfAddress",
+                            )
+                                ? generateFileName(
+                                      "shareholder_proof_of_address",
+                                      user.id,
+                                      getPersonField(
+                                          "shareholders",
+                                          index,
+                                          "proofOfAddress",
+                                      )?.originalName,
+                                  )
+                                : null,
+                        }));
 
                     await tx.businessDirector.deleteMany({
                         where: { businessDocumentId },
@@ -5514,7 +6688,6 @@ export class AuthService {
                             data: shareholderRows,
                         });
                     }
-                    
 
                     await tx.user.update({
                         where: { id: user.id },
@@ -5525,29 +6698,40 @@ export class AuthService {
                         },
                     });
 
-                    const attempt = await this.persistBusinessDocumentStageAttempt(tx, {
-                        user,
-                        currentAttemptStatus,
-                        submissionSource: "STRUCTURED_URL_UPLOAD",
-                        cacDocumentNumber: dto.cacDocumentNumber,
-                        evidenceSummary: {
-                            cacImageUrl: getField("cacImage")?.url ?? null,
-                            articleOfAssociationImageUrl: getField("articleOfAssociationImage")?.url ?? null,
-                            boardResolutionImageUrl: getField("boardResolutionAuthorizedAcctOpeningImage")?.url ?? null,
-                            proofOfAddressUrl: getField("proofOfAddressForBeneficialOwner")?.url ?? null,
-                            meansOfIdentificationUrl: getField("meansOfIdentificationForBeneficialOwner")?.url ?? null,
-                            directorsCount: directors.length,
-                            shareholdersCount: shareholders.length,
-                        } as Prisma.InputJsonValue,
-                    });
+                    const attempt =
+                        await this.persistBusinessDocumentStageAttempt(tx, {
+                            user,
+                            currentAttemptStatus,
+                            submissionSource: "STRUCTURED_URL_UPLOAD",
+                            cacDocumentNumber: dto.cacDocumentNumber,
+                            evidenceSummary: {
+                                cacImageUrl: getField("cacImage")?.url ?? null,
+                                articleOfAssociationImageUrl:
+                                    getField("articleOfAssociationImage")
+                                        ?.url ?? null,
+                                boardResolutionImageUrl:
+                                    getField(
+                                        "boardResolutionAuthorizedAcctOpeningImage",
+                                    )?.url ?? null,
+                                proofOfAddressUrl:
+                                    getField("proofOfAddressForBeneficialOwner")
+                                        ?.url ?? null,
+                                meansOfIdentificationUrl:
+                                    getField(
+                                        "meansOfIdentificationForBeneficialOwner",
+                                    )?.url ?? null,
+                                directorsCount: directors.length,
+                                shareholdersCount: shareholders.length,
+                            } as Prisma.InputJsonValue,
+                        });
                     stageAttemptId = attempt.id;
                 },
-                { timeout: 30000 }
+                { timeout: 30000 },
             );
         } catch (error) {
             this.logger.error(
                 `[SubmitBusinessDocuments][DatabasePhase] Failed for user ${user.id} | ${error?.name}: ${error?.message} | prismaCode=${error?.code}`,
-                error?.stack
+                error?.stack,
             );
             throw error;
         }
@@ -5563,7 +6747,12 @@ export class AuthService {
             category: "security",
         });
 
-        this.sendPendingReviewEmail(user.id, user.email, user.firstName, "Business Documents");
+        this.sendPendingReviewEmail(
+            user.id,
+            user.email,
+            user.firstName,
+            "Business Documents",
+        );
 
         // For Dojah verification we need the CAC image buffer.
         // Since we already uploaded to ImageKit, fetch it back as base64.
@@ -5574,7 +6763,7 @@ export class AuthService {
         ).catch((err) => {
             this.logger.error(
                 `[SubmitBusinessDocuments][DojahVerification] Background verification failed for user ${user.id}: ${err?.message}`,
-                err?.stack
+                err?.stack,
             );
         });
 
@@ -5608,7 +6797,9 @@ export class AuthService {
             return true;
         }
 
-        if (/^shareholders\[\d+\]\.(idDocument|proofOfAddress)$/.test(fieldName)) {
+        if (
+            /^shareholders\[\d+\]\.(idDocument|proofOfAddress)$/.test(fieldName)
+        ) {
             return true;
         }
 
@@ -5645,16 +6836,17 @@ export class AuthService {
 
             this.logger.log(
                 `[DojahBusinessVerification] Starting for user ${userId}: ` +
-                `RC=${cacDocumentNumber}, TIN=${tin ? "provided" : "none"}, ` +
-                `OCR=${cacImageBase64 ? "has image" : "no image"}, businessName=${businessName}`
+                    `RC=${cacDocumentNumber}, TIN=${tin ? "provided" : "none"}, ` +
+                    `OCR=${cacImageBase64 ? "has image" : "no image"}, businessName=${businessName}`,
             );
 
-            const verificationResult = await this.dojahService.verifyBusinessDocuments({
-                cacDocumentNumber,
-                taxIdentificationNumber: tin,
-                cacImageBase64,
-                businessName,
-            });
+            const verificationResult =
+                await this.dojahService.verifyBusinessDocuments({
+                    cacDocumentNumber,
+                    taxIdentificationNumber: tin,
+                    cacImageBase64,
+                    businessName,
+                });
 
             // Store results in BusinessDocument
             await this.prisma.businessDocument.update({
@@ -5662,27 +6854,40 @@ export class AuthService {
                 data: {
                     // CAC lookup results
                     cacVerified: verificationResult.cac.verified,
-                    cacVerifiedAt: verificationResult.cac.verified ? new Date() : null,
+                    cacVerifiedAt: verificationResult.cac.verified
+                        ? new Date()
+                        : null,
                     cacCompanyName: verificationResult.cac.companyName || null,
-                    cacCompanyStatus: verificationResult.cac.companyStatus || null,
-                    cacRegistrationDate: verificationResult.cac.registrationDate || null,
+                    cacCompanyStatus:
+                        verificationResult.cac.companyStatus || null,
+                    cacRegistrationDate:
+                        verificationResult.cac.registrationDate || null,
                     cacNameMatches: verificationResult.cac.nameMatches ?? null,
                     cacRawResponse: verificationResult.cac.rawResponse || null,
 
                     // TIN verification results
                     tinVerified: verificationResult.tin.verified,
-                    tinVerifiedAt: verificationResult.tin.verified ? new Date() : null,
-                    tinTaxpayerName: verificationResult.tin.taxpayerName || null,
+                    tinVerifiedAt: verificationResult.tin.verified
+                        ? new Date()
+                        : null,
+                    tinTaxpayerName:
+                        verificationResult.tin.taxpayerName || null,
                     tinNameMatches: verificationResult.tin.nameMatches ?? null,
                     tinRawResponse: verificationResult.tin.rawResponse || null,
 
                     // CAC Document OCR results
                     cacOcrVerified: verificationResult.ocr.verified,
-                    cacOcrVerifiedAt: verificationResult.ocr.verified ? new Date() : null,
-                    cacOcrExtractedNumber: verificationResult.ocr.extractedNumber || null,
-                    cacOcrExtractedName: verificationResult.ocr.extractedName || null,
-                    cacOcrNumberMatches: verificationResult.ocr.numberMatches ?? null,
-                    cacOcrRawResponse: verificationResult.ocr.rawResponse || null,
+                    cacOcrVerifiedAt: verificationResult.ocr.verified
+                        ? new Date()
+                        : null,
+                    cacOcrExtractedNumber:
+                        verificationResult.ocr.extractedNumber || null,
+                    cacOcrExtractedName:
+                        verificationResult.ocr.extractedName || null,
+                    cacOcrNumberMatches:
+                        verificationResult.ocr.numberMatches ?? null,
+                    cacOcrRawResponse:
+                        verificationResult.ocr.rawResponse || null,
                 },
             });
 
@@ -5697,14 +6902,14 @@ export class AuthService {
 
             this.logger.log(
                 `[DojahBusinessVerification] Completed for user ${userId}: ` +
-                `CAC=${verificationResult.cac.verified}(name=${verificationResult.cac.nameMatches}), ` +
-                `TIN=${verificationResult.tin.verified}(name=${verificationResult.tin.nameMatches}), ` +
-                `OCR=${verificationResult.ocr.verified}(num=${verificationResult.ocr.numberMatches})`
+                    `CAC=${verificationResult.cac.verified}(name=${verificationResult.cac.nameMatches}), ` +
+                    `TIN=${verificationResult.tin.verified}(name=${verificationResult.tin.nameMatches}), ` +
+                    `OCR=${verificationResult.ocr.verified}(num=${verificationResult.ocr.numberMatches})`,
             );
         } catch (error) {
             this.logger.error(
                 `[DojahBusinessVerification] Failed for user ${userId}: ${error?.message}`,
-                error?.stack
+                error?.stack,
             );
             // Don't re-throw — this is a background task
         }
@@ -5717,12 +6922,16 @@ export class AuthService {
             try {
                 trustedOrigins.add(new URL(imagekitConfig.url).origin);
             } catch {
-                this.logger.warn("Invalid IMAGEKIT_URL configured; skipping URL origin allowlist entry");
+                this.logger.warn(
+                    "Invalid IMAGEKIT_URL configured; skipping URL origin allowlist entry",
+                );
             }
         }
 
         if (cloudinaryConfig.cloud_name) {
-            trustedOrigins.add(`https://res.cloudinary.com/${cloudinaryConfig.cloud_name}`);
+            trustedOrigins.add(
+                `https://res.cloudinary.com/${cloudinaryConfig.cloud_name}`,
+            );
         }
 
         // Keep a safe fallback for standard ImageKit domains.
@@ -5747,31 +6956,46 @@ export class AuthService {
     }
 
     private async fetchTrustedDocumentBuffer(trustedUrl: URL): Promise<Buffer> {
-        if (trustedUrl.protocol !== "https:" || !this.getTrustedDocumentOrigins().has(trustedUrl.origin)) {
+        if (
+            trustedUrl.protocol !== "https:" ||
+            !this.getTrustedDocumentOrigins().has(trustedUrl.origin)
+        ) {
             throw new BadRequestException("Untrusted document URL");
         }
 
         return await new Promise<Buffer>((resolve, reject) => {
             const chunks: Buffer[] = [];
-            const request = httpsRequest(trustedUrl, { method: "GET", timeout: 30000 }, (response) => {
-                const statusCode = response.statusCode ?? 0;
-                if (statusCode < 200 || statusCode >= 300) {
-                    response.resume();
-                    reject(new Error(`Unexpected document fetch status: ${statusCode}`));
-                    return;
-                }
+            const request = httpsRequest(
+                trustedUrl,
+                { method: "GET", timeout: 30000 },
+                (response) => {
+                    const statusCode = response.statusCode ?? 0;
+                    if (statusCode < 200 || statusCode >= 300) {
+                        response.resume();
+                        reject(
+                            new Error(
+                                `Unexpected document fetch status: ${statusCode}`,
+                            ),
+                        );
+                        return;
+                    }
 
-                response.on("data", (chunk) => {
-                    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-                });
-                response.on("end", () => {
-                    resolve(Buffer.concat(chunks));
-                });
-                response.on("error", reject);
-            });
+                    response.on("data", (chunk) => {
+                        chunks.push(
+                            Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+                        );
+                    });
+                    response.on("end", () => {
+                        resolve(Buffer.concat(chunks));
+                    });
+                    response.on("error", reject);
+                },
+            );
 
             request.on("timeout", () => {
-                request.destroy(new Error("Timed out fetching trusted document"));
+                request.destroy(
+                    new Error("Timed out fetching trusted document"),
+                );
             });
             request.on("error", reject);
             request.end();
@@ -5796,7 +7020,7 @@ export class AuthService {
 
         if (!cacImageUrl) {
             this.logger.warn(
-                `[DojahBusinessVerificationFromUrl] No CAC image URL for user ${userId}, skipping`
+                `[DojahBusinessVerificationFromUrl] No CAC image URL for user ${userId}, skipping`,
             );
             return;
         }
@@ -5804,14 +7028,15 @@ export class AuthService {
         const trustedImageUrl = this.resolveTrustedDocumentUrl(cacImageUrl);
         if (!trustedImageUrl) {
             this.logger.warn(
-                `[DojahBusinessVerificationFromUrl] Untrusted CAC image URL for user ${userId}, skipping`
+                `[DojahBusinessVerificationFromUrl] Untrusted CAC image URL for user ${userId}, skipping`,
             );
             return;
         }
 
         try {
             // Fetch the document only after re-validating it against the trusted CDN allowlist.
-            const buffer = await this.fetchTrustedDocumentBuffer(trustedImageUrl);
+            const buffer =
+                await this.fetchTrustedDocumentBuffer(trustedImageUrl);
 
             // Create a synthetic Multer-like file object
             const syntheticFile: Express.Multer.File = {
@@ -5836,7 +7061,7 @@ export class AuthService {
         } catch (error) {
             this.logger.error(
                 `[DojahBusinessVerificationFromUrl] Failed for user ${userId}: ${error?.message}`,
-                error?.stack
+                error?.stack,
             );
         }
     }
@@ -5878,7 +7103,7 @@ export class AuthService {
                 });
                 return record;
             },
-            { maxWait: 10000, timeout: 30000 }
+            { maxWait: 10000, timeout: 30000 },
         );
 
         await this.cryptoAccountQueueProducer.enqueue(user.id);
@@ -5904,7 +7129,12 @@ export class AuthService {
      */
     private async createLoginSession(
         userId: number,
-        deviceInfo: { deviceName?: string; deviceType?: string; browser?: string; os?: string },
+        deviceInfo: {
+            deviceName?: string;
+            deviceType?: string;
+            browser?: string;
+            os?: string;
+        },
         ip: string,
     ): Promise<string | undefined> {
         try {
@@ -5915,52 +7145,76 @@ export class AuthService {
                 os: deviceInfo.os,
                 ipAddress: ip,
             };
-            const sessionResult = await this.sessionService.createSession(userId, sessionInfo);
+            const sessionResult = await this.sessionService.createSession(
+                userId,
+                sessionInfo,
+            );
             return sessionResult.sessionId;
         } catch (sessionError: unknown) {
-            const errMsg = sessionError instanceof Error ? sessionError.message : JSON.stringify(sessionError);
-            Logger.error(`Failed to create session for user ${userId}: ${errMsg}`);
+            const errMsg =
+                sessionError instanceof Error
+                    ? sessionError.message
+                    : JSON.stringify(sessionError);
+            Logger.error(
+                `Failed to create session for user ${userId}: ${errMsg}`,
+            );
             return undefined;
         }
     }
 
-    private buildAdminPermissions(user: { userType: string; role?: { rolePermission?: Array<{ permission: { name: string } }> } }): string[] {
+    private buildAdminPermissions(user: {
+        userType: string;
+        role?: { rolePermission?: Array<{ permission: { name: string } }> };
+    }): string[] {
         if (user.userType === UserType.SUPER_ADMIN) {
             return Object.values(PermissionName);
         }
-        return (user.role?.rolePermission ?? []).map((rp: any) => rp.permission.name);
+        return (user.role?.rolePermission ?? []).map(
+            (rp: any) => rp.permission.name,
+        );
     }
 
-    private buildVerificationStatus(user: LoginResponseUser): VerificationStatus {
+    private buildVerificationStatus(
+        user: LoginResponseUser,
+    ): VerificationStatus {
         const normalizedUserType = user.userType.toLowerCase();
-        const governmentVerificationState = this.buildGovernmentVerificationState(user);
-        const individualVerificationSnapshot = normalizedUserType === "individual"
-            ? buildIndividualVerificationSnapshot({
-                bvn: user.bvn ?? null,
-                nin: user.nin ?? null,
-                kycStageAttempts: user.kycStageAttempts ?? undefined,
-            })
-            : null;
+        const governmentVerificationState =
+            this.buildGovernmentVerificationState(user);
+        const individualVerificationSnapshot =
+            normalizedUserType === "individual"
+                ? buildIndividualVerificationSnapshot({
+                      bvn: user.bvn ?? null,
+                      nin: user.nin ?? null,
+                      kycStageAttempts: user.kycStageAttempts ?? undefined,
+                  })
+                : null;
         const verificationStatus: VerificationStatus = {
             emailVerified: user.isEmailVerified,
             phoneVerified: user.isPhoneVerified,
             passwordCreated: user.isPasswordCreated,
-            governmentIdVerified: governmentVerificationState.governmentIdVerified,
-            documentVerified: normalizedUserType === "individual"
-                ? Boolean(individualVerificationSnapshot?.documentVerified)
-                : user.isDocumentVerified,
+            governmentIdVerified:
+                governmentVerificationState.governmentIdVerified,
+            documentVerified:
+                normalizedUserType === "individual"
+                    ? Boolean(individualVerificationSnapshot?.documentVerified)
+                    : user.isDocumentVerified,
         };
 
         if (normalizedUserType === "business") {
-            verificationStatus.businessRecordCompleted = user.businessRecordCompleted;
-            verificationStatus.businessDocumentVerificationStatus = user.businessDocumentVerificationStatus || null;
+            verificationStatus.businessRecordCompleted =
+                user.businessRecordCompleted;
+            verificationStatus.businessDocumentVerificationStatus =
+                user.businessDocumentVerificationStatus || null;
         }
 
         return verificationStatus;
     }
 
     private buildLoginDeviceInfo(
-        deviceInfo: Pick<SignInOptions, "deviceName" | "deviceType" | "browser" | "os">
+        deviceInfo: Pick<
+            SignInOptions,
+            "deviceName" | "deviceType" | "browser" | "os"
+        >,
     ): string {
         const deviceParts = [
             deviceInfo.deviceName,
@@ -5969,7 +7223,9 @@ export class AuthService {
             deviceInfo.os,
         ].filter((value): value is string => Boolean(value?.trim()));
 
-        return deviceParts.length > 0 ? deviceParts.join(" - ") : "Unknown device";
+        return deviceParts.length > 0
+            ? deviceParts.join(" - ")
+            : "Unknown device";
     }
 
     private async recordSuccessfulLogin(
@@ -5980,7 +7236,10 @@ export class AuthService {
             loginCount?: number | null;
         },
         ip: string,
-        deviceInfo: Pick<SignInOptions, "deviceName" | "deviceType" | "browser" | "os">
+        deviceInfo: Pick<
+            SignInOptions,
+            "deviceName" | "deviceType" | "browser" | "os"
+        >,
     ): Promise<void> {
         const loginTime = new Date();
 
@@ -6022,7 +7281,9 @@ export class AuthService {
                     accessToken: tokens.accessToken,
                     refreshToken: tokens.refreshToken,
                     userType: user.userType,
-                    role: user.role ? { name: user.role.name, slug: user.role.slug ?? null } : null,
+                    role: user.role
+                        ? { name: user.role.name, slug: user.role.slug ?? null }
+                        : null,
                     permissions,
                 },
             });
@@ -6052,7 +7313,10 @@ export class AuthService {
     ): void {
         const flagged = user.flaggedRecord || { flagged: false, reason: "" };
 
-        if (flagged.flagged && flagged.reason === "Multiple failed login attempts") {
+        if (
+            flagged.flagged &&
+            flagged.reason === "Multiple failed login attempts"
+        ) {
             throw new UserAccountDisabledException(
                 `Account is flagged: ${flagged.reason || "Multiple failed login attempts"}. Please contact support.`,
                 HttpStatus.FORBIDDEN,
@@ -6090,11 +7354,18 @@ export class AuthService {
         }
 
         if (isValid) {
-            await this.twoFactorRateLimitService.recordSuccessfulAttempt(user.id.toString(), "login");
+            await this.twoFactorRateLimitService.recordSuccessfulAttempt(
+                user.id.toString(),
+                "login",
+            );
             return;
         }
 
-        const rateLimitResult = await this.twoFactorRateLimitService.checkAttempt(user.id.toString(), "login");
+        const rateLimitResult =
+            await this.twoFactorRateLimitService.checkAttempt(
+                user.id.toString(),
+                "login",
+            );
         if (!rateLimitResult.allowed) {
             throw new TwoFactorLockedException(
                 "Too many failed 2FA attempts",
@@ -6102,7 +7373,11 @@ export class AuthService {
             );
         }
 
-        const failedResult = await this.twoFactorRateLimitService.recordFailedAttempt(user.id.toString(), "login");
+        const failedResult =
+            await this.twoFactorRateLimitService.recordFailedAttempt(
+                user.id.toString(),
+                "login",
+            );
         if (failedResult.lockoutEndsAt) {
             throw new TwoFactorLockedException(
                 "Invalid verification code",
@@ -6118,7 +7393,7 @@ export class AuthService {
     private async signIn(
         options: SignInOptions,
         loginPlatform: LoginPlatform,
-        ip: string
+        ip: string,
     ): Promise<ApiResponse> {
         const baseSelect = {
             id: true,
@@ -6126,7 +7401,15 @@ export class AuthService {
             password: true,
             userType: true,
             status: true,
-            role: { select: { name: true, slug: true, rolePermission: { select: { permission: { select: { name: true } } } } } },
+            role: {
+                select: {
+                    name: true,
+                    slug: true,
+                    rolePermission: {
+                        select: { permission: { select: { name: true } } },
+                    },
+                },
+            },
             lastLogin: true,
             loginCount: true,
             flaggedRecord: true,
@@ -6147,11 +7430,17 @@ export class AuthService {
                 where: {
                     journeyType: "INDIVIDUAL",
                     stage: {
-                        in: [KycStage.GOVERNMENT_ID, KycStage.IDENTITY_DOCUMENT],
+                        in: [
+                            KycStage.GOVERNMENT_ID,
+                            KycStage.IDENTITY_DOCUMENT,
+                        ],
                     },
                     isCurrent: true,
                 },
-                orderBy: [{ updatedAt: Prisma.SortOrder.desc }, { id: Prisma.SortOrder.desc }],
+                orderBy: [
+                    { updatedAt: Prisma.SortOrder.desc },
+                    { id: Prisma.SortOrder.desc },
+                ],
                 select: {
                     stage: true,
                     method: true,
@@ -6172,17 +7461,17 @@ export class AuthService {
                 loginPlatform === LoginPlatform.USER
                     ? baseSelect
                     : {
-                        ...baseSelect,
-                        isEmailVerified: false,
-                        isPhoneVerified: false,
-                        isPasswordCreated: false,
-                        bvn: false,
-                        nin: false,
-                        isDocumentVerified: false,
-                        businessRecordCompleted: false,
-                        businessDocumentVerificationStatus: false,
-                        kycStageAttempts: false,
-                    },
+                          ...baseSelect,
+                          isEmailVerified: false,
+                          isPhoneVerified: false,
+                          isPasswordCreated: false,
+                          bvn: false,
+                          nin: false,
+                          isDocumentVerified: false,
+                          businessRecordCompleted: false,
+                          businessDocumentVerificationStatus: false,
+                          kycStageAttempts: false,
+                      },
         });
 
         if (!user) {
@@ -6191,14 +7480,18 @@ export class AuthService {
 
         this.assertUserCanSignIn(user, loginPlatform);
 
-        Logger.log(`[LoginDebug] Attempting login for ${user.email}. Hash exists: ${!!user.password}`);
+        Logger.log(
+            `[LoginDebug] Attempting login for ${user.email}. Hash exists: ${!!user.password}`,
+        );
 
         const passwordMatch = await this.comparePassword(
             options.password,
-            user.password
+            user.password,
         );
 
-        Logger.log(`[LoginDebug] Password match result for ${user.email}: ${passwordMatch}`);
+        Logger.log(
+            `[LoginDebug] Password match result for ${user.email}: ${passwordMatch}`,
+        );
 
         if (!passwordMatch) {
             await this.handleFailedLogin(user, ip);
@@ -6208,10 +7501,9 @@ export class AuthService {
         // Check if 2FA is enabled - return temporary token for 2FA verification
         // Apply to BOTH user and admin logins for enhanced security
         if (user.isTwoFactorEnabled && user.twoFactorSecret) {
-
             const tempToken = await this.jwtService.signAsync(
                 { sub: user.id, type: "2fa_pending", platform: loginPlatform },
-                { secret: jwtSecret, expiresIn: "5m" }
+                { secret: jwtSecret, expiresIn: "5m" },
             );
 
             return buildResponse({
@@ -6225,9 +7517,10 @@ export class AuthService {
         }
 
         // Create session for user logins with error handling
-        const sessionId = loginPlatform === LoginPlatform.USER
-            ? await this.createLoginSession(user.id, options, ip)
-            : undefined;
+        const sessionId =
+            loginPlatform === LoginPlatform.USER
+                ? await this.createLoginSession(user.id, options, ip)
+                : undefined;
 
         const tokenPayload: Record<string, any> = {
             sub: user.id,
@@ -6241,13 +7534,21 @@ export class AuthService {
 
         await this.recordSuccessfulLogin(user, ip, options);
 
-        return this.buildLoginSuccessResponse(user, loginPlatform, tokens, sessionId);
+        return this.buildLoginSuccessResponse(
+            user,
+            loginPlatform,
+            tokens,
+            sessionId,
+        );
     }
 
     async refreshToken(options: RefreshTokenDto): Promise<ApiResponse> {
-        const payload = this.jwtService.verify<DataStoredInToken>(options.refreshToken, {
-            secret: jwt_refresh_secret,
-        });
+        const payload = this.jwtService.verify<DataStoredInToken>(
+            options.refreshToken,
+            {
+                secret: jwt_refresh_secret,
+            },
+        );
 
         // SECURITY: Distributed lock prevents concurrent refresh token rotation race condition
         return this.distributedLockService.withLock(
@@ -6255,33 +7556,39 @@ export class AuthService {
             async () => {
                 const validationResult = await this.validateRefreshToken(
                     payload.sub,
-                    options.refreshToken
+                    options.refreshToken,
                 );
 
                 if (!validationResult.valid) {
                     if (validationResult.reuse) {
                         // Token reuse detected — possible theft. Invalidate entire family.
-                        Logger.warn(`SECURITY: Refresh token reuse detected for user ${payload.sub}. Invalidating all tokens.`);
+                        Logger.warn(
+                            `SECURITY: Refresh token reuse detected for user ${payload.sub}. Invalidating all tokens.`,
+                        );
                         await this.prisma.user.update({
                             where: { id: payload.sub },
-                            data: { refreshToken: null, refreshTokenFamily: null },
+                            data: {
+                                refreshToken: null,
+                                refreshTokenFamily: null,
+                            },
                         });
                     }
                     throw new InvalidRefreshToken(
                         "Invalid refresh token",
-                        HttpStatus.UNAUTHORIZED
+                        HttpStatus.UNAUTHORIZED,
                     );
                 }
 
                 if (payload.sessionId) {
-                    const isSessionValid = await this.sessionService.validateSession(
-                        payload.sessionId
-                    );
+                    const isSessionValid =
+                        await this.sessionService.validateSession(
+                            payload.sessionId,
+                        );
 
                     if (!isSessionValid) {
                         throw new InvalidRefreshToken(
                             "Session expired or invalid",
-                            HttpStatus.UNAUTHORIZED
+                            HttpStatus.UNAUTHORIZED,
                         );
                     }
                 }
@@ -6289,18 +7596,24 @@ export class AuthService {
                 const newTokens = await this.generateTokens({
                     sub: payload.sub,
                     ...(payload.platform ? { platform: payload.platform } : {}),
-                    ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
+                    ...(payload.sessionId
+                        ? { sessionId: payload.sessionId }
+                        : {}),
                 });
 
                 // Rotate token but keep the same family
-                await this.saveRefreshToken(payload.sub, newTokens.refreshToken, validationResult.family);
+                await this.saveRefreshToken(
+                    payload.sub,
+                    newTokens.refreshToken,
+                    validationResult.family,
+                );
 
                 return buildResponse({
                     message: `Refresh token generated`,
                     data: newTokens,
                 });
             },
-            { ttlMs: 10000, maxWaitMs: 5000 }
+            { ttlMs: 10000, maxWaitMs: 5000 },
         );
     }
 
@@ -6320,7 +7633,7 @@ export class AuthService {
 
     async validateRefreshToken(
         id: number,
-        refreshToken: string
+        refreshToken: string,
     ): Promise<{ valid: boolean; reuse?: boolean; family?: string }> {
         const user = await this.prisma.user.findUnique({
             where: { id: id },
@@ -6334,10 +7647,13 @@ export class AuthService {
         try {
             const matches = crypto.timingSafeEqual(
                 Buffer.from(user.refreshToken, "utf8"),
-                Buffer.from(hashedIncoming, "utf8")
+                Buffer.from(hashedIncoming, "utf8"),
             );
             if (matches) {
-                return { valid: true, family: user.refreshTokenFamily ?? undefined };
+                return {
+                    valid: true,
+                    family: user.refreshTokenFamily ?? undefined,
+                };
             }
             return { valid: false, reuse: !!user.refreshTokenFamily };
         } catch {
@@ -6348,7 +7664,10 @@ export class AuthService {
     /**
      * Verify 2FA code and complete login
      */
-    async verify2FALogin(dto: Verify2FALoginDto, ip: string): Promise<ApiResponse> {
+    async verify2FALogin(
+        dto: Verify2FALoginDto,
+        ip: string,
+    ): Promise<ApiResponse> {
         // Verify the temp token
         let payload: { sub: number; type: string; platform: LoginPlatform };
         try {
@@ -6358,14 +7677,14 @@ export class AuthService {
         } catch {
             throw new UserUnauthorizedException(
                 "Invalid or expired token. Please log in again.",
-                HttpStatus.UNAUTHORIZED
+                HttpStatus.UNAUTHORIZED,
             );
         }
 
         if (payload.type !== "2fa_pending") {
             throw new UserUnauthorizedException(
                 "Invalid token type",
-                HttpStatus.UNAUTHORIZED
+                HttpStatus.UNAUTHORIZED,
             );
         }
 
@@ -6392,11 +7711,17 @@ export class AuthService {
                     where: {
                         journeyType: "INDIVIDUAL",
                         stage: {
-                            in: [KycStage.GOVERNMENT_ID, KycStage.IDENTITY_DOCUMENT],
+                            in: [
+                                KycStage.GOVERNMENT_ID,
+                                KycStage.IDENTITY_DOCUMENT,
+                            ],
                         },
                         isCurrent: true,
                     },
-                    orderBy: [{ updatedAt: Prisma.SortOrder.desc }, { id: Prisma.SortOrder.desc }],
+                    orderBy: [
+                        { updatedAt: Prisma.SortOrder.desc },
+                        { id: Prisma.SortOrder.desc },
+                    ],
                     select: {
                         stage: true,
                         method: true,
@@ -6404,14 +7729,22 @@ export class AuthService {
                         isCurrent: true,
                     },
                 },
-                role: { select: { name: true, slug: true, rolePermission: { select: { permission: { select: { name: true } } } } } },
+                role: {
+                    select: {
+                        name: true,
+                        slug: true,
+                        rolePermission: {
+                            select: { permission: { select: { name: true } } },
+                        },
+                    },
+                },
             },
         });
 
         if (!user?.isTwoFactorEnabled || !user?.twoFactorSecret) {
             throw new UserUnauthorizedException(
                 "2FA is not enabled for this account",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -6419,9 +7752,10 @@ export class AuthService {
 
         // Create session for user logins (2FA complete) with error handling
         // Create session for user logins (2FA complete) with error handling
-        const sessionId = payload.platform === LoginPlatform.USER
-            ? await this.createLoginSession(user.id, dto, ip)
-            : undefined;
+        const sessionId =
+            payload.platform === LoginPlatform.USER
+                ? await this.createLoginSession(user.id, dto, ip)
+                : undefined;
 
         const tokens = await this.generateTokens({
             sub: user.id,
@@ -6433,13 +7767,21 @@ export class AuthService {
 
         await this.recordSuccessfulLogin(user, ip, dto);
 
-        return this.buildLoginSuccessResponse(user, payload.platform, tokens, sessionId);
+        return this.buildLoginSuccessResponse(
+            user,
+            payload.platform,
+            tokens,
+            sessionId,
+        );
     }
 
     /**
      * Reset 2FA rate limit for a user (Admin function)
      */
-    async reset2FARateLimit(dto: { userId: number; context?: "login" | "transaction" }): Promise<ApiResponse> {
+    async reset2FARateLimit(dto: {
+        userId: number;
+        context?: "login" | "transaction";
+    }): Promise<ApiResponse> {
         // Verify user exists
         const user = await this.prisma.user.findUnique({
             where: { id: dto.userId },
@@ -6453,7 +7795,7 @@ export class AuthService {
         // Reset rate limit
         await this.twoFactorRateLimitService.resetAttempts(
             user.id.toString(),
-            dto.context
+            dto.context,
         );
 
         const contextMsg = dto.context
@@ -6469,7 +7811,4 @@ export class AuthService {
             },
         });
     }
-
-
 }
-

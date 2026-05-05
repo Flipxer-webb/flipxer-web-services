@@ -1,4 +1,9 @@
-export type TransactionType = 'deposit' | 'withdrawal' | 'swap' | 'buy' | 'sell';
+export type TransactionType =
+    | "deposit"
+    | "withdrawal"
+    | "swap"
+    | "buy"
+    | "sell";
 
 export interface SendTransactionNotification {
     email: string;
@@ -45,4 +50,3 @@ export interface NotificationEventMap {
     transaction_notification: SendTransactionNotification;
     login_notification: SendLoginNotification;
 }
-

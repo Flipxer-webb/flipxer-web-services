@@ -6,12 +6,22 @@ import { Readable } from "node:stream";
 
 // Break circular dependency: auth/guard → @/modules/api/user → auth/index → auth/controllers → @User()
 jest.mock("@/modules/api/user", () => {
-    class AccountDeletedException extends Error { constructor() { super("Account deleted"); } }
-    class UserNotFoundException extends Error { constructor() { super("User not found"); } }
+    class AccountDeletedException extends Error {
+        constructor() {
+            super("Account deleted");
+        }
+    }
+    class UserNotFoundException extends Error {
+        constructor() {
+            super("User not found");
+        }
+    }
     return {
         User: () => () => {},
         ClientData: () => () => {},
-        UserModule: class { readonly __stub = true },
+        UserModule: class {
+            readonly __stub = true;
+        },
         AccountDeletedException,
         UserNotFoundException,
         __esModule: true,
@@ -50,7 +60,11 @@ import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { IdentityResolutionService } from "@/modules/api/auth/services/identity-resolution.service";
 import { AuditLogService } from "@/modules/api/audit-log";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
-import { DocumentVerificationStatus, KycStatus, UserType } from "@prisma/client";
+import {
+    DocumentVerificationStatus,
+    KycStatus,
+    UserType,
+} from "@prisma/client";
 import { validateAddressDocument, validateIncomeDocument } from "@/libs/ocr";
 
 type IndividualFixtureVerification = {
@@ -66,7 +80,11 @@ type IndividualFixtureVerification = {
     incomeStatus?: DocumentVerificationStatus | null;
 };
 
-const createStageAttempt = (stage: string, status: string, overrides: Record<string, unknown> = {}) => ({
+const createStageAttempt = (
+    stage: string,
+    status: string,
+    overrides: Record<string, unknown> = {},
+) => ({
     stage,
     status,
     isCurrent: true,
@@ -74,7 +92,9 @@ const createStageAttempt = (stage: string, status: string, overrides: Record<str
     ...overrides,
 });
 
-const mapDocumentStatusToAttemptStatus = (status: DocumentVerificationStatus | null | undefined) => {
+const mapDocumentStatusToAttemptStatus = (
+    status: DocumentVerificationStatus | null | undefined,
+) => {
     switch (status) {
         case DocumentVerificationStatus.VERIFIED:
             return "APPROVED";
@@ -91,14 +111,25 @@ const createIndividualUser = (
     overrides: Record<string, unknown> = {},
     verification: IndividualFixtureVerification = {},
 ) => {
-    const documentStatus = verification.documentStatus
-        ?? (verification.documentVerified ? DocumentVerificationStatus.VERIFIED : null);
-    const addressStatus = verification.addressStatus
-        ?? (verification.addressVerified ? DocumentVerificationStatus.VERIFIED : null);
-    const incomeStatus = verification.incomeStatus
-        ?? (verification.incomeVerified ? DocumentVerificationStatus.VERIFIED : null);
-    const documentAttemptStatus = mapDocumentStatusToAttemptStatus(documentStatus);
-    const addressAttemptStatus = mapDocumentStatusToAttemptStatus(addressStatus);
+    const documentStatus =
+        verification.documentStatus ??
+        (verification.documentVerified
+            ? DocumentVerificationStatus.VERIFIED
+            : null);
+    const addressStatus =
+        verification.addressStatus ??
+        (verification.addressVerified
+            ? DocumentVerificationStatus.VERIFIED
+            : null);
+    const incomeStatus =
+        verification.incomeStatus ??
+        (verification.incomeVerified
+            ? DocumentVerificationStatus.VERIFIED
+            : null);
+    const documentAttemptStatus =
+        mapDocumentStatusToAttemptStatus(documentStatus);
+    const addressAttemptStatus =
+        mapDocumentStatusToAttemptStatus(addressStatus);
     const incomeAttemptStatus = mapDocumentStatusToAttemptStatus(incomeStatus);
 
     const generatedStageAttempts = [
@@ -110,18 +141,18 @@ const createIndividualUser = (
             : null,
         documentAttemptStatus
             ? createStageAttempt("IDENTITY_DOCUMENT", documentAttemptStatus, {
-                method: "PASSPORT",
-            })
+                  method: "PASSPORT",
+              })
             : null,
         addressAttemptStatus
             ? createStageAttempt("ADDRESS", addressAttemptStatus, {
-                method: "UTILITY_BILL",
-            })
+                  method: "UTILITY_BILL",
+              })
             : null,
         incomeAttemptStatus
             ? createStageAttempt("INCOME", incomeAttemptStatus, {
-                method: "PAYSLIP",
-            })
+                  method: "PAYSLIP",
+              })
             : null,
     ].filter(Boolean);
 
@@ -145,7 +176,9 @@ const createIndividualUser = (
         accountLimit: null,
         isEmailVerified: verification.emailVerified ?? true,
         isPhoneVerified: verification.phoneVerified ?? false,
-        isDocumentVerified: verification.documentVerified ?? documentStatus === DocumentVerificationStatus.VERIFIED,
+        isDocumentVerified:
+            verification.documentVerified ??
+            documentStatus === DocumentVerificationStatus.VERIFIED,
         documentVerificationStatus: documentStatus,
         addressVerificationStatus: addressStatus,
         incomeVerificationStatus: incomeStatus,
@@ -240,14 +273,26 @@ describe("KycService", () => {
                 KycService,
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: TierService, useValue: mockTierService },
-                { provide: KycStateMachineService, useValue: mockKycStateMachine },
-                { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
+                {
+                    provide: KycStateMachineService,
+                    useValue: mockKycStateMachine,
+                },
+                {
+                    provide: NotificationDispatcher,
+                    useValue: mockNotificationDispatcher,
+                },
                 { provide: EmailService, useValue: mockEmailService },
                 { provide: RedisCacheService, useValue: mockRedisCacheService },
                 { provide: WsGateway, useValue: mockWsGateway },
-                { provide: IdentityResolutionService, useValue: mockIdentityResolutionService },
+                {
+                    provide: IdentityResolutionService,
+                    useValue: mockIdentityResolutionService,
+                },
                 { provide: AuditLogService, useValue: mockAuditLogService },
-                { provide: IdentityComplianceInjectionToken.DOJAH, useValue: mockDojahService },
+                {
+                    provide: IdentityComplianceInjectionToken.DOJAH,
+                    useValue: mockDojahService,
+                },
             ],
         }).compile();
 
@@ -260,7 +305,9 @@ describe("KycService", () => {
         mockEmailService.send.mockResolvedValue(undefined);
         mockEmailService.sendMailWithTemplate.mockResolvedValue(undefined);
         mockPrismaService.kycAttemptEvent.create.mockResolvedValue({ id: 1 });
-        mockPrismaService.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: null } });
+        mockPrismaService.kycStageAttempt.aggregate.mockResolvedValue({
+            _max: { attemptNo: null },
+        });
         mockPrismaService.kycStageAttempt.create.mockResolvedValue({
             id: 1,
             journeyType: "INDIVIDUAL",
@@ -272,96 +319,98 @@ describe("KycService", () => {
             reviewedAt: null,
             version: 1,
         });
-        mockPrismaService.kycStageAttempt.findFirst.mockImplementation(async ({ where }: { where?: Record<string, any> } = {}) => {
-            const stage = where?.stage;
-            const method = where?.method ?? null;
+        mockPrismaService.kycStageAttempt.findFirst.mockImplementation(
+            async ({ where }: { where?: Record<string, any> } = {}) => {
+                const stage = where?.stage;
+                const method = where?.method ?? null;
 
-            if (stage === "IDENTITY_DOCUMENT") {
-                return {
-                    id: 811,
-                    journeyType: "INDIVIDUAL",
-                    stage: "IDENTITY_DOCUMENT",
-                    status: "PENDING_REVIEW",
-                    providerRef: null,
-                    reviewerId: null,
-                    reviewNote: null,
-                    reviewedAt: null,
-                    version: 3,
-                };
-            }
+                if (stage === "IDENTITY_DOCUMENT") {
+                    return {
+                        id: 811,
+                        journeyType: "INDIVIDUAL",
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "PENDING_REVIEW",
+                        providerRef: null,
+                        reviewerId: null,
+                        reviewNote: null,
+                        reviewedAt: null,
+                        version: 3,
+                    };
+                }
 
-            if (stage === "GOVERNMENT_ID" && method === "BVN") {
-                return {
-                    id: 812,
-                    journeyType: "INDIVIDUAL",
-                    stage: "GOVERNMENT_ID",
-                    status: "PENDING_REVIEW",
-                    providerRef: null,
-                    reviewerId: null,
-                    reviewNote: null,
-                    reviewedAt: null,
-                    version: 3,
-                };
-            }
+                if (stage === "GOVERNMENT_ID" && method === "BVN") {
+                    return {
+                        id: 812,
+                        journeyType: "INDIVIDUAL",
+                        stage: "GOVERNMENT_ID",
+                        status: "PENDING_REVIEW",
+                        providerRef: null,
+                        reviewerId: null,
+                        reviewNote: null,
+                        reviewedAt: null,
+                        version: 3,
+                    };
+                }
 
-            if (stage === "GOVERNMENT_ID" && method === "NIN") {
-                return {
-                    id: 813,
-                    journeyType: "INDIVIDUAL",
-                    stage: "GOVERNMENT_ID",
-                    status: "PENDING_REVIEW",
-                    providerRef: null,
-                    reviewerId: null,
-                    reviewNote: null,
-                    reviewedAt: null,
-                    version: 3,
-                };
-            }
+                if (stage === "GOVERNMENT_ID" && method === "NIN") {
+                    return {
+                        id: 813,
+                        journeyType: "INDIVIDUAL",
+                        stage: "GOVERNMENT_ID",
+                        status: "PENDING_REVIEW",
+                        providerRef: null,
+                        reviewerId: null,
+                        reviewNote: null,
+                        reviewedAt: null,
+                        version: 3,
+                    };
+                }
 
-            if (stage === "ADDRESS") {
-                return {
-                    id: 814,
-                    journeyType: "INDIVIDUAL",
-                    stage: "ADDRESS",
-                    status: "PENDING_REVIEW",
-                    providerRef: "address-ref",
-                    reviewerId: null,
-                    reviewNote: null,
-                    reviewedAt: null,
-                    version: 3,
-                };
-            }
+                if (stage === "ADDRESS") {
+                    return {
+                        id: 814,
+                        journeyType: "INDIVIDUAL",
+                        stage: "ADDRESS",
+                        status: "PENDING_REVIEW",
+                        providerRef: "address-ref",
+                        reviewerId: null,
+                        reviewNote: null,
+                        reviewedAt: null,
+                        version: 3,
+                    };
+                }
 
-            if (stage === "INCOME") {
-                return {
-                    id: 815,
-                    journeyType: "INDIVIDUAL",
-                    stage: "INCOME",
-                    status: "PENDING_REVIEW",
-                    providerRef: "income-ref",
-                    reviewerId: null,
-                    reviewNote: null,
-                    reviewedAt: null,
-                    version: 3,
-                };
-            }
+                if (stage === "INCOME") {
+                    return {
+                        id: 815,
+                        journeyType: "INDIVIDUAL",
+                        stage: "INCOME",
+                        status: "PENDING_REVIEW",
+                        providerRef: "income-ref",
+                        reviewerId: null,
+                        reviewNote: null,
+                        reviewedAt: null,
+                        version: 3,
+                    };
+                }
 
-            if (stage === "BUSINESS_DOCUMENT") {
-                return {
-                    id: 816,
-                    journeyType: "BUSINESS",
-                    stage: "BUSINESS_DOCUMENT",
-                    status: "PENDING_REVIEW",
-                    providerRef: "RC-321",
-                    reviewerId: null,
-                    reviewNote: null,
-                    reviewedAt: null,
-                    version: 1,
-                };
-            }
+                if (stage === "BUSINESS_DOCUMENT") {
+                    return {
+                        id: 816,
+                        journeyType: "BUSINESS",
+                        stage: "BUSINESS_DOCUMENT",
+                        status: "PENDING_REVIEW",
+                        providerRef: "RC-321",
+                        reviewerId: null,
+                        reviewNote: null,
+                        reviewedAt: null,
+                        version: 1,
+                    };
+                }
 
-            return null;
-        });
+                return null;
+            },
+        );
         mockPrismaService.kycStageAttempt.findUnique.mockResolvedValue(null);
     });
 
@@ -387,7 +436,11 @@ describe("KycService", () => {
         it("should allow setting tier at or below calculated tier", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue(baseUser);
             mockTierService.calculateTier.mockReturnValue(1); // BVN only -> Tier 1
-            mockPrismaService.user.update.mockResolvedValue({ id: 1, email: baseUser.email, tier: 1 });
+            mockPrismaService.user.update.mockResolvedValue({
+                id: 1,
+                email: baseUser.email,
+                tier: 1,
+            });
             mockAuditLogService.log.mockResolvedValue(undefined);
 
             const result = await service.updateUserTier(1, { tier: 1 }, 99);
@@ -395,7 +448,7 @@ describe("KycService", () => {
             expect(mockPrismaService.user.update).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: { tier: 1 },
-                })
+                }),
             );
             expect(result.data.tier).toBe(1);
         });
@@ -403,7 +456,11 @@ describe("KycService", () => {
         it("should clamp tier to calculated ceiling when admin sets higher", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue(baseUser);
             mockTierService.calculateTier.mockReturnValue(1); // Only BVN → Tier 1
-            mockPrismaService.user.update.mockResolvedValue({ id: 1, email: baseUser.email, tier: 1 });
+            mockPrismaService.user.update.mockResolvedValue({
+                id: 1,
+                email: baseUser.email,
+                tier: 1,
+            });
             mockAuditLogService.log.mockResolvedValue(undefined);
 
             const result = await service.updateUserTier(1, { tier: 4 }, 99);
@@ -412,7 +469,7 @@ describe("KycService", () => {
             expect(mockPrismaService.user.update).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: { tier: 1 },
-                })
+                }),
             );
             expect(result.data.tier).toBe(1);
         });
@@ -432,15 +489,23 @@ describe("KycService", () => {
             );
             mockPrismaService.user.findUnique.mockResolvedValue(verifiedUser);
             mockTierService.calculateTier.mockReturnValue(2); // BVN + Doc → Tier 2
-            mockPrismaService.user.update.mockResolvedValue({ id: 1, email: verifiedUser.email, tier: 0 });
+            mockPrismaService.user.update.mockResolvedValue({
+                id: 1,
+                email: verifiedUser.email,
+                tier: 0,
+            });
             mockAuditLogService.log.mockResolvedValue(undefined);
 
-            const result = await service.updateUserTier(1, { tier: 0, reason: "Investigation" }, 99);
+            const result = await service.updateUserTier(
+                1,
+                { tier: 0, reason: "Investigation" },
+                99,
+            );
 
             expect(mockPrismaService.user.update).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: { tier: 0 },
-                })
+                }),
             );
             expect(result.data.tier).toBe(0);
         });
@@ -486,8 +551,13 @@ describe("KycService", () => {
 
         it("should derive tier from syncTierAndCache on APPROVE, not from dto", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue(pendingUser);
-            mockPrismaService.user.update.mockResolvedValue(updatedUserAfterApproval);
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...updatedUserAfterApproval, tier: 2 });
+            mockPrismaService.user.update.mockResolvedValue(
+                updatedUserAfterApproval,
+            );
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                ...updatedUserAfterApproval,
+                tier: 2,
+            });
             mockAuditLogService.log.mockResolvedValue(undefined);
 
             await service.processKycDecision(
@@ -497,7 +567,7 @@ describe("KycService", () => {
                     verificationType: "DOCUMENT",
                     version: 3,
                 },
-                99
+                99,
             );
 
             // syncTierAndCache should have been called (tier derived from flags)
@@ -511,7 +581,7 @@ describe("KycService", () => {
                         previousTier: 1,
                         newTier: 2,
                     }),
-                })
+                }),
             );
         });
 
@@ -532,7 +602,10 @@ describe("KycService", () => {
 
             mockPrismaService.user.findUnique.mockResolvedValue(verifiedUser);
             mockPrismaService.user.update.mockResolvedValue(rejectedUser);
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...rejectedUser, tier: 1 });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                ...rejectedUser,
+                tier: 1,
+            });
             mockAuditLogService.log.mockResolvedValue(undefined);
 
             await service.processKycDecision(
@@ -543,7 +616,7 @@ describe("KycService", () => {
                     version: 3,
                     note: "Blurry image",
                 },
-                99
+                99,
             );
 
             expect(mockPrismaService.user.update).toHaveBeenCalledWith(
@@ -553,7 +626,7 @@ describe("KycService", () => {
                         isDocumentVerified: false,
                         documentVerificationStatus: "DECLINED",
                     }),
-                })
+                }),
             );
             expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(2);
             expect(mockPrismaService.$executeRaw).toHaveBeenCalledTimes(1);
@@ -564,7 +637,7 @@ describe("KycService", () => {
                         newTier: 1,
                         verificationType: "DOCUMENT",
                     }),
-                })
+                }),
             );
         });
 
@@ -629,36 +702,54 @@ describe("KycService", () => {
                 },
                 syncedTier: 3,
             },
-        ])("should clear dependent flags on %s reject", async ({ verificationType, startingUser, expectedData, syncedTier }) => {
-            mockPrismaService.user.findUnique.mockResolvedValue(startingUser);
-            mockPrismaService.user.update.mockResolvedValue({
-                ...startingUser,
-                ...expectedData,
-            });
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...startingUser, ...expectedData, tier: syncedTier });
-
-            await service.processKycDecision(
-                {
-                    userId: startingUser.id,
-                    action: "REJECT",
-                    verificationType,
-                    version: 3,
-                    note: "Rejected by admin",
-                },
-                99,
-            );
-
-            if (expectedData) {
-                expect(mockPrismaService.user.update).toHaveBeenCalledWith(
-                    expect.objectContaining({
-                        data: expect.objectContaining(expectedData),
-                    }),
+        ])(
+            "should clear dependent flags on %s reject",
+            async ({
+                verificationType,
+                startingUser,
+                expectedData,
+                syncedTier,
+            }) => {
+                mockPrismaService.user.findUnique.mockResolvedValue(
+                    startingUser,
                 );
-            } else {
-                expect(mockPrismaService.user.update).not.toHaveBeenCalled();
-            }
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(startingUser.id);
-        });
+                mockPrismaService.user.update.mockResolvedValue({
+                    ...startingUser,
+                    ...expectedData,
+                });
+                mockTierService.syncTierAndCache.mockResolvedValue({
+                    ...startingUser,
+                    ...expectedData,
+                    tier: syncedTier,
+                });
+
+                await service.processKycDecision(
+                    {
+                        userId: startingUser.id,
+                        action: "REJECT",
+                        verificationType,
+                        version: 3,
+                        note: "Rejected by admin",
+                    },
+                    99,
+                );
+
+                if (expectedData) {
+                    expect(mockPrismaService.user.update).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            data: expect.objectContaining(expectedData),
+                        }),
+                    );
+                } else {
+                    expect(
+                        mockPrismaService.user.update,
+                    ).not.toHaveBeenCalled();
+                }
+                expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(
+                    startingUser.id,
+                );
+            },
+        );
 
         it("should not accept newTier field (removed from DTO type)", () => {
             // TypeScript compile-time check: KycDecisionDto should not have newTier
@@ -706,7 +797,7 @@ describe("KycService", () => {
                     version: 3,
                     note: "Needs senior review",
                 },
-                99
+                99,
             );
 
             // Should send in-app notification with "Escalated" title
@@ -744,76 +835,95 @@ describe("KycService", () => {
             ["APPROVE", "APPROVED", undefined],
             ["REJECT", "REJECTED", "Blurry document"],
             ["ESCALATE", "ESCALATED", "Needs senior review"],
-        ])("writes an attempt-owned %s shadow event after a staged decision", async (action, eventType, note) => {
-            mockPrismaService.user.findUnique.mockResolvedValue(pendingUser);
-            mockPrismaService.user.update.mockResolvedValue(updatedUserAfterApproval);
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...updatedUserAfterApproval, tier: 2 });
-            mockAuditLogService.log.mockResolvedValue(undefined);
-            mockPrismaService.kycStageAttempt.findUnique.mockResolvedValue({
-                id: 811,
-                journeyType: "INDIVIDUAL",
-                stage: "IDENTITY_DOCUMENT",
-            });
+        ])(
+            "writes an attempt-owned %s shadow event after a staged decision",
+            async (action, eventType, note) => {
+                mockPrismaService.user.findUnique.mockResolvedValue(
+                    pendingUser,
+                );
+                mockPrismaService.user.update.mockResolvedValue(
+                    updatedUserAfterApproval,
+                );
+                mockTierService.syncTierAndCache.mockResolvedValue({
+                    ...updatedUserAfterApproval,
+                    tier: 2,
+                });
+                mockAuditLogService.log.mockResolvedValue(undefined);
+                mockPrismaService.kycStageAttempt.findUnique.mockResolvedValue({
+                    id: 811,
+                    journeyType: "INDIVIDUAL",
+                    stage: "IDENTITY_DOCUMENT",
+                });
 
-            await service.processKycDecision(
-                {
-                    userId: 2,
-                    action,
-                    verificationType: "DOCUMENT",
-                    version: 3,
-                    note,
-                },
-                99,
-            );
-
-            let expectedProviderStatus = "INCONCLUSIVE";
-            if (action === "APPROVE") {
-                expectedProviderStatus = "PASSED";
-            } else if (action === "REJECT") {
-                expectedProviderStatus = "FAILED";
-            }
-
-            expect(mockPrismaService.kycStageAttempt.update).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: { id: 811 },
-                    data: expect.objectContaining({
-                        status: eventType,
-                        providerStatus: expectedProviderStatus,
-                        reviewerId: 99,
-                        reviewNote: note ?? null,
-                        providerRef: null,
-                        version: 4,
-                    }),
-                }),
-            );
-            expect(mockPrismaService.kycAttemptEvent.create).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.objectContaining({
-                        attemptId: 811,
+                await service.processKycDecision(
+                    {
                         userId: 2,
-                        journeyType: "INDIVIDUAL",
-                        stage: "IDENTITY_DOCUMENT",
-                        eventType,
-                        actorType: "ADMIN",
-                        actorId: 99,
-                        note: note ?? undefined,
-                        payload: expect.objectContaining({
-                            source: "ADMIN_DECISION",
-                            verificationType: "DOCUMENT",
-                            action,
-                            auditAction: `KYC_${action}`,
-                            attemptId: 811,
-                            attemptVersion: 4,
+                        action,
+                        verificationType: "DOCUMENT",
+                        version: 3,
+                        note,
+                    },
+                    99,
+                );
+
+                let expectedProviderStatus = "INCONCLUSIVE";
+                if (action === "APPROVE") {
+                    expectedProviderStatus = "PASSED";
+                } else if (action === "REJECT") {
+                    expectedProviderStatus = "FAILED";
+                }
+
+                expect(
+                    mockPrismaService.kycStageAttempt.update,
+                ).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        where: { id: 811 },
+                        data: expect.objectContaining({
+                            status: eventType,
+                            providerStatus: expectedProviderStatus,
+                            reviewerId: 99,
+                            reviewNote: note ?? null,
+                            providerRef: null,
+                            version: 4,
                         }),
                     }),
-                }),
-            );
-        });
+                );
+                expect(
+                    mockPrismaService.kycAttemptEvent.create,
+                ).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        data: expect.objectContaining({
+                            attemptId: 811,
+                            userId: 2,
+                            journeyType: "INDIVIDUAL",
+                            stage: "IDENTITY_DOCUMENT",
+                            eventType,
+                            actorType: "ADMIN",
+                            actorId: 99,
+                            note: note ?? undefined,
+                            payload: expect.objectContaining({
+                                source: "ADMIN_DECISION",
+                                verificationType: "DOCUMENT",
+                                action,
+                                auditAction: `KYC_${action}`,
+                                attemptId: 811,
+                                attemptVersion: 4,
+                            }),
+                        }),
+                    }),
+                );
+            },
+        );
 
         it("does not invoke the legacy state machine for stage-managed decisions", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue(pendingUser);
-            mockPrismaService.user.update.mockResolvedValue(updatedUserAfterApproval);
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...updatedUserAfterApproval, tier: 2 });
+            mockPrismaService.user.update.mockResolvedValue(
+                updatedUserAfterApproval,
+            );
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                ...updatedUserAfterApproval,
+                tier: 2,
+            });
             mockPrismaService.kycStageAttempt.findUnique.mockResolvedValue({
                 id: 811,
                 journeyType: "INDIVIDUAL",
@@ -830,7 +940,9 @@ describe("KycService", () => {
             );
 
             expect(mockKycStateMachine.transition).not.toHaveBeenCalled();
-            expect(mockPrismaService.kycStageAttempt.update).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycStageAttempt.update,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { id: 811 },
                     data: expect.objectContaining({
@@ -857,9 +969,16 @@ describe("KycService", () => {
                 businessDocumentVerificationStatus: "VERIFIED",
             };
 
-            mockPrismaService.user.findUnique.mockResolvedValue(pendingBusinessUser);
-            mockPrismaService.user.update.mockResolvedValue(approvedBusinessUser);
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...approvedBusinessUser, tier: 1 });
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                pendingBusinessUser,
+            );
+            mockPrismaService.user.update.mockResolvedValue(
+                approvedBusinessUser,
+            );
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                ...approvedBusinessUser,
+                tier: 1,
+            });
             mockPrismaService.kycStageAttempt.findFirst.mockResolvedValue({
                 id: 912,
                 journeyType: "BUSINESS",
@@ -878,7 +997,9 @@ describe("KycService", () => {
             );
 
             expect(mockKycStateMachine.transition).not.toHaveBeenCalled();
-            expect(mockPrismaService.kycStageAttempt.update).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycStageAttempt.update,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { id: 912 },
                     data: expect.objectContaining({
@@ -889,7 +1010,9 @@ describe("KycService", () => {
                     }),
                 }),
             );
-            expect(mockPrismaService.kycAttemptEvent.create).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycAttemptEvent.create,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
                         attemptId: 912,
@@ -920,7 +1043,9 @@ describe("KycService", () => {
             expect(mockTierService.syncTierAndCache).not.toHaveBeenCalled();
             expect(mockAuditLogService.log).not.toHaveBeenCalled();
             expect(mockNotificationDispatcher.notify).not.toHaveBeenCalled();
-            expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
+            expect(
+                mockEmailService.sendMailWithTemplate,
+            ).not.toHaveBeenCalled();
         });
 
         it("rejects KYC decisions that omit action before side effects run", async () => {
@@ -941,11 +1066,16 @@ describe("KycService", () => {
             expect(mockTierService.syncTierAndCache).not.toHaveBeenCalled();
             expect(mockAuditLogService.log).not.toHaveBeenCalled();
             expect(mockNotificationDispatcher.notify).not.toHaveBeenCalled();
-            expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
+            expect(
+                mockEmailService.sendMailWithTemplate,
+            ).not.toHaveBeenCalled();
         });
 
         it("returns a not-found response before attempting a state transition", async () => {
-            const transitionSpy = jest.spyOn(service as any, "transitionKycDecision");
+            const transitionSpy = jest.spyOn(
+                service as any,
+                "transitionKycDecision",
+            );
 
             mockPrismaService.user.findUnique.mockResolvedValue(null);
 
@@ -959,7 +1089,12 @@ describe("KycService", () => {
                 99,
             );
 
-            expect(result).toEqual(expect.objectContaining({ message: "User not found", success: true }));
+            expect(result).toEqual(
+                expect.objectContaining({
+                    message: "User not found",
+                    success: true,
+                }),
+            );
             expect(transitionSpy).not.toHaveBeenCalled();
             expect(mockPrismaService.user.update).not.toHaveBeenCalled();
         });
@@ -968,7 +1103,11 @@ describe("KycService", () => {
             const transitionResponse = {
                 success: true,
                 message: "DOCUMENT verification is no longer actionable.",
-                data: { userId: 2, verificationType: "DOCUMENT", action: "APPROVE" },
+                data: {
+                    userId: 2,
+                    verificationType: "DOCUMENT",
+                    action: "APPROVE",
+                },
             };
             const transitionSpy = jest
                 .spyOn(service as any, "transitionKycDecision")
@@ -997,13 +1136,22 @@ describe("KycService", () => {
         });
 
         it("logs notification dispatch failures without failing the decision", async () => {
-            const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+            const errorSpy = jest
+                .spyOn((service as any).logger, "error")
+                .mockImplementation(() => undefined);
 
             mockPrismaService.user.findUnique.mockResolvedValue(pendingUser);
-            mockPrismaService.user.update.mockResolvedValue(updatedUserAfterApproval);
-            mockTierService.syncTierAndCache.mockResolvedValue({ ...updatedUserAfterApproval, tier: 2 });
+            mockPrismaService.user.update.mockResolvedValue(
+                updatedUserAfterApproval,
+            );
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                ...updatedUserAfterApproval,
+                tier: 2,
+            });
             mockAuditLogService.log.mockResolvedValue(undefined);
-            mockNotificationDispatcher.notify.mockRejectedValueOnce(new Error("Push service unavailable"));
+            mockNotificationDispatcher.notify.mockRejectedValueOnce(
+                new Error("Push service unavailable"),
+            );
 
             const result = await service.processKycDecision(
                 {
@@ -1017,8 +1165,15 @@ describe("KycService", () => {
 
             await Promise.resolve();
 
-            expect(result).toEqual(expect.objectContaining({ message: "KYC approve processed successfully", success: true }));
-            expect(errorSpy).toHaveBeenCalledWith("Failed to send KYC push notification to user 2: Push service unavailable");
+            expect(result).toEqual(
+                expect.objectContaining({
+                    message: "KYC approve processed successfully",
+                    success: true,
+                }),
+            );
+            expect(errorSpy).toHaveBeenCalledWith(
+                "Failed to send KYC push notification to user 2: Push service unavailable",
+            );
 
             errorSpy.mockRestore();
         });
@@ -1038,7 +1193,9 @@ describe("KycService", () => {
                 "ESCALATE",
                 "DOCUMENT",
             );
-            expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
+            expect(
+                mockEmailService.sendMailWithTemplate,
+            ).not.toHaveBeenCalled();
         });
 
         it("uses default document type when verificationType is not provided", async () => {
@@ -1048,9 +1205,7 @@ describe("KycService", () => {
                 firstName: "Test",
             };
             await (service as any).sendKycEmail(user, "ESCALATE", undefined);
-            expect(
-                mockEmailService.sendMailWithTemplate,
-            ).toHaveBeenCalledWith(
+            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     merge_info: expect.objectContaining({
                         document_type: "KYC Verification",
@@ -1081,18 +1236,30 @@ describe("KycService", () => {
                 firstName: "EscalateMissing",
             };
             const configMock = jest.requireMock("@/config");
-            const warnSpy = jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
-            const previousTemplate = configMock.emailTemplateConfig.document_escalated;
+            const warnSpy = jest
+                .spyOn((service as any).logger, "warn")
+                .mockImplementation(() => undefined);
+            const previousTemplate =
+                configMock.emailTemplateConfig.document_escalated;
 
             try {
                 configMock.emailTemplateConfig.document_escalated = "";
 
-                await (service as any).sendKycEmail(user, "ESCALATE", "DOCUMENT");
+                await (service as any).sendKycEmail(
+                    user,
+                    "ESCALATE",
+                    "DOCUMENT",
+                );
 
-                expect(warnSpy).toHaveBeenCalledWith("Email template not configured for KYC escalation");
-                expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
+                expect(warnSpy).toHaveBeenCalledWith(
+                    "Email template not configured for KYC escalation",
+                );
+                expect(
+                    mockEmailService.sendMailWithTemplate,
+                ).not.toHaveBeenCalled();
             } finally {
-                configMock.emailTemplateConfig.document_escalated = previousTemplate;
+                configMock.emailTemplateConfig.document_escalated =
+                    previousTemplate;
                 warnSpy.mockRestore();
             }
         });
@@ -1122,18 +1289,26 @@ describe("KycService", () => {
                 firstName: "ApproveMissing",
             };
             const configMock = jest.requireMock("@/config");
-            const warnSpy = jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
-            const previousTemplate = configMock.emailTemplateConfig.document_approved;
+            const warnSpy = jest
+                .spyOn((service as any).logger, "warn")
+                .mockImplementation(() => undefined);
+            const previousTemplate =
+                configMock.emailTemplateConfig.document_approved;
 
             try {
                 configMock.emailTemplateConfig.document_approved = "";
 
                 await (service as any).sendKycEmail(user, "APPROVE", "ADDRESS");
 
-                expect(warnSpy).toHaveBeenCalledWith("Email template not configured for KYC approval");
-                expect(mockEmailService.sendMailWithTemplate).not.toHaveBeenCalled();
+                expect(warnSpy).toHaveBeenCalledWith(
+                    "Email template not configured for KYC approval",
+                );
+                expect(
+                    mockEmailService.sendMailWithTemplate,
+                ).not.toHaveBeenCalled();
             } finally {
-                configMock.emailTemplateConfig.document_approved = previousTemplate;
+                configMock.emailTemplateConfig.document_approved =
+                    previousTemplate;
                 warnSpy.mockRestore();
             }
         });
@@ -1144,14 +1319,25 @@ describe("KycService", () => {
                 email: "approve-fail@test.com",
                 firstName: "ApproveFail",
             };
-            const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+            const errorSpy = jest
+                .spyOn((service as any).logger, "error")
+                .mockImplementation(() => undefined);
 
-            mockEmailService.sendMailWithTemplate.mockRejectedValueOnce(new Error("SMTP timeout"));
+            mockEmailService.sendMailWithTemplate.mockRejectedValueOnce(
+                new Error("SMTP timeout"),
+            );
 
             await expect(
-                (service as any).sendKycEmail(user, "APPROVE", "ADDRESS", "Mismatch"),
+                (service as any).sendKycEmail(
+                    user,
+                    "APPROVE",
+                    "ADDRESS",
+                    "Mismatch",
+                ),
             ).resolves.toBeUndefined();
-            expect(errorSpy).toHaveBeenCalledWith("Failed to send KYC email to approve-fail@test.com: SMTP timeout");
+            expect(errorSpy).toHaveBeenCalledWith(
+                "Failed to send KYC email to approve-fail@test.com: SMTP timeout",
+            );
 
             errorSpy.mockRestore();
         });
@@ -1195,7 +1381,9 @@ describe("KycService", () => {
                                 providerRef: null,
                                 reviewNote: null,
                                 reviewerId: null,
-                                submittedAt: new Date("2026-04-20T10:00:00.000Z"),
+                                submittedAt: new Date(
+                                    "2026-04-20T10:00:00.000Z",
+                                ),
                                 reviewedAt: null,
                                 version: 3,
                             },
@@ -1212,7 +1400,11 @@ describe("KycService", () => {
 
             mockPrismaService.$transaction.mockResolvedValue([users, 1]);
 
-            const result = await service.getKycQueue({ pageNumber: 1, pageSize: 20, sortBy: "desc" } as any);
+            const result = await service.getKycQueue({
+                pageNumber: 1,
+                pageSize: 20,
+                sortBy: "desc",
+            } as any);
 
             expect(mockPrismaService.user.findMany).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1221,12 +1413,13 @@ describe("KycService", () => {
                             expect.objectContaining({
                                 OR: expect.arrayContaining([
                                     expect.objectContaining({
-                                        kycStageAttempts: expect.objectContaining({
-                                            some: expect.objectContaining({
-                                                isCurrent: true,
-                                                journeyType: "INDIVIDUAL",
+                                        kycStageAttempts:
+                                            expect.objectContaining({
+                                                some: expect.objectContaining({
+                                                    isCurrent: true,
+                                                    journeyType: "INDIVIDUAL",
+                                                }),
                                             }),
-                                        }),
                                     }),
                                 ]),
                             }),
@@ -1235,8 +1428,14 @@ describe("KycService", () => {
                 }),
             );
             expect(result.data.records[0].queueView).toBe("ACTIONABLE");
-            expect(result.data.records[0].queueReason).toContain("Submitted identity document review for review");
-                expect(new Date(result.data.records[0].oldestSubmittedAt).toISOString()).toBe("2026-04-20T10:00:00.000Z");
+            expect(result.data.records[0].queueReason).toContain(
+                "Submitted identity document review for review",
+            );
+            expect(
+                new Date(
+                    result.data.records[0].oldestSubmittedAt,
+                ).toISOString(),
+            ).toBe("2026-04-20T10:00:00.000Z");
             expect(result.data.records[0].activeAttempt).toEqual(
                 expect.objectContaining({
                     attemptId: 1,
@@ -1244,8 +1443,13 @@ describe("KycService", () => {
                     stage: "IDENTITY_DOCUMENT",
                     status: "PENDING",
                     version: 3,
-                    queueReason: expect.stringContaining("identity document review"),
-                    allowedActions: expect.arrayContaining(["APPROVE", "RECHECK"]),
+                    queueReason: expect.stringContaining(
+                        "identity document review",
+                    ),
+                    allowedActions: expect.arrayContaining([
+                        "APPROVE",
+                        "RECHECK",
+                    ]),
                 }),
             );
             expect(result.data.records[0].actionableAttempts).toEqual([
@@ -1280,7 +1484,9 @@ describe("KycService", () => {
                                 providerStatus: "INCONCLUSIVE",
                                 reviewNote: "Manual review required",
                                 reviewerId: null,
-                                submittedAt: new Date("2026-04-20T10:00:00.000Z"),
+                                submittedAt: new Date(
+                                    "2026-04-20T10:00:00.000Z",
+                                ),
                                 reviewedAt: null,
                                 version: 3,
                             },
@@ -1317,7 +1523,11 @@ describe("KycService", () => {
 
             mockPrismaService.$transaction.mockResolvedValue([users, 1]);
 
-            const result = await service.getKycQueue({ pageNumber: 1, pageSize: 20, queueView: "ACTIONABLE" } as any);
+            const result = await service.getKycQueue({
+                pageNumber: 1,
+                pageSize: 20,
+                queueView: "ACTIONABLE",
+            } as any);
 
             expect(result.data.records[0].activeAttempt).toEqual(
                 expect.objectContaining({
@@ -1326,7 +1536,9 @@ describe("KycService", () => {
                     latestActivityNote: "Rechecked against OCR",
                 }),
             );
-            expect(new Date(result.data.records[0].latestReviewAt).toISOString()).toBe("2026-04-22T09:00:00.000Z");
+            expect(
+                new Date(result.data.records[0].latestReviewAt).toISOString(),
+            ).toBe("2026-04-22T09:00:00.000Z");
         });
 
         it("returns paginated KYC queue with verification summaries", async () => {
@@ -1341,7 +1553,13 @@ describe("KycService", () => {
                         phone: "08000000000",
                         tier: 1,
                         bvn: "12345678901",
-                        userDocument: { id: 1, type: "PASSPORT", documentNumber: "A1", documentImageUrl: "u", documentImageUrl2: null },
+                        userDocument: {
+                            id: 1,
+                            type: "PASSPORT",
+                            documentNumber: "A1",
+                            documentImageUrl: "u",
+                            documentImageUrl2: null,
+                        },
                         createdAt: new Date(),
                         updatedAt: new Date(),
                     },
@@ -1371,13 +1589,25 @@ describe("KycService", () => {
                     documentVerified: false,
                 }),
             );
-            expect(result.data.records[0]).not.toHaveProperty("isEmailVerified");
-            expect(result.data.records[0]).not.toHaveProperty("isPhoneVerified");
-            expect(result.data.records[0]).not.toHaveProperty("isDocumentVerified");
-            expect(result.data.records[0]).not.toHaveProperty("pendingVerifications");
-            expect(result.data.records[0]).not.toHaveProperty("kycVerificationStatuses");
+            expect(result.data.records[0]).not.toHaveProperty(
+                "isEmailVerified",
+            );
+            expect(result.data.records[0]).not.toHaveProperty(
+                "isPhoneVerified",
+            );
+            expect(result.data.records[0]).not.toHaveProperty(
+                "isDocumentVerified",
+            );
+            expect(result.data.records[0]).not.toHaveProperty(
+                "pendingVerifications",
+            );
+            expect(result.data.records[0]).not.toHaveProperty(
+                "kycVerificationStatuses",
+            );
             expect(result.data.records[0].needsReview).toBe(false);
-            expect(result.data.records[0].blockingVerificationTypes).toEqual(expect.arrayContaining(["PHONE", "ADDRESS", "INCOME"]));
+            expect(result.data.records[0].blockingVerificationTypes).toEqual(
+                expect.arrayContaining(["PHONE", "ADDRESS", "INCOME"]),
+            );
             expect(result.data.records[0].activeAttempt).toBeNull();
             expect(result.data.records[0].actionableAttempts).toEqual([]);
         });
@@ -1431,12 +1661,20 @@ describe("KycService", () => {
             } as any);
 
             expect(result.data.records[0].needsReview).toBe(true);
-            expect(result.data.records[0]).not.toHaveProperty("kycVerificationStatuses");
+            expect(result.data.records[0]).not.toHaveProperty(
+                "kycVerificationStatuses",
+            );
             expect(result.data.records[0].actionableAttempts).toEqual([
-                expect.objectContaining({ verificationType: "BVN", status: "PENDING" }),
+                expect.objectContaining({
+                    verificationType: "BVN",
+                    status: "PENDING",
+                }),
             ]);
             expect(result.data.records[0].activeAttempt).toEqual(
-                expect.objectContaining({ verificationType: "BVN", status: "PENDING" }),
+                expect.objectContaining({
+                    verificationType: "BVN",
+                    status: "PENDING",
+                }),
             );
         });
 
@@ -1475,10 +1713,16 @@ describe("KycService", () => {
                 expect.objectContaining({
                     queueView: "AWAITING_USER",
                     needsReview: false,
-                    queueReason: "Awaiting user submission for 4 verification stages",
+                    queueReason:
+                        "Awaiting user submission for 4 verification stages",
                 }),
             );
-            expect(result.data.records[0].blockingVerificationTypes).toEqual(["BVN", "DOCUMENT", "ADDRESS", "INCOME"]);
+            expect(result.data.records[0].blockingVerificationTypes).toEqual([
+                "BVN",
+                "DOCUMENT",
+                "ADDRESS",
+                "INCOME",
+            ]);
         });
 
         it("builds resolved queue metadata for reviewed records", async () => {
@@ -1496,7 +1740,13 @@ describe("KycService", () => {
                         nin: "12345678902",
                         addressDocumentUrl: "https://cdn.test/address.pdf",
                         incomeDocumentUrl: "https://cdn.test/income.pdf",
-                        userDocument: { id: 1, type: "PASSPORT", documentNumber: "A1", documentImageUrl: "u", documentImageUrl2: null },
+                        userDocument: {
+                            id: 1,
+                            type: "PASSPORT",
+                            documentNumber: "A1",
+                            documentImageUrl: "u",
+                            documentImageUrl2: null,
+                        },
                         kycStageAttempts: [
                             {
                                 id: 3,
@@ -1509,8 +1759,12 @@ describe("KycService", () => {
                                 providerRef: "doc-approved",
                                 reviewNote: null,
                                 reviewerId: 55,
-                                submittedAt: new Date("2026-04-20T10:00:00.000Z"),
-                                reviewedAt: new Date("2026-04-21T10:00:00.000Z"),
+                                submittedAt: new Date(
+                                    "2026-04-20T10:00:00.000Z",
+                                ),
+                                reviewedAt: new Date(
+                                    "2026-04-21T10:00:00.000Z",
+                                ),
                                 version: 2,
                             },
                         ],
@@ -1541,7 +1795,10 @@ describe("KycService", () => {
             expect(result.data.records[0]).toEqual(
                 expect.objectContaining({
                     queueView: "RESOLVED",
-                    latestAttempt: expect.objectContaining({ status: "APPROVED", version: 2 }),
+                    latestAttempt: expect.objectContaining({
+                        status: "APPROVED",
+                        version: 2,
+                    }),
                     needsReview: false,
                 }),
             );
@@ -1551,16 +1808,16 @@ describe("KycService", () => {
     describe("getKycStats", () => {
         it("returns aggregate stats and tier distribution", async () => {
             mockPrismaService.user.count
-                .mockResolvedValueOnce(100)  // totalUsers
-                .mockResolvedValueOnce(5)    // needsReviewCount
-                .mockResolvedValueOnce(18)   // awaitingUserCount
-                .mockResolvedValueOnce(4)    // escalatedCount
-                .mockResolvedValueOnce(7)    // rejectedCount
-                .mockResolvedValueOnce(15)   // resolvedInPeriod
-                .mockResolvedValueOnce(70)   // bvnVerified
-                .mockResolvedValueOnce(60)   // ninVerified
-                .mockResolvedValueOnce(40)   // documentVerified
-                .mockResolvedValueOnce(20);  // newUsersInPeriod
+                .mockResolvedValueOnce(100) // totalUsers
+                .mockResolvedValueOnce(5) // needsReviewCount
+                .mockResolvedValueOnce(18) // awaitingUserCount
+                .mockResolvedValueOnce(4) // escalatedCount
+                .mockResolvedValueOnce(7) // rejectedCount
+                .mockResolvedValueOnce(15) // resolvedInPeriod
+                .mockResolvedValueOnce(70) // bvnVerified
+                .mockResolvedValueOnce(60) // ninVerified
+                .mockResolvedValueOnce(40) // documentVerified
+                .mockResolvedValueOnce(20); // newUsersInPeriod
             mockPrismaService.user.groupBy.mockResolvedValue([
                 { tier: 0, _count: { _all: 10 } },
                 { tier: 1, _count: { _all: 20 } },
@@ -1569,9 +1826,13 @@ describe("KycService", () => {
                 { tier: 4, _count: { _all: 15 } },
             ]);
 
-            const result = await service.getKycStats({ period: "month" } as any);
+            const result = await service.getKycStats({
+                period: "month",
+            } as any);
 
-            expect(result.message).toBe("KYC statistics retrieved successfully");
+            expect(result.message).toBe(
+                "KYC statistics retrieved successfully",
+            );
             expect(result.data.overview.totalUsers).toBe(100);
             expect(result.data.overview.pendingKyc).toBe(18);
             expect(result.data.overview.needsReview).toBe(5);
@@ -1613,7 +1874,12 @@ describe("KycService", () => {
 
             const result = await service.getKycUserDetail(404);
 
-            expect(result).toEqual(expect.objectContaining({ message: "User not found", success: true }));
+            expect(result).toEqual(
+                expect.objectContaining({
+                    message: "User not found",
+                    success: true,
+                }),
+            );
         });
 
         it("returns stage-specific address, income, and business evidence", async () => {
@@ -1643,8 +1909,14 @@ describe("KycService", () => {
                 incomeDocumentUrl: "https://cdn.test/income.pdf",
                 documentVerificationStatus: "VERIFIED",
                 userDocument: { id: 9, type: "PASSPORT" },
-                businessDocument: { cacImageUrl: "https://cdn.test/cac.pdf", tinVerified: true },
-                businessRecord: { businessName: "Ada Stores", taxIdentificationNumber: "TIN-123" },
+                businessDocument: {
+                    cacImageUrl: "https://cdn.test/cac.pdf",
+                    tinVerified: true,
+                },
+                businessRecord: {
+                    businessName: "Ada Stores",
+                    taxIdentificationNumber: "TIN-123",
+                },
                 accountLimit: { dailyLimit: 500000, monthlyLimit: 2000000 },
                 kycStageAttempts: [
                     {
@@ -1661,7 +1933,9 @@ describe("KycService", () => {
                         reasonDetails: null,
                         extractedFields: null,
                         comparisonSummary: null,
-                        evidenceSummary: { documentUrl: "https://cdn.test/address.pdf" },
+                        evidenceSummary: {
+                            documentUrl: "https://cdn.test/address.pdf",
+                        },
                         reviewNote: "Utility bill is cropped",
                         reviewerId: null,
                         submittedAt: new Date("2026-04-20T10:00:00.000Z"),
@@ -1684,8 +1958,11 @@ describe("KycService", () => {
                         reasonDetails: null,
                         extractedFields: null,
                         comparisonSummary: null,
-                        evidenceSummary: { documentUrl: "https://cdn.test/cac.pdf" },
-                        reviewNote: "BUSINESS_DOCUMENT investigative lookup captured from Dojah",
+                        evidenceSummary: {
+                            documentUrl: "https://cdn.test/cac.pdf",
+                        },
+                        reviewNote:
+                            "BUSINESS_DOCUMENT investigative lookup captured from Dojah",
                         reviewerId: 99,
                         submittedAt: new Date("2026-04-21T11:30:00.000Z"),
                         reviewedAt: new Date("2026-04-21T11:30:00.000Z"),
@@ -1748,7 +2025,14 @@ describe("KycService", () => {
                 ],
             });
             mockPrismaService.auditLog.findMany.mockResolvedValue([
-                { action: "KYC_REJECT", details: { verificationType: "INCOME", note: "Statement unreadable" }, createdAt: new Date("2026-04-21T09:00:00.000Z") },
+                {
+                    action: "KYC_REJECT",
+                    details: {
+                        verificationType: "INCOME",
+                        note: "Statement unreadable",
+                    },
+                    createdAt: new Date("2026-04-21T09:00:00.000Z"),
+                },
             ]);
 
             const result = await service.getKycUserDetail(44);
@@ -1757,10 +2041,14 @@ describe("KycService", () => {
                 expect.objectContaining({
                     submitted: true,
                     status: "PENDING",
-                    record: expect.objectContaining({ businessName: "Ada Stores" }),
+                    record: expect.objectContaining({
+                        businessName: "Ada Stores",
+                    }),
                 }),
             );
-            expect(result.data.attemptDetailsByVerificationType.ADDRESS).toEqual(
+            expect(
+                result.data.attemptDetailsByVerificationType.ADDRESS,
+            ).toEqual(
                 expect.objectContaining({
                     evidenceSummary: expect.objectContaining({
                         documentUrl: "https://cdn.test/address.pdf",
@@ -1775,7 +2063,9 @@ describe("KycService", () => {
                     }),
                 }),
             );
-            expect(result.data.attemptDetailsByVerificationType.BUSINESS_DOCUMENT).toEqual(
+            expect(
+                result.data.attemptDetailsByVerificationType.BUSINESS_DOCUMENT,
+            ).toEqual(
                 expect.objectContaining({
                     attempt: expect.objectContaining({
                         status: "PENDING",
@@ -1784,14 +2074,28 @@ describe("KycService", () => {
             );
             expect(result.data.activeAttempts).toEqual(
                 expect.arrayContaining([
-                    expect.objectContaining({ attemptId: 91, verificationType: "ADDRESS", status: "PENDING" }),
-                    expect.objectContaining({ attemptId: 92, verificationType: "BUSINESS_DOCUMENT", status: "PENDING" }),
+                    expect.objectContaining({
+                        attemptId: 91,
+                        verificationType: "ADDRESS",
+                        status: "PENDING",
+                    }),
+                    expect.objectContaining({
+                        attemptId: 92,
+                        verificationType: "BUSINESS_DOCUMENT",
+                        status: "PENDING",
+                    }),
                 ]),
             );
             expect(result.data.attemptHistory).toEqual(
                 expect.arrayContaining([
-                    expect.objectContaining({ attemptId: 91, verificationType: "ADDRESS" }),
-                    expect.objectContaining({ attemptId: 92, verificationType: "BUSINESS_DOCUMENT" }),
+                    expect.objectContaining({
+                        attemptId: 91,
+                        verificationType: "ADDRESS",
+                    }),
+                    expect.objectContaining({
+                        attemptId: 92,
+                        verificationType: "BUSINESS_DOCUMENT",
+                    }),
                 ]),
             );
             expect(result.data.auditHistory).toEqual(
@@ -1832,7 +2136,10 @@ describe("KycService", () => {
                     ADDRESS: expect.objectContaining({
                         attemptId: 91,
                         version: 4,
-                        allowedActions: expect.arrayContaining(["APPROVE", "RECHECK"]),
+                        allowedActions: expect.arrayContaining([
+                            "APPROVE",
+                            "RECHECK",
+                        ]),
                     }),
                     BUSINESS_DOCUMENT: expect.objectContaining({
                         attemptId: 92,
@@ -1842,20 +2149,35 @@ describe("KycService", () => {
             );
             expect(result.data.attemptHistory).toEqual(
                 expect.arrayContaining([
-                    expect.objectContaining({ attemptId: 91, attemptNo: 1, isActive: true }),
-                    expect.objectContaining({ attemptId: 92, stage: "BUSINESS_DOCUMENT", attemptNo: 1, isActive: true }),
+                    expect.objectContaining({
+                        attemptId: 91,
+                        attemptNo: 1,
+                        isActive: true,
+                    }),
+                    expect.objectContaining({
+                        attemptId: 92,
+                        stage: "BUSINESS_DOCUMENT",
+                        attemptNo: 1,
+                        isActive: true,
+                    }),
                 ]),
             );
             expect(result.data.attemptDetailsByVerificationType).toEqual(
                 expect.objectContaining({
                     ADDRESS: expect.objectContaining({
-                        attempt: expect.objectContaining({ attemptId: 91, status: "PENDING" }),
+                        attempt: expect.objectContaining({
+                            attemptId: 91,
+                            status: "PENDING",
+                        }),
                         evidenceSummary: expect.objectContaining({
                             residentialAddress: "12 Marina, Lagos",
                             documentUrl: "https://cdn.test/address.pdf",
                         }),
                         rawEvidence: expect.arrayContaining([
-                            expect.objectContaining({ kind: "ADDRESS_DOCUMENT", url: "https://cdn.test/address.pdf" }),
+                            expect.objectContaining({
+                                kind: "ADDRESS_DOCUMENT",
+                                url: "https://cdn.test/address.pdf",
+                            }),
                         ]),
                     }),
                     BUSINESS_DOCUMENT: expect.objectContaining({
@@ -1865,12 +2187,18 @@ describe("KycService", () => {
                                 requestedByAdminId: 99,
                                 note: "BUSINESS_DOCUMENT investigative lookup captured from Dojah",
                                 results: expect.arrayContaining([
-                                    expect.objectContaining({ key: "CAC", status: "SUCCESS" }),
+                                    expect.objectContaining({
+                                        key: "CAC",
+                                        status: "SUCCESS",
+                                    }),
                                 ]),
                             }),
                         ]),
                         rawEvidence: expect.arrayContaining([
-                            expect.objectContaining({ kind: "CAC_DOCUMENT", url: "https://cdn.test/cac.pdf" }),
+                            expect.objectContaining({
+                                kind: "CAC_DOCUMENT",
+                                url: "https://cdn.test/cac.pdf",
+                            }),
                         ]),
                     }),
                     INCOME: expect.objectContaining({
@@ -1884,74 +2212,93 @@ describe("KycService", () => {
                     }),
                 }),
             );
-            expect(result.data.limits).toEqual(expect.objectContaining({ dailyLimit: 500000 }));
+            expect(result.data.limits).toEqual(
+                expect.objectContaining({ dailyLimit: 500000 }),
+            );
             expect(result.data.recentTransactions).toHaveLength(1);
         });
 
         it("prefers KycStageAttempt records for staged individual admin detail panels", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 45,
-                    identifier: "usr-45",
-                    firstName: "Stage",
-                    lastName: "Attempt",
-                    email: "stage@flipxer.com",
-                    phone: "08001112223",
-                    tier: 2,
-                    createdAt: new Date("2026-04-01T10:00:00.000Z"),
-                    bvn: "12345678901",
-                    residentialAddress: "22 Broad Street, Lagos",
-                    addressDocumentUrl: "https://cdn.test/address-legacy.pdf",
-                    userDocument: { id: 9, type: "PASSPORT" },
-                    accountLimit: { dailyLimit: 250000, monthlyLimit: 1000000 },
-                    kycStageAttempts: [
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
                     {
-                        id: 701,
-                        stage: "ADDRESS",
-                        method: "UTILITY_BILL",
-                        attemptNo: 2,
-                        isCurrent: true,
-                        status: "PENDING_REVIEW",
-                        providerStatus: "INCONCLUSIVE",
-                        providerRef: null,
-                        reasonCode: "ADDRESS_REVIEW",
-                        reasonMessage: "Manual review required",
-                        reasonDetails: { matchedAddress: false },
-                        extractedFields: null,
-                        comparisonSummary: { matchedAddress: false, confidence: 0.62 },
-                        evidenceSummary: { assetCount: 1, mimeType: "application/pdf" },
-                        reviewNote: null,
-                        reviewerId: null,
-                        submittedAt: new Date("2026-04-20T10:00:00.000Z"),
-                        reviewedAt: null,
-                        version: 5,
-                        evidenceAssets: [
+                        id: 45,
+                        identifier: "usr-45",
+                        firstName: "Stage",
+                        lastName: "Attempt",
+                        email: "stage@flipxer.com",
+                        phone: "08001112223",
+                        tier: 2,
+                        createdAt: new Date("2026-04-01T10:00:00.000Z"),
+                        bvn: "12345678901",
+                        residentialAddress: "22 Broad Street, Lagos",
+                        addressDocumentUrl:
+                            "https://cdn.test/address-legacy.pdf",
+                        userDocument: { id: 9, type: "PASSPORT" },
+                        accountLimit: {
+                            dailyLimit: 250000,
+                            monthlyLimit: 1000000,
+                        },
+                        kycStageAttempts: [
                             {
-                                id: 9901,
-                                kind: "PDF",
-                                storageUrl: "https://cdn.test/address-stage.pdf",
-                                originalName: "address-stage.pdf",
-                                mimeType: "application/pdf",
-                                side: null,
+                                id: 701,
+                                stage: "ADDRESS",
+                                method: "UTILITY_BILL",
+                                attemptNo: 2,
+                                isCurrent: true,
+                                status: "PENDING_REVIEW",
+                                providerStatus: "INCONCLUSIVE",
+                                providerRef: null,
+                                reasonCode: "ADDRESS_REVIEW",
+                                reasonMessage: "Manual review required",
+                                reasonDetails: { matchedAddress: false },
+                                extractedFields: null,
+                                comparisonSummary: {
+                                    matchedAddress: false,
+                                    confidence: 0.62,
+                                },
+                                evidenceSummary: {
+                                    assetCount: 1,
+                                    mimeType: "application/pdf",
+                                },
+                                reviewNote: null,
+                                reviewerId: null,
+                                submittedAt: new Date(
+                                    "2026-04-20T10:00:00.000Z",
+                                ),
+                                reviewedAt: null,
+                                version: 5,
+                                evidenceAssets: [
+                                    {
+                                        id: 9901,
+                                        kind: "PDF",
+                                        storageUrl:
+                                            "https://cdn.test/address-stage.pdf",
+                                        originalName: "address-stage.pdf",
+                                        mimeType: "application/pdf",
+                                        side: null,
+                                    },
+                                ],
                             },
                         ],
+                        order: [],
                     },
-                ],
-                    order: [],
-                },
-                {
-                    emailVerified: true,
-                    phoneVerified: true,
-                    bvnVerified: true,
-                    documentVerified: true,
-                    addressStatus: DocumentVerificationStatus.PENDING,
-                },
-            ));
+                    {
+                        emailVerified: true,
+                        phoneVerified: true,
+                        bvnVerified: true,
+                        documentVerified: true,
+                        addressStatus: DocumentVerificationStatus.PENDING,
+                    },
+                ),
+            );
             mockPrismaService.auditLog.findMany.mockResolvedValue([]);
 
             const result = await service.getKycUserDetail(45);
 
-            expect(result.data.currentAttemptByVerificationType.ADDRESS).toEqual(
+            expect(
+                result.data.currentAttemptByVerificationType.ADDRESS,
+            ).toEqual(
                 expect.objectContaining({
                     attemptId: 701,
                     method: "UTILITY_BILL",
@@ -1960,7 +2307,9 @@ describe("KycService", () => {
                     version: 5,
                 }),
             );
-            expect(result.data.attemptDetailsByVerificationType.ADDRESS).toEqual(
+            expect(
+                result.data.attemptDetailsByVerificationType.ADDRESS,
+            ).toEqual(
                 expect.objectContaining({
                     comparisonSummary: expect.objectContaining({
                         matchedAddress: false,
@@ -1974,9 +2323,18 @@ describe("KycService", () => {
                     ]),
                 }),
             );
-            expect(result.data.attemptDetailsByVerificationType.ADDRESS.extractedFields).toBeNull();
-            expect(result.data.attemptDetailsByVerificationType.ADDRESS.comparisonSummary).not.toHaveProperty("expectedAddress");
-            expect(result.data.attemptDetailsByVerificationType.ADDRESS.evidenceSummary).toEqual(
+            expect(
+                result.data.attemptDetailsByVerificationType.ADDRESS
+                    .extractedFields,
+            ).toBeNull();
+            expect(
+                result.data.attemptDetailsByVerificationType.ADDRESS
+                    .comparisonSummary,
+            ).not.toHaveProperty("expectedAddress");
+            expect(
+                result.data.attemptDetailsByVerificationType.ADDRESS
+                    .evidenceSummary,
+            ).toEqual(
                 expect.objectContaining({
                     assetCount: 1,
                     mimeType: "application/pdf",
@@ -1991,33 +2349,47 @@ describe("KycService", () => {
         it("returns a not-found response when the lookup user does not exist", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue(null);
 
-            const result = await service.runProviderLookup({ userId: 404, verificationType: "BVN" }, 99);
+            const result = await service.runProviderLookup(
+                { userId: 404, verificationType: "BVN" },
+                99,
+            );
 
-            expect(result).toEqual(expect.objectContaining({ message: "User not found", success: true }));
+            expect(result).toEqual(
+                expect.objectContaining({
+                    message: "User not found",
+                    success: true,
+                }),
+            );
         });
 
         it("persists investigative lookup history without replacing the active verification", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 12,
-                    firstName: "Ada",
-                    lastName: "Lookup",
-                    phone: "08001112222",
-                    dateOfBirth: "1991-02-03",
-                    bvn: "12345678901",
-                    kycStageAttempts: [
-                        createStageAttempt("GOVERNMENT_ID", "PENDING_REVIEW", {
-                            id: 310,
-                            journeyType: "INDIVIDUAL",
-                            method: "BVN",
-                            version: 3,
-                        }),
-                    ],
-                },
-                {
-                    documentStatus: DocumentVerificationStatus.PENDING,
-                },
-            ));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 12,
+                        firstName: "Ada",
+                        lastName: "Lookup",
+                        phone: "08001112222",
+                        dateOfBirth: "1991-02-03",
+                        bvn: "12345678901",
+                        kycStageAttempts: [
+                            createStageAttempt(
+                                "GOVERNMENT_ID",
+                                "PENDING_REVIEW",
+                                {
+                                    id: 310,
+                                    journeyType: "INDIVIDUAL",
+                                    method: "BVN",
+                                    version: 3,
+                                },
+                            ),
+                        ],
+                    },
+                    {
+                        documentStatus: DocumentVerificationStatus.PENDING,
+                    },
+                ),
+            );
             mockPrismaService.kycStageAttempt.findUnique.mockResolvedValue({
                 id: 310,
                 journeyType: "INDIVIDUAL",
@@ -2029,7 +2401,9 @@ describe("KycService", () => {
                 reviewedAt: null,
                 version: 3,
             });
-            mockPrismaService.kycAttemptEvent.create.mockResolvedValue({ id: 411 });
+            mockPrismaService.kycAttemptEvent.create.mockResolvedValue({
+                id: 411,
+            });
             mockDojahService.verifyBvn.mockResolvedValue({
                 data: {
                     entity: {
@@ -2042,9 +2416,14 @@ describe("KycService", () => {
                 },
             });
 
-            const result = await service.runProviderLookup({ userId: 12, verificationType: "BVN" }, 99);
+            const result = await service.runProviderLookup(
+                { userId: 12, verificationType: "BVN" },
+                99,
+            );
 
-            expect(mockPrismaService.kycAttemptEvent.create).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycAttemptEvent.create,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
                         attemptId: 812,
@@ -2097,19 +2476,21 @@ describe("KycService", () => {
         });
 
         it("runs NIN investigative lookups through Dojah identity verification", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 13,
-                    firstName: "Ada",
-                    lastName: "Lookup",
-                    phone: "08001112222",
-                    dateOfBirth: "1991-02-03",
-                    nin: "22334455667",
-                },
-                {
-                    documentStatus: DocumentVerificationStatus.PENDING,
-                },
-            ));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 13,
+                        firstName: "Ada",
+                        lastName: "Lookup",
+                        phone: "08001112222",
+                        dateOfBirth: "1991-02-03",
+                        nin: "22334455667",
+                    },
+                    {
+                        documentStatus: DocumentVerificationStatus.PENDING,
+                    },
+                ),
+            );
             mockDojahService.verifyNin.mockResolvedValue({
                 data: {
                     entity: {
@@ -2122,7 +2503,10 @@ describe("KycService", () => {
                 },
             });
 
-            const result = await service.runProviderLookup({ userId: 13, verificationType: "NIN" }, 99);
+            const result = await service.runProviderLookup(
+                { userId: 13, verificationType: "NIN" },
+                99,
+            );
 
             expect(result.data.results).toEqual([
                 expect.objectContaining({
@@ -2138,24 +2522,28 @@ describe("KycService", () => {
         });
 
         it("runs document investigative lookups through Dojah OCR", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 19,
-                    firstName: "Ada",
-                    lastName: "Lookup",
-                    phone: "08001112222",
-                    dateOfBirth: "1991-02-03",
-                    userDocument: {
-                        type: "PASSPORT",
-                        documentNumber: "A12345",
-                        documentImageUrl: "https://ik.imagekit.io/flipxer/passport-front.png",
-                        documentImageUrl2: "https://ik.imagekit.io/flipxer/passport-back.png",
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 19,
+                        firstName: "Ada",
+                        lastName: "Lookup",
+                        phone: "08001112222",
+                        dateOfBirth: "1991-02-03",
+                        userDocument: {
+                            type: "PASSPORT",
+                            documentNumber: "A12345",
+                            documentImageUrl:
+                                "https://ik.imagekit.io/flipxer/passport-front.png",
+                            documentImageUrl2:
+                                "https://ik.imagekit.io/flipxer/passport-back.png",
+                        },
                     },
-                },
-                {
-                    documentStatus: DocumentVerificationStatus.PENDING,
-                },
-            ));
+                    {
+                        documentStatus: DocumentVerificationStatus.PENDING,
+                    },
+                ),
+            );
             mockDojahService.analyzeDocument.mockResolvedValue({
                 parsed: {
                     isValid: true,
@@ -2175,7 +2563,10 @@ describe("KycService", () => {
                 },
             });
 
-            const result = await service.runProviderLookup({ userId: 19, verificationType: "DOCUMENT" }, 99);
+            const result = await service.runProviderLookup(
+                { userId: 19, verificationType: "DOCUMENT" },
+                99,
+            );
 
             expect(result.data.results).toEqual([
                 expect.objectContaining({
@@ -2193,14 +2584,18 @@ describe("KycService", () => {
         });
 
         it("runs address investigative lookups through the OCR validator", async () => {
-            jest.spyOn(service as any, "downloadLookupDocument").mockResolvedValue({
+            jest.spyOn(
+                service as any,
+                "downloadLookupDocument",
+            ).mockResolvedValue({
                 buffer: Buffer.from("address-doc"),
                 mimeType: "application/pdf",
             });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 isValid: false,
                 confidence: 88,
-                extractedText: "Ada Lookup 12 Marina Lagos electricity bill April 2026",
+                extractedText:
+                    "Ada Lookup 12 Marina Lagos electricity bill April 2026",
                 matchedName: true,
                 matchedAddress: true,
                 matchedResidentialAddress: false,
@@ -2209,21 +2604,27 @@ describe("KycService", () => {
                 documentDate: "2026-04-01T00:00:00.000Z",
                 isRecent: true,
             });
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 18,
-                    firstName: "Ada",
-                    lastName: "Lookup",
-                    residentialAddress: "12 Marina, Lagos",
-                    addressDocumentUrl: "https://ik.imagekit.io/flipxer/address.pdf",
-                    incomeDocumentUrl: null,
-                },
-                {
-                    addressStatus: DocumentVerificationStatus.PENDING,
-                },
-            ));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 18,
+                        firstName: "Ada",
+                        lastName: "Lookup",
+                        residentialAddress: "12 Marina, Lagos",
+                        addressDocumentUrl:
+                            "https://ik.imagekit.io/flipxer/address.pdf",
+                        incomeDocumentUrl: null,
+                    },
+                    {
+                        addressStatus: DocumentVerificationStatus.PENDING,
+                    },
+                ),
+            );
 
-            const result = await service.runProviderLookup({ userId: 18, verificationType: "ADDRESS" }, 77);
+            const result = await service.runProviderLookup(
+                { userId: 18, verificationType: "ADDRESS" },
+                77,
+            );
 
             expect(validateAddressDocument).toHaveBeenCalledWith(
                 expect.any(Buffer),
@@ -2247,35 +2648,45 @@ describe("KycService", () => {
         });
 
         it("runs income investigative lookups through the OCR validator", async () => {
-            jest.spyOn(service as any, "downloadLookupDocument").mockResolvedValue({
+            jest.spyOn(
+                service as any,
+                "downloadLookupDocument",
+            ).mockResolvedValue({
                 buffer: Buffer.from("income-doc"),
                 mimeType: "application/pdf",
             });
             (validateIncomeDocument as jest.Mock).mockResolvedValue({
                 isValid: true,
                 confidence: 91,
-                extractedText: "Ada Lookup salary payslip gross net pay April 2026",
+                extractedText:
+                    "Ada Lookup salary payslip gross net pay April 2026",
                 matchedName: true,
                 requiresManualReview: false,
                 reason: undefined,
                 documentDate: "2026-04-01T00:00:00.000Z",
                 isRecent: true,
             });
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 21,
-                    firstName: "Ada",
-                    lastName: "Lookup",
-                    residentialAddress: null,
-                    incomeDocumentUrl: "https://ik.imagekit.io/flipxer/income.pdf",
-                    addressDocumentUrl: null,
-                },
-                {
-                    incomeStatus: DocumentVerificationStatus.PENDING,
-                },
-            ));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 21,
+                        firstName: "Ada",
+                        lastName: "Lookup",
+                        residentialAddress: null,
+                        incomeDocumentUrl:
+                            "https://ik.imagekit.io/flipxer/income.pdf",
+                        addressDocumentUrl: null,
+                    },
+                    {
+                        incomeStatus: DocumentVerificationStatus.PENDING,
+                    },
+                ),
+            );
 
-            const result = await service.runProviderLookup({ userId: 21, verificationType: "INCOME" }, 77);
+            const result = await service.runProviderLookup(
+                { userId: 21, verificationType: "INCOME" },
+                77,
+            );
 
             expect(validateIncomeDocument).toHaveBeenCalledWith(
                 expect.any(Buffer),
@@ -2297,14 +2708,18 @@ describe("KycService", () => {
         });
 
         it("does not report income lookup manual review results as success", async () => {
-            jest.spyOn(service as any, "downloadLookupDocument").mockResolvedValue({
+            jest.spyOn(
+                service as any,
+                "downloadLookupDocument",
+            ).mockResolvedValue({
                 buffer: Buffer.from("income-doc"),
                 mimeType: "application/pdf",
             });
             (validateIncomeDocument as jest.Mock).mockResolvedValue({
                 isValid: true,
                 confidence: 91,
-                extractedText: "Ada Lookup salary payslip gross net pay April 2026",
+                extractedText:
+                    "Ada Lookup salary payslip gross net pay April 2026",
                 matchedName: true,
                 requiresManualReview: true,
                 reason: "We could not confidently confirm the statement date.",
@@ -2312,21 +2727,27 @@ describe("KycService", () => {
                 isRecent: false,
             });
 
-            const result = await (service as any).runIncomeLookup({
-                firstName: "Ada",
-                lastName: "Lookup",
-                incomeDocumentUrl: "https://ik.imagekit.io/flipxer/income.pdf",
-            }, "2026-04-23T12:30:00.000Z");
+            const result = await (service as any).runIncomeLookup(
+                {
+                    firstName: "Ada",
+                    lastName: "Lookup",
+                    incomeDocumentUrl:
+                        "https://ik.imagekit.io/flipxer/income.pdf",
+                },
+                "2026-04-23T12:30:00.000Z",
+            );
 
-            expect(result).toEqual(expect.objectContaining({
-                key: "INCOME",
-                provider: "OCR",
-                status: "FAILED",
-                summary: expect.objectContaining({
-                    verified: false,
-                    requiresManualReview: true,
+            expect(result).toEqual(
+                expect.objectContaining({
+                    key: "INCOME",
+                    provider: "OCR",
+                    status: "FAILED",
+                    summary: expect.objectContaining({
+                        verified: false,
+                        requiresManualReview: true,
+                    }),
                 }),
-            }));
+            );
         });
 
         it("runs business investigative lookups across CAC, TIN, and OCR", async () => {
@@ -2386,14 +2807,20 @@ describe("KycService", () => {
                 },
             });
 
-            const result = await service.runProviderLookup({ userId: 31, verificationType: "BUSINESS_DOCUMENT" }, 77);
+            const result = await service.runProviderLookup(
+                { userId: 31, verificationType: "BUSINESS_DOCUMENT" },
+                77,
+            );
 
             expect(result.data.results).toHaveLength(3);
             expect(result.data.results).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({ key: "CAC", status: "SUCCESS" }),
                     expect.objectContaining({ key: "TIN", status: "SUCCESS" }),
-                    expect.objectContaining({ key: "CAC_OCR", status: "SUCCESS" }),
+                    expect.objectContaining({
+                        key: "CAC_OCR",
+                        status: "SUCCESS",
+                    }),
                 ]),
             );
         });
@@ -2432,7 +2859,9 @@ describe("KycService", () => {
                 kycStageAttempts: [],
                 kycAttemptEvents: [],
             });
-            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValueOnce(null);
+            mockPrismaService.kycStageAttempt.findFirst.mockResolvedValueOnce(
+                null,
+            );
             mockPrismaService.kycStageAttempt.create.mockResolvedValue({
                 id: 810,
                 journeyType: "BUSINESS",
@@ -2444,17 +2873,27 @@ describe("KycService", () => {
                 reviewedAt: null,
                 version: 1,
             });
-            mockPrismaService.kycAttemptEvent.create.mockResolvedValue({ id: 911 });
+            mockPrismaService.kycAttemptEvent.create.mockResolvedValue({
+                id: 911,
+            });
 
-            const result = await service.runProviderLookup({ userId: 55, verificationType: "BUSINESS_DOCUMENT" }, 77);
+            const result = await service.runProviderLookup(
+                { userId: 55, verificationType: "BUSINESS_DOCUMENT" },
+                77,
+            );
 
-            expect(result).toEqual(expect.objectContaining({
-                message: "BUSINESS_DOCUMENT lookup completed with partial failures",
-                data: expect.objectContaining({
-                    historyRecordId: 911,
+            expect(result).toEqual(
+                expect.objectContaining({
+                    message:
+                        "BUSINESS_DOCUMENT lookup completed with partial failures",
+                    data: expect.objectContaining({
+                        historyRecordId: 911,
+                    }),
                 }),
-            }));
-            expect(mockPrismaService.kycStageAttempt.create).toHaveBeenCalledWith(
+            );
+            expect(
+                mockPrismaService.kycStageAttempt.create,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
                         userId: 55,
@@ -2469,7 +2908,9 @@ describe("KycService", () => {
                     }),
                 }),
             );
-            expect(mockPrismaService.kycAttemptEvent.create).toHaveBeenCalledWith(
+            expect(
+                mockPrismaService.kycAttemptEvent.create,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
                         attemptId: 810,
@@ -2491,32 +2932,44 @@ describe("KycService", () => {
             });
 
             await expect(
-                service.runProviderLookup({ userId: 56, verificationType: "ALIEN" } as any, 77),
+                service.runProviderLookup(
+                    { userId: 56, verificationType: "ALIEN" } as any,
+                    77,
+                ),
             ).rejects.toThrow("Unsupported lookup type: ALIEN");
         });
     });
 
     describe("document lookup helpers", () => {
         it("downloads investigative documents from trusted origins", async () => {
-            (httpsRequest as jest.Mock).mockImplementation((options: Record<string, any>, callback: (response: Readable) => void) => {
-                const response = Readable.from([Buffer.from([1, 2, 3])]);
-                Object.assign(response, {
-                    statusCode: 200,
-                    headers: { "content-type": "application/pdf" } as Record<string, string>,
-                });
+            (httpsRequest as jest.Mock).mockImplementation(
+                (
+                    options: Record<string, any>,
+                    callback: (response: Readable) => void,
+                ) => {
+                    const response = Readable.from([Buffer.from([1, 2, 3])]);
+                    Object.assign(response, {
+                        statusCode: 200,
+                        headers: {
+                            "content-type": "application/pdf",
+                        } as Record<string, string>,
+                    });
 
-                const request = {
-                    on: jest.fn().mockReturnThis(),
-                    destroy: jest.fn(),
-                    end: jest.fn(() => {
-                        callback(response);
-                    }),
-                };
+                    const request = {
+                        on: jest.fn().mockReturnThis(),
+                        destroy: jest.fn(),
+                        end: jest.fn(() => {
+                            callback(response);
+                        }),
+                    };
 
-                return request;
-            });
+                    return request;
+                },
+            );
 
-            const result = await (service as any).downloadLookupDocument("https://ik.imagekit.io/flipxer/document.pdf");
+            const result = await (service as any).downloadLookupDocument(
+                "https://ik.imagekit.io/flipxer/document.pdf",
+            );
 
             expect(httpsRequest).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -2533,8 +2986,12 @@ describe("KycService", () => {
 
         it("rejects untrusted investigative document urls", async () => {
             await expect(
-                (service as any).downloadLookupDocument("http://evil.example.com/document.pdf"),
-            ).rejects.toThrow("Stored document URL is not trusted for investigative lookup");
+                (service as any).downloadLookupDocument(
+                    "http://evil.example.com/document.pdf",
+                ),
+            ).rejects.toThrow(
+                "Stored document URL is not trusted for investigative lookup",
+            );
         });
 
         it("covers lookup status fallback helpers and note variants", () => {
@@ -2561,101 +3018,171 @@ describe("KycService", () => {
                 businessDocumentVerificationStatus: null,
             };
 
-            expect((service as any).resolveLookupHistoryStatus(user, "BVN")).toBe(KycStatus.APPROVED);
-            expect((service as any).resolveLookupHistoryStatus(user, "NIN")).toBe(KycStatus.PENDING);
-            expect((service as any).resolveLookupHistoryStatus(user, "DOCUMENT")).toBe(KycStatus.REJECTED);
-            expect((service as any).resolveLookupHistoryStatus(user, "ADDRESS")).toBe(KycStatus.APPROVED);
-            expect((service as any).resolveLookupHistoryStatus(user, "INCOME")).toBe(KycStatus.PENDING);
-            expect((service as any).resolveLookupHistoryStatus(user, "BUSINESS_DOCUMENT")).toBe(KycStatus.PENDING);
-            expect((service as any).resolveLookupHistoryStatus(user, "BVN", KycStatus.ESCALATED)).toBe(KycStatus.ESCALATED);
+            expect(
+                (service as any).resolveLookupHistoryStatus(user, "BVN"),
+            ).toBe(KycStatus.APPROVED);
+            expect(
+                (service as any).resolveLookupHistoryStatus(user, "NIN"),
+            ).toBe(KycStatus.PENDING);
+            expect(
+                (service as any).resolveLookupHistoryStatus(user, "DOCUMENT"),
+            ).toBe(KycStatus.REJECTED);
+            expect(
+                (service as any).resolveLookupHistoryStatus(user, "ADDRESS"),
+            ).toBe(KycStatus.APPROVED);
+            expect(
+                (service as any).resolveLookupHistoryStatus(user, "INCOME"),
+            ).toBe(KycStatus.PENDING);
+            expect(
+                (service as any).resolveLookupHistoryStatus(
+                    user,
+                    "BUSINESS_DOCUMENT",
+                ),
+            ).toBe(KycStatus.PENDING);
+            expect(
+                (service as any).resolveLookupHistoryStatus(
+                    user,
+                    "BVN",
+                    KycStatus.ESCALATED,
+                ),
+            ).toBe(KycStatus.ESCALATED);
 
-            expect((service as any).buildLookupHistoryNote("BUSINESS_DOCUMENT", "PARTIAL_FAILURE", [
-                { status: "SUCCESS" },
-                { status: "FAILED" },
-            ])).toBe("BUSINESS_DOCUMENT investigative lookup captured with 1 provider issue");
-            expect((service as any).buildLookupHistoryNote("DOCUMENT", "FAILED", [
-                { status: "FAILED" },
-            ])).toBe("DOCUMENT investigative lookup failed at provider");
+            expect(
+                (service as any).buildLookupHistoryNote(
+                    "BUSINESS_DOCUMENT",
+                    "PARTIAL_FAILURE",
+                    [{ status: "SUCCESS" }, { status: "FAILED" }],
+                ),
+            ).toBe(
+                "BUSINESS_DOCUMENT investigative lookup captured with 1 provider issue",
+            );
+            expect(
+                (service as any).buildLookupHistoryNote("DOCUMENT", "FAILED", [
+                    { status: "FAILED" },
+                ]),
+            ).toBe("DOCUMENT investigative lookup failed at provider");
         });
 
         it("covers lookup identity, registry, and normalization error branches", async () => {
             const configMock = jest.requireMock("@/config");
-            const warnSpy = jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
+            const warnSpy = jest
+                .spyOn((service as any).logger, "warn")
+                .mockImplementation(() => undefined);
             const previousImagekitUrl = configMock.imagekitConfig.url;
 
             try {
-                await expect((service as any).runIdentityLookup({
-                    user: {},
-                    identifier: null,
-                    missingIdentifierMessage: "Missing identity identifier",
-                    request: jest.fn(),
-                    key: "BVN",
-                    label: "BVN lookup",
-                    lookedUpAt: "2026-04-23T12:30:00.000Z",
-                })).rejects.toThrow("Missing identity identifier");
+                await expect(
+                    (service as any).runIdentityLookup({
+                        user: {},
+                        identifier: null,
+                        missingIdentifierMessage: "Missing identity identifier",
+                        request: jest.fn(),
+                        key: "BVN",
+                        label: "BVN lookup",
+                        lookedUpAt: "2026-04-23T12:30:00.000Z",
+                    }),
+                ).rejects.toThrow("Missing identity identifier");
 
-                await expect((service as any).runBusinessRegistryLookup({
-                    identifier: "",
-                    businessName: "Ada Stores",
-                    expectedName: "adastores",
-                    lookedUpAt: "2026-04-23T12:30:00.000Z",
-                    key: "TIN",
-                    label: "TIN verification",
-                    request: jest.fn(),
-                    providerNameField: "taxpayer_name",
-                })).rejects.toThrow("Missing TIN identifier for business lookup");
+                await expect(
+                    (service as any).runBusinessRegistryLookup({
+                        identifier: "",
+                        businessName: "Ada Stores",
+                        expectedName: "adastores",
+                        lookedUpAt: "2026-04-23T12:30:00.000Z",
+                        key: "TIN",
+                        label: "TIN verification",
+                        request: jest.fn(),
+                        providerNameField: "taxpayer_name",
+                    }),
+                ).rejects.toThrow("Missing TIN identifier for business lookup");
 
-                const identityFailure = await (service as any).runIdentityLookup({
+                const identityFailure = await (
+                    service as any
+                ).runIdentityLookup({
                     user: {},
                     identifier: "12345678901",
                     missingIdentifierMessage: "Missing identity identifier",
-                    request: () => Promise.reject(new Error("identity provider unavailable")),
+                    request: () =>
+                        Promise.reject(
+                            new Error("identity provider unavailable"),
+                        ),
                     key: "BVN",
                     label: "BVN lookup",
                     lookedUpAt: "2026-04-23T12:30:00.000Z",
                 });
-                expect(identityFailure).toEqual(expect.objectContaining({
-                    status: "FAILED",
-                    summary: expect.objectContaining({ error: "identity provider unavailable" }),
-                }));
+                expect(identityFailure).toEqual(
+                    expect.objectContaining({
+                        status: "FAILED",
+                        summary: expect.objectContaining({
+                            error: "identity provider unavailable",
+                        }),
+                    }),
+                );
 
-                const registryFailure = await (service as any).runBusinessRegistryLookup({
+                const registryFailure = await (
+                    service as any
+                ).runBusinessRegistryLookup({
                     identifier: "TIN-123",
                     businessName: "Ada Stores",
                     expectedName: "adastores",
                     lookedUpAt: "2026-04-23T12:30:00.000Z",
                     key: "TIN",
                     label: "TIN verification",
-                    request: () => Promise.reject(new Error("TIN provider timeout")),
+                    request: () =>
+                        Promise.reject(new Error("TIN provider timeout")),
                     providerNameField: "taxpayer_name",
                 });
-                expect(registryFailure).toEqual(expect.objectContaining({
-                    status: "FAILED",
-                    summary: expect.objectContaining({ error: "TIN provider timeout" }),
-                }));
+                expect(registryFailure).toEqual(
+                    expect.objectContaining({
+                        status: "FAILED",
+                        summary: expect.objectContaining({
+                            error: "TIN provider timeout",
+                        }),
+                    }),
+                );
 
-                expect((service as any).buildLookupErrorResult(
-                    "BVN",
-                    "BVN lookup",
-                    "2026-04-23T12:30:00.000Z",
-                    "non-error failure",
-                )).toEqual(expect.objectContaining({
-                    provider: "DOJAH",
-                    summary: expect.objectContaining({ error: "Provider lookup failed" }),
-                }));
+                expect(
+                    (service as any).buildLookupErrorResult(
+                        "BVN",
+                        "BVN lookup",
+                        "2026-04-23T12:30:00.000Z",
+                        "non-error failure",
+                    ),
+                ).toEqual(
+                    expect.objectContaining({
+                        provider: "DOJAH",
+                        summary: expect.objectContaining({
+                            error: "Provider lookup failed",
+                        }),
+                    }),
+                );
 
-                expect((service as any).buildLookupTextExcerpt(null)).toBeNull();
-                expect((service as any).buildLookupTextExcerpt("   \n\t   ")).toBeNull();
+                expect(
+                    (service as any).buildLookupTextExcerpt(null),
+                ).toBeNull();
+                expect(
+                    (service as any).buildLookupTextExcerpt("   \n\t   "),
+                ).toBeNull();
                 expect((service as any).normalizeLookupDate(null)).toBe("");
-                expect((service as any).normalizeLookupDate("DOB-23042026")).toBe("23042026");
+                expect(
+                    (service as any).normalizeLookupDate("DOB-23042026"),
+                ).toBe("23042026");
 
                 configMock.imagekitConfig.url = "::invalid-imagekit-url";
 
-                const trustedOrigins = (service as any).getTrustedDocumentOrigins();
+                const trustedOrigins = (
+                    service as any
+                ).getTrustedDocumentOrigins();
 
                 expect(trustedOrigins.has("https://ik.imagekit.io")).toBe(true);
-                expect(warnSpy).toHaveBeenCalledWith("Invalid IMAGEKIT_URL configured; skipping URL origin allowlist entry");
-                expect((service as any).resolveTrustedDocumentUrl("not-a-valid-url")).toBeNull();
+                expect(warnSpy).toHaveBeenCalledWith(
+                    "Invalid IMAGEKIT_URL configured; skipping URL origin allowlist entry",
+                );
+                expect(
+                    (service as any).resolveTrustedDocumentUrl(
+                        "not-a-valid-url",
+                    ),
+                ).toBeNull();
             } finally {
                 configMock.imagekitConfig.url = previousImagekitUrl;
                 warnSpy.mockRestore();
@@ -2663,74 +3190,129 @@ describe("KycService", () => {
         });
 
         it("covers document, address, and income lookup failure branches", async () => {
-            const downloadSpy = jest.spyOn(service as any, "downloadLookupDocument");
+            const downloadSpy = jest.spyOn(
+                service as any,
+                "downloadLookupDocument",
+            );
 
             await expect(
-                (service as any).runDocumentLookup({ userDocument: null }, "2026-04-23T12:30:00.000Z"),
-            ).rejects.toThrow("This user does not have a submitted identity document to recheck");
+                (service as any).runDocumentLookup(
+                    { userDocument: null },
+                    "2026-04-23T12:30:00.000Z",
+                ),
+            ).rejects.toThrow(
+                "This user does not have a submitted identity document to recheck",
+            );
 
-            mockDojahService.analyzeDocument.mockRejectedValueOnce(new Error("document OCR failed"));
-            const documentFailure = await (service as any).runDocumentLookup({
-                firstName: "Ada",
-                lastName: "Lookup",
-                dateOfBirth: null,
-                userDocument: {
-                    type: "PASSPORT",
-                    documentNumber: "A12345",
-                    documentImageUrl: "https://ik.imagekit.io/flipxer/passport-front.png",
-                    documentImageUrl2: null,
+            mockDojahService.analyzeDocument.mockRejectedValueOnce(
+                new Error("document OCR failed"),
+            );
+            const documentFailure = await (service as any).runDocumentLookup(
+                {
+                    firstName: "Ada",
+                    lastName: "Lookup",
+                    dateOfBirth: null,
+                    userDocument: {
+                        type: "PASSPORT",
+                        documentNumber: "A12345",
+                        documentImageUrl:
+                            "https://ik.imagekit.io/flipxer/passport-front.png",
+                        documentImageUrl2: null,
+                    },
                 },
-            }, "2026-04-23T12:30:00.000Z");
-            expect(documentFailure).toEqual(expect.objectContaining({
-                key: "DOCUMENT",
-                status: "FAILED",
-                summary: expect.objectContaining({ error: "document OCR failed" }),
-            }));
+                "2026-04-23T12:30:00.000Z",
+            );
+            expect(documentFailure).toEqual(
+                expect.objectContaining({
+                    key: "DOCUMENT",
+                    status: "FAILED",
+                    summary: expect.objectContaining({
+                        error: "document OCR failed",
+                    }),
+                }),
+            );
 
             await expect(
-                (service as any).runAddressLookup({ addressDocumentUrl: null }, "2026-04-23T12:30:00.000Z"),
-            ).rejects.toThrow("This user does not have a submitted address document to recheck");
+                (service as any).runAddressLookup(
+                    { addressDocumentUrl: null },
+                    "2026-04-23T12:30:00.000Z",
+                ),
+            ).rejects.toThrow(
+                "This user does not have a submitted address document to recheck",
+            );
 
-            downloadSpy.mockRejectedValueOnce(new Error("address download failed"));
-            const addressFailure = await (service as any).runAddressLookup({
-                firstName: "Ada",
-                lastName: "Lookup",
-                residentialAddress: "12 Marina, Lagos",
-                addressDocumentUrl: "https://ik.imagekit.io/flipxer/address.pdf",
-            }, "2026-04-23T12:30:00.000Z");
-            expect(addressFailure).toEqual(expect.objectContaining({
-                key: "ADDRESS",
-                provider: "OCR",
-                status: "FAILED",
-                summary: expect.objectContaining({ error: "address download failed" }),
-            }));
+            downloadSpy.mockRejectedValueOnce(
+                new Error("address download failed"),
+            );
+            const addressFailure = await (service as any).runAddressLookup(
+                {
+                    firstName: "Ada",
+                    lastName: "Lookup",
+                    residentialAddress: "12 Marina, Lagos",
+                    addressDocumentUrl:
+                        "https://ik.imagekit.io/flipxer/address.pdf",
+                },
+                "2026-04-23T12:30:00.000Z",
+            );
+            expect(addressFailure).toEqual(
+                expect.objectContaining({
+                    key: "ADDRESS",
+                    provider: "OCR",
+                    status: "FAILED",
+                    summary: expect.objectContaining({
+                        error: "address download failed",
+                    }),
+                }),
+            );
 
             await expect(
-                (service as any).runIncomeLookup({ incomeDocumentUrl: null }, "2026-04-23T12:30:00.000Z"),
-            ).rejects.toThrow("This user does not have a submitted income document to recheck");
+                (service as any).runIncomeLookup(
+                    { incomeDocumentUrl: null },
+                    "2026-04-23T12:30:00.000Z",
+                ),
+            ).rejects.toThrow(
+                "This user does not have a submitted income document to recheck",
+            );
 
-            downloadSpy.mockRejectedValueOnce(new Error("income download failed"));
-            const incomeFailure = await (service as any).runIncomeLookup({
-                firstName: "Ada",
-                lastName: "Lookup",
-                incomeDocumentUrl: "https://ik.imagekit.io/flipxer/income.pdf",
-            }, "2026-04-23T12:30:00.000Z");
-            expect(incomeFailure).toEqual(expect.objectContaining({
-                key: "INCOME",
-                provider: "OCR",
-                status: "FAILED",
-                summary: expect.objectContaining({ error: "income download failed" }),
-            }));
+            downloadSpy.mockRejectedValueOnce(
+                new Error("income download failed"),
+            );
+            const incomeFailure = await (service as any).runIncomeLookup(
+                {
+                    firstName: "Ada",
+                    lastName: "Lookup",
+                    incomeDocumentUrl:
+                        "https://ik.imagekit.io/flipxer/income.pdf",
+                },
+                "2026-04-23T12:30:00.000Z",
+            );
+            expect(incomeFailure).toEqual(
+                expect.objectContaining({
+                    key: "INCOME",
+                    provider: "OCR",
+                    status: "FAILED",
+                    summary: expect.objectContaining({
+                        error: "income download failed",
+                    }),
+                }),
+            );
 
             downloadSpy.mockRestore();
         });
 
         it("covers business lookup helper failure branches", async () => {
             await expect(
-                (service as any).runBusinessDocumentLookup({ businessRecord: null, businessDocument: null }, "2026-04-23T12:30:00.000Z"),
-            ).rejects.toThrow("This business user does not have stored business verification artifacts to recheck");
+                (service as any).runBusinessDocumentLookup(
+                    { businessRecord: null, businessDocument: null },
+                    "2026-04-23T12:30:00.000Z",
+                ),
+            ).rejects.toThrow(
+                "This business user does not have stored business verification artifacts to recheck",
+            );
 
-            mockDojahService.analyzeDocument.mockRejectedValueOnce(new Error("CAC OCR failed"));
+            mockDojahService.analyzeDocument.mockRejectedValueOnce(
+                new Error("CAC OCR failed"),
+            );
 
             const ocrFailure = await (service as any).lookupBusinessOcrResult(
                 "https://ik.imagekit.io/flipxer/cac.pdf",
@@ -2738,21 +3320,27 @@ describe("KycService", () => {
                 "2026-04-23T12:30:00.000Z",
             );
 
-            expect(ocrFailure).toEqual(expect.objectContaining({
-                key: "CAC_OCR",
-                status: "FAILED",
-                summary: expect.objectContaining({ error: "CAC OCR failed" }),
-            }));
+            expect(ocrFailure).toEqual(
+                expect.objectContaining({
+                    key: "CAC_OCR",
+                    status: "FAILED",
+                    summary: expect.objectContaining({
+                        error: "CAC OCR failed",
+                    }),
+                }),
+            );
         });
     });
 
     describe("updateUserVerification", () => {
         it("updates verification flags, audits changes, and syncs tier", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser({
-                id: 4,
-                bvn: "12345678901",
-                nin: "10987654321",
-            }));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser({
+                    id: 4,
+                    bvn: "12345678901",
+                    nin: "10987654321",
+                }),
+            );
 
             mockPrismaService.user.update.mockResolvedValue({
                 id: 4,
@@ -2764,15 +3352,24 @@ describe("KycService", () => {
                 isIncomeVerified: false,
             });
             mockAuditLogService.log.mockResolvedValue(undefined);
-            mockTierService.syncTierAndCache.mockResolvedValue({ id: 4, tier: 1 });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                id: 4,
+                tier: 1,
+            });
 
             const result = await service.updateUserVerification(
                 4,
-                { bvnVerified: true, ninVerified: true, reason: "validated" } as any,
+                {
+                    bvnVerified: true,
+                    ninVerified: true,
+                    reason: "validated",
+                } as any,
                 9,
             );
 
-            expect(result.message).toBe("User verification status updated successfully");
+            expect(result.message).toBe(
+                "User verification status updated successfully",
+            );
             expect(mockAuditLogService.log).toHaveBeenCalledWith(
                 expect.objectContaining({
                     action: "UPDATE_USER_VERIFICATION",
@@ -2782,17 +3379,19 @@ describe("KycService", () => {
         });
 
         it("normalizes individual status fields when admin toggles verification booleans", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 12,
-                    bvn: "12345678901",
-                    nin: "10987654321",
-                },
-                {
-                    documentStatus: DocumentVerificationStatus.DECLINED,
-                    addressVerified: true,
-                },
-            ));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 12,
+                        bvn: "12345678901",
+                        nin: "10987654321",
+                    },
+                    {
+                        documentStatus: DocumentVerificationStatus.DECLINED,
+                        addressVerified: true,
+                    },
+                ),
+            );
             mockPrismaService.user.update.mockResolvedValue({
                 id: 12,
                 email: "u@flipxer.com",
@@ -2806,7 +3405,10 @@ describe("KycService", () => {
                 incomeVerificationStatus: "VERIFIED",
                 businessDocumentVerificationStatus: null,
             });
-            mockTierService.syncTierAndCache.mockResolvedValue({ id: 12, tier: 3 });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                id: 12,
+                tier: 3,
+            });
 
             await service.updateUserVerification(
                 12,
@@ -2832,47 +3434,51 @@ describe("KycService", () => {
         });
 
         it("uses stage attempt version for staged government-id admin decisions", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 46,
-                    identifier: "usr-46",
-                    firstName: "Pending",
-                    lastName: "Version",
-                    email: "pending-version@flipxer.com",
-                    phone: "08001112224",
-                    tier: 0,
-                    createdAt: new Date("2026-04-01T10:00:00.000Z"),
-                    kycStageAttempts: [
-                        {
-                            id: 801,
-                            stage: "GOVERNMENT_ID",
-                            method: "BVN",
-                            attemptNo: 2,
-                            isCurrent: true,
-                            status: "PENDING_REVIEW",
-                            providerStatus: "INCONCLUSIVE",
-                            providerRef: "seeded-bvn",
-                            reasonCode: "REVIEW_REQUIRED",
-                            reasonMessage: "Manual review required",
-                            reasonDetails: null,
-                            extractedFields: null,
-                            comparisonSummary: null,
-                            evidenceSummary: { identifierType: "BVN" },
-                            reviewNote: null,
-                            reviewerId: null,
-                            submittedAt: new Date("2026-04-20T10:00:00.000Z"),
-                            reviewedAt: null,
-                            version: 1,
-                            evidenceAssets: [],
-                        },
-                    ],
-                    order: [],
-                },
-                {
-                    emailVerified: true,
-                    phoneVerified: true,
-                },
-            ));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 46,
+                        identifier: "usr-46",
+                        firstName: "Pending",
+                        lastName: "Version",
+                        email: "pending-version@flipxer.com",
+                        phone: "08001112224",
+                        tier: 0,
+                        createdAt: new Date("2026-04-01T10:00:00.000Z"),
+                        kycStageAttempts: [
+                            {
+                                id: 801,
+                                stage: "GOVERNMENT_ID",
+                                method: "BVN",
+                                attemptNo: 2,
+                                isCurrent: true,
+                                status: "PENDING_REVIEW",
+                                providerStatus: "INCONCLUSIVE",
+                                providerRef: "seeded-bvn",
+                                reasonCode: "REVIEW_REQUIRED",
+                                reasonMessage: "Manual review required",
+                                reasonDetails: null,
+                                extractedFields: null,
+                                comparisonSummary: null,
+                                evidenceSummary: { identifierType: "BVN" },
+                                reviewNote: null,
+                                reviewerId: null,
+                                submittedAt: new Date(
+                                    "2026-04-20T10:00:00.000Z",
+                                ),
+                                reviewedAt: null,
+                                version: 1,
+                                evidenceAssets: [],
+                            },
+                        ],
+                        order: [],
+                    },
+                    {
+                        emailVerified: true,
+                        phoneVerified: true,
+                    },
+                ),
+            );
             mockPrismaService.auditLog.findMany.mockResolvedValue([]);
 
             const result = await service.getKycUserDetail(46);
@@ -2882,7 +3488,12 @@ describe("KycService", () => {
                     attemptId: 801,
                     version: 1,
                     status: "PENDING",
-                    allowedActions: expect.arrayContaining(["APPROVE", "REJECT", "ESCALATE", "RECHECK"]),
+                    allowedActions: expect.arrayContaining([
+                        "APPROVE",
+                        "REJECT",
+                        "ESCALATE",
+                        "RECHECK",
+                    ]),
                 }),
             );
         });
@@ -2896,86 +3507,95 @@ describe("KycService", () => {
                 },
             };
 
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser(
-                {
-                    id: 47,
-                    identifier: "usr-47",
-                    firstName: "Pending",
-                    lastName: "Version",
-                    email: "imported-history@flipxer.com",
-                    phone: "08001112225",
-                    tier: 0,
-                    bvn: "12345678901",
-                    createdAt: new Date("2026-04-01T10:00:00.000Z"),
-                    kycStageAttempts: [
-                        {
-                            id: 811,
-                            stage: "GOVERNMENT_ID",
-                            method: "BVN",
-                            attemptNo: 1,
-                            isCurrent: true,
-                            status: "PENDING_REVIEW",
-                            providerStatus: "RUNNING",
-                            providerRef: "legacy-bvn-ref",
-                            reasonCode: "REVIEW_REQUIRED",
-                            reasonMessage: "Manual review required",
-                            reasonDetails: null,
-                            extractedFields: null,
-                            comparisonSummary: null,
-                            evidenceSummary: { identifierType: "BVN" },
-                            reviewNote: null,
-                            reviewerId: null,
-                            submittedAt: new Date("2026-04-20T10:00:00.000Z"),
-                            reviewedAt: null,
-                            version: 1,
-                            evidenceAssets: [],
-                        },
-                    ],
-                    kycAttemptEvents: [
-                        {
-                            id: 9811,
-                            attemptId: 811,
-                            journeyType: "INDIVIDUAL",
-                            stage: "GOVERNMENT_ID",
-                            eventType: "IMPORTED_LEGACY_HISTORY",
-                            actorType: "SYSTEM",
-                            actorId: null,
-                            note: "BVN legacy verification imported (status APPROVED, version 2)",
-                            payload: {
-                                source: "IMPORTED_LEGACY_HISTORY",
-                                importedFromLegacy: true,
-                                legacyRecordId: 311,
-                                verificationType: "BVN",
-                                status: "APPROVED",
-                                version: 2,
-                                isActive: false,
-                                reviewerId: null,
-                                reviewNote: null,
-                                documentUrl: null,
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser(
+                    {
+                        id: 47,
+                        identifier: "usr-47",
+                        firstName: "Pending",
+                        lastName: "Version",
+                        email: "imported-history@flipxer.com",
+                        phone: "08001112225",
+                        tier: 0,
+                        bvn: "12345678901",
+                        createdAt: new Date("2026-04-01T10:00:00.000Z"),
+                        kycStageAttempts: [
+                            {
+                                id: 811,
+                                stage: "GOVERNMENT_ID",
+                                method: "BVN",
+                                attemptNo: 1,
+                                isCurrent: true,
+                                status: "PENDING_REVIEW",
+                                providerStatus: "RUNNING",
                                 providerRef: "legacy-bvn-ref",
-                                providerRawResponse,
-                                submittedAt: "2026-04-20T10:00:00.000Z",
+                                reasonCode: "REVIEW_REQUIRED",
+                                reasonMessage: "Manual review required",
+                                reasonDetails: null,
+                                extractedFields: null,
+                                comparisonSummary: null,
+                                evidenceSummary: { identifierType: "BVN" },
+                                reviewNote: null,
+                                reviewerId: null,
+                                submittedAt: new Date(
+                                    "2026-04-20T10:00:00.000Z",
+                                ),
                                 reviewedAt: null,
-                                escalatedAt: null,
-                                createdAt: "2026-04-20T10:00:00.000Z",
-                                updatedAt: "2026-04-20T10:05:00.000Z",
+                                version: 1,
+                                evidenceAssets: [],
                             },
-                            createdAt: new Date("2026-04-20T10:05:00.000Z"),
-                        },
-                    ],
-                    order: [],
-                },
-                {
-                    emailVerified: true,
-                    phoneVerified: true,
-                },
-            ));
+                        ],
+                        kycAttemptEvents: [
+                            {
+                                id: 9811,
+                                attemptId: 811,
+                                journeyType: "INDIVIDUAL",
+                                stage: "GOVERNMENT_ID",
+                                eventType: "IMPORTED_LEGACY_HISTORY",
+                                actorType: "SYSTEM",
+                                actorId: null,
+                                note: "BVN legacy verification imported (status APPROVED, version 2)",
+                                payload: {
+                                    source: "IMPORTED_LEGACY_HISTORY",
+                                    importedFromLegacy: true,
+                                    legacyRecordId: 311,
+                                    verificationType: "BVN",
+                                    status: "APPROVED",
+                                    version: 2,
+                                    isActive: false,
+                                    reviewerId: null,
+                                    reviewNote: null,
+                                    documentUrl: null,
+                                    providerRef: "legacy-bvn-ref",
+                                    providerRawResponse,
+                                    submittedAt: "2026-04-20T10:00:00.000Z",
+                                    reviewedAt: null,
+                                    escalatedAt: null,
+                                    createdAt: "2026-04-20T10:00:00.000Z",
+                                    updatedAt: "2026-04-20T10:05:00.000Z",
+                                },
+                                createdAt: new Date("2026-04-20T10:05:00.000Z"),
+                            },
+                        ],
+                        order: [],
+                    },
+                    {
+                        emailVerified: true,
+                        phoneVerified: true,
+                    },
+                ),
+            );
             mockPrismaService.auditLog.findMany.mockResolvedValue([]);
 
             const result = await service.getKycUserDetail(47);
 
-            expect(result.data.attemptDetailsByVerificationType.BVN.rawProviderResponse).toEqual(providerRawResponse);
-            expect(result.data.attemptDetailsByVerificationType.BVN.lookupHistory).toEqual([]);
+            expect(
+                result.data.attemptDetailsByVerificationType.BVN
+                    .rawProviderResponse,
+            ).toEqual(providerRawResponse);
+            expect(
+                result.data.attemptDetailsByVerificationType.BVN.lookupHistory,
+            ).toEqual([]);
         });
 
         it("normalizes business document status when admin toggles document verification", async () => {
@@ -3004,7 +3624,10 @@ describe("KycService", () => {
                 incomeVerificationStatus: null,
                 businessDocumentVerificationStatus: "VERIFIED",
             });
-            mockTierService.syncTierAndCache.mockResolvedValue({ id: 13, tier: 1 });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                id: 13,
+                tier: 1,
+            });
 
             await service.updateUserVerification(
                 13,
@@ -3027,26 +3650,38 @@ describe("KycService", () => {
         });
 
         it("throws when attempting to verify NIN for users without NIN", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser({
-                id: 10,
-                bvn: "12345678901",
-                nin: null,
-            }));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser({
+                    id: 10,
+                    bvn: "12345678901",
+                    nin: null,
+                }),
+            );
 
             await expect(
-                service.updateUserVerification(10, { ninVerified: true, reason: "reviewed" } as any, 99),
+                service.updateUserVerification(
+                    10,
+                    { ninVerified: true, reason: "reviewed" } as any,
+                    99,
+                ),
             ).rejects.toThrow("Cannot set NIN verified");
         });
 
         it("throws when attempting to verify BVN for users without BVN", async () => {
-            mockPrismaService.user.findUnique.mockResolvedValue(createIndividualUser({
-                id: 11,
-                bvn: null,
-                nin: "10987654321",
-            }));
+            mockPrismaService.user.findUnique.mockResolvedValue(
+                createIndividualUser({
+                    id: 11,
+                    bvn: null,
+                    nin: "10987654321",
+                }),
+            );
 
             await expect(
-                service.updateUserVerification(11, { bvnVerified: true, reason: "reviewed" } as any, 99),
+                service.updateUserVerification(
+                    11,
+                    { bvnVerified: true, reason: "reviewed" } as any,
+                    99,
+                ),
             ).rejects.toThrow("Cannot set BVN verified");
         });
 
@@ -3059,7 +3694,12 @@ describe("KycService", () => {
                 99,
             );
 
-            expect(result).toEqual(expect.objectContaining({ message: "User not found", success: true }));
+            expect(result).toEqual(
+                expect.objectContaining({
+                    message: "User not found",
+                    success: true,
+                }),
+            );
             expect(mockPrismaService.user.update).not.toHaveBeenCalled();
             expect(mockAuditLogService.log).not.toHaveBeenCalled();
         });
@@ -3067,7 +3707,10 @@ describe("KycService", () => {
 
     describe("document decision wrappers", () => {
         it("processAttemptDecision resolves attempt ids into the staged decision contract", async () => {
-            mockTierService.syncTierAndCache.mockResolvedValue({ id: 44, tier: 2 });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                id: 44,
+                tier: 2,
+            });
             mockPrismaService.kycStageAttempt.findUnique
                 .mockResolvedValueOnce({
                     id: 701,
@@ -3086,7 +3729,9 @@ describe("KycService", () => {
                     status: "APPROVED",
                     providerStatus: "PASSED",
                     reasonMessage: null,
-                    evidenceSummary: { documentUrl: "https://cdn.test/address.pdf" },
+                    evidenceSummary: {
+                        documentUrl: "https://cdn.test/address.pdf",
+                    },
                     reviewerId: 99,
                     reviewNote: "looks good",
                     reviewedAt: new Date("2026-04-21T12:00:00.000Z"),
@@ -3098,9 +3743,21 @@ describe("KycService", () => {
 
             const processSpy = jest
                 .spyOn(service, "processKycDecision")
-                .mockResolvedValue({ message: "ok", data: { status: "APPROVED" } } as any);
+                .mockResolvedValue({
+                    message: "ok",
+                    data: { status: "APPROVED" },
+                } as any);
 
-            const result = await service.processAttemptDecision(701, { action: "APPROVE", expectedVersion: 4, note: "looks good", verificationType: "ADDRESS" } as any, 99);
+            const result = await service.processAttemptDecision(
+                701,
+                {
+                    action: "APPROVE",
+                    expectedVersion: 4,
+                    note: "looks good",
+                    verificationType: "ADDRESS",
+                } as any,
+                99,
+            );
 
             expect(processSpy).toHaveBeenCalledWith(
                 {
@@ -3112,13 +3769,18 @@ describe("KycService", () => {
                 },
                 99,
             );
-            expect(result.data).toEqual(expect.objectContaining({ attemptId: 701, status: "APPROVED" }));
+            expect(result.data).toEqual(
+                expect.objectContaining({ attemptId: 701, status: "APPROVED" }),
+            );
         });
 
         it("processAttemptDecision routes stage-owned government ID decisions through the attempt context", async () => {
             const reviewedAt = new Date("2026-04-21T13:00:00.000Z");
 
-            mockTierService.syncTierAndCache.mockResolvedValue({ id: 45, tier: 0 });
+            mockTierService.syncTierAndCache.mockResolvedValue({
+                id: 45,
+                tier: 0,
+            });
             mockPrismaService.kycStageAttempt.findUnique
                 .mockResolvedValueOnce({
                     id: 702,
@@ -3149,11 +3811,19 @@ describe("KycService", () => {
 
             const processSpy = jest
                 .spyOn(service, "processKycDecision")
-                .mockResolvedValue({ message: "ok", data: { status: "REJECTED" } } as any);
+                .mockResolvedValue({
+                    message: "ok",
+                    data: { status: "REJECTED" },
+                } as any);
 
             const result = await service.processAttemptDecision(
                 702,
-                { action: "REJECT", expectedVersion: 5, note: "details mismatch", verificationType: "BVN" } as any,
+                {
+                    action: "REJECT",
+                    expectedVersion: 5,
+                    note: "details mismatch",
+                    verificationType: "BVN",
+                } as any,
                 99,
             );
 
@@ -3167,7 +3837,9 @@ describe("KycService", () => {
                 },
                 99,
             );
-            expect(result.data).toEqual(expect.objectContaining({ attemptId: 702, status: "REJECTED" }));
+            expect(result.data).toEqual(
+                expect.objectContaining({ attemptId: 702, status: "REJECTED" }),
+            );
         });
 
         it("runAttemptVerificationLookup resolves stage attempt ids before invoking the lookup contract", async () => {
@@ -3192,7 +3864,10 @@ describe("KycService", () => {
                                 status: "SUCCESS",
                                 provider: "OCR",
                                 providerRef: null,
-                                summary: { verified: true, addressMatches: true },
+                                summary: {
+                                    verified: true,
+                                    addressMatches: true,
+                                },
                                 rawResponse: { verified: true },
                                 documentUrl: "https://cdn.test/address.pdf",
                                 lookedUpAt: "2026-04-21T13:00:00.000Z",
@@ -3201,7 +3876,11 @@ describe("KycService", () => {
                     },
                 } as any);
 
-            const result = await service.runAttemptVerificationLookup(701, { provider: "OCR", verificationType: "ADDRESS" } as any, 99);
+            const result = await service.runAttemptVerificationLookup(
+                701,
+                { provider: "OCR", verificationType: "ADDRESS" } as any,
+                99,
+            );
 
             expect(lookupSpy).toHaveBeenCalledWith(
                 {
@@ -3210,7 +3889,13 @@ describe("KycService", () => {
                 },
                 99,
             );
-            expect(result.data).toEqual(expect.objectContaining({ attemptId: 701, provider: "OCR", providerStatus: "SUCCESS" }));
+            expect(result.data).toEqual(
+                expect.objectContaining({
+                    attemptId: 701,
+                    provider: "OCR",
+                    providerStatus: "SUCCESS",
+                }),
+            );
         });
 
         it("approveDocument maps address to ADDRESS verification", async () => {
@@ -3218,7 +3903,10 @@ describe("KycService", () => {
                 .spyOn(service, "processKycDecision")
                 .mockResolvedValue({ message: "ok", data: {} } as any);
 
-            await service.approveDocument({ userId: 3, documentType: "address" } as any, 99);
+            await service.approveDocument(
+                { userId: 3, documentType: "address" } as any,
+                99,
+            );
 
             expect(processSpy).toHaveBeenCalledWith(
                 {
@@ -3236,7 +3924,11 @@ describe("KycService", () => {
                 .mockResolvedValue({ message: "ok", data: {} } as any);
 
             await service.rejectDocument(
-                { userId: 3, documentType: "business", reason: "invalid CAC" } as any,
+                {
+                    userId: 3,
+                    documentType: "business",
+                    reason: "invalid CAC",
+                } as any,
                 99,
             );
 
@@ -3256,7 +3948,10 @@ describe("KycService", () => {
                 .spyOn(service, "processKycDecision")
                 .mockResolvedValue({ message: "ok", data: {} } as any);
 
-            await service.approveDocument({ userId: 8, documentType: "income", version: 5 } as any, 99);
+            await service.approveDocument(
+                { userId: 8, documentType: "income", version: 5 } as any,
+                99,
+            );
 
             expect(processSpy).toHaveBeenCalledWith(
                 {
@@ -3270,7 +3965,9 @@ describe("KycService", () => {
         });
 
         it("maps unknown document types back to DOCUMENT", () => {
-            expect((service as any).mapDocumentTypeToVerificationType("passport")).toBe("DOCUMENT");
+            expect(
+                (service as any).mapDocumentTypeToVerificationType("passport"),
+            ).toBe("DOCUMENT");
         });
     });
 
@@ -3287,7 +3984,9 @@ describe("KycService", () => {
 
             expect(result.startDate).toBeInstanceOf(Date);
             expect(result.endDate).toBeInstanceOf(Date);
-            expect(result.endDate.getTime()).toBeGreaterThanOrEqual(result.startDate.getTime());
+            expect(result.endDate.getTime()).toBeGreaterThanOrEqual(
+                result.startDate.getTime(),
+            );
 
             if (period === "all") {
                 expect(result.startDate.getTime()).toBe(new Date(0).getTime());
@@ -3300,30 +3999,37 @@ describe("KycService", () => {
 
         it.each([
             [{ queueView: "ACTIONABLE", status: undefined }, "ACTIONABLE"],
-            [{ queueView: "AWAITING_USER", status: undefined }, "AWAITING_USER"],
+            [
+                { queueView: "AWAITING_USER", status: undefined },
+                "AWAITING_USER",
+            ],
             [{ queueView: "RESOLVED", status: undefined }, "RESOLVED"],
             [{ queueView: "all", status: undefined }, "ALL"],
             [{ queueView: undefined, status: "PENDING" }, "ACTIONABLE"],
             [{ queueView: undefined, status: "APPROVED" }, "RESOLVED"],
             [{ queueView: undefined, status: "SOMETHING_ELSE" }, "ALL"],
         ])("resolves queue view for %o", ({ queueView, status }, expected) => {
-            expect((service as any).resolveQueueView(queueView, status)).toBe(expected);
+            expect((service as any).resolveQueueView(queueView, status)).toBe(
+                expected,
+            );
         });
 
         it("builds blocking verification types for business users with missing submissions", () => {
-            expect((service as any).getBlockingVerificationTypes({
-                isEmailVerified: true,
-                isPhoneVerified: true,
-                bvn: null,
-                nin: null,
-                isDocumentVerified: false,
-                userDocument: null,
-                addressDocumentUrl: null,
-                incomeDocumentUrl: null,
-                userType: UserType.BUSINESS,
-                businessDocumentsUploaded: false,
-                kycStageAttempts: [],
-            })).toEqual([
+            expect(
+                (service as any).getBlockingVerificationTypes({
+                    isEmailVerified: true,
+                    isPhoneVerified: true,
+                    bvn: null,
+                    nin: null,
+                    isDocumentVerified: false,
+                    userDocument: null,
+                    addressDocumentUrl: null,
+                    incomeDocumentUrl: null,
+                    userType: UserType.BUSINESS,
+                    businessDocumentsUploaded: false,
+                    kycStageAttempts: [],
+                }),
+            ).toEqual([
                 "BVN",
                 "DOCUMENT",
                 "ADDRESS",
@@ -3334,139 +4040,355 @@ describe("KycService", () => {
 
         it.each([
             [[], UserType.INDIVIDUAL, "Awaiting additional user submission"],
-            [[], UserType.BUSINESS, "Awaiting additional business verification input"],
-            [["BVN"], UserType.INDIVIDUAL, "Awaiting user submission for BVN verification"],
-            [["BVN", "DOCUMENT"], UserType.INDIVIDUAL, "Awaiting user submission for 2 verification stages"],
-        ])("builds awaiting-user reason for %j", (blockingVerificationTypes, userType, expected) => {
-            expect((service as any).getAwaitingUserReason(blockingVerificationTypes, userType)).toBe(expected);
-        });
+            [
+                [],
+                UserType.BUSINESS,
+                "Awaiting additional business verification input",
+            ],
+            [
+                ["BVN"],
+                UserType.INDIVIDUAL,
+                "Awaiting user submission for BVN verification",
+            ],
+            [
+                ["BVN", "DOCUMENT"],
+                UserType.INDIVIDUAL,
+                "Awaiting user submission for 2 verification stages",
+            ],
+        ])(
+            "builds awaiting-user reason for %j",
+            (blockingVerificationTypes, userType, expected) => {
+                expect(
+                    (service as any).getAwaitingUserReason(
+                        blockingVerificationTypes,
+                        userType,
+                    ),
+                ).toBe(expected);
+            },
+        );
 
         it.each([
-            [[{ verificationType: "DOCUMENT" }], "Submitted identity document review for review"],
-            [[{ verificationType: "DOCUMENT" }, { verificationType: "BVN" }], "Submitted 2 verifications for review"],
-        ])("builds submitted-for-review reason for %j", (actionableVerifications, expected) => {
-            expect((service as any).getSubmittedForReviewReason(actionableVerifications)).toBe(expected);
-        });
+            [
+                [{ verificationType: "DOCUMENT" }],
+                "Submitted identity document review for review",
+            ],
+            [
+                [{ verificationType: "DOCUMENT" }, { verificationType: "BVN" }],
+                "Submitted 2 verifications for review",
+            ],
+        ])(
+            "builds submitted-for-review reason for %j",
+            (actionableVerifications, expected) => {
+                expect(
+                    (service as any).getSubmittedForReviewReason(
+                        actionableVerifications,
+                    ),
+                ).toBe(expected);
+            },
+        );
 
         it.each([
             [undefined, []],
             ["all", []],
-            ["BVN", [{ OR: [{ kycStageAttempts: { some: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "GOVERNMENT_ID", method: "BVN" } } }, { bvn: { not: null } }] }]],
-            ["NIN", [{ OR: [{ kycStageAttempts: { some: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "GOVERNMENT_ID", method: "NIN" } } }, { nin: { not: null } }] }]],
-            ["DOCUMENT", [{ OR: [{ kycStageAttempts: { some: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "IDENTITY_DOCUMENT" } } }, { userDocument: { isNot: null } }] }]],
-            ["ADDRESS", [{ OR: [{ kycStageAttempts: { some: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "ADDRESS" } } }, { addressDocumentUrl: { not: null } }] }]],
-            ["INCOME", [{ OR: [{ kycStageAttempts: { some: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "INCOME" } } }, { incomeDocumentUrl: { not: null } }] }]],
+            [
+                "BVN",
+                [
+                    {
+                        OR: [
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "INDIVIDUAL",
+                                        stage: "GOVERNMENT_ID",
+                                        method: "BVN",
+                                    },
+                                },
+                            },
+                            { bvn: { not: null } },
+                        ],
+                    },
+                ],
+            ],
+            [
+                "NIN",
+                [
+                    {
+                        OR: [
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "INDIVIDUAL",
+                                        stage: "GOVERNMENT_ID",
+                                        method: "NIN",
+                                    },
+                                },
+                            },
+                            { nin: { not: null } },
+                        ],
+                    },
+                ],
+            ],
+            [
+                "DOCUMENT",
+                [
+                    {
+                        OR: [
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "INDIVIDUAL",
+                                        stage: "IDENTITY_DOCUMENT",
+                                    },
+                                },
+                            },
+                            { userDocument: { isNot: null } },
+                        ],
+                    },
+                ],
+            ],
+            [
+                "ADDRESS",
+                [
+                    {
+                        OR: [
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "INDIVIDUAL",
+                                        stage: "ADDRESS",
+                                    },
+                                },
+                            },
+                            { addressDocumentUrl: { not: null } },
+                        ],
+                    },
+                ],
+            ],
+            [
+                "INCOME",
+                [
+                    {
+                        OR: [
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "INDIVIDUAL",
+                                        stage: "INCOME",
+                                    },
+                                },
+                            },
+                            { incomeDocumentUrl: { not: null } },
+                        ],
+                    },
+                ],
+            ],
             [
                 "BUSINESS_DOCUMENT",
-                [{ OR: [{ kycStageAttempts: { some: { isCurrent: true, journeyType: "BUSINESS", stage: "BUSINESS_DOCUMENT" } } }, { businessDocument: { isNot: null } }] }],
+                [
+                    {
+                        OR: [
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "BUSINESS",
+                                        stage: "BUSINESS_DOCUMENT",
+                                    },
+                                },
+                            },
+                            { businessDocument: { isNot: null } },
+                        ],
+                    },
+                ],
             ],
             ["UNKNOWN", []],
-        ])("builds KYC type conditions for %s", (verificationType, expected) => {
-            expect((service as any).buildKycTypeConditions(verificationType)).toEqual(expected);
-        });
+        ])(
+            "builds KYC type conditions for %s",
+            (verificationType, expected) => {
+                expect(
+                    (service as any).buildKycTypeConditions(verificationType),
+                ).toEqual(expected);
+            },
+        );
 
         it.each([
-            ["ACTIONABLE", undefined, () => ({
-                OR: [
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "INDIVIDUAL",
-                                stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
-                                status: { in: ["SUBMITTED", "PENDING_REVIEW"] },
+            [
+                "ACTIONABLE",
+                undefined,
+                () => ({
+                    OR: [
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "INDIVIDUAL",
+                                    stage: {
+                                        in: [
+                                            "GOVERNMENT_ID",
+                                            "IDENTITY_DOCUMENT",
+                                            "ADDRESS",
+                                            "INCOME",
+                                        ],
+                                    },
+                                    status: {
+                                        in: ["SUBMITTED", "PENDING_REVIEW"],
+                                    },
+                                },
                             },
                         },
-                    },
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "BUSINESS",
-                                stage: "BUSINESS_DOCUMENT",
-                                status: { in: ["SUBMITTED", "PENDING_REVIEW"] },
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "BUSINESS",
+                                    stage: "BUSINESS_DOCUMENT",
+                                    status: {
+                                        in: ["SUBMITTED", "PENDING_REVIEW"],
+                                    },
+                                },
                             },
                         },
-                    },
-                ],
-            })],
-            ["ALL", "APPROVED", () => ({
-                OR: [
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "INDIVIDUAL",
-                                stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
-                                status: { in: ["APPROVED"] },
+                    ],
+                }),
+            ],
+            [
+                "ALL",
+                "APPROVED",
+                () => ({
+                    OR: [
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "INDIVIDUAL",
+                                    stage: {
+                                        in: [
+                                            "GOVERNMENT_ID",
+                                            "IDENTITY_DOCUMENT",
+                                            "ADDRESS",
+                                            "INCOME",
+                                        ],
+                                    },
+                                    status: { in: ["APPROVED"] },
+                                },
                             },
                         },
-                    },
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "BUSINESS",
-                                stage: "BUSINESS_DOCUMENT",
-                                status: { in: ["APPROVED"] },
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "BUSINESS",
+                                    stage: "BUSINESS_DOCUMENT",
+                                    status: { in: ["APPROVED"] },
+                                },
                             },
                         },
-                    },
-                ],
-            })],
-            ["ALL", "ESCALATED", () => ({
-                OR: [
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "INDIVIDUAL",
-                                stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
-                                status: { in: ["ESCALATED"] },
+                    ],
+                }),
+            ],
+            [
+                "ALL",
+                "ESCALATED",
+                () => ({
+                    OR: [
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "INDIVIDUAL",
+                                    stage: {
+                                        in: [
+                                            "GOVERNMENT_ID",
+                                            "IDENTITY_DOCUMENT",
+                                            "ADDRESS",
+                                            "INCOME",
+                                        ],
+                                    },
+                                    status: { in: ["ESCALATED"] },
+                                },
                             },
                         },
-                    },
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "BUSINESS",
-                                stage: "BUSINESS_DOCUMENT",
-                                status: { in: ["ESCALATED"] },
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "BUSINESS",
+                                    stage: "BUSINESS_DOCUMENT",
+                                    status: { in: ["ESCALATED"] },
+                                },
                             },
                         },
-                    },
-                ],
-            })],
-            ["AWAITING_USER", undefined, () => (service as any).buildAwaitingUserFilter()],
-            ["RESOLVED", undefined, () => ({
-                OR: [
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "INDIVIDUAL",
-                                stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
-                                status: { in: ["APPROVED", "REJECTED", "ESCALATED", "EXPIRED"] },
+                    ],
+                }),
+            ],
+            [
+                "AWAITING_USER",
+                undefined,
+                () => (service as any).buildAwaitingUserFilter(),
+            ],
+            [
+                "RESOLVED",
+                undefined,
+                () => ({
+                    OR: [
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "INDIVIDUAL",
+                                    stage: {
+                                        in: [
+                                            "GOVERNMENT_ID",
+                                            "IDENTITY_DOCUMENT",
+                                            "ADDRESS",
+                                            "INCOME",
+                                        ],
+                                    },
+                                    status: {
+                                        in: [
+                                            "APPROVED",
+                                            "REJECTED",
+                                            "ESCALATED",
+                                            "EXPIRED",
+                                        ],
+                                    },
+                                },
                             },
                         },
-                    },
-                    {
-                        kycStageAttempts: {
-                            some: {
-                                isCurrent: true,
-                                journeyType: "BUSINESS",
-                                stage: "BUSINESS_DOCUMENT",
-                                status: { in: ["APPROVED", "REJECTED", "ESCALATED", "EXPIRED"] },
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "BUSINESS",
+                                    stage: "BUSINESS_DOCUMENT",
+                                    status: {
+                                        in: [
+                                            "APPROVED",
+                                            "REJECTED",
+                                            "ESCALATED",
+                                            "EXPIRED",
+                                        ],
+                                    },
+                                },
                             },
                         },
-                    },
-                ],
-            })],
+                    ],
+                }),
+            ],
             ["ALL", undefined, () => ({})],
-        ])("builds KYC status filter for view=%s status=%s", (queueView, status, getExpected) => {
-            expect((service as any).buildKycStatusFilter(queueView, status)).toEqual(getExpected());
-        });
+        ])(
+            "builds KYC status filter for view=%s status=%s",
+            (queueView, status, getExpected) => {
+                expect(
+                    (service as any).buildKycStatusFilter(queueView, status),
+                ).toEqual(getExpected());
+            },
+        );
 
         it("builds awaiting-user filter without active pending records", () => {
             expect((service as any).buildAwaitingUserFilter()).toEqual({
@@ -3477,33 +4399,73 @@ describe("KycService", () => {
                                 AND: [
                                     { bvn: null },
                                     { nin: null },
-                                    { kycStageAttempts: { none: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "GOVERNMENT_ID" } } },
+                                    {
+                                        kycStageAttempts: {
+                                            none: {
+                                                isCurrent: true,
+                                                journeyType: "INDIVIDUAL",
+                                                stage: "GOVERNMENT_ID",
+                                            },
+                                        },
+                                    },
                                 ],
                             },
                             {
                                 AND: [
                                     { isDocumentVerified: false },
                                     { userDocument: { is: null } },
-                                    { kycStageAttempts: { none: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "IDENTITY_DOCUMENT" } } },
+                                    {
+                                        kycStageAttempts: {
+                                            none: {
+                                                isCurrent: true,
+                                                journeyType: "INDIVIDUAL",
+                                                stage: "IDENTITY_DOCUMENT",
+                                            },
+                                        },
+                                    },
                                 ],
                             },
                             {
                                 AND: [
                                     { addressDocumentUrl: null },
-                                    { kycStageAttempts: { none: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "ADDRESS" } } },
+                                    {
+                                        kycStageAttempts: {
+                                            none: {
+                                                isCurrent: true,
+                                                journeyType: "INDIVIDUAL",
+                                                stage: "ADDRESS",
+                                            },
+                                        },
+                                    },
                                 ],
                             },
                             {
                                 AND: [
                                     { incomeDocumentUrl: null },
-                                    { kycStageAttempts: { none: { isCurrent: true, journeyType: "INDIVIDUAL", stage: "INCOME" } } },
+                                    {
+                                        kycStageAttempts: {
+                                            none: {
+                                                isCurrent: true,
+                                                journeyType: "INDIVIDUAL",
+                                                stage: "INCOME",
+                                            },
+                                        },
+                                    },
                                 ],
                             },
                             {
                                 AND: [
                                     { userType: UserType.BUSINESS },
                                     { businessDocument: { is: null } },
-                                    { kycStageAttempts: { none: { isCurrent: true, journeyType: "BUSINESS", stage: "BUSINESS_DOCUMENT" } } },
+                                    {
+                                        kycStageAttempts: {
+                                            none: {
+                                                isCurrent: true,
+                                                journeyType: "BUSINESS",
+                                                stage: "BUSINESS_DOCUMENT",
+                                            },
+                                        },
+                                    },
                                 ],
                             },
                         ],
@@ -3516,8 +4478,20 @@ describe("KycService", () => {
                                         some: {
                                             isCurrent: true,
                                             journeyType: "INDIVIDUAL",
-                                            stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
-                                            status: { in: ["SUBMITTED", "PENDING_REVIEW"] },
+                                            stage: {
+                                                in: [
+                                                    "GOVERNMENT_ID",
+                                                    "IDENTITY_DOCUMENT",
+                                                    "ADDRESS",
+                                                    "INCOME",
+                                                ],
+                                            },
+                                            status: {
+                                                in: [
+                                                    "SUBMITTED",
+                                                    "PENDING_REVIEW",
+                                                ],
+                                            },
                                         },
                                     },
                                 },
@@ -3527,7 +4501,12 @@ describe("KycService", () => {
                                             isCurrent: true,
                                             journeyType: "BUSINESS",
                                             stage: "BUSINESS_DOCUMENT",
-                                            status: { in: ["SUBMITTED", "PENDING_REVIEW"] },
+                                            status: {
+                                                in: [
+                                                    "SUBMITTED",
+                                                    "PENDING_REVIEW",
+                                                ],
+                                            },
                                         },
                                     },
                                 },
@@ -3540,26 +4519,33 @@ describe("KycService", () => {
 
         it.each([
             [undefined, null],
-            ["ada", {
-                OR: [
-                    { firstName: { contains: "ada", mode: "insensitive" } },
-                    { lastName: { contains: "ada", mode: "insensitive" } },
-                    { email: { contains: "ada", mode: "insensitive" } },
-                    { phone: { contains: "ada", mode: "insensitive" } },
-                ],
-            }],
+            [
+                "ada",
+                {
+                    OR: [
+                        { firstName: { contains: "ada", mode: "insensitive" } },
+                        { lastName: { contains: "ada", mode: "insensitive" } },
+                        { email: { contains: "ada", mode: "insensitive" } },
+                        { phone: { contains: "ada", mode: "insensitive" } },
+                    ],
+                },
+            ],
         ])("builds search condition for %s", (searchText, expected) => {
-            expect((service as any).buildKycSearchCondition(searchText)).toEqual(expected);
+            expect(
+                (service as any).buildKycSearchCondition(searchText),
+            ).toEqual(expected);
         });
 
         it("builds queue where clauses for actionable search and tier filters", () => {
-            expect((service as any).buildKycQueueWhere({
-                resolvedQueueView: "ACTIONABLE",
-                status: undefined,
-                verificationType: "BVN",
-                searchText: "ada",
-                tier: 2,
-            })).toEqual({
+            expect(
+                (service as any).buildKycQueueWhere({
+                    resolvedQueueView: "ACTIONABLE",
+                    status: undefined,
+                    verificationType: "BVN",
+                    searchText: "ada",
+                    tier: 2,
+                }),
+            ).toEqual({
                 userType: { not: UserType.ADMIN },
                 AND: [
                     {
@@ -3569,8 +4555,17 @@ describe("KycService", () => {
                                     some: {
                                         isCurrent: true,
                                         journeyType: "INDIVIDUAL",
-                                        stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
-                                        status: { in: ["SUBMITTED", "PENDING_REVIEW"] },
+                                        stage: {
+                                            in: [
+                                                "GOVERNMENT_ID",
+                                                "IDENTITY_DOCUMENT",
+                                                "ADDRESS",
+                                                "INCOME",
+                                            ],
+                                        },
+                                        status: {
+                                            in: ["SUBMITTED", "PENDING_REVIEW"],
+                                        },
                                     },
                                 },
                             },
@@ -3580,7 +4575,9 @@ describe("KycService", () => {
                                         isCurrent: true,
                                         journeyType: "BUSINESS",
                                         stage: "BUSINESS_DOCUMENT",
-                                        status: { in: ["SUBMITTED", "PENDING_REVIEW"] },
+                                        status: {
+                                            in: ["SUBMITTED", "PENDING_REVIEW"],
+                                        },
                                     },
                                 },
                             },
@@ -3604,8 +4601,18 @@ describe("KycService", () => {
                     { tier: 2 },
                     {
                         OR: [
-                            { firstName: { contains: "ada", mode: "insensitive" } },
-                            { lastName: { contains: "ada", mode: "insensitive" } },
+                            {
+                                firstName: {
+                                    contains: "ada",
+                                    mode: "insensitive",
+                                },
+                            },
+                            {
+                                lastName: {
+                                    contains: "ada",
+                                    mode: "insensitive",
+                                },
+                            },
                             { email: { contains: "ada", mode: "insensitive" } },
                             { phone: { contains: "ada", mode: "insensitive" } },
                         ],
@@ -3615,10 +4622,16 @@ describe("KycService", () => {
         });
 
         it.each([
-            ["ACTIONABLE", "desc", [{ updatedAt: "desc" }, { createdAt: "desc" }]],
+            [
+                "ACTIONABLE",
+                "desc",
+                [{ updatedAt: "desc" }, { createdAt: "desc" }],
+            ],
             ["RESOLVED", "asc", [{ createdAt: "asc" }]],
         ])("builds queue ordering for %s", (queueView, sortBy, expected) => {
-            expect((service as any).getKycQueueOrderBy(queueView, sortBy)).toEqual(expected);
+            expect(
+                (service as any).getKycQueueOrderBy(queueView, sortBy),
+            ).toEqual(expected);
         });
 
         it.each([
@@ -3626,15 +4639,25 @@ describe("KycService", () => {
             [{ version: 7 }, undefined, 7],
             [null, undefined, undefined],
             [{ version: null }, undefined, undefined],
-        ])("resolves decision version from %j and %s", (activeVerification, version, expected) => {
-            expect((service as any).resolveDecisionVersion(activeVerification, version)).toBe(expected);
-        });
+        ])(
+            "resolves decision version from %j and %s",
+            (activeVerification, version, expected) => {
+                expect(
+                    (service as any).resolveDecisionVersion(
+                        activeVerification,
+                        version,
+                    ),
+                ).toBe(expected);
+            },
+        );
     });
 
     describe("transition decision helper coverage", () => {
         it("returns a response payload when the state machine rejects a legacy transition", async () => {
             mockKycStateMachine.transition.mockRejectedValueOnce(
-                new BadRequestException("Illegal KYC transition for LEGACY_COMPAT: PENDING → APPROVED"),
+                new BadRequestException(
+                    "Illegal KYC transition for LEGACY_COMPAT: PENDING → APPROVED",
+                ),
             );
 
             const result = await (service as any).transitionKycDecision({
@@ -3645,15 +4668,18 @@ describe("KycService", () => {
                 adminId: 99,
             });
 
-            expect(result).toEqual(expect.objectContaining({
-                success: true,
-                message: "Illegal KYC transition for LEGACY_COMPAT: PENDING → APPROVED",
-                data: expect.objectContaining({
-                    userId: 41,
-                    verificationType: "LEGACY_COMPAT",
-                    action: "APPROVE",
+            expect(result).toEqual(
+                expect.objectContaining({
+                    success: true,
+                    message:
+                        "Illegal KYC transition for LEGACY_COMPAT: PENDING → APPROVED",
+                    data: expect.objectContaining({
+                        userId: 41,
+                        verificationType: "LEGACY_COMPAT",
+                        action: "APPROVE",
+                    }),
                 }),
-            }));
+            );
         });
 
         it("rethrows unexpected errors from the legacy transition path", async () => {
@@ -3661,33 +4687,52 @@ describe("KycService", () => {
 
             mockKycStateMachine.transition.mockRejectedValueOnce(failure);
 
-            await expect((service as any).transitionKycDecision({
-                userId: 42,
-                verificationType: "LEGACY_COMPAT",
-                action: "APPROVE",
-                adminId: 99,
-            })).rejects.toBe(failure);
+            await expect(
+                (service as any).transitionKycDecision({
+                    userId: 42,
+                    verificationType: "LEGACY_COMPAT",
+                    action: "APPROVE",
+                    adminId: 99,
+                }),
+            ).rejects.toBe(failure);
         });
 
         it.each([
             [
-                { activeVerification: null, verificationType: "DOCUMENT", action: "APPROVE" },
+                {
+                    activeVerification: null,
+                    verificationType: "DOCUMENT",
+                    action: "APPROVE",
+                },
                 "No active DOCUMENT verification is awaiting admin action for this user.",
             ],
             [
-                { activeVerification: { status: "ESCALATED" }, verificationType: "DOCUMENT", action: "ESCALATE" },
+                {
+                    activeVerification: { status: "ESCALATED" },
+                    verificationType: "DOCUMENT",
+                    action: "ESCALATE",
+                },
                 "DOCUMENT verification can only be escalated from PENDING state.",
             ],
             [
-                { activeVerification: { status: "APPROVED" }, verificationType: "DOCUMENT", action: "REJECT" },
+                {
+                    activeVerification: { status: "APPROVED" },
+                    verificationType: "DOCUMENT",
+                    action: "REJECT",
+                },
                 "DOCUMENT verification is no longer actionable. Current status: APPROVED.",
             ],
-        ])("rejects invalid decision preconditions for %j", ({ activeVerification, verificationType, action }, message) => {
-            expect(() => (service as any).assertDecisionPreconditions({
-                activeVerification,
-                verificationType,
-                action,
-            })).toThrow(message);
-        });
+        ])(
+            "rejects invalid decision preconditions for %j",
+            ({ activeVerification, verificationType, action }, message) => {
+                expect(() =>
+                    (service as any).assertDecisionPreconditions({
+                        activeVerification,
+                        verificationType,
+                        action,
+                    }),
+                ).toThrow(message);
+            },
+        );
     });
 });

@@ -121,9 +121,20 @@ export class SweepService {
     // transition throws to prevent callers from corrupting sweep state.
     // PENDING can fail directly when preflight checks reject the sweep before
     // any provider call is started, or when a stale blocked deposit is auto-failed.
-    private readonly VALID_TRANSITIONS: Partial<Record<SweepStatus, SweepStatus[]>> = {
-        [SweepStatus.PENDING]: [SweepStatus.IN_PROGRESS, SweepStatus.FAILED, SweepStatus.NOT_APPLICABLE, SweepStatus.COMPLETED],
-        [SweepStatus.IN_PROGRESS]: [SweepStatus.COMPLETED, SweepStatus.FAILED, SweepStatus.PENDING],
+    private readonly VALID_TRANSITIONS: Partial<
+        Record<SweepStatus, SweepStatus[]>
+    > = {
+        [SweepStatus.PENDING]: [
+            SweepStatus.IN_PROGRESS,
+            SweepStatus.FAILED,
+            SweepStatus.NOT_APPLICABLE,
+            SweepStatus.COMPLETED,
+        ],
+        [SweepStatus.IN_PROGRESS]: [
+            SweepStatus.COMPLETED,
+            SweepStatus.FAILED,
+            SweepStatus.PENDING,
+        ],
         [SweepStatus.FAILED]: [SweepStatus.PENDING, SweepStatus.NOT_APPLICABLE],
         // COMPLETED and NOT_APPLICABLE are terminal — no valid next state
     };
@@ -144,8 +155,8 @@ export class SweepService {
         private readonly quidaxService: QuidaxService,
         private readonly lockService: DistributedLockService,
         private readonly ledgerService: LedgerService,
-        private readonly slackWebhookService: SlackWebhookService
-    ) { }
+        private readonly slackWebhookService: SlackWebhookService,
+    ) {}
 
     /**
      * Gets all pending sweeps
@@ -191,21 +202,19 @@ export class SweepService {
      * @param ledgerEntryId Ledger entry ID
      * @returns Sweep result
      */
-    async initiateSweep(
-        ledgerEntryId: string
-    ): Promise<SweepResult> {
+    async initiateSweep(ledgerEntryId: string): Promise<SweepResult> {
         const lockKey = `sweep:${ledgerEntryId}`;
 
         try {
             return await this.lockService.withLock(
                 lockKey,
                 async () => this.executeSweep(ledgerEntryId),
-                { ttlMs: 30000, maxWaitMs: 5000, strict: true }
+                { ttlMs: 30000, maxWaitMs: 5000, strict: true },
             );
         } catch (error) {
             if (error.message?.includes("Failed to acquire lock")) {
                 this.logger.warn(
-                    `Sweep already in progress | ledgerEntryId: ${ledgerEntryId}`
+                    `Sweep already in progress | ledgerEntryId: ${ledgerEntryId}`,
                 );
                 return {
                     success: false,
@@ -216,7 +225,7 @@ export class SweepService {
             // Handle Redis unavailability gracefully for sweeps
             if (error.message?.includes("Redis lock service unavailable")) {
                 this.logger.error(
-                    `Sweep skipped - Redis unavailable | ledgerEntryId: ${ledgerEntryId}`
+                    `Sweep skipped - Redis unavailable | ledgerEntryId: ${ledgerEntryId}`,
                 );
                 return {
                     success: false,
@@ -240,9 +249,7 @@ export class SweepService {
      * FIX: SW-007 — sweepReference uses randomUUID() suffix instead of
      * Date.now() to guarantee collision resistance across retries.
      */
-    private async executeSweep(
-        ledgerEntryId: string
-    ): Promise<SweepResult> {
+    private async executeSweep(ledgerEntryId: string): Promise<SweepResult> {
         // Get the ledger entry
         const entry = await this.prisma.ledgerEntry.findUnique({
             where: { id: ledgerEntryId },
@@ -266,16 +273,21 @@ export class SweepService {
 
         if (entry.sweepStatus !== SweepStatus.PENDING) {
             this.logger.debug(
-                `Sweep not pending | ledgerEntryId: ${ledgerEntryId}, status: ${entry.sweepStatus}`
+                `Sweep not pending | ledgerEntryId: ${ledgerEntryId}, status: ${entry.sweepStatus}`,
             );
             return { success: true, ledgerEntryId }; // Already processed
         }
 
         if (!entry.user?.cryptoSubAccountId) {
-            this.logger.warn(`User has no sub-account | userId: ${entry.userId}`);
+            this.logger.warn(
+                `User has no sub-account | userId: ${entry.userId}`,
+            );
             // Mark as not applicable since there's no sub-account to sweep from
 
-            await this.updateSweepStatus(ledgerEntryId, SweepStatus.NOT_APPLICABLE);
+            await this.updateSweepStatus(
+                ledgerEntryId,
+                SweepStatus.NOT_APPLICABLE,
+            );
             return { success: true, ledgerEntryId };
         }
 
@@ -283,12 +295,12 @@ export class SweepService {
         const minAmount = this.MIN_SWEEP_AMOUNTS[entry.currency];
         if (minAmount === undefined) {
             this.logger.error(
-                `No minimum sweep amount configured | currency: ${entry.currency} | ledgerEntryId: ${ledgerEntryId}`
+                `No minimum sweep amount configured | currency: ${entry.currency} | ledgerEntryId: ${ledgerEntryId}`,
             );
             await this.updateSweepStatus(
                 ledgerEntryId,
                 SweepStatus.FAILED,
-                `no minimum sweep amount configured for ${entry.currency}`
+                `no minimum sweep amount configured for ${entry.currency}`,
             );
             return {
                 success: false,
@@ -303,7 +315,7 @@ export class SweepService {
                     ledgerEntryId,
                     amount: entry.credit.toString(),
                     minAmount: minAmount.toString(),
-                })}`
+                })}`,
             );
             // Mark as completed (too small to sweep, but not blocking)
             await this.updateSweepStatus(ledgerEntryId, SweepStatus.COMPLETED);
@@ -312,7 +324,10 @@ export class SweepService {
 
         try {
             // Mark as in progress
-            await this.updateSweepStatus(ledgerEntryId, SweepStatus.IN_PROGRESS);
+            await this.updateSweepStatus(
+                ledgerEntryId,
+                SweepStatus.IN_PROGRESS,
+            );
 
             // Generate unique reference for this sweep
             // FIX: SW-007 — randomUUID() suffix is collision-resistant across
@@ -328,7 +343,7 @@ export class SweepService {
                     currency: entry.currency.toLowerCase(),
                     amount: entry.credit.toString(),
                     reference: sweepReference,
-                })}`
+                })}`,
             );
 
             // Initiate internal transfer from sub-account to main wallet.
@@ -336,21 +351,26 @@ export class SweepService {
             // literal address string, causing invalid_address rejection (SW-012).
             const mainAccountId = quidaxConfig.mainAccountId;
             if (!mainAccountId) {
-                throw new Error("QUIDAX_MAIN_ACCOUNT_ID not configured — cannot sweep");
+                throw new Error(
+                    "QUIDAX_MAIN_ACCOUNT_ID not configured — cannot sweep",
+                );
             }
 
-            const transferResult = await this.quidaxService.createWithdrawerRequest({
-                user_id: entry.user.cryptoSubAccountId,
-                currency: entry.currency.toLowerCase(),
-                amount: entry.credit.toString(),
-                fund_uid: mainAccountId,
-                transaction_note: `Sweep from sub-account to main wallet`,
-                narration: `Ledger sweep: ${ledgerEntryId}`,
-                reference: sweepReference,
-            });
+            const transferResult =
+                await this.quidaxService.createWithdrawerRequest({
+                    user_id: entry.user.cryptoSubAccountId,
+                    currency: entry.currency.toLowerCase(),
+                    amount: entry.credit.toString(),
+                    fund_uid: mainAccountId,
+                    transaction_note: `Sweep from sub-account to main wallet`,
+                    narration: `Ledger sweep: ${ledgerEntryId}`,
+                    reference: sweepReference,
+                });
 
             if (!transferResult?.data?.id) {
-                throw new Error("No transaction ID returned from sweep withdrawal");
+                throw new Error(
+                    "No transaction ID returned from sweep withdrawal",
+                );
             }
 
             // FIX: SW-001 — store the Quidax transactionId on the ledger entry
@@ -371,7 +391,7 @@ export class SweepService {
                     amount: entry.credit.toString(),
                     transactionId: transferResult.data.id,
                     reference: sweepReference,
-                })}`
+                })}`,
             );
 
             return {
@@ -381,7 +401,9 @@ export class SweepService {
             };
         } catch (error) {
             const errorMsg = error.message || String(error);
-            const isNonRetryable = this.NON_RETRYABLE_ERRORS.some(re => re.test(errorMsg));
+            const isNonRetryable = this.NON_RETRYABLE_ERRORS.some((re) =>
+                re.test(errorMsg),
+            );
 
             // FIX: SW-010 — log full error details including Quidax response
             this.logger.error(
@@ -392,16 +414,18 @@ export class SweepService {
                     error: errorMsg,
                     errorName: error.name || error.constructor?.name,
                     isNonRetryable,
-                    status: error.status ?? error.getStatus?.() ?? 'unknown',
-                })}`
+                    status: error.status ?? error.getStatus?.() ?? "unknown",
+                })}`,
             );
 
             if (isNonRetryable) {
                 this.logger.warn(
-                    `Sweep permanently failed (non-retryable) | ${JSON.stringify({
-                        ledgerEntryId,
-                        error: errorMsg,
-                    })}`
+                    `Sweep permanently failed (non-retryable) | ${JSON.stringify(
+                        {
+                            ledgerEntryId,
+                            error: errorMsg,
+                        },
+                    )}`,
                 );
                 // FIX: SW-010 — mark as FAILED only, do NOT auto-transition to
                 // NOT_APPLICABLE. Non-retryable errors like "insufficient balance"
@@ -412,7 +436,7 @@ export class SweepService {
                 await this.updateSweepStatus(
                     ledgerEntryId,
                     SweepStatus.FAILED,
-                    `non-retryable: ${errorMsg}`
+                    `non-retryable: ${errorMsg}`,
                 );
                 return { success: false, ledgerEntryId, error: errorMsg };
             }
@@ -421,7 +445,7 @@ export class SweepService {
                 `Sweep failed | ${JSON.stringify({
                     ledgerEntryId,
                     error: errorMsg,
-                })}`
+                })}`,
             );
 
             // Mark as failed (retryable)
@@ -445,7 +469,7 @@ export class SweepService {
     private async updateSweepStatus(
         ledgerEntryId: string,
         newStatus: SweepStatus,
-        reason?: string
+        reason?: string,
     ): Promise<void> {
         // FIX: SW-003 — validate the requested transition before writing
         const entry = await this.prisma.ledgerEntry.findUnique({
@@ -459,7 +483,7 @@ export class SweepService {
 
         if (entry.type !== LedgerType.DEPOSIT) {
             throw new Error(
-                `Cannot set sweepStatus on non-DEPOSIT entry: ${ledgerEntryId}`
+                `Cannot set sweepStatus on non-DEPOSIT entry: ${ledgerEntryId}`,
             );
         }
 
@@ -468,7 +492,7 @@ export class SweepService {
 
         if (!allowed.includes(newStatus)) {
             throw new Error(
-                `Invalid sweep transition: ${currentStatus} → ${newStatus} for entry ${ledgerEntryId}`
+                `Invalid sweep transition: ${currentStatus} → ${newStatus} for entry ${ledgerEntryId}`,
             );
         }
 
@@ -482,7 +506,7 @@ export class SweepService {
                 from: currentStatus,
                 to: newStatus,
                 ...(reason ? { reason } : {}),
-            })}`
+            })}`,
         );
     }
 
@@ -508,8 +532,15 @@ export class SweepService {
      * Called when a user has no sub-account to sweep from,
      * or by admin to resolve permanently-failed sweeps.
      */
-    async markNotApplicable(ledgerEntryId: string, reason?: string): Promise<void> {
-        await this.updateSweepStatus(ledgerEntryId, SweepStatus.NOT_APPLICABLE, reason);
+    async markNotApplicable(
+        ledgerEntryId: string,
+        reason?: string,
+    ): Promise<void> {
+        await this.updateSweepStatus(
+            ledgerEntryId,
+            SweepStatus.NOT_APPLICABLE,
+            reason,
+        );
     }
 
     /**
@@ -531,7 +562,7 @@ export class SweepService {
     async handleSweepConfirmation(
         transactionId: string,
         status: "completed" | "failed",
-        reason?: string
+        reason?: string,
     ): Promise<void> {
         const lockKey = `sweep-confirm:${transactionId}`;
 
@@ -544,12 +575,17 @@ export class SweepService {
                         where: {
                             sweepTxId: transactionId,
                         },
-                        select: { id: true, sweepStatus: true, userId: true, currency: true },
+                        select: {
+                            id: true,
+                            sweepStatus: true,
+                            userId: true,
+                            currency: true,
+                        },
                     });
 
                     if (!entry) {
                         this.logger.warn(
-                            `Sweep confirmation for unknown transactionId | txId: ${transactionId}`
+                            `Sweep confirmation for unknown transactionId | txId: ${transactionId}`,
                         );
                         return;
                     }
@@ -561,25 +597,28 @@ export class SweepService {
                         entry.sweepStatus === SweepStatus.NOT_APPLICABLE
                     ) {
                         this.logger.warn(
-                            `Sweep confirmation received for already-terminal entry | ${JSON.stringify({
-                                ledgerEntryId: entry.id,
-                                currentStatus: entry.sweepStatus,
-                                incomingStatus: status,
-                            })}`
+                            `Sweep confirmation received for already-terminal entry | ${JSON.stringify(
+                                {
+                                    ledgerEntryId: entry.id,
+                                    currentStatus: entry.sweepStatus,
+                                    incomingStatus: status,
+                                },
+                            )}`,
                         );
                         return;
                     }
 
-                    const newStatus = status === "completed"
-                        ? SweepStatus.COMPLETED
-                        : SweepStatus.FAILED;
+                    const newStatus =
+                        status === "completed"
+                            ? SweepStatus.COMPLETED
+                            : SweepStatus.FAILED;
 
                     await this.updateSweepStatus(
                         entry.id,
                         newStatus,
                         reason
                             ? `quidax webhook: ${status} — ${reason}`
-                            : `quidax webhook: ${status}`
+                            : `quidax webhook: ${status}`,
                     );
 
                     this.logger.log(
@@ -590,17 +629,17 @@ export class SweepService {
                             transactionId,
                             status: newStatus,
                             reason: reason ?? null,
-                        })}`
+                        })}`,
                     );
                 },
-                { ttlMs: 10000, maxWaitMs: 5000, strict: true }
+                { ttlMs: 10000, maxWaitMs: 5000, strict: true },
             );
         } catch (error) {
             this.logger.error(
                 `handleSweepConfirmation failed | ${JSON.stringify({
                     transactionId,
                     error: error.message,
-                })}`
+                })}`,
             );
             throw error;
         }
@@ -630,14 +669,16 @@ export class SweepService {
                         return 0;
                     }
 
-                    this.logger.log(`Processing ${pending.length} pending sweeps`);
+                    this.logger.log(
+                        `Processing ${pending.length} pending sweeps`,
+                    );
 
                     let processed = 0;
 
                     for (const sweep of pending) {
                         try {
                             const result = await this.initiateSweep(
-                                sweep.ledgerEntryId
+                                sweep.ledgerEntryId,
                             );
                             if (result.success) {
                                 processed++;
@@ -647,7 +688,7 @@ export class SweepService {
                                 `Error processing sweep | ${JSON.stringify({
                                     ledgerEntryId: sweep.ledgerEntryId,
                                     error: error.message,
-                                })}`
+                                })}`,
                             );
                         }
                     }
@@ -658,11 +699,13 @@ export class SweepService {
                 // Reduced from 360s to 120s to avoid stale lock overlapping the 5-min cron interval.
                 // Actual execution typically completes in <30s for 10 entries.
                 // strict: false — do not wait if another pod holds the lock, skip instead
-                { ttlMs: 120000, maxWaitMs: 0, strict: false }
+                { ttlMs: 120000, maxWaitMs: 0, strict: false },
             );
         } catch (error) {
             if (error.message?.includes("Failed to acquire lock")) {
-                this.logger.debug("Sweep job already running on another pod — skipping");
+                this.logger.debug(
+                    "Sweep job already running on another pod — skipping",
+                );
                 return 0;
             }
             throw error;
@@ -734,11 +777,13 @@ export class SweepService {
             return await this.lockService.withLock(
                 jobLockKey,
                 async () => this._retryFailedSweepsInner(maxRetries),
-                { ttlMs: 120000, maxWaitMs: 0, strict: false }
+                { ttlMs: 120000, maxWaitMs: 0, strict: false },
             );
         } catch (error) {
             if (error.message?.includes("Failed to acquire lock")) {
-                this.logger.debug("Retry job already running on another pod — skipping");
+                this.logger.debug(
+                    "Retry job already running on another pod — skipping",
+                );
                 return 0;
             }
             throw error;
@@ -752,7 +797,7 @@ export class SweepService {
      */
     private async retryEligibleEntry(
         entry: { id: string; sweepRetryCount: number; updatedAt: Date },
-        currentStatus: SweepStatus
+        currentStatus: SweepStatus,
     ): Promise<boolean> {
         const retryCount = entry.sweepRetryCount;
 
@@ -764,15 +809,15 @@ export class SweepService {
         if (currentStatus === SweepStatus.FAILED) {
             const backoffMinutes = Math.pow(
                 this.BACKOFF_BASE_MINUTES,
-                retryCount + 1
+                retryCount + 1,
             );
             const cooloffExpiry = new Date(
-                entry.updatedAt.getTime() + backoffMinutes * 60 * 1000
+                entry.updatedAt.getTime() + backoffMinutes * 60 * 1000,
             );
 
             if (new Date() < cooloffExpiry) {
                 this.logger.debug(
-                    `Sweep retry deferred | ledgerEntryId: ${entry.id} | retryCount: ${retryCount} | eligibleAt: ${cooloffExpiry.toISOString()}`
+                    `Sweep retry deferred | ledgerEntryId: ${entry.id} | retryCount: ${retryCount} | eligibleAt: ${cooloffExpiry.toISOString()}`,
                 );
                 return false;
             }
@@ -793,7 +838,7 @@ export class SweepService {
         if (updateResult.count === 0) {
             if (currentStatus === SweepStatus.IN_PROGRESS) {
                 this.logger.debug(
-                    `Stale sweep already resolved | ledgerEntryId: ${entry.id}`
+                    `Stale sweep already resolved | ledgerEntryId: ${entry.id}`,
                 );
             }
             return false;
@@ -805,7 +850,7 @@ export class SweepService {
                 : `Recovering stale IN_PROGRESS sweep | staleFor: ${Math.round((Date.now() - entry.updatedAt.getTime()) / 60000)}min`;
 
         this.logger.log(
-            `${label} | ledgerEntryId: ${entry.id} | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`
+            `${label} | ledgerEntryId: ${entry.id} | attempt: ${retryCount + 1}/${this.MAX_LIFETIME_RETRIES}`,
         );
 
         const result = await this.initiateSweep(entry.id);
@@ -840,14 +885,14 @@ export class SweepService {
 
         if (exhausted.length > 0) {
             this.logger.warn(
-                `${exhausted.length} sweep(s) permanently failed after ${this.MAX_LIFETIME_RETRIES} retries — manual intervention required`
+                `${exhausted.length} sweep(s) permanently failed after ${this.MAX_LIFETIME_RETRIES} retries — manual intervention required`,
             );
 
             await this.slackWebhookService.sendSystemAlert(
                 "sweep",
                 "Sweep Retries Exhausted",
                 `${exhausted.length} deposit sweep(s) have exhausted all ${this.MAX_LIFETIME_RETRIES} retries and are permanently stuck. ` +
-                `Affected users cannot withdraw until these are resolved manually.`,
+                    `Affected users cannot withdraw until these are resolved manually.`,
                 {
                     count: exhausted.length,
                     entries: exhausted.map((e) => ({
@@ -859,7 +904,7 @@ export class SweepService {
                         lastAttempt: e.updatedAt.toISOString(),
                     })),
                 },
-                "error"
+                "error",
             );
         }
 
@@ -882,7 +927,9 @@ export class SweepService {
         });
 
         if (failed.length > 0) {
-            this.logger.log(`Checking ${failed.length} failed sweeps for retry eligibility`);
+            this.logger.log(
+                `Checking ${failed.length} failed sweeps for retry eligibility`,
+            );
         }
 
         for (const entry of failed) {
@@ -893,7 +940,7 @@ export class SweepService {
 
         // ── Phase 2: recover stale IN_PROGRESS entries (SW-009) ─────────
         const staleCutoff = new Date(
-            Date.now() - this.STALE_IN_PROGRESS_MINUTES * 60 * 1000
+            Date.now() - this.STALE_IN_PROGRESS_MINUTES * 60 * 1000,
         );
 
         const staleInProgress = await this.prisma.ledgerEntry.findMany({
@@ -916,7 +963,7 @@ export class SweepService {
 
         if (staleInProgress.length > 0) {
             this.logger.log(
-                `Found ${staleInProgress.length} stale IN_PROGRESS sweeps (>${this.STALE_IN_PROGRESS_MINUTES}min) — recovering`
+                `Found ${staleInProgress.length} stale IN_PROGRESS sweeps (>${this.STALE_IN_PROGRESS_MINUTES}min) — recovering`,
             );
         }
 
@@ -984,7 +1031,7 @@ export class SweepService {
 
             if (staleEntries.length > 0) {
                 this.logger.log(
-                    `Auto-resolving ${staleEntries.length} stale sweep entries for omnibus user ${userId} (${currency})`
+                    `Auto-resolving ${staleEntries.length} stale sweep entries for omnibus user ${userId} (${currency})`,
                 );
                 await this.prisma.ledgerEntry.updateMany({
                     where: {
@@ -998,7 +1045,7 @@ export class SweepService {
                     data: { sweepStatus: SweepStatus.NOT_APPLICABLE },
                 });
                 this.logger.log(
-                    `Auto-resolved ${staleEntries.length} stale sweep entries as NOT_APPLICABLE | userId: ${userId} | currency: ${currency} | reason: omnibus user, no sub-account`
+                    `Auto-resolved ${staleEntries.length} stale sweep entries as NOT_APPLICABLE | userId: ${userId} | currency: ${currency} | reason: omnibus user, no sub-account`,
                 );
             }
 
@@ -1020,7 +1067,9 @@ export class SweepService {
                 userId,
                 currency: currency.toUpperCase(),
                 type: LedgerType.DEPOSIT,
-                sweepStatus: { in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS] },
+                sweepStatus: {
+                    in: [SweepStatus.PENDING, SweepStatus.IN_PROGRESS],
+                },
                 updatedAt: { lt: cutoff },
             },
             select: { id: true, sweepStatus: true },
@@ -1031,20 +1080,20 @@ export class SweepService {
                 await this.updateSweepStatus(
                     stale.id,
                     SweepStatus.FAILED,
-                    `auto-fail: stale beyond ${this.SWEEP_BLOCK_WINDOW_HOURS}h window`
+                    `auto-fail: stale beyond ${this.SWEEP_BLOCK_WINDOW_HOURS}h window`,
                 );
             } catch (error) {
                 // Log but continue — a single stale entry failing to update
                 // should not block the rest of the check
                 this.logger.error(
-                    `Failed to auto-fail stale sweep entry | ledgerEntryId: ${stale.id} | error: ${error.message}`
+                    `Failed to auto-fail stale sweep entry | ledgerEntryId: ${stale.id} | error: ${error.message}`,
                 );
             }
         }
 
         if (staleEntries.length > 0) {
             this.logger.warn(
-                `Auto-failed ${staleEntries.length} stale sweep entries (>${this.SWEEP_BLOCK_WINDOW_HOURS}h) for user ${userId} (${currency})`
+                `Auto-failed ${staleEntries.length} stale sweep entries (>${this.SWEEP_BLOCK_WINDOW_HOURS}h) for user ${userId} (${currency})`,
             );
         }
 
@@ -1064,7 +1113,7 @@ export class SweepService {
 
         if (pendingCount > 0) {
             this.logger.log(
-                `User ${userId} has ${pendingCount} recent pending sweeps for ${currency} — blocking withdrawal`
+                `User ${userId} has ${pendingCount} recent pending sweeps for ${currency} — blocking withdrawal`,
             );
         }
 

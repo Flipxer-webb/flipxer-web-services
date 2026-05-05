@@ -112,12 +112,12 @@ describe("WalletManagementService", () => {
         expect(cacheService.set).toHaveBeenCalledWith(
             "exchange:ngn:usd",
             expect.any(Number),
-            300
+            300,
         );
         expect(cacheService.set).toHaveBeenCalledWith(
             "admin:quidax:wallets",
             expect.objectContaining({ wallets: expect.any(Array) }),
-            45
+            45,
         );
     });
 
@@ -186,13 +186,25 @@ describe("WalletManagementService", () => {
         const thresholds = await service.getLiquidityThresholds();
 
         expect(thresholds).toHaveLength(4);
-        expect(thresholds[0]).toEqual(expect.objectContaining({ currency: "btc" }));
+        expect(thresholds[0]).toEqual(
+            expect.objectContaining({ currency: "btc" }),
+        );
     });
 
     it("detects low and high liquidity threshold breaches", async () => {
         jest.spyOn(service, "getLiquidityThresholds").mockResolvedValue([
-            { currency: "btc", minBalance: 1, maxBalance: 5, alertEnabled: true },
-            { currency: "eth", minBalance: 1, maxBalance: 2, alertEnabled: true },
+            {
+                currency: "btc",
+                minBalance: 1,
+                maxBalance: 5,
+                alertEnabled: true,
+            },
+            {
+                currency: "eth",
+                minBalance: 1,
+                maxBalance: 2,
+                alertEnabled: true,
+            },
         ] as any);
         jest.spyOn(service, "getWalletBalances").mockResolvedValue({
             totalNgnValue: 0,
@@ -227,7 +239,12 @@ describe("WalletManagementService", () => {
         prisma.systemSetting.upsert.mockResolvedValue({});
 
         const thresholds = [
-            { currency: "usdt", minBalance: 100, maxBalance: 500, alertEnabled: true },
+            {
+                currency: "usdt",
+                minBalance: 100,
+                maxBalance: 500,
+                alertEnabled: true,
+            },
         ] as any;
 
         const result = await service.updateLiquidityThresholds(thresholds, 91);

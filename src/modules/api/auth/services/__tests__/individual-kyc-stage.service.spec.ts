@@ -48,7 +48,11 @@ import { IndividualKycStageService } from "../individual-kyc-stage.service";
 function createPrismaMock() {
     return {
         user: { findUnique: jest.fn() },
-        kycStageAttempt: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
+        kycStageAttempt: {
+            findFirst: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+        },
         userDocument: { findUnique: jest.fn() },
         $transaction: jest.fn(),
     };
@@ -127,7 +131,10 @@ describe("IndividualKycStageService", () => {
             verifyIncomeFromPreview: jest.fn(),
         };
 
-        prisma.$transaction.mockImplementation(async (callback: (value: typeof tx) => Promise<unknown>) => callback(tx));
+        prisma.$transaction.mockImplementation(
+            async (callback: (value: typeof tx) => Promise<unknown>) =>
+                callback(tx),
+        );
         (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
 
         service = new IndividualKycStageService(
@@ -171,9 +178,12 @@ describe("IndividualKycStageService", () => {
             imageFrontBase64: "data:image/jpeg;base64,ZmFrZQ==",
         } as any);
 
-        expect(authService.previewDocumentWithProviderLog).toHaveBeenCalledWith(baseUser, {
-            imageFrontBase64: "data:image/jpeg;base64,ZmFrZQ==",
-        });
+        expect(authService.previewDocumentWithProviderLog).toHaveBeenCalledWith(
+            baseUser,
+            {
+                imageFrontBase64: "data:image/jpeg;base64,ZmFrZQ==",
+            },
+        );
         expect(result.data).toEqual(
             expect.objectContaining({
                 stage: KycStage.IDENTITY_DOCUMENT,
@@ -192,7 +202,9 @@ describe("IndividualKycStageService", () => {
                 ]),
             }),
         );
-        expect(result.message).toBe("Document uploaded successfully, please submit.");
+        expect(result.message).toBe(
+            "Document uploaded successfully, please submit.",
+        );
         expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: expect.objectContaining({
@@ -202,12 +214,14 @@ describe("IndividualKycStageService", () => {
                     attemptNo: 0,
                     reasonMessage: null,
                     evidenceSummary: expect.objectContaining({
-                        previewMessage: "Document uploaded successfully, please submit.",
+                        previewMessage:
+                            "Document uploaded successfully, please submit.",
                         canSubmit: true,
                         outcome: "REVIEW_LIKELY",
                     }),
                     reasonDetails: expect.objectContaining({
-                        previewMessage: "Document uploaded successfully, please submit.",
+                        previewMessage:
+                            "Document uploaded successfully, please submit.",
                         providerInteraction: expect.objectContaining({
                             provider: "DOJAH",
                             request: expect.objectContaining({
@@ -222,7 +236,8 @@ describe("IndividualKycStageService", () => {
 
     it("treats invalid but reviewable previews as review likely even without extracted text", async () => {
         authService.previewDocumentWithProviderLog.mockResolvedValue({
-            message: "Document needs review and can be submitted for manual review.",
+            message:
+                "Document needs review and can be submitted for manual review.",
             data: {
                 isValid: false,
                 canSubmit: true,
@@ -249,7 +264,9 @@ describe("IndividualKycStageService", () => {
                 reasonMessage: null,
             }),
         );
-        expect(result.message).toBe("Document uploaded successfully, please submit.");
+        expect(result.message).toBe(
+            "Document uploaded successfully, please submit.",
+        );
     });
 
     it("converts OCR preparation failures into bad-request preview errors", async () => {
@@ -258,11 +275,17 @@ describe("IndividualKycStageService", () => {
         );
 
         try {
-            await service.previewAddressDocument(baseUser, pdfFile, KycMethod.UTILITY_BILL);
+            await service.previewAddressDocument(
+                baseUser,
+                pdfFile,
+                KycMethod.UTILITY_BILL,
+            );
             fail("Expected previewAddressDocument to throw");
         } catch (error) {
             expect(error).toBeInstanceOf(HttpException);
-            expect((error as HttpException).getStatus()).toBe(HttpStatus.BAD_REQUEST);
+            expect((error as HttpException).getStatus()).toBe(
+                HttpStatus.BAD_REQUEST,
+            );
             expect((error as Error).message).toBe("Unreadable document");
         }
     });
@@ -281,7 +304,11 @@ describe("IndividualKycStageService", () => {
             isRecent: true,
         });
 
-        const result = await service.previewAddressDocument(baseUser, pdfFile, KycMethod.UTILITY_BILL);
+        const result = await service.previewAddressDocument(
+            baseUser,
+            pdfFile,
+            KycMethod.UTILITY_BILL,
+        );
 
         expect(result.data).toEqual(
             expect.objectContaining({
@@ -290,7 +317,8 @@ describe("IndividualKycStageService", () => {
                 providerStatus: KycProviderStatus.FAILED,
                 canSubmit: false,
                 reasonCode: "PROFILE_NAME_MISMATCH",
-                reasonMessage: "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+                reasonMessage:
+                    "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
                 comparisonSummary: expect.objectContaining({
                     matchedName: false,
                     matchedAddress: true,
@@ -309,7 +337,9 @@ describe("IndividualKycStageService", () => {
             nameMatches: true,
             documentDate: "2026-04-20",
         };
-        authService.analyzeAddressDocumentSignals.mockResolvedValue(providerSignals);
+        authService.analyzeAddressDocumentSignals.mockResolvedValue(
+            providerSignals,
+        );
         (validateAddressDocument as jest.Mock).mockResolvedValue({
             confidence: 95,
             matchedName: true,
@@ -321,9 +351,16 @@ describe("IndividualKycStageService", () => {
             decision: "APPROVE",
         });
 
-        await service.previewAddressDocument(baseUser, pdfFile, KycMethod.UTILITY_BILL);
+        await service.previewAddressDocument(
+            baseUser,
+            pdfFile,
+            KycMethod.UTILITY_BILL,
+        );
 
-        expect(authService.analyzeAddressDocumentSignals).toHaveBeenCalledWith(baseUser, pdfFile);
+        expect(authService.analyzeAddressDocumentSignals).toHaveBeenCalledWith(
+            baseUser,
+            pdfFile,
+        );
         expect(validateAddressDocument).toHaveBeenCalledWith(
             pdfFile.buffer,
             "Ada",
@@ -349,7 +386,11 @@ describe("IndividualKycStageService", () => {
             isRecent: true,
         });
 
-        const result = await service.previewAddressDocument(baseUser, pdfFile, KycMethod.UTILITY_BILL);
+        const result = await service.previewAddressDocument(
+            baseUser,
+            pdfFile,
+            KycMethod.UTILITY_BILL,
+        );
 
         expect(result.data).toEqual(
             expect.objectContaining({
@@ -357,7 +398,8 @@ describe("IndividualKycStageService", () => {
                 providerStatus: KycProviderStatus.FAILED,
                 canSubmit: false,
                 reasonCode: "DOCUMENT_UNSUPPORTED",
-                reasonMessage: "Please upload a valid address verification document.",
+                reasonMessage:
+                    "Please upload a valid address verification document.",
                 comparisonSummary: expect.objectContaining({
                     matchedAddress: false,
                     isAllowedDocumentType: false,
@@ -382,7 +424,11 @@ describe("IndividualKycStageService", () => {
             reason: "Your bank statement passed automated checks and will be reviewed by our team.",
         });
 
-        const result = await service.previewIncomeDocument(baseUser, pdfFile, KycMethod.OTHER);
+        const result = await service.previewIncomeDocument(
+            baseUser,
+            pdfFile,
+            KycMethod.OTHER,
+        );
 
         expect(result.data).toEqual(
             expect.objectContaining({
@@ -397,7 +443,9 @@ describe("IndividualKycStageService", () => {
                 ]),
             }),
         );
-        expect(result.message).toBe("Document uploaded successfully, please submit.");
+        expect(result.message).toBe(
+            "Document uploaded successfully, please submit.",
+        );
         expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: expect.objectContaining({
@@ -421,7 +469,9 @@ describe("IndividualKycStageService", () => {
             country: "Nigeria",
             countryCode: "NG",
         };
-        authService.analyzeIncomeDocumentSignals.mockResolvedValue(providerSignals);
+        authService.analyzeIncomeDocumentSignals.mockResolvedValue(
+            providerSignals,
+        );
         (validateIncomeDocument as jest.Mock).mockResolvedValue({
             confidence: 95,
             matchedName: true,
@@ -438,9 +488,16 @@ describe("IndividualKycStageService", () => {
             reason: "This bank statement could not be verified as an original document. Please upload an original Nigerian bank statement that shows your full name.",
         });
 
-        const result = await service.previewIncomeDocument(baseUser, pdfFile, KycMethod.OTHER);
+        const result = await service.previewIncomeDocument(
+            baseUser,
+            pdfFile,
+            KycMethod.OTHER,
+        );
 
-        expect(authService.analyzeIncomeDocumentSignals).toHaveBeenCalledWith(baseUser, pdfFile);
+        expect(authService.analyzeIncomeDocumentSignals).toHaveBeenCalledWith(
+            baseUser,
+            pdfFile,
+        );
         expect(validateIncomeDocument).toHaveBeenCalledWith(
             pdfFile.buffer,
             "Ada",
@@ -455,7 +512,8 @@ describe("IndividualKycStageService", () => {
                 providerStatus: KycProviderStatus.FAILED,
                 canSubmit: false,
                 reasonCode: "DOCUMENT_INVALID",
-                reasonMessage: "This bank statement could not be verified as an original document. Please upload an original Nigerian bank statement that shows your full name.",
+                reasonMessage:
+                    "This bank statement could not be verified as an original document. Please upload an original Nigerian bank statement that shows your full name.",
                 comparisonSummary: expect.objectContaining({
                     providerVerified: false,
                     providerReason: "Printed photocopy detected",
@@ -479,7 +537,11 @@ describe("IndividualKycStageService", () => {
             reason: "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.",
         });
 
-        const result = await service.previewIncomeDocument(baseUser, pdfFile, KycMethod.OTHER);
+        const result = await service.previewIncomeDocument(
+            baseUser,
+            pdfFile,
+            KycMethod.OTHER,
+        );
 
         expect(result.data).toEqual(
             expect.objectContaining({
@@ -488,7 +550,8 @@ describe("IndividualKycStageService", () => {
                 providerStatus: KycProviderStatus.FAILED,
                 canSubmit: false,
                 reasonCode: "PROFILE_NAME_MISMATCH",
-                reasonMessage: "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.",
+                reasonMessage:
+                    "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.",
             }),
         );
     });
@@ -504,7 +567,8 @@ describe("IndividualKycStageService", () => {
             isCurrent: false,
             status: KycAttemptStatus.DRAFT,
             reasonDetails: {
-                previewSignature: "6de015546719a2276827808ab60fd76d4f612e5a4e63984dbc25c0fda5d655fd",
+                previewSignature:
+                    "6de015546719a2276827808ab60fd76d4f612e5a4e63984dbc25c0fda5d655fd",
                 previewPayload: {
                     canSubmit: true,
                     comparisonSummary: {
@@ -513,7 +577,8 @@ describe("IndividualKycStageService", () => {
                 },
             },
             evidenceSummary: {
-                previewSignature: "6de015546719a2276827808ab60fd76d4f612e5a4e63984dbc25c0fda5d655fd",
+                previewSignature:
+                    "6de015546719a2276827808ab60fd76d4f612e5a4e63984dbc25c0fda5d655fd",
             },
         } as any;
         const createdAttempt = {
@@ -548,9 +613,15 @@ describe("IndividualKycStageService", () => {
             .mockResolvedValueOnce(previewAttempt)
             .mockResolvedValueOnce(createdAttempt);
 
-        const result = await service.submitAddressDocument(baseUser, pdfFile, KycMethod.UTILITY_BILL);
+        const result = await service.submitAddressDocument(
+            baseUser,
+            pdfFile,
+            KycMethod.UTILITY_BILL,
+        );
 
-        expect(tierVerificationService.verifyAddressFromPreview).toHaveBeenCalledWith(
+        expect(
+            tierVerificationService.verifyAddressFromPreview,
+        ).toHaveBeenCalledWith(
             baseUser,
             pdfFile,
             KycMethod.UTILITY_BILL,
@@ -591,22 +662,26 @@ describe("IndividualKycStageService", () => {
             decisionMode: KycDecisionMode.AUTO,
             providerRef: "dojah-bvn-41",
             reasonCode: "DOB_MATCHED_BUT_NAMES_MISMATCHED_MANUAL_CHECK_FAILED",
-            reasonMessage: "DOB matched but names mismatched. Manual check failed.",
+            reasonMessage:
+                "DOB matched but names mismatched. Manual check failed.",
             extractedFields: { identifierType: KycMethod.BVN },
             comparisonSummary: { dobMatches: true, nameMatches: false },
             evidenceSummary: { identifierType: KycMethod.BVN, verified: false },
             reviewerId: null,
-            reviewNote: "DOB matched but names mismatched. Manual check failed.",
+            reviewNote:
+                "DOB matched but names mismatched. Manual check failed.",
             submittedAt,
             reviewedAt: submittedAt,
             escalatedAt: null,
             version: 2,
         } as any;
 
-        authService.bvnVerification.mockRejectedValue(new HttpException(
-            "Incorrect first name, last name or date of birth",
-            HttpStatus.BAD_REQUEST,
-        ));
+        authService.bvnVerification.mockRejectedValue(
+            new HttpException(
+                "Incorrect first name, last name or date of birth",
+                HttpStatus.BAD_REQUEST,
+            ),
+        );
         prisma.kycStageAttempt.findFirst.mockResolvedValue(createdAttempt);
 
         const result = await service.submitGovernmentIdBvn(baseUser, {
@@ -656,7 +731,8 @@ describe("IndividualKycStageService", () => {
             isCurrent: false,
             status: KycAttemptStatus.DRAFT,
             reasonDetails: {
-                previewSignature: "5c8c2df8a10fbe1bded4453f2a7148e2275ad872f5ed7db84a4d5edaded42bfe",
+                previewSignature:
+                    "5c8c2df8a10fbe1bded4453f2a7148e2275ad872f5ed7db84a4d5edaded42bfe",
                 providerInteraction: {
                     provider: "DOJAH",
                     request: {
@@ -680,7 +756,8 @@ describe("IndividualKycStageService", () => {
                 },
             },
             evidenceSummary: {
-                previewSignature: "5c8c2df8a10fbe1bded4453f2a7148e2275ad872f5ed7db84a4d5edaded42bfe",
+                previewSignature:
+                    "5c8c2df8a10fbe1bded4453f2a7148e2275ad872f5ed7db84a4d5edaded42bfe",
             },
         } as any;
         const updatedAttempt = {
@@ -715,9 +792,14 @@ describe("IndividualKycStageService", () => {
             .mockResolvedValueOnce(previewAttempt)
             .mockResolvedValueOnce(updatedAttempt);
 
-        const result = await service.submitIdentityDocument(baseUser, dto as any);
+        const result = await service.submitIdentityDocument(
+            baseUser,
+            dto as any,
+        );
 
-        expect(authService.documentVerificationBase64FromPreview).toHaveBeenCalledWith(
+        expect(
+            authService.documentVerificationBase64FromPreview,
+        ).toHaveBeenCalledWith(
             baseUser,
             dto,
             expect.objectContaining({

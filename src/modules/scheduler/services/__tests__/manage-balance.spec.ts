@@ -54,9 +54,15 @@ describe("AssetBalanceSchedulerService", () => {
             distributedLockService as never,
         );
 
-        jest.spyOn((service as any).logger, "debug").mockImplementation(() => undefined);
-        jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
-        jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        jest.spyOn((service as any).logger, "debug").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((service as any).logger, "log").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((service as any).logger, "error").mockImplementation(
+            () => undefined,
+        );
     });
 
     afterEach(() => {
@@ -66,14 +72,25 @@ describe("AssetBalanceSchedulerService", () => {
     it("syncAllQuidaxAssetBalance enqueues users and releases lock", async () => {
         const release = jest.fn();
         (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
-        jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([1, 2, 3]);
+        jest.spyOn(
+            service,
+            "getEligibleUserIdsForBalanceSync",
+        ).mockResolvedValue([1, 2, 3]);
 
         await service.syncAllQuidaxAssetBalance();
 
-        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledTimes(3);
-        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(1);
-        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(2);
-        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(3);
+        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledTimes(
+            3,
+        );
+        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(
+            1,
+        );
+        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(
+            2,
+        );
+        expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(
+            3,
+        );
         expect(distributedLockService.acquireLock).toHaveBeenCalledWith(
             "job:quidax-balance-sync:process",
             expect.objectContaining({
@@ -92,8 +109,13 @@ describe("AssetBalanceSchedulerService", () => {
     it("syncAllQuidaxAssetBalance still releases lock when queueing fails", async () => {
         const release = jest.fn();
         (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
-        jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([1]);
-        cryptoAccountProducer.enqueueSyncBalance.mockRejectedValue(new Error("queue down"));
+        jest.spyOn(
+            service,
+            "getEligibleUserIdsForBalanceSync",
+        ).mockResolvedValue([1]);
+        cryptoAccountProducer.enqueueSyncBalance.mockRejectedValue(
+            new Error("queue down"),
+        );
 
         await service.syncAllQuidaxAssetBalance();
 
@@ -152,7 +174,9 @@ describe("AssetBalanceSchedulerService", () => {
             user_id: "sub-1",
             currency: "btc",
         });
-        expect(tradingService.walletAddressCreatedSuccessHandler).toHaveBeenCalledWith({
+        expect(
+            tradingService.walletAddressCreatedSuccessHandler,
+        ).toHaveBeenCalledWith({
             walletAddressId: "addr-1",
             walletAddress: "bc1wallet",
             totalPayments: 2,
@@ -164,9 +188,9 @@ describe("AssetBalanceSchedulerService", () => {
 
     it("syncWalletAddress marks long-lived null provider addresses as failed", async () => {
         const release = jest.fn();
-        const nowSpy = jest.spyOn(Date, "now").mockReturnValue(
-            new Date("2026-04-21T18:00:00Z").getTime()
-        );
+        const nowSpy = jest
+            .spyOn(Date, "now")
+            .mockReturnValue(new Date("2026-04-21T18:00:00Z").getTime());
         (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
 
         prisma.cryptoWalletAddress.findMany.mockResolvedValue([
@@ -193,7 +217,9 @@ describe("AssetBalanceSchedulerService", () => {
             where: { id: 13 },
             data: { status: CryptoWalletStatus.FAILED },
         });
-        expect(tradingService.walletAddressCreatedSuccessHandler).not.toHaveBeenCalled();
+        expect(
+            tradingService.walletAddressCreatedSuccessHandler,
+        ).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledTimes(1);
 
         nowSpy.mockRestore();
@@ -211,7 +237,9 @@ describe("AssetBalanceSchedulerService", () => {
     });
 
     it("getEligibleUserIdsForBalanceSync paginates eligible users until exhausted", async () => {
-        const firstBatch = Array.from({ length: 1000 }, (_, i) => ({ id: i + 1 }));
+        const firstBatch = Array.from({ length: 1000 }, (_, i) => ({
+            id: i + 1,
+        }));
         const secondBatch = [{ id: 1001 }, { id: 1002 }];
 
         prisma.user.findMany
@@ -245,7 +273,10 @@ describe("AssetBalanceSchedulerService", () => {
             .fn()
             .mockResolvedValue(release);
 
-        jest.spyOn(service, "getRecentlyActiveUsersWithSubAccounts").mockResolvedValue([1, 2, 3]);
+        jest.spyOn(
+            service,
+            "getRecentlyActiveUsersWithSubAccounts",
+        ).mockResolvedValue([1, 2, 3]);
 
         cryptoAccountProducer.enqueueDepositSync
             .mockResolvedValueOnce(undefined)
@@ -254,10 +285,18 @@ describe("AssetBalanceSchedulerService", () => {
 
         await service.syncMissedDeposits();
 
-        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledTimes(3);
-        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(1);
-        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(2);
-        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(3);
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledTimes(
+            3,
+        );
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(
+            1,
+        );
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(
+            2,
+        );
+        expect(cryptoAccountProducer.enqueueDepositSync).toHaveBeenCalledWith(
+            3,
+        );
         expect(tradingService.syncUserDeposits).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledTimes(1);
     });
@@ -268,7 +307,10 @@ describe("AssetBalanceSchedulerService", () => {
             .fn()
             .mockResolvedValue(release);
 
-        jest.spyOn(service, "getRecentlyActiveUsersWithSubAccounts").mockResolvedValue([]);
+        jest.spyOn(
+            service,
+            "getRecentlyActiveUsersWithSubAccounts",
+        ).mockResolvedValue([]);
 
         await service.syncMissedDeposits();
 

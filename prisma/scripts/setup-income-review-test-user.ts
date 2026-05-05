@@ -20,9 +20,13 @@ import { customAlphabet } from "nanoid";
 
 const prisma = new PrismaClient({ log: ["error", "warn"] });
 const SALT_ROUNDS = 10;
-const generateIdentifier = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789", 16);
-const TEST_USER_PASSWORD = process.env.LOCAL_TEST_INCOME_REVIEW_PASSWORD ?? ["Income", "Pend", "@2024!"]
-    .join("");
+const generateIdentifier = customAlphabet(
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789",
+    16,
+);
+const TEST_USER_PASSWORD =
+    process.env.LOCAL_TEST_INCOME_REVIEW_PASSWORD ??
+    ["Income", "Pend", "@2024!"].join("");
 
 const TEST_USER = {
     email: "income-pending.test@flipxer.local",
@@ -45,7 +49,7 @@ async function ensureRole() {
     });
 
     if (!individualRole) {
-        throw new Error('Individual role not found. Run seed first.');
+        throw new Error("Individual role not found. Run seed first.");
     }
 
     return individualRole;
@@ -146,7 +150,9 @@ async function main() {
             journeyType: KycJourneyType.INDIVIDUAL,
             stage: KycStage.INCOME,
             isCurrent: true,
-            ...(currentIncomeAttempt ? { id: { not: currentIncomeAttempt.id } } : {}),
+            ...(currentIncomeAttempt
+                ? { id: { not: currentIncomeAttempt.id } }
+                : {}),
         },
         data: {
             isCurrent: false,
@@ -164,58 +170,63 @@ async function main() {
 
     const incomeAttempt = currentIncomeAttempt
         ? await prisma.kycStageAttempt.update({
-            where: { id: currentIncomeAttempt.id },
-            data: {
-                isCurrent: true,
-                status: KycAttemptStatus.PENDING_REVIEW,
-                providerName: KycProviderName.NONE,
-                providerStatus: KycProviderStatus.NOT_REQUESTED,
-                decisionMode: KycDecisionMode.MANUAL,
-                providerRef: null,
-                reviewerId: null,
-                reviewNote: null,
-                reviewedAt: null,
-                escalatedAt: null,
-                reasonCode: null,
-                reasonMessage: null,
-                reasonDetails: Prisma.DbNull,
-                extractedFields,
-                evidenceSummary,
-                submittedAt: currentIncomeAttempt.submittedAt ?? new Date(),
-            },
-            select: { id: true },
-        })
+              where: { id: currentIncomeAttempt.id },
+              data: {
+                  isCurrent: true,
+                  status: KycAttemptStatus.PENDING_REVIEW,
+                  providerName: KycProviderName.NONE,
+                  providerStatus: KycProviderStatus.NOT_REQUESTED,
+                  decisionMode: KycDecisionMode.MANUAL,
+                  providerRef: null,
+                  reviewerId: null,
+                  reviewNote: null,
+                  reviewedAt: null,
+                  escalatedAt: null,
+                  reasonCode: null,
+                  reasonMessage: null,
+                  reasonDetails: Prisma.DbNull,
+                  extractedFields,
+                  evidenceSummary,
+                  submittedAt: currentIncomeAttempt.submittedAt ?? new Date(),
+              },
+              select: { id: true },
+          })
         : await prisma.kycStageAttempt.create({
-            data: {
-                userId: user.id,
-                journeyType: KycJourneyType.INDIVIDUAL,
-                stage: KycStage.INCOME,
-                method: KycMethod.OTHER,
-                attemptNo: 1,
-                isCurrent: true,
-                status: KycAttemptStatus.PENDING_REVIEW,
-                providerName: KycProviderName.NONE,
-                providerStatus: KycProviderStatus.NOT_REQUESTED,
-                decisionMode: KycDecisionMode.MANUAL,
-                providerRef: null,
-                reviewerId: null,
-                reviewNote: null,
-                reviewedAt: null,
-                escalatedAt: null,
-                reasonCode: null,
-                reasonMessage: null,
-                reasonDetails: Prisma.DbNull,
-                extractedFields,
-                evidenceSummary,
-                submittedAt: new Date(),
-            },
-            select: { id: true },
-        });
+              data: {
+                  userId: user.id,
+                  journeyType: KycJourneyType.INDIVIDUAL,
+                  stage: KycStage.INCOME,
+                  method: KycMethod.OTHER,
+                  attemptNo: 1,
+                  isCurrent: true,
+                  status: KycAttemptStatus.PENDING_REVIEW,
+                  providerName: KycProviderName.NONE,
+                  providerStatus: KycProviderStatus.NOT_REQUESTED,
+                  decisionMode: KycDecisionMode.MANUAL,
+                  providerRef: null,
+                  reviewerId: null,
+                  reviewNote: null,
+                  reviewedAt: null,
+                  escalatedAt: null,
+                  reasonCode: null,
+                  reasonMessage: null,
+                  reasonDetails: Prisma.DbNull,
+                  extractedFields,
+                  evidenceSummary,
+                  submittedAt: new Date(),
+              },
+              select: { id: true },
+          });
 
     const existingSubmissionEvent = await prisma.kycAttemptEvent.findFirst({
         where: {
             attemptId: incomeAttempt.id,
-            eventType: { in: [KycAttemptEventType.SUBMITTED, KycAttemptEventType.RESUBMITTED] },
+            eventType: {
+                in: [
+                    KycAttemptEventType.SUBMITTED,
+                    KycAttemptEventType.RESUBMITTED,
+                ],
+            },
         },
         select: { id: true },
     });
@@ -245,7 +256,9 @@ async function main() {
     console.log(`  Email: ${TEST_USER.email}`);
     console.log(`  User ID: ${user.id}`);
     console.log(`  Current income attempt ID: ${incomeAttempt.id}`);
-    console.log("  State: Tier 3 with submitted income document pending admin review");
+    console.log(
+        "  State: Tier 3 with submitted income document pending admin review",
+    );
 }
 
 main()

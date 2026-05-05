@@ -1,0 +1,3 @@
+exclude_paths:
+    - "src/**/__tests__/**"
+    - "src/**/*.spec.ts"

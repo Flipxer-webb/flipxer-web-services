@@ -8,7 +8,7 @@ import { QuidaxGlobalLimiterService } from "@/modules/factory/trading/providers/
 import {
     WalletBalance,
     AggregatedWalletBalance,
-    LiquidityThreshold
+    LiquidityThreshold,
 } from "../types";
 
 const WALLET_CACHE_KEY = "admin:quidax:wallets";
@@ -42,28 +42,42 @@ export class WalletManagementService {
      */
     private async getNgnUsdRate(): Promise<number> {
         // Check cache first
-        const cached = await this.cacheService.get<number>(NGN_USD_RATE_CACHE_KEY);
+        const cached = await this.cacheService.get<number>(
+            NGN_USD_RATE_CACHE_KEY,
+        );
         if (cached) return cached;
 
         try {
             // Get USDT price in USD (should be ~1) and NGN
             // Then calculate NGN/USD rate from the crypto rates
-            const usdtPriceUsd = await this.coinGeckoCache.getPriceInUSD("usdt");
+            const usdtPriceUsd =
+                await this.coinGeckoCache.getPriceInUSD("usdt");
             if (usdtPriceUsd) {
                 // Get USDT/NGN rate from Quidax
-                const marketData = await this.quidax.getSingleMarketTicker("usdtngn");
-                const usdtNgnRate = Number.parseFloat(marketData.data?.ticker?.last || "0");
+                const marketData =
+                    await this.quidax.getSingleMarketTicker("usdtngn");
+                const usdtNgnRate = Number.parseFloat(
+                    marketData.data?.ticker?.last || "0",
+                );
 
                 if (usdtNgnRate > 0) {
                     // NGN/USD = (USDT/USD) / (USDT/NGN)
                     const ngnUsdRate = usdtPriceUsd / usdtNgnRate;
-                    await this.cacheService.set(NGN_USD_RATE_CACHE_KEY, ngnUsdRate, NGN_USD_RATE_CACHE_TTL);
-                    this.logger.debug(`Calculated NGN/USD rate: ${ngnUsdRate} (1 NGN = $${ngnUsdRate})`);
+                    await this.cacheService.set(
+                        NGN_USD_RATE_CACHE_KEY,
+                        ngnUsdRate,
+                        NGN_USD_RATE_CACHE_TTL,
+                    );
+                    this.logger.debug(
+                        `Calculated NGN/USD rate: ${ngnUsdRate} (1 NGN = $${ngnUsdRate})`,
+                    );
                     return ngnUsdRate;
                 }
             }
         } catch (error) {
-            this.logger.warn(`Failed to fetch dynamic NGN/USD rate: ${error.message}`);
+            this.logger.warn(
+                `Failed to fetch dynamic NGN/USD rate: ${error.message}`,
+            );
         }
 
         // Fallback to a reasonable estimate (will be updated on next successful call)
@@ -75,10 +89,15 @@ export class WalletManagementService {
     /**
      * Get all Quidax wallet balances with 45-second caching
      */
-    async getWalletBalances(forceRefresh: boolean = false): Promise<AggregatedWalletBalance> {
+    async getWalletBalances(
+        forceRefresh: boolean = false,
+    ): Promise<AggregatedWalletBalance> {
         // Check cache first unless force refresh
         if (!forceRefresh) {
-            const cached = await this.cacheService.get<AggregatedWalletBalance>(WALLET_CACHE_KEY);
+            const cached =
+                await this.cacheService.get<AggregatedWalletBalance>(
+                    WALLET_CACHE_KEY,
+                );
             if (cached) {
                 this.logger.debug("Returning cached wallet balances");
                 return cached;
@@ -89,7 +108,9 @@ export class WalletManagementService {
 
         try {
             // Fetch main account wallets from Quidax using "me" as user_id
-            const walletsResponse = await this.quidax.getUserWalletList({ user_id: "me" });
+            const walletsResponse = await this.quidax.getUserWalletList({
+                user_id: "me",
+            });
 
             // Get dynamic NGN/USD rate
             const ngnUsdRate = await this.getNgnUsdRate();
@@ -106,7 +127,8 @@ export class WalletManagementService {
                     const availableBalance = balance - locked - staked;
 
                     // Get converted balance in NGN (using Quidax's converted_balance if available)
-                    const ngnValue = Number.parseFloat(wallet.converted_balance) || 0;
+                    const ngnValue =
+                        Number.parseFloat(wallet.converted_balance) || 0;
                     // Use dynamic NGN/USD rate instead of hardcoded value
                     const usdValue = ngnValue * ngnUsdRate;
 
@@ -135,22 +157,35 @@ export class WalletManagementService {
             };
 
             // Cache the result for 45 seconds
-            await this.cacheService.set(WALLET_CACHE_KEY, result, WALLET_CACHE_TTL);
+            await this.cacheService.set(
+                WALLET_CACHE_KEY,
+                result,
+                WALLET_CACHE_TTL,
+            );
 
             this.logger.log(`Cached ${wallets.length} wallet balances`);
             return result;
         } catch (error) {
-            this.logger.error(`Failed to fetch wallet balances: ${error.message}`);
+            this.logger.error(
+                `Failed to fetch wallet balances: ${error.message}`,
+            );
 
             // Try to return stale cache if available
-            const staleCache = await this.cacheService.get<AggregatedWalletBalance>(WALLET_CACHE_KEY);
+            const staleCache =
+                await this.cacheService.get<AggregatedWalletBalance>(
+                    WALLET_CACHE_KEY,
+                );
             if (staleCache) {
-                this.logger.warn("Returning stale cached data due to API error");
+                this.logger.warn(
+                    "Returning stale cached data due to API error",
+                );
                 return staleCache;
             }
 
             // Return empty wallet data instead of throwing to gracefully handle Quidax unavailability
-            this.logger.warn("No cached data available, returning empty wallet data");
+            this.logger.warn(
+                "No cached data available, returning empty wallet data",
+            );
             return {
                 totalNgnValue: 0,
                 totalUsdValue: 0,
@@ -172,34 +207,53 @@ export class WalletManagementService {
     /**
      * Get wallet balance for a specific currency
      */
-    async getWalletBalance(currency: string, forceRefresh: boolean = false): Promise<WalletBalance | null> {
+    async getWalletBalance(
+        currency: string,
+        forceRefresh: boolean = false,
+    ): Promise<WalletBalance | null> {
         const allWallets = await this.getWalletBalances(forceRefresh);
-        return allWallets.wallets.find(
-            w => w.currency.toLowerCase() === currency.toLowerCase()
-        ) || null;
+        return (
+            allWallets.wallets.find(
+                (w) => w.currency.toLowerCase() === currency.toLowerCase(),
+            ) || null
+        );
     }
 
     /**
      * Check if any wallets breach liquidity thresholds
      */
-    async checkLiquidityThresholds(): Promise<{ breaches: Array<{ wallet: WalletBalance; threshold: LiquidityThreshold; breachType: 'low' | 'high' }> }> {
+    async checkLiquidityThresholds(): Promise<{
+        breaches: Array<{
+            wallet: WalletBalance;
+            threshold: LiquidityThreshold;
+            breachType: "low" | "high";
+        }>;
+    }> {
         const thresholds = await this.getLiquidityThresholds();
         const wallets = await this.getWalletBalances();
 
-        const breaches: Array<{ wallet: WalletBalance; threshold: LiquidityThreshold; breachType: 'low' | 'high' }> = [];
+        const breaches: Array<{
+            wallet: WalletBalance;
+            threshold: LiquidityThreshold;
+            breachType: "low" | "high";
+        }> = [];
 
         for (const wallet of wallets.wallets) {
             const threshold = thresholds.find(
-                t => t.currency.toLowerCase() === wallet.currency.toLowerCase()
+                (t) =>
+                    t.currency.toLowerCase() === wallet.currency.toLowerCase(),
             );
 
             if (threshold?.alertEnabled) {
                 const balance = Number.parseFloat(wallet.availableBalance);
 
                 if (balance < threshold.minBalance) {
-                    breaches.push({ wallet, threshold, breachType: 'low' });
-                } else if (balance > threshold.maxBalance && threshold.maxBalance > 0) {
-                    breaches.push({ wallet, threshold, breachType: 'high' });
+                    breaches.push({ wallet, threshold, breachType: "low" });
+                } else if (
+                    balance > threshold.maxBalance &&
+                    threshold.maxBalance > 0
+                ) {
+                    breaches.push({ wallet, threshold, breachType: "high" });
                 }
             }
         }
@@ -218,10 +272,38 @@ export class WalletManagementService {
         if (!setting) {
             // Return default thresholds with float configuration
             return [
-                { currency: "btc", minBalance: 0.1, maxBalance: 10, alertEnabled: true, floatPercentage: 20, absoluteReserve: 0.01 },
-                { currency: "eth", minBalance: 1, maxBalance: 100, alertEnabled: true, floatPercentage: 20, absoluteReserve: 0.1 },
-                { currency: "usdt", minBalance: 10000, maxBalance: 1000000, alertEnabled: true, floatPercentage: 20, absoluteReserve: 1000 },
-                { currency: "usdc", minBalance: 10000, maxBalance: 1000000, alertEnabled: true, floatPercentage: 20, absoluteReserve: 1000 },
+                {
+                    currency: "btc",
+                    minBalance: 0.1,
+                    maxBalance: 10,
+                    alertEnabled: true,
+                    floatPercentage: 20,
+                    absoluteReserve: 0.01,
+                },
+                {
+                    currency: "eth",
+                    minBalance: 1,
+                    maxBalance: 100,
+                    alertEnabled: true,
+                    floatPercentage: 20,
+                    absoluteReserve: 0.1,
+                },
+                {
+                    currency: "usdt",
+                    minBalance: 10000,
+                    maxBalance: 1000000,
+                    alertEnabled: true,
+                    floatPercentage: 20,
+                    absoluteReserve: 1000,
+                },
+                {
+                    currency: "usdc",
+                    minBalance: 10000,
+                    maxBalance: 1000000,
+                    alertEnabled: true,
+                    floatPercentage: 20,
+                    absoluteReserve: 1000,
+                },
             ];
         }
 
@@ -231,7 +313,10 @@ export class WalletManagementService {
     /**
      * Update liquidity thresholds
      */
-    async updateLiquidityThresholds(thresholds: LiquidityThreshold[], adminId: number): Promise<LiquidityThreshold[]> {
+    async updateLiquidityThresholds(
+        thresholds: LiquidityThreshold[],
+        adminId: number,
+    ): Promise<LiquidityThreshold[]> {
         await this.prisma.systemSetting.upsert({
             where: { key: "liquidity_thresholds" },
             update: {
@@ -249,8 +334,6 @@ export class WalletManagementService {
         return thresholds;
     }
 
-
-
     /**
      * Get platform-wide wallet statistics
      */
@@ -258,7 +341,11 @@ export class WalletManagementService {
         totalUsers: number;
         totalWallets: number;
         totalValueNGN: number;
-        topCurrencies: Array<{ currency: string; totalBalance: number; userCount: number }>;
+        topCurrencies: Array<{
+            currency: string;
+            totalBalance: number;
+            userCount: number;
+        }>;
     }> {
         // Get balances from LedgerEntries (virtual balance system)
         const [totalUsers, ledgerStats, cryptoRates] = await Promise.all([
@@ -266,7 +353,11 @@ export class WalletManagementService {
                 where: { userType: { not: "ADMIN" }, isDeleted: false },
             }),
             this.prisma.$queryRaw<
-                { currency: string; total_balance: number; user_count: number }[]
+                {
+                    currency: string;
+                    total_balance: number;
+                    user_count: number;
+                }[]
             >`
                 WITH latest_entries AS (
                     SELECT DISTINCT ON ("userId", currency)
@@ -298,7 +389,7 @@ export class WalletManagementService {
 
         // Calculate NGN value for each currency
         const topCurrencies = ledgerStats
-            .map(stat => {
+            .map((stat) => {
                 const rate = rateMap.get(stat.currency.toUpperCase()) || 0;
                 const balanceNGN = (stat.total_balance || 0) * rate;
                 return {
@@ -312,7 +403,10 @@ export class WalletManagementService {
             .slice(0, 10);
 
         // Sum all NGN values for total
-        const totalValueNGN = topCurrencies.reduce((sum, c) => sum + c.totalBalanceNGN, 0);
+        const totalValueNGN = topCurrencies.reduce(
+            (sum, c) => sum + c.totalBalanceNGN,
+            0,
+        );
 
         return {
             totalUsers,

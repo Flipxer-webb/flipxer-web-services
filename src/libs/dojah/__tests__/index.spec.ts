@@ -341,7 +341,9 @@ describe("DojahLib", () => {
 
         expect(parsed.country).toBe("Nigeria");
         expect(parsed.countryCode).toBe("NG");
-        expect(parsed.rawText).toBe("12 Idowu Taylor Street Victoria Island Lagos Nigeria");
+        expect(parsed.rawText).toBe(
+            "12 Idowu Taylor Street Victoria Island Lagos Nigeria",
+        );
         expect(parsed.hasExtractedText).toBe(true);
     });
 
@@ -354,7 +356,7 @@ describe("DojahLib", () => {
                     status: 401,
                     data: { error: "unauthorized" },
                 },
-            })
+            }),
         ).toThrow(DojahAuthorizationError);
     });
 
@@ -367,7 +369,7 @@ describe("DojahLib", () => {
                     status: 400,
                     data: { error: "invalid" },
                 },
-            })
+            }),
         ).toThrow(DojahValidationError);
     });
 
@@ -380,7 +382,7 @@ describe("DojahLib", () => {
                     status: 429,
                     data: { error: "rate limited" },
                 },
-            })
+            }),
         ).toThrow(DojahTooManyRequestError);
     });
 
@@ -393,7 +395,7 @@ describe("DojahLib", () => {
                     status: 402,
                     data: { error: "low balance" },
                 },
-            })
+            }),
         ).toThrow(DojahLowBalanceError);
 
         expect(() =>
@@ -402,7 +404,7 @@ describe("DojahLib", () => {
                     status: 404,
                     data: { error: "not found" },
                 },
-            })
+            }),
         ).toThrow(DojahNotFoundError);
 
         expect(() =>
@@ -411,7 +413,7 @@ describe("DojahLib", () => {
                     status: 405,
                     data: { error: "method" },
                 },
-            })
+            }),
         ).toThrow(DojahMethodNotFoundError);
 
         expect(() =>
@@ -420,7 +422,7 @@ describe("DojahLib", () => {
                     status: 408,
                     data: { error: "timeout" },
                 },
-            })
+            }),
         ).toThrow(DojahRequestTimeoutError);
 
         expect(() =>
@@ -429,7 +431,7 @@ describe("DojahLib", () => {
                     status: 424,
                     data: { error: "third-party failed" },
                 },
-            })
+            }),
         ).toThrow(DojahThirdPartyServiceFailureError);
     });
 
@@ -457,12 +459,16 @@ describe("DojahLib", () => {
             });
         } catch (error) {
             expect(error).toBeInstanceOf(DojahNetworkError);
-            expect((error as Error).message).toContain("Could not reach Dojah API");
+            expect((error as Error).message).toContain(
+                "Could not reach Dojah API",
+            );
         }
     });
 
     it("preserves upstream 424 status for third-party service failures", () => {
-        const error = new DojahThirdPartyServiceFailureError("third-party failed");
+        const error = new DojahThirdPartyServiceFailureError(
+            "third-party failed",
+        );
 
         expect(error.status).toBe(424);
     });

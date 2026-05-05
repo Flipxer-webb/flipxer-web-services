@@ -1,4 +1,9 @@
-import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
+import {
+    storageDirConfig,
+    emailTemplateConfig,
+    COMPANY_NAME,
+    mailConfig,
+} from "@/config";
 import {
     MIN_BUY_AMOUNT_USDT,
     MIN_SELL_AMOUNT_USDT,
@@ -38,10 +43,22 @@ import {
     VerifyRecoveryEmailOtpDto,
     GetUserListDto,
 } from "../dtos";
-import { UserNotFoundException, AuthGenericException, InvalidVerificationCodeException, VerificationCodeExpiredException, DuplicateVerificationException } from "../../auth/errors";
+import {
+    UserNotFoundException,
+    AuthGenericException,
+    InvalidVerificationCodeException,
+    VerificationCodeExpiredException,
+    DuplicateVerificationException,
+} from "../../auth/errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
-import { DocumentVerificationStatus, OrderStatus, Prisma, User, UserType } from "@prisma/client";
+import {
+    DocumentVerificationStatus,
+    OrderStatus,
+    Prisma,
+    User,
+    UserType,
+} from "@prisma/client";
 import { IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
 import { Ticker } from "@/libs/quidax/types/trade";
@@ -57,13 +74,47 @@ import {
     isIndividualAttemptRejected,
 } from "../../auth/utils/individual-kyc-stage-state.util";
 
-type IndividualKycStage = "GOVERNMENT_ID" | "IDENTITY_DOCUMENT" | "ADDRESS" | "INCOME";
-type KycJourneyOverallStatus = "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "ACTION_REQUIRED" | "VERIFIED";
-type KycJourneyNextActionType = "START" | "SUBMIT" | "RESUBMIT" | "WAIT" | "COMPLETE" | "CONTACT_SUPPORT";
-type KycJourneyStageStatus = "NOT_STARTED" | "PENDING_REVIEW" | "APPROVED" | "REJECTED";
-type KycJourneyStageDisplayState = "NOT_STARTED" | "READY" | "UNDER_REVIEW" | "VERIFIED" | "NEEDS_RESUBMISSION" | "BLOCKED";
-type BusinessVerificationStatus = "NOT_STARTED" | "PENDING_REVIEW" | "APPROVED" | "REJECTED";
-type BusinessVerificationDisplayState = "NOT_STARTED" | "READY" | "UNDER_REVIEW" | "VERIFIED" | "NEEDS_RESUBMISSION";
+type IndividualKycStage =
+    | "GOVERNMENT_ID"
+    | "IDENTITY_DOCUMENT"
+    | "ADDRESS"
+    | "INCOME";
+type KycJourneyOverallStatus =
+    | "NOT_STARTED"
+    | "IN_PROGRESS"
+    | "IN_REVIEW"
+    | "ACTION_REQUIRED"
+    | "VERIFIED";
+type KycJourneyNextActionType =
+    | "START"
+    | "SUBMIT"
+    | "RESUBMIT"
+    | "WAIT"
+    | "COMPLETE"
+    | "CONTACT_SUPPORT";
+type KycJourneyStageStatus =
+    | "NOT_STARTED"
+    | "PENDING_REVIEW"
+    | "APPROVED"
+    | "REJECTED";
+type KycJourneyStageDisplayState =
+    | "NOT_STARTED"
+    | "READY"
+    | "UNDER_REVIEW"
+    | "VERIFIED"
+    | "NEEDS_RESUBMISSION"
+    | "BLOCKED";
+type BusinessVerificationStatus =
+    | "NOT_STARTED"
+    | "PENDING_REVIEW"
+    | "APPROVED"
+    | "REJECTED";
+type BusinessVerificationDisplayState =
+    | "NOT_STARTED"
+    | "READY"
+    | "UNDER_REVIEW"
+    | "VERIFIED"
+    | "NEEDS_RESUBMISSION";
 type JourneyTimestamp = Date | string | null;
 
 interface KycJourneyStageDto {
@@ -154,7 +205,8 @@ export class UserService {
 
     // Profile cache configuration
     private readonly PROFILE_CACHE_TTL = 300; // 5 minutes
-    private readonly getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
+    private readonly getProfileCacheKey = (userId: number) =>
+        `user:profile:${userId}`;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -169,7 +221,7 @@ export class UserService {
         private readonly liveCoinWatchService: LiveCoinWatchService,
         private readonly redisCacheService: RedisCacheService,
         private readonly ledgerService: LedgerService,
-        private readonly rateService: RateService
+        private readonly rateService: RateService,
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -180,11 +232,16 @@ export class UserService {
         const kycJourney = this.buildKycJourney(profile);
 
         if (profile?.userType === UserType.BUSINESS) {
-            const businessVerification = this.buildBusinessVerification(profile);
+            const businessVerification =
+                this.buildBusinessVerification(profile);
 
             return {
                 businessVerification,
-                verificationRequirements: this.getBusinessVerificationRequirements(profile, businessVerification),
+                verificationRequirements:
+                    this.getBusinessVerificationRequirements(
+                        profile,
+                        businessVerification,
+                    ),
                 kycJourney,
             };
         }
@@ -194,7 +251,9 @@ export class UserService {
         };
     }
 
-    private normalizeProfileContract<T extends Record<string, any>>(profileData: T) {
+    private normalizeProfileContract<T extends Record<string, any>>(
+        profileData: T,
+    ) {
         const {
             isEmailVerified,
             isPhoneVerified,
@@ -240,13 +299,20 @@ export class UserService {
 
         return {
             ...restProfileData,
-            bvn: this.maskGovernmentIdentifier(typeof bvn === "string" ? bvn : null),
-            nin: this.maskGovernmentIdentifier(typeof nin === "string" ? nin : null),
+            bvn: this.maskGovernmentIdentifier(
+                typeof bvn === "string" ? bvn : null,
+            ),
+            nin: this.maskGovernmentIdentifier(
+                typeof nin === "string" ? nin : null,
+            ),
             ...normalizedBooleanFields,
         };
     }
 
-    private getErrorMessage(error: unknown, fallback = "Unknown error"): string {
+    private getErrorMessage(
+        error: unknown,
+        fallback = "Unknown error",
+    ): string {
         if (error instanceof Error && error.message) {
             return error.message;
         }
@@ -257,16 +323,18 @@ export class UserService {
 
         try {
             const serialized = JSON.stringify(error);
-            return serialized && serialized !== "{}"
-                ? serialized
-                : fallback;
+            return serialized && serialized !== "{}" ? serialized : fallback;
         } catch {
             return fallback;
         }
     }
 
     private getValidatedUserId(userId: unknown): number {
-        if (typeof userId === "number" && Number.isSafeInteger(userId) && userId > 0) {
+        if (
+            typeof userId === "number" &&
+            Number.isSafeInteger(userId) &&
+            userId > 0
+        ) {
             return userId;
         }
 
@@ -275,41 +343,75 @@ export class UserService {
 
     async getProfile(user: User) {
         const startTime = Date.now();
-        const shouldEnsureIndividualStages = user.userType === UserType.INDIVIDUAL;
+        const shouldEnsureIndividualStages =
+            user.userType === UserType.INDIVIDUAL;
 
         // Try to get from cache first
         const cacheKey = this.getProfileCacheKey(user.id);
         const cachedProfile = await this.redisCacheService.get<any>(cacheKey);
 
         if (cachedProfile) {
-            if (shouldEnsureIndividualStages && this.shouldRefreshCachedIndividualProfile(cachedProfile?.data)) {
-                this.logger.debug(`[PERF] Profile cache REFRESH for user ${user.id} after stage-attempt migration check`);
+            if (
+                shouldEnsureIndividualStages &&
+                this.shouldRefreshCachedIndividualProfile(cachedProfile?.data)
+            ) {
+                this.logger.debug(
+                    `[PERF] Profile cache REFRESH for user ${user.id} after stage-attempt migration check`,
+                );
             } else {
-                const nextKycReadModel = this.buildKycReadModel(cachedProfile?.data);
-                const normalizedCachedData = this.normalizeProfileContract(cachedProfile.data);
-                const didRequirementsChange = cachedProfile?.data?.userType === UserType.BUSINESS
-                    && JSON.stringify(cachedProfile?.data?.verificationRequirements ?? null)
-                    !== JSON.stringify(nextKycReadModel.verificationRequirements ?? null);
-                const didBusinessVerificationChange = cachedProfile?.data?.userType === UserType.BUSINESS
-                    && JSON.stringify(cachedProfile?.data?.businessVerification ?? null)
-                    !== JSON.stringify(nextKycReadModel.businessVerification ?? null);
-                const didJourneyChange = JSON.stringify(cachedProfile?.data?.kycJourney ?? null)
-                    !== JSON.stringify(nextKycReadModel.kycJourney ?? null);
+                const nextKycReadModel = this.buildKycReadModel(
+                    cachedProfile?.data,
+                );
+                const normalizedCachedData = this.normalizeProfileContract(
+                    cachedProfile.data,
+                );
+                const didRequirementsChange =
+                    cachedProfile?.data?.userType === UserType.BUSINESS &&
+                    JSON.stringify(
+                        cachedProfile?.data?.verificationRequirements ?? null,
+                    ) !==
+                        JSON.stringify(
+                            nextKycReadModel.verificationRequirements ?? null,
+                        );
+                const didBusinessVerificationChange =
+                    cachedProfile?.data?.userType === UserType.BUSINESS &&
+                    JSON.stringify(
+                        cachedProfile?.data?.businessVerification ?? null,
+                    ) !==
+                        JSON.stringify(
+                            nextKycReadModel.businessVerification ?? null,
+                        );
+                const didJourneyChange =
+                    JSON.stringify(cachedProfile?.data?.kycJourney ?? null) !==
+                    JSON.stringify(nextKycReadModel.kycJourney ?? null);
                 const hadLegacyProfileFlags = [
                     "isEmailVerified",
                     "isPhoneVerified",
                     "isPasswordCreated",
-                ].some((legacyKey) => Object.prototype.hasOwnProperty.call(cachedProfile.data, legacyKey));
+                ].some((legacyKey) =>
+                    Object.hasOwn(cachedProfile.data ?? {}, legacyKey),
+                );
 
-                if (didRequirementsChange || didBusinessVerificationChange || didJourneyChange || hadLegacyProfileFlags) {
+                if (
+                    didRequirementsChange ||
+                    didBusinessVerificationChange ||
+                    didJourneyChange ||
+                    hadLegacyProfileFlags
+                ) {
                     cachedProfile.data = {
                         ...normalizedCachedData,
                         ...nextKycReadModel,
                     };
-                    await this.redisCacheService.set(cacheKey, cachedProfile, this.PROFILE_CACHE_TTL);
+                    await this.redisCacheService.set(
+                        cacheKey,
+                        cachedProfile,
+                        this.PROFILE_CACHE_TTL,
+                    );
                 }
 
-                this.logger.debug(`[PERF] Profile cache HIT for user ${user.id} in ${Date.now() - startTime}ms`);
+                this.logger.debug(
+                    `[PERF] Profile cache HIT for user ${user.id} in ${Date.now() - startTime}ms`,
+                );
                 return {
                     ...cachedProfile,
                     data: {
@@ -388,7 +490,12 @@ export class UserService {
                                 {
                                     journeyType: "INDIVIDUAL",
                                     stage: {
-                                        in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                                        in: [
+                                            "GOVERNMENT_ID",
+                                            "IDENTITY_DOCUMENT",
+                                            "ADDRESS",
+                                            "INCOME",
+                                        ],
                                     },
                                 },
                                 {
@@ -433,12 +540,14 @@ export class UserService {
             }),
         ]);
 
-        this.logger.log(`[PERF] Profile DB queries (parallel) for user ${user.id}: ${Date.now() - dbStartTime}ms`);
+        this.logger.log(
+            `[PERF] Profile DB queries (parallel) for user ${user.id}: ${Date.now() - dbStartTime}ms`,
+        );
 
         if (!profile) {
             throw new UserNotFoundException(
                 "User not found",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
@@ -450,7 +559,7 @@ export class UserService {
         const response = {
             message: "Profile successfully retrieved",
             data: {
-            ...normalizedProfile,
+                ...normalizedProfile,
                 recoveryEmail: profile.recoveryEmail || null,
                 assetWallet: defaultWallet,
                 // Tier info — sourced from DB column, kept in sync by syncTierAndCache
@@ -463,9 +572,15 @@ export class UserService {
         };
 
         // Cache the response
-        await this.redisCacheService.set(cacheKey, response, this.PROFILE_CACHE_TTL);
+        await this.redisCacheService.set(
+            cacheKey,
+            response,
+            this.PROFILE_CACHE_TTL,
+        );
 
-        this.logger.log(`[PERF] TOTAL getProfile for user ${user.id}: ${Date.now() - startTime}ms`);
+        this.logger.log(
+            `[PERF] TOTAL getProfile for user ${user.id}: ${Date.now() - startTime}ms`,
+        );
         return response;
     }
 
@@ -476,7 +591,10 @@ export class UserService {
 
         const governmentStageState = this.getGovernmentStageState(profile);
         const documentStageState = this.getDocumentStageState({
-            attempt: this.getCurrentJourneyStageAttempt(profile, "IDENTITY_DOCUMENT"),
+            attempt: this.getCurrentJourneyStageAttempt(
+                profile,
+                "IDENTITY_DOCUMENT",
+            ),
             rejectedMessage: "Document verification was declined",
         });
         const addressStageState = this.getDocumentStageState({
@@ -575,7 +693,11 @@ export class UserService {
             .map((stage) => stage.stage);
 
         const overallStatus = this.getJourneyOverallStatus(stages);
-        const nextAction = this.buildJourneyNextAction(profile, stages, overallStatus);
+        const nextAction = this.buildJourneyNextAction(
+            profile,
+            stages,
+            overallStatus,
+        );
 
         return {
             overallStatus,
@@ -585,17 +707,24 @@ export class UserService {
             pendingStages,
             blockedStages,
             currentTier: profile.tier ?? 0,
-            eligibleTierAfterNextApproval: this.getEligibleTierAfterNextApproval(nextAction.stage),
+            eligibleTierAfterNextApproval:
+                this.getEligibleTierAfterNextApproval(nextAction.stage),
             nextAction,
             stages,
         };
     }
 
     private getGovernmentStageState(profile: any): JourneyStageState {
-        const stageAttempt = this.getCurrentJourneyStageAttempt(profile, "GOVERNMENT_ID");
+        const stageAttempt = this.getCurrentJourneyStageAttempt(
+            profile,
+            "GOVERNMENT_ID",
+        );
         return {
             verified: isIndividualAttemptApproved(stageAttempt?.status),
-            currentMethod: this.resolveGovernmentMethod(profile, stageAttempt?.method),
+            currentMethod: this.resolveGovernmentMethod(
+                profile,
+                stageAttempt?.method,
+            ),
             pending: isIndividualAttemptPending(stageAttempt?.status),
             rejected: isIndividualAttemptRejected(stageAttempt?.status),
             providerStatus: stageAttempt?.providerStatus ?? null,
@@ -615,8 +744,10 @@ export class UserService {
 
         if (attempt) {
             const verified = attempt.status === "APPROVED";
-            const rejected = !verified && this.isJourneyStageRejected(attempt.status);
-            const pending = !verified && this.isJourneyStagePending(attempt.status);
+            const rejected =
+                !verified && this.isJourneyStageRejected(attempt.status);
+            const pending =
+                !verified && this.isJourneyStagePending(attempt.status);
 
             return {
                 verified,
@@ -628,7 +759,9 @@ export class UserService {
                 submittedAt: this.toJourneyTimestamp(attempt.submittedAt),
                 reviewedAt: this.toJourneyTimestamp(attempt.reviewedAt),
                 reasonCode: attempt.reasonCode ?? null,
-                reasonMessage: attempt.reasonMessage ?? (rejected ? rejectedMessage : null),
+                reasonMessage:
+                    attempt.reasonMessage ??
+                    (rejected ? rejectedMessage : null),
             };
         }
 
@@ -651,24 +784,39 @@ export class UserService {
             return false;
         }
 
-        return !Array.isArray(profile?.kycStageAttempts)
-            || !Object.prototype.hasOwnProperty.call(profile, "bvn")
-            || !Object.prototype.hasOwnProperty.call(profile, "nin");
+        return (
+            !Array.isArray(profile?.kycStageAttempts) ||
+            !Object.hasOwn(profile, "bvn") ||
+            !Object.hasOwn(profile, "nin")
+        );
     }
 
-    private getCurrentJourneyStageAttempt(profile: any, stage: IndividualKycStage): JourneyStageAttemptRecord | null {
-        return getCurrentIndividualStageAttempt(profile?.kycStageAttempts, stage);
+    private getCurrentJourneyStageAttempt(
+        profile: any,
+        stage: IndividualKycStage,
+    ): JourneyStageAttemptRecord | null {
+        return getCurrentIndividualStageAttempt(
+            profile?.kycStageAttempts,
+            stage,
+        );
     }
 
-    private getCurrentBusinessDocumentAttempt(profile: any): JourneyStageAttemptRecord | null {
-        return (profile?.kycStageAttempts ?? []).find((attempt: any) =>
-            attempt?.isCurrent !== false
-            && attempt?.journeyType === "BUSINESS"
-            && attempt?.stage === "BUSINESS_DOCUMENT",
-        ) ?? null;
+    private getCurrentBusinessDocumentAttempt(
+        profile: any,
+    ): JourneyStageAttemptRecord | null {
+        return (
+            (profile?.kycStageAttempts ?? []).find(
+                (attempt: any) =>
+                    attempt?.isCurrent !== false &&
+                    attempt?.journeyType === "BUSINESS" &&
+                    attempt?.stage === "BUSINESS_DOCUMENT",
+            ) ?? null
+        );
     }
 
-    private createBusinessVerification(overrides: Partial<BusinessVerificationDto> = {}): BusinessVerificationDto {
+    private createBusinessVerification(
+        overrides: Partial<BusinessVerificationDto> = {},
+    ): BusinessVerificationDto {
         return {
             stage: "BUSINESS_DOCUMENT",
             status: "NOT_STARTED",
@@ -683,7 +831,9 @@ export class UserService {
         };
     }
 
-    private resolveBusinessVerificationStatus(status: string): BusinessVerificationStatus {
+    private resolveBusinessVerificationStatus(
+        status: string,
+    ): BusinessVerificationStatus {
         if (status === "APPROVED") {
             return "APPROVED";
         }
@@ -716,26 +866,41 @@ export class UserService {
     }
 
     private isBusinessDocumentVerified(profile: any): boolean {
-        return profile?.businessDocumentVerificationStatus === DocumentVerificationStatus.VERIFIED;
+        return (
+            profile?.businessDocumentVerificationStatus ===
+            DocumentVerificationStatus.VERIFIED
+        );
     }
 
-    private buildBusinessVerification(profile: any): BusinessVerificationDto | null {
+    private buildBusinessVerification(
+        profile: any,
+    ): BusinessVerificationDto | null {
         if (profile?.userType !== UserType.BUSINESS) {
             return null;
         }
 
-        const currentBusinessAttempt = this.getCurrentBusinessDocumentAttempt(profile);
+        const currentBusinessAttempt =
+            this.getCurrentBusinessDocumentAttempt(profile);
 
         if (currentBusinessAttempt) {
-            const status = this.resolveBusinessVerificationStatus(currentBusinessAttempt.status);
+            const status = this.resolveBusinessVerificationStatus(
+                currentBusinessAttempt.status,
+            );
 
             return this.createBusinessVerification({
                 status,
-                displayState: this.resolveBusinessVerificationDisplayState(status, Boolean(profile.businessRecordCompleted)),
+                displayState: this.resolveBusinessVerificationDisplayState(
+                    status,
+                    Boolean(profile.businessRecordCompleted),
+                ),
                 providerStatus: currentBusinessAttempt.providerStatus ?? null,
                 currentAttemptId: currentBusinessAttempt.id,
-                submittedAt: this.toJourneyTimestamp(currentBusinessAttempt.submittedAt),
-                reviewedAt: this.toJourneyTimestamp(currentBusinessAttempt.reviewedAt),
+                submittedAt: this.toJourneyTimestamp(
+                    currentBusinessAttempt.submittedAt,
+                ),
+                reviewedAt: this.toJourneyTimestamp(
+                    currentBusinessAttempt.reviewedAt,
+                ),
                 reasonCode: currentBusinessAttempt.reasonCode ?? null,
                 reasonMessage: currentBusinessAttempt.reasonMessage ?? null,
             });
@@ -749,7 +914,9 @@ export class UserService {
         }
 
         return this.createBusinessVerification({
-            displayState: profile?.businessRecordCompleted ? "READY" : "NOT_STARTED",
+            displayState: profile?.businessRecordCompleted
+                ? "READY"
+                : "NOT_STARTED",
         });
     }
 
@@ -761,12 +928,17 @@ export class UserService {
         return isIndividualAttemptRejected(status);
     }
 
-    private resolveGovernmentMethod(profile: any, method?: string | null): string | null {
-        return this.formatJourneyMethod(getCurrentGovernmentMethod({
-            kycStageAttempts: profile?.kycStageAttempts,
-            bvn: profile?.bvn,
-            nin: profile?.nin,
-        }) ?? method);
+    private resolveGovernmentMethod(
+        profile: any,
+        method?: string | null,
+    ): string | null {
+        return this.formatJourneyMethod(
+            getCurrentGovernmentMethod({
+                kycStageAttempts: profile?.kycStageAttempts,
+                bvn: profile?.bvn,
+                nin: profile?.nin,
+            }) ?? method,
+        );
     }
 
     private formatJourneyMethod(method?: string | null): string | null {
@@ -865,8 +1037,12 @@ export class UserService {
                 submittedAt: params.submittedAt,
                 reviewedAt: params.reviewedAt,
                 reasonCode: params.reasonCode,
-                reasonMessage: params.reasonMessage ?? `${labelMap[params.stage]} is under review.`,
-                helperText: params.reasonMessage ?? `${labelMap[params.stage]} is under review.`,
+                reasonMessage:
+                    params.reasonMessage ??
+                    `${labelMap[params.stage]} is under review.`,
+                helperText:
+                    params.reasonMessage ??
+                    `${labelMap[params.stage]} is under review.`,
                 route: params.route,
                 actionLabel: null,
             };
@@ -888,8 +1064,12 @@ export class UserService {
                 submittedAt: params.submittedAt,
                 reviewedAt: params.reviewedAt,
                 reasonCode: params.reasonCode,
-                reasonMessage: params.reasonMessage ?? `${labelMap[params.stage]} was declined.`,
-                helperText: params.reasonMessage ?? `${labelMap[params.stage]} was declined.`,
+                reasonMessage:
+                    params.reasonMessage ??
+                    `${labelMap[params.stage]} was declined.`,
+                helperText:
+                    params.reasonMessage ??
+                    `${labelMap[params.stage]} was declined.`,
                 route: params.route,
                 actionLabel: params.resubmitLabel,
             };
@@ -940,7 +1120,9 @@ export class UserService {
         };
     }
 
-    private getJourneyOverallStatus(stages: KycJourneyStageDto[]): KycJourneyOverallStatus {
+    private getJourneyOverallStatus(
+        stages: KycJourneyStageDto[],
+    ): KycJourneyOverallStatus {
         if (stages.every((stage) => stage.displayState === "VERIFIED")) {
             return "VERIFIED";
         }
@@ -949,11 +1131,19 @@ export class UserService {
             return "IN_REVIEW";
         }
 
-        if (stages.some((stage) => stage.displayState === "NEEDS_RESUBMISSION")) {
+        if (
+            stages.some((stage) => stage.displayState === "NEEDS_RESUBMISSION")
+        ) {
             return "ACTION_REQUIRED";
         }
 
-        if (stages.every((stage) => stage.displayState === "READY" || stage.displayState === "BLOCKED")) {
+        if (
+            stages.every(
+                (stage) =>
+                    stage.displayState === "READY" ||
+                    stage.displayState === "BLOCKED",
+            )
+        ) {
             return "NOT_STARTED";
         }
 
@@ -986,7 +1176,9 @@ export class UserService {
             };
         }
 
-        const pendingStage = stages.find((stage) => stage.displayState === "UNDER_REVIEW");
+        const pendingStage = stages.find(
+            (stage) => stage.displayState === "UNDER_REVIEW",
+        );
         if (pendingStage) {
             return {
                 type: "WAIT",
@@ -997,7 +1189,9 @@ export class UserService {
             };
         }
 
-        const rejectedStage = stages.find((stage) => stage.displayState === "NEEDS_RESUBMISSION");
+        const rejectedStage = stages.find(
+            (stage) => stage.displayState === "NEEDS_RESUBMISSION",
+        );
         if (rejectedStage) {
             return {
                 type: "RESUBMIT",
@@ -1008,7 +1202,9 @@ export class UserService {
             };
         }
 
-        const readyStage = stages.find((stage) => stage.displayState === "READY");
+        const readyStage = stages.find(
+            (stage) => stage.displayState === "READY",
+        );
         if (readyStage) {
             return {
                 type: readyStage.stage === "GOVERNMENT_ID" ? "START" : "SUBMIT",
@@ -1028,7 +1224,9 @@ export class UserService {
         };
     }
 
-    private getEligibleTierAfterNextApproval(stage: IndividualKycStage | null): number | null {
+    private getEligibleTierAfterNextApproval(
+        stage: IndividualKycStage | null,
+    ): number | null {
         const tierMap: Record<IndividualKycStage, number> = {
             GOVERNMENT_ID: 1,
             IDENTITY_DOCUMENT: 2,
@@ -1041,9 +1239,14 @@ export class UserService {
 
     private getBusinessVerificationRequirements(
         profile: any,
-        businessVerification: BusinessVerificationDto | null = this.buildBusinessVerification(profile),
+        businessVerification: BusinessVerificationDto | null = this.buildBusinessVerification(
+            profile,
+        ),
     ) {
-        const requirements = { nextStep: "COMPLETE", details: null as string | null };
+        const requirements = {
+            nextStep: "COMPLETE",
+            details: null as string | null,
+        };
 
         if (!profile.businessRecordCompleted) {
             requirements.nextStep = "BUSINESS_RECORD";
@@ -1053,7 +1256,9 @@ export class UserService {
             requirements.nextStep = "WAIT_FOR_VERIFICATION";
         } else if (businessVerification?.status === "REJECTED") {
             requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
-            requirements.details = businessVerification.reasonMessage ?? "Previous documents were declined";
+            requirements.details =
+                businessVerification.reasonMessage ??
+                "Previous documents were declined";
         } else {
             requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
         }
@@ -1081,7 +1286,8 @@ export class UserService {
 
             return override;
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : JSON.stringify(error);
+            const message =
+                error instanceof Error ? error.message : JSON.stringify(error);
             this.logger.warn(
                 `Failed to fetch limit override for user ${userId}, proceeding with tier defaults: ${message}`,
             );
@@ -1096,49 +1302,80 @@ export class UserService {
     async getWithdrawalUsage(user: User) {
         // Use DB-stored tier as single source of truth
         const userTier = (user as any).tier ?? 0;
-        const defaultDailyLimits = this.tierService.getDailyLimits(userTier, user.userType);
+        const defaultDailyLimits = this.tierService.getDailyLimits(
+            userTier,
+            user.userType,
+        );
         const override = await this.getActiveLimitOverride(user.id);
-        const dailyLimits = override?.dailyLimitUSD !== null && override?.dailyLimitUSD !== undefined
-            ? {
-                buy: override.dailyLimitUSD,
-                sell: override.dailyLimitUSD,
-                swap: override.dailyLimitUSD,
-                send: override.dailyLimitUSD,
-            }
-            : defaultDailyLimits;
+        const dailyLimits =
+            override?.dailyLimitUSD !== null &&
+            override?.dailyLimitUSD !== undefined
+                ? {
+                      buy: override.dailyLimitUSD,
+                      sell: override.dailyLimitUSD,
+                      swap: override.dailyLimitUSD,
+                      send: override.dailyLimitUSD,
+                  }
+                : defaultDailyLimits;
 
         // Calculate daily totals from start of today (calendar-day, UTC)
         const now = new Date();
-        const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        const startOfToday = new Date(
+            Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+        );
 
         const orders = await this.prisma.order.findMany({
             where: {
                 userId: user.id,
                 createdAt: { gte: startOfToday },
-                status: { in: [OrderStatus.filled, OrderStatus.completed, OrderStatus.done] },
+                status: {
+                    in: [
+                        OrderStatus.filled,
+                        OrderStatus.completed,
+                        OrderStatus.done,
+                    ],
+                },
             },
             select: { amount: true, currency: true, orderCategory: true },
         });
 
-        const uniqueCurrencies = Array.from(new Set(
-            orders
-                .map((order) => order.currency?.toLowerCase())
-                .filter((currency): currency is string => Boolean(currency))
-        ));
+        const uniqueCurrencies = Array.from(
+            new Set(
+                orders
+                    .map((order) =>
+                        typeof order.currency === "string"
+                            ? order.currency.toLowerCase()
+                            : null,
+                    )
+                    .filter((currency): currency is string =>
+                        Boolean(currency),
+                    ),
+            ),
+        );
         const usdRates = new Map<string, number>();
 
-        await Promise.all(uniqueCurrencies.map(async (currency) => {
-            try {
-                const rate = await this.liveCoinWatchService.getPriceInUSD(currency);
-                usdRates.set(currency, rate || 0);
-            } catch (error) {
-                usdRates.set(currency, 0);
-                this.logger.warn(`Failed to fetch USD rate for ${currency}: ${this.getErrorMessage(error)}`);
-            }
-        }));
+        await Promise.all(
+            uniqueCurrencies.map(async (currency) => {
+                try {
+                    const rate =
+                        await this.liveCoinWatchService.getPriceInUSD(currency);
+                    usdRates.set(currency, rate || 0);
+                } catch (error) {
+                    usdRates.set(currency, 0);
+                    this.logger.warn(
+                        `Failed to fetch USD rate for ${currency}: ${this.getErrorMessage(error)}`,
+                    );
+                }
+            }),
+        );
 
         // Build per-operation USD totals
-        const usageByOp: Record<string, number> = { buy: 0, sell: 0, swap: 0, send: 0 };
+        const usageByOp: Record<string, number> = {
+            buy: 0,
+            sell: 0,
+            swap: 0,
+            send: 0,
+        };
         for (const order of orders) {
             if (order.amount && order.currency) {
                 const rate = usdRates.get(order.currency.toLowerCase()) ?? 0;
@@ -1159,8 +1396,12 @@ export class UserService {
             const used = usageByOp[op];
             const isUnlimited = limit === "unlimited";
             const numericLimit = isUnlimited ? -1 : limit;
-            const remaining = isUnlimited ? -1 : Math.max(0, numericLimit - used);
-            const percentUsed = isUnlimited ? 0 : Math.min(100, (used / numericLimit) * 100);
+            const remaining = isUnlimited
+                ? -1
+                : Math.max(0, numericLimit - used);
+            const percentUsed = isUnlimited
+                ? 0
+                : Math.min(100, (used / numericLimit) * 100);
             return {
                 usedToday: round(used),
                 dailyLimit: numericLimit,
@@ -1183,28 +1424,63 @@ export class UserService {
     }
 
     async getUserList(query: GetUserListDto) {
-        const { pageNumber, pageSize, sortBy, status, accountType, startDate, endDate, searchText, paginated } = query;
+        const {
+            pageNumber,
+            pageSize,
+            sortBy,
+            status,
+            accountType,
+            startDate,
+            endDate,
+            searchText,
+            paginated,
+        } = query;
 
-        const resolvedPageNumber = !pageNumber || pageNumber <= 1 ? defaultPagination.pageNumber : pageNumber;
-        const resolvedPageSize = !pageSize || pageSize <= 0 ? defaultPagination.pageSize : pageSize;
+        const resolvedPageNumber =
+            !pageNumber || pageNumber <= 1
+                ? defaultPagination.pageNumber
+                : pageNumber;
+        const resolvedPageSize =
+            !pageSize || pageSize <= 0 ? defaultPagination.pageSize : pageSize;
 
         const dbQuery: Prisma.UserFindManyArgs = {
             where: {
                 isDeleted: false,
                 ...(status && { status }),
                 ...(accountType && { userType: accountType }),
-                ...(startDate && endDate && {
-                    createdAt: {
-                        gte: new Date(startDate),
-                        lte: new Date(endDate),
-                    },
-                }),
+                ...(startDate &&
+                    endDate && {
+                        createdAt: {
+                            gte: new Date(startDate),
+                            lte: new Date(endDate),
+                        },
+                    }),
                 ...(searchText && {
                     OR: [
-                        { firstName: { contains: searchText, mode: "insensitive" } },
-                        { lastName: { contains: searchText, mode: "insensitive" } },
-                        { email: { contains: searchText, mode: "insensitive" } },
-                        { phone: { contains: searchText, mode: "insensitive" } },
+                        {
+                            firstName: {
+                                contains: searchText,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            lastName: {
+                                contains: searchText,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            email: {
+                                contains: searchText,
+                                mode: "insensitive",
+                            },
+                        },
+                        {
+                            phone: {
+                                contains: searchText,
+                                mode: "insensitive",
+                            },
+                        },
                     ],
                 }),
             },
@@ -1238,8 +1514,13 @@ export class UserService {
             success: true,
             message: "Users list retrieved",
             data: {
-                meta: buildPaginationMeta(resolvedPageNumber, resolvedPageSize, count, users.length),
-                records: users.map(user => ({
+                meta: buildPaginationMeta(
+                    resolvedPageNumber,
+                    resolvedPageSize,
+                    count,
+                    users.length,
+                ),
+                records: users.map((user) => ({
                     id: user.id,
                     firstName: user.firstName,
                     lastName: user.lastName,
@@ -1257,9 +1538,8 @@ export class UserService {
     async updateUserDetails(
         options: UpdateUserDetailsDto,
         user: User,
-        photo?: Express.Multer.File
+        photo?: Express.Multer.File,
     ) {
-
         const profileUpdateOptions: Prisma.UserUncheckedUpdateInput = {
             ...options,
             dateOfBirth: options.dateOfBirth
@@ -1279,7 +1559,7 @@ export class UserService {
                     } catch (error) {
                         Logger.error(
                             `Failed to delete image ${user.photoFileId}:`,
-                            error
+                            error,
                         );
                     }
                 }
@@ -1288,11 +1568,11 @@ export class UserService {
             } catch (error) {
                 Logger.error(
                     `Failed to upload profile image for user ${user.id}:`,
-                    error
+                    error,
                 );
                 throw new AuthGenericException(
                     "Failed to update profile image",
-                    HttpStatus.INTERNAL_SERVER_ERROR
+                    HttpStatus.INTERNAL_SERVER_ERROR,
                 );
             }
         }
@@ -1327,7 +1607,7 @@ export class UserService {
     }
 
     private async uploadProfileImage(
-        file: Express.Multer.File
+        file: Express.Multer.File,
     ): Promise<UploadApiResponse | UploadResponse> {
         const date = Date.now();
         return await this.uploadService.uploadCompressedImage({
@@ -1351,7 +1631,7 @@ export class UserService {
 
         // Create map for rates (AssetRate has sellRate/buyRate)
         const rateMap = new Map(
-            allRates.map(r => [r.currency.toUpperCase(), r])
+            allRates.map((r) => [r.currency.toUpperCase(), r]),
         );
 
         let totalBalance = 0;
@@ -1388,7 +1668,7 @@ export class UserService {
         const startTime = Date.now();
         const { pageNumber, pageSize, sortBy } = query;
         const supportedTradeAssetsBySymbol = new Map<string, string>(
-            SUPPORTED_TRADE_ASSETS.map((asset) => [asset.symbol, asset.name])
+            SUPPORTED_TRADE_ASSETS.map((asset) => [asset.symbol, asset.name]),
         );
         const includeSupportedAssets = query.includeSupported === "true";
         const searchText = query.searchText?.toLowerCase();
@@ -1398,11 +1678,16 @@ export class UserService {
                 return true;
             }
 
-            return symbol.toLowerCase().includes(searchText)
-                || name?.toLowerCase().includes(searchText);
+            return (
+                symbol.toLowerCase().includes(searchText) ||
+                name?.toLowerCase().includes(searchText)
+            );
         };
 
-        const createSyntheticAsset = (currency: string, assetName?: string) => ({
+        const createSyntheticAsset = (
+            currency: string,
+            assetName?: string,
+        ) => ({
             id: `ledger:${userId}:${currency}`,
             userId,
             quidaxWalletId: "",
@@ -1458,20 +1743,23 @@ export class UserService {
 
         // OPTIMIZATION: Run all queries in parallel instead of sequential
         const dbStartTime = Date.now();
-        const [assets, dynamicRates, liveMarketData, ledgerBalances] = await Promise.all([
-            this.prisma.assetWallet.findMany(dbQuery),
-            // Query 2: Fetch dynamic rates from RateService (uses LiveCoinWatch)
-            this.rateService.getAllRates(),
-            // Query 3: Fetch live Quidax rates (from cache or API)
-            this.quidaxCacheService.getMarketTickers(),
-            // Query 4: Fetch ledger balances (virtual balance system)
-            this.ledgerService.getAllBalances(userId),
-        ]);
+        const [assets, dynamicRates, liveMarketData, ledgerBalances] =
+            await Promise.all([
+                this.prisma.assetWallet.findMany(dbQuery),
+                // Query 2: Fetch dynamic rates from RateService (uses LiveCoinWatch)
+                this.rateService.getAllRates(),
+                // Query 3: Fetch live Quidax rates (from cache or API)
+                this.quidaxCacheService.getMarketTickers(),
+                // Query 4: Fetch ledger balances (virtual balance system)
+                this.ledgerService.getAllBalances(userId),
+            ]);
 
-        this.logger.log(`[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`);
+        this.logger.log(
+            `[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`,
+        );
 
         const assetCurrencies = new Set(
-            assets.map((asset) => asset.assetCurrency.toUpperCase())
+            assets.map((asset) => asset.assetCurrency.toUpperCase()),
         );
 
         const syntheticAssets = Array.from(ledgerBalances.entries())
@@ -1483,8 +1771,9 @@ export class UserService {
 
                 const available = Number(balanceInfo.available);
                 const held = Number(balanceInfo.held);
-                const hasLedgerBalance = (!Number.isNaN(available) && available > 0)
-                    || (!Number.isNaN(held) && held > 0);
+                const hasLedgerBalance =
+                    (!Number.isNaN(available) && available > 0) ||
+                    (!Number.isNaN(held) && held > 0);
 
                 if (!hasLedgerBalance) {
                     return false;
@@ -1492,7 +1781,7 @@ export class UserService {
 
                 return matchesSearch(
                     normalizedCurrency,
-                    supportedTradeAssetsBySymbol.get(normalizedCurrency)
+                    supportedTradeAssetsBySymbol.get(normalizedCurrency),
                 );
             })
             .map(([currency]) => {
@@ -1500,44 +1789,54 @@ export class UserService {
 
                 return createSyntheticAsset(
                     normalizedCurrency,
-                    supportedTradeAssetsBySymbol.get(normalizedCurrency)
+                    supportedTradeAssetsBySymbol.get(normalizedCurrency),
                 );
             });
 
         const mergedAssetCurrencies = new Set([
             ...assetCurrencies,
-            ...syntheticAssets.map((asset) => asset.assetCurrency.toUpperCase()),
+            ...syntheticAssets.map((asset) =>
+                asset.assetCurrency.toUpperCase(),
+            ),
         ]);
 
         const supportedCatalogAssets = includeSupportedAssets
-            ? SUPPORTED_TRADE_ASSETS
-                .filter(({ symbol, name }) => {
-                    if (mergedAssetCurrencies.has(symbol)) {
-                        return false;
-                    }
+            ? SUPPORTED_TRADE_ASSETS.filter(({ symbol, name }) => {
+                  if (mergedAssetCurrencies.has(symbol)) {
+                      return false;
+                  }
 
-                    return matchesSearch(symbol, name);
-                })
-                .map(({ symbol, name }) => createSyntheticAsset(symbol, name))
+                  return matchesSearch(symbol, name);
+              }).map(({ symbol, name }) => createSyntheticAsset(symbol, name))
             : [];
 
-        const mergedAssets = [...assets, ...syntheticAssets, ...supportedCatalogAssets];
-        const paginatedAssets = query.paginated === "true"
-            ? mergedAssets.slice(
-                (resolvedPageNumber - 1) * resolvedPageSize,
-                resolvedPageNumber * resolvedPageSize,
-            )
-            : mergedAssets;
+        const mergedAssets = [
+            ...assets,
+            ...syntheticAssets,
+            ...supportedCatalogAssets,
+        ];
+        const paginatedAssets =
+            query.paginated === "true"
+                ? mergedAssets.slice(
+                      (resolvedPageNumber - 1) * resolvedPageSize,
+                      resolvedPageNumber * resolvedPageSize,
+                  )
+                : mergedAssets;
 
         // Fetch LiveCoinWatch market data for percentage change fallback
-        const uniqueAssets = [...new Set(paginatedAssets.map(a => a.assetCurrency))];
+        const uniqueAssets = [
+            ...new Set(paginatedAssets.map((a) => a.assetCurrency)),
+        ];
         const lcwStartTime = Date.now();
-        const lcwData = await this.liveCoinWatchService.getBatchMarketData(uniqueAssets);
-        this.logger.log(`[PERF] LiveCoinWatch batch fetch for ${uniqueAssets.length} assets: ${Date.now() - lcwStartTime}ms`);
+        const lcwData =
+            await this.liveCoinWatchService.getBatchMarketData(uniqueAssets);
+        this.logger.log(
+            `[PERF] LiveCoinWatch batch fetch for ${uniqueAssets.length} assets: ${Date.now() - lcwStartTime}ms`,
+        );
 
         // Create a map of dynamic rates by currency
         const dynamicRatesMap = new Map(
-            dynamicRates.map((rate) => [rate.currency.toLowerCase(), rate])
+            dynamicRates.map((rate) => [rate.currency.toLowerCase(), rate]),
         );
         const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
 
@@ -1554,7 +1853,7 @@ export class UserService {
                     resolvedPageNumber,
                     resolvedPageSize,
                     mergedAssets.length,
-                    paginatedAssets.length
+                    paginatedAssets.length,
                 ),
             }),
             tradeMinimums: {
@@ -1590,7 +1889,9 @@ export class UserService {
 
                 // Prioritize LiveCoinWatch for market stats (24h change) as it's more reliable/global
                 // Fallback to Quidax generic calculation if LCW is unavailable
-                const percentChange = marketData?.change24h ?? this.calculatePercentageChange(ticker);
+                const percentChange =
+                    marketData?.change24h ??
+                    this.calculatePercentageChange(ticker);
 
                 // Calculate Live Converted Balance using dynamic rate
                 let liveConvertedBalance: any = "0";
@@ -1630,7 +1931,9 @@ export class UserService {
             }),
         };
 
-        this.logger.log(`[PERF] TOTAL getUserWallets for user ${userId}: ${Date.now() - startTime}ms`);
+        this.logger.log(
+            `[PERF] TOTAL getUserWallets for user ${userId}: ${Date.now() - startTime}ms`,
+        );
         return {
             message: "Assets successfully retrieved",
             data: responseData,
@@ -1654,13 +1957,13 @@ export class UserService {
     async updateProfilePassword(options: UpdateProfilePasswordDto, user: User) {
         const isMatched = await this.authService.comparePassword(
             options.oldPassword,
-            user.password
+            user.password,
         );
 
         if (!isMatched) {
             throw new IncorrectPasswordException(
                 "The old password you entered does not match with your existing password",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -1668,12 +1971,12 @@ export class UserService {
         if (options.newPassword === options.oldPassword) {
             throw new IncorrectPasswordException(
                 "Your new password must be different from your current password",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         const newHashedPassword = await this.authService.hashPassword(
-            options.newPassword
+            options.newPassword,
         );
 
         await this.prisma.user.update({
@@ -1691,7 +1994,7 @@ export class UserService {
 
     async sendRecoveryEmailOtp(
         dto: SendRecoveryEmailOtpDto,
-        user: User
+        user: User,
     ): Promise<{ message: string }> {
         // Generate 6-digit OTP
         const verificationCode = customAlphabet("1234567890", 6)();
@@ -1736,7 +2039,7 @@ export class UserService {
             console.error(`Failed to send recovery email OTP: ${error}`);
             throw new AuthGenericException(
                 "Failed to send recovery email OTP",
-                HttpStatus.INTERNAL_SERVER_ERROR
+                HttpStatus.INTERNAL_SERVER_ERROR,
             );
         }
 
@@ -1747,7 +2050,7 @@ export class UserService {
 
     async verifyRecoveryEmailOtp(
         dto: VerifyRecoveryEmailOtpDto,
-        user: User
+        user: User,
     ): Promise<{ message: string }> {
         const verificationData =
             await this.prisma.recoveryEmailVerificationRequest.findFirst({
@@ -1760,14 +2063,14 @@ export class UserService {
         if (!verificationData) {
             throw new InvalidVerificationCodeException(
                 "Invalid verification code",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         if (verificationData.isVerified) {
             throw new DuplicateVerificationException(
                 "Recovery email already verified",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -1778,7 +2081,7 @@ export class UserService {
         if (timeDiffInMin > 30) {
             throw new VerificationCodeExpiredException(
                 "Your verification code has expired. Kindly request a new one",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -1806,7 +2109,7 @@ export class UserService {
         user: User,
         token: string | null,
         deviceName?: string,
-        platform?: string
+        platform?: string,
     ): Promise<{ message: string }> {
         const safeUserId = this.getValidatedUserId(user.id);
 
@@ -1831,7 +2134,7 @@ export class UserService {
                 });
             } catch (error) {
                 this.logger.warn(
-                    `DeviceToken upsert failed for user ${safeUserId}, falling back to legacy notificationToken: ${this.getErrorMessage(error)}`
+                    `DeviceToken upsert failed for user ${safeUserId}, falling back to legacy notificationToken: ${this.getErrorMessage(error)}`,
                 );
             }
 
@@ -1843,13 +2146,16 @@ export class UserService {
         } else {
             // Disable: remove all device tokens for this user (best-effort)
             try {
-                const deviceTokenCleanupUserId = Number.parseInt(String(safeUserId), 10);
+                const deviceTokenCleanupUserId = Number.parseInt(
+                    String(safeUserId),
+                    10,
+                );
                 await this.prisma.deviceToken.deleteMany({
                     where: { userId: deviceTokenCleanupUserId },
                 });
             } catch (error) {
                 this.logger.warn(
-                    `DeviceToken cleanup failed for user ${safeUserId}, continuing with legacy notificationToken cleanup: ${this.getErrorMessage(error)}`
+                    `DeviceToken cleanup failed for user ${safeUserId}, continuing with legacy notificationToken cleanup: ${this.getErrorMessage(error)}`,
                 );
             }
 
@@ -1861,9 +2167,13 @@ export class UserService {
 
         // Invalidate profile cache
         try {
-            await this.redisCacheService.del(this.getProfileCacheKey(safeUserId));
+            await this.redisCacheService.del(
+                this.getProfileCacheKey(safeUserId),
+            );
         } catch (error) {
-            this.logger.warn(`Failed to invalidate profile cache for user ${safeUserId}: ${this.getErrorMessage(error)}`);
+            this.logger.warn(
+                `Failed to invalidate profile cache for user ${safeUserId}: ${this.getErrorMessage(error)}`,
+            );
         }
         return {
             message: token
@@ -1887,7 +2197,10 @@ export class UserService {
         });
 
         if (!user) {
-            throw new UserNotFoundException("User not found", HttpStatus.NOT_FOUND);
+            throw new UserNotFoundException(
+                "User not found",
+                HttpStatus.NOT_FOUND,
+            );
         }
 
         return {

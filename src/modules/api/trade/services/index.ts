@@ -1,4 +1,10 @@
-import { ForbiddenException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import {
+    ForbiddenException,
+    HttpStatus,
+    Inject,
+    Injectable,
+    Logger,
+} from "@nestjs/common";
 import { buildResponse } from "@/utils/api-response-util";
 import { PrismaService } from "@/modules/core/prisma/services";
 
@@ -15,7 +21,6 @@ import {
 import {
     AccountCreationException,
     GeneralTransactionException,
-
     OutOfRangeException,
     QuidaxApiException,
     TransactionNotFoundException,
@@ -28,7 +33,6 @@ import {
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
     SellQuoteResponse,
-
     SwapTransactionHandlerOptions,
     TradingPair,
     WithdrawerTransactionHandlerOptions,
@@ -63,7 +67,6 @@ import {
 import { UserNotFoundException } from "../../user";
 import { CryptoAccountQueueProducer } from "../queues/producers/producer.service";
 import { generateId } from "@/utils";
-
 
 import { NotificationMessageService } from "@/modules/core/messages/services/notification.service";
 import { WsGateway } from "../gateway/v1";
@@ -107,7 +110,13 @@ export class TradingService {
         addressSynced: boolean;
         isActive: boolean;
     }> {
-        const { userId, assetSymbol, defaultNetwork, providerDepositAddress, providerDestinationTag } = options;
+        const {
+            userId,
+            assetSymbol,
+            defaultNetwork,
+            providerDepositAddress,
+            providerDestinationTag,
+        } = options;
 
         if (providerDepositAddress) {
             return {
@@ -118,9 +127,8 @@ export class TradingService {
             };
         }
 
-        const normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-            defaultNetwork
-        );
+        const normalizedDefaultNetwork =
+            this.tradeHelpers.normalizeNetworkInput(defaultNetwork);
 
         if (!normalizedDefaultNetwork) {
             return {
@@ -171,13 +179,14 @@ export class TradingService {
         }
 
         const lockExpiresAt = new Date(
-            user.passwordChangedAt.getTime() + this.PASSWORD_CHANGE_LOCK_DURATION_MS
+            user.passwordChangedAt.getTime() +
+                this.PASSWORD_CHANGE_LOCK_DURATION_MS,
         );
         const now = new Date();
 
         if (now < lockExpiresAt) {
             const remainingSeconds = Math.ceil(
-                (lockExpiresAt.getTime() - now.getTime()) / 1000
+                (lockExpiresAt.getTime() - now.getTime()) / 1000,
             );
             const remainingMinutes = Math.ceil(remainingSeconds / 60);
 
@@ -217,8 +226,8 @@ export class TradingService {
         private readonly sendService: SendService,
         private readonly ledgerService: LedgerService,
         private readonly sweepService: SweepService,
-        private readonly webhookHandlerService: WebhookHandlerService
-    ) { }
+        private readonly webhookHandlerService: WebhookHandlerService,
+    ) {}
 
     getSupportedAssets() {
         return buildResponse({
@@ -355,9 +364,11 @@ export class TradingService {
      * Extracts deposit-enabled networks - delegates to WalletAddressService
      */
     private extractDepositEnabledNetworkMap(
-        wallet: GetUserWalletResponse
+        wallet: GetUserWalletResponse,
     ): Map<NetworkTypes, string> {
-        return this.walletAddressService.extractDepositEnabledNetworkMap(wallet);
+        return this.walletAddressService.extractDepositEnabledNetworkMap(
+            wallet,
+        );
     }
 
     /**
@@ -399,9 +410,12 @@ export class TradingService {
      */
     async initiateWalletAddressCreation(
         userId: number,
-        dto: InitiateWalletCreationDto
+        dto: InitiateWalletCreationDto,
     ) {
-        return this.walletAddressService.initiateWalletAddressCreation(userId, dto);
+        return this.walletAddressService.initiateWalletAddressCreation(
+            userId,
+            dto,
+        );
     }
 
     /**
@@ -467,7 +481,7 @@ export class TradingService {
      */
     async calculateBuyQuote(
         user: User,
-        dto: InitiateBuyOrderDto
+        dto: InitiateBuyOrderDto,
     ): Promise<BuyQuoteResponse> {
         return this.buyOrderService.calculateBuyQuote(user, dto);
     }
@@ -478,7 +492,7 @@ export class TradingService {
     async calculateSellQuote(
         user: User,
         dto: InitiateSellOrderDto,
-        internal = false
+        internal = false,
     ): Promise<SellQuoteResponse> {
         return this.sellOrderService.calculateSellQuote(user, dto, internal);
     }
@@ -505,7 +519,10 @@ export class TradingService {
     async getSwapEstimate(user: User, dto: PlaceInstantSwapRequestDto) {
         // Use real Quidax quotes for accurate estimation
         // This ensures the user sees the exact rate they will get (if confirmed within expiry)
-        const quoteResponse = await this.swapService.createInstantSwap(user, dto);
+        const quoteResponse = await this.swapService.createInstantSwap(
+            user,
+            dto,
+        );
 
         // Map Quidax response to match the expected "Estimate" structure for frontend compatibility
         // Quidax returns 'execution_price', but frontend might look for 'quoted_price'
@@ -517,10 +534,9 @@ export class TradingService {
                 ...data,
                 // Ensure quoted_price is available (Quote object has quoted_price)
                 quoted_price: data.quoted_price,
-            }
+            },
         });
     }
-
 
     /**
      * Creates a withdrawal request - delegates to SendService
@@ -556,20 +572,26 @@ export class TradingService {
         if (!order) {
             throw new TransactionNotFoundException(
                 "Order not found",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
         // Check if order is pending or processing
-        if (order.streamlinedStatus !== "pending" && order.status !== OrderStatus.processing) {
+        if (
+            order.streamlinedStatus !== "pending" &&
+            order.status !== OrderStatus.processing
+        ) {
             throw new GeneralTransactionException(
                 "Only pending or processing orders can be cancelled",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         // For SEND orders, we need to check Quidax status first and cancel there if possible
-        if (order.orderCategory === OrderCategory.SEND && order.providerOrderId) {
+        if (
+            order.orderCategory === OrderCategory.SEND &&
+            order.providerOrderId
+        ) {
             await this.cancelSendOrderOnProvider(user, order, orderId);
         }
 
@@ -578,23 +600,27 @@ export class TradingService {
         // So we must credit them back if they cancel before completion
         if (order.orderCategory === OrderCategory.SWAP) {
             try {
-                this.logger.log(`Refunding user for cancelled swap ${order.id} | Amount: ${order.amount} ${order.currency}`);
+                this.logger.log(
+                    `Refunding user for cancelled swap ${order.id} | Amount: ${order.amount} ${order.currency}`,
+                );
 
                 // Refund mechanism: Internal Buy (Admin pays User)
                 // This reverses the Internal Sell (User pays Admin) that happened during creation
                 await this.buyOrderService.executeInternalBuy(
                     user,
-                    order.amount,    // Refund original source amount
-                    order.currency,  // Refund original source currency
-                    `${order.orderReference}_refund`
+                    order.amount, // Refund original source amount
+                    order.currency, // Refund original source currency
+                    `${order.orderReference}_refund`,
                 );
 
                 this.logger.log(`Swap refund successful for order ${order.id}`);
             } catch (refundError) {
-                this.logger.error(`Failed to refund swap cancellation for order ${order.id}: ${refundError.message}`);
+                this.logger.error(
+                    `Failed to refund swap cancellation for order ${order.id}: ${refundError.message}`,
+                );
                 throw new GeneralTransactionException(
                     "Failed to refund swap funds. Please contact support.",
-                    HttpStatus.INTERNAL_SERVER_ERROR
+                    HttpStatus.INTERNAL_SERVER_ERROR,
                 );
             }
         }
@@ -647,20 +673,22 @@ export class TradingService {
 
     private async resolveSendWithdrawalProviderContext(
         user: User,
-        withdrawalId: string
+        withdrawalId: string,
     ): Promise<{ providerUserId: string; withdrawalDetail: any }> {
         const providerUserIds = ["me", user.cryptoSubAccountId].filter(
-            (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
+            (value, index, array): value is string =>
+                Boolean(value) && array.indexOf(value) === index,
         );
 
         let lastError: unknown;
 
         for (const providerUserId of providerUserIds) {
             try {
-                const withdrawalDetail = await this.quidaxService.getWithdrawerDetail({
-                    user_id: providerUserId,
-                    withdrawal_id: withdrawalId,
-                });
+                const withdrawalDetail =
+                    await this.quidaxService.getWithdrawerDetail({
+                        user_id: providerUserId,
+                        withdrawal_id: withdrawalId,
+                    });
 
                 return { providerUserId, withdrawalDetail };
             } catch (error) {
@@ -671,66 +699,89 @@ export class TradingService {
         throw lastError instanceof Error
             ? lastError
             : new GeneralTransactionException(
-                "Unable to resolve withdrawal on provider",
-                HttpStatus.BAD_REQUEST
-            );
+                  "Unable to resolve withdrawal on provider",
+                  HttpStatus.BAD_REQUEST,
+              );
     }
 
     private async cancelSendOrderOnProvider(
         user: User,
         order: { id: number; providerOrderId: string },
-        orderId: number
+        orderId: number,
     ): Promise<void> {
         try {
-            const { providerUserId, withdrawalDetail } = await this.resolveSendWithdrawalProviderContext(
-                user,
-                order.providerOrderId,
-            );
+            const { providerUserId, withdrawalDetail } =
+                await this.resolveSendWithdrawalProviderContext(
+                    user,
+                    order.providerOrderId,
+                );
 
             const quidaxStatus = withdrawalDetail.data?.status?.toLowerCase();
 
-            if (quidaxStatus === 'done' || quidaxStatus === 'completed' || quidaxStatus === 'successful') {
+            if (
+                quidaxStatus === "done" ||
+                quidaxStatus === "completed" ||
+                quidaxStatus === "successful"
+            ) {
                 await this.prisma.order.update({
                     where: { id: orderId },
                     data: {
                         status: OrderStatus.done,
-                        streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
+                        streamlinedStatus: getStreamlinedStatus(
+                            OrderStatus.done,
+                        ),
                     },
                 });
                 this.wsGateway.notifyWalletUpdate(user.id);
                 throw new GeneralTransactionException(
                     "Transaction has already been completed on the blockchain and cannot be cancelled",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
 
-            if (quidaxStatus === 'pending' || quidaxStatus === 'processing' || quidaxStatus === 'submitted') {
+            if (
+                quidaxStatus === "pending" ||
+                quidaxStatus === "processing" ||
+                quidaxStatus === "submitted"
+            ) {
                 try {
                     await this.quidaxService.cancelWithdrawerRequest({
                         user_id: providerUserId,
                         withdrawal_id: order.providerOrderId,
                     });
-                    this.logger.log(`Successfully cancelled withdrawal ${order.providerOrderId} on Quidax`);
+                    this.logger.log(
+                        `Successfully cancelled withdrawal ${order.providerOrderId} on Quidax`,
+                    );
                 } catch (cancelError) {
-                    this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
-                    const recheckDetail = await this.quidaxService.getWithdrawerDetail({
-                        user_id: providerUserId,
-                        withdrawal_id: order.providerOrderId,
-                    });
-                    const recheckStatus = recheckDetail.data?.status?.toLowerCase();
+                    this.logger.warn(
+                        `Failed to cancel on Quidax (may already be processed): ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`,
+                    );
+                    const recheckDetail =
+                        await this.quidaxService.getWithdrawerDetail({
+                            user_id: providerUserId,
+                            withdrawal_id: order.providerOrderId,
+                        });
+                    const recheckStatus =
+                        recheckDetail.data?.status?.toLowerCase();
 
-                    if (recheckStatus === 'done' || recheckStatus === 'completed' || recheckStatus === 'successful') {
+                    if (
+                        recheckStatus === "done" ||
+                        recheckStatus === "completed" ||
+                        recheckStatus === "successful"
+                    ) {
                         await this.prisma.order.update({
                             where: { id: orderId },
                             data: {
                                 status: OrderStatus.done,
-                                streamlinedStatus: getStreamlinedStatus(OrderStatus.done),
+                                streamlinedStatus: getStreamlinedStatus(
+                                    OrderStatus.done,
+                                ),
                             },
                         });
                         this.wsGateway.notifyWalletUpdate(user.id);
                         throw new GeneralTransactionException(
                             "Transaction completed while attempting to cancel. Your funds have been sent.",
-                            HttpStatus.BAD_REQUEST
+                            HttpStatus.BAD_REQUEST,
                         );
                     }
                 }
@@ -739,19 +790,23 @@ export class TradingService {
             if (error instanceof GeneralTransactionException) {
                 throw error;
             }
-            this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(
+                `Error checking/cancelling withdrawal on Quidax: ${error instanceof Error ? error.message : String(error)}`,
+            );
         }
     }
 
-    private async releaseSendOrderHold(
-        order: { id: number; orderReference: string | null; ledgerEntryId: string | null }
-    ): Promise<void> {
+    private async releaseSendOrderHold(order: {
+        id: number;
+        orderReference: string | null;
+        ledgerEntryId: string | null;
+    }): Promise<void> {
         const holdReference = `withdrawal:${order.orderReference}`;
 
         const releaseResult = await this.ledgerService.releaseHold(
             holdReference,
             false,
-            `User cancelled SEND order ${order.id}`
+            `User cancelled SEND order ${order.id}`,
         );
 
         if (!releaseResult.success) {
@@ -762,16 +817,16 @@ export class TradingService {
 
             if (holdEntry?.status === EntryStatus.HOLD) {
                 this.logger.error(
-                    `Failed to release SEND hold on cancellation | orderId: ${order.id} | holdRef: ${holdReference} | error: ${releaseResult.error}`
+                    `Failed to release SEND hold on cancellation | orderId: ${order.id} | holdRef: ${holdReference} | error: ${releaseResult.error}`,
                 );
                 throw new GeneralTransactionException(
                     "Failed to release held funds for cancelled order. Please contact support.",
-                    HttpStatus.INTERNAL_SERVER_ERROR
+                    HttpStatus.INTERNAL_SERVER_ERROR,
                 );
             }
 
             this.logger.warn(
-                `SEND hold not in HOLD status during cancel (treated as already released) | orderId: ${order.id} | holdRef: ${holdReference} | currentStatus: ${holdEntry?.status ?? "missing"}`
+                `SEND hold not in HOLD status during cancel (treated as already released) | orderId: ${order.id} | holdRef: ${holdReference} | currentStatus: ${holdEntry?.status ?? "missing"}`,
             );
         }
 
@@ -801,7 +856,7 @@ export class TradingService {
 
     async verifySwapQuoteTransaction(
         swap_transaction_id: string,
-        user_id: string
+        user_id: string,
     ) {
         const result = await this.quidaxService.getSwapTransaction({
             swap_transaction_id,
@@ -812,7 +867,7 @@ export class TradingService {
 
     async getWithdrawerTransactionByReference(
         reference: string,
-        user_id: string
+        user_id: string,
     ) {
         const result = await this.quidaxService.getWithdrawerByReference({
             user_id,
@@ -827,10 +882,14 @@ export class TradingService {
             let cryptoSubAccountId = user.cryptoSubAccountId;
 
             if (cryptoSubAccountId) {
-                this.logger.log(`User ${user.id} already has crypto sub-account: ${cryptoSubAccountId}, ensuring wallets exist`);
+                this.logger.log(
+                    `User ${user.id} already has crypto sub-account: ${cryptoSubAccountId}, ensuring wallets exist`,
+                );
             } else {
                 // If user doesn't have a crypto sub-account, create or find existing one
-                this.logger.log(`Creating/finding crypto account for user ${user.id} (${user.email})`);
+                this.logger.log(
+                    `Creating/finding crypto account for user ${user.id} (${user.email})`,
+                );
 
                 // Use createOrFindSubAccount to handle existing accounts gracefully
                 let result;
@@ -841,16 +900,27 @@ export class TradingService {
                         last_name: user.lastName,
                     });
                 } catch (quidaxError) {
-                    this.logger.error(`Quidax createOrFindSubAccount failed: ${quidaxError?.message}`, quidaxError?.stack);
-                    throw new QuidaxApiException(`Quidax API error: ${quidaxError?.message}`, {
-                        userId: user.id,
-                        email: user.email,
-                    });
+                    this.logger.error(
+                        `Quidax createOrFindSubAccount failed: ${quidaxError?.message}`,
+                        quidaxError?.stack,
+                    );
+                    throw new QuidaxApiException(
+                        `Quidax API error: ${quidaxError?.message}`,
+                        {
+                            userId: user.id,
+                            email: user.email,
+                        },
+                    );
                 }
 
                 if (result.status !== "success") {
-                    this.logger.error(`Sub-account creation/lookup failed: ${JSON.stringify(result)}`);
-                    throw new AccountCreationException("Failed to create or find sub-account", HttpStatus.BAD_GATEWAY);
+                    this.logger.error(
+                        `Sub-account creation/lookup failed: ${JSON.stringify(result)}`,
+                    );
+                    throw new AccountCreationException(
+                        "Failed to create or find sub-account",
+                        HttpStatus.BAD_GATEWAY,
+                    );
                 }
 
                 cryptoSubAccountId = result.data.id;
@@ -866,23 +936,25 @@ export class TradingService {
             // Check if AssetWallet records already exist for all currencies
             // Supported cryptocurrencies with full Quidax wallet support
             const currencies = [
-                "btc",   // Bitcoin
-                "eth",   // Ethereum
-                "usdt",  // Tether
-                "usdc",  // USD Coin
-                "bnb",   // Binance Coin
-                "sol",   // Solana
-                "xrp",   // Ripple
-                "ada",   // Cardano
-                "doge",  // Dogecoin
-                "ltc",   // Litecoin
-                "trx",   // Tron
-                "shib",  // Shiba Inu
+                "btc", // Bitcoin
+                "eth", // Ethereum
+                "usdt", // Tether
+                "usdc", // USD Coin
+                "bnb", // Binance Coin
+                "sol", // Solana
+                "xrp", // Ripple
+                "ada", // Cardano
+                "doge", // Dogecoin
+                "ltc", // Litecoin
+                "trx", // Tron
+                "shib", // Shiba Inu
             ];
             const existingWallets = await this.prisma.assetWallet.findMany({
                 where: {
                     userId: user.id,
-                    assetCurrency: { in: currencies.map(c => c.toUpperCase()) },
+                    assetCurrency: {
+                        in: currencies.map((c) => c.toUpperCase()),
+                    },
                 },
                 select: {
                     assetCurrency: true,
@@ -891,44 +963,74 @@ export class TradingService {
                     defaultNetwork: true,
                 },
             });
-            const existingCurrencies = new Set(existingWallets.map(w => w.assetCurrency.toLowerCase()));
+            const existingCurrencies = new Set(
+                existingWallets.map((w) => w.assetCurrency.toLowerCase()),
+            );
 
             // Find currencies that don't have AssetWallet records yet
-            const missingCurrencies = currencies.filter(c => !existingCurrencies.has(c));
+            const missingCurrencies = currencies.filter(
+                (c) => !existingCurrencies.has(c),
+            );
 
             // Find currencies that have wallets but no addresses synced
             const walletsNeedingAddresses = existingWallets
-                .filter(w => !w.addressSynced || !w.depositAddress || !w.defaultNetwork)
-                .map(w => w.assetCurrency.toLowerCase());
+                .filter(
+                    (w) =>
+                        !w.addressSynced ||
+                        !w.depositAddress ||
+                        !w.defaultNetwork,
+                )
+                .map((w) => w.assetCurrency.toLowerCase());
 
             // Combine: create new wallets + generate addresses for existing wallets without addresses
-            const currenciesToProcess = [...new Set([...missingCurrencies, ...walletsNeedingAddresses])];
+            const currenciesToProcess = [
+                ...new Set([...missingCurrencies, ...walletsNeedingAddresses]),
+            ];
 
             if (currenciesToProcess.length === 0) {
-                this.logger.log(`User ${user.id} already has all AssetWallet records with addresses, skipping`);
+                this.logger.log(
+                    `User ${user.id} already has all AssetWallet records with addresses, skipping`,
+                );
                 return buildResponse({
                     message: `account already fully set up`,
-                    data: { walletResults: currencies.map(c => ({ currency: c, success: true, existing: true })) },
+                    data: {
+                        walletResults: currencies.map((c) => ({
+                            currency: c,
+                            success: true,
+                            existing: true,
+                        })),
+                    },
                 });
             }
 
-            this.logger.log(`User ${user.id} needs processing for: ${currenciesToProcess.join(', ')}`);
+            this.logger.log(
+                `User ${user.id} needs processing for: ${currenciesToProcess.join(", ")}`,
+            );
             const walletResults = [];
 
             for (const currency of currenciesToProcess) {
-                const result = await this.processWalletForCurrency(user.id, cryptoSubAccountId, currency);
+                const result = await this.processWalletForCurrency(
+                    user.id,
+                    cryptoSubAccountId,
+                    currency,
+                );
                 walletResults.push(result);
             }
 
-            const successCount = walletResults.filter(r => r.success).length;
-            this.logger.log(`Wallet creation summary: ${successCount}/${currencies.length} successful`);
+            const successCount = walletResults.filter((r) => r.success).length;
+            this.logger.log(
+                `Wallet creation summary: ${successCount}/${currencies.length} successful`,
+            );
 
             return buildResponse({
                 message: `account generation completed (${successCount}/${currencies.length} wallets created)`,
                 data: { walletResults },
             });
         } catch (error) {
-            this.logger.error(`triggerQuidaxAccountCreation failed: ${error?.message}`, error?.stack);
+            this.logger.error(
+                `triggerQuidaxAccountCreation failed: ${error?.message}`,
+                error?.stack,
+            );
             throw error;
         }
     }
@@ -936,8 +1038,13 @@ export class TradingService {
     private async processWalletForCurrency(
         userId: number,
         cryptoSubAccountId: string,
-        currency: string
-    ): Promise<{ currency: string; success: boolean; addresses?: number; error?: string }> {
+        currency: string,
+    ): Promise<{
+        currency: string;
+        success: boolean;
+        addresses?: number;
+        error?: string;
+    }> {
         try {
             this.logger.log(`Creating wallet for ${currency.toUpperCase()}...`);
             const addresses = await this.ensureWalletPaymentAddresses({
@@ -945,13 +1052,26 @@ export class TradingService {
                 cryptoSubAccountId,
                 assetSymbol: currency.toUpperCase(),
             });
-            this.logger.log(`Wallet created for ${currency.toUpperCase()}: ${addresses?.length || 0} addresses`);
+            this.logger.log(
+                `Wallet created for ${currency.toUpperCase()}: ${addresses?.length || 0} addresses`,
+            );
 
-            await this.syncAssetWalletFromProvider(userId, cryptoSubAccountId, currency);
+            await this.syncAssetWalletFromProvider(
+                userId,
+                cryptoSubAccountId,
+                currency,
+            );
 
-            return { currency, success: true, addresses: addresses?.length || 0 };
+            return {
+                currency,
+                success: true,
+                addresses: addresses?.length || 0,
+            };
         } catch (error) {
-            this.logger.error(`Address creation error for ${currency}: ${error?.message}`, error?.stack);
+            this.logger.error(
+                `Address creation error for ${currency}: ${error?.message}`,
+                error?.stack,
+            );
             return { currency, success: false, error: error?.message };
         }
     }
@@ -959,7 +1079,7 @@ export class TradingService {
     private async syncAssetWalletFromProvider(
         userId: number,
         cryptoSubAccountId: string,
-        currency: string
+        currency: string,
     ): Promise<void> {
         try {
             const walletData = await this.quidaxService.getUserWallet({
@@ -1022,9 +1142,13 @@ export class TradingService {
                     isActive: addressState.isActive,
                 },
             });
-            this.logger.log(`AssetWallet created/updated for ${currency.toUpperCase()}`);
+            this.logger.log(
+                `AssetWallet created/updated for ${currency.toUpperCase()}`,
+            );
         } catch (assetError) {
-            this.logger.error(`Failed to create AssetWallet for ${currency}: ${assetError?.message}`);
+            this.logger.error(
+                `Failed to create AssetWallet for ${currency}: ${assetError?.message}`,
+            );
         }
     }
 
@@ -1040,7 +1164,7 @@ export class TradingService {
         if (!user?.cryptoSubAccountId) {
             throw new UserNotFoundException(
                 "User not found or no crypto sub-account",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
@@ -1057,7 +1181,7 @@ export class TradingService {
 
     // Handles successful wallet address creation webhook from Quidax
     async walletAddressCreatedSuccessHandler(
-        data: IWalletAddressCreatedSuccess
+        data: IWalletAddressCreatedSuccess,
     ) {
         // Step 1: Find the associated crypto wallet address record using the ID from the webhook
         const walletAddress = await this.prisma.cryptoWalletAddress.findUnique({
@@ -1076,7 +1200,9 @@ export class TradingService {
             return;
         }
 
-        const webhookNetwork = this.tradeHelpers.normalizeNetworkInput(data.network);
+        const webhookNetwork = this.tradeHelpers.normalizeNetworkInput(
+            data.network,
+        );
         this.logger.debug(`webhook network: ${webhookNetwork}`);
 
         if (
@@ -1085,7 +1211,7 @@ export class TradingService {
             walletAddress.network !== webhookNetwork
         ) {
             this.logger.warn(
-                `Incoming network ${webhookNetwork} differs from stored network ${walletAddress.network} for wallet ${data.walletAddressId}`
+                `Incoming network ${webhookNetwork} differs from stored network ${walletAddress.network} for wallet ${data.walletAddressId}`,
             );
         }
 
@@ -1102,8 +1228,8 @@ export class TradingService {
                 lastSyncedAt: new Date(), // Timestamp of the last sync
                 ...(webhookNetwork &&
                     !walletAddress.network && {
-                    network: webhookNetwork,
-                }),
+                        network: webhookNetwork,
+                    }),
             },
         });
 
@@ -1152,11 +1278,13 @@ export class TradingService {
                         locked: walletResponse.data.locked,
                         staked: walletResponse.data.staked,
                         convertedBalance: walletResponse.data.converted_balance,
-                        blockchainEnabled: walletResponse.data.blockchain_enabled,
+                        blockchainEnabled:
+                            walletResponse.data.blockchain_enabled,
                         defaultNetwork: walletResponse.data.default_network,
                         isCrypto: walletResponse.data.is_crypto,
                         networks: walletResponse.data.networks,
-                        referenceCurrency: walletResponse.data.reference_currency,
+                        referenceCurrency:
+                            walletResponse.data.reference_currency,
                         depositAddress: addressState.depositAddress,
                         destinationTag: addressState.destinationTag,
                         addressSynced: addressState.addressSynced,
@@ -1164,17 +1292,20 @@ export class TradingService {
                     },
                     create: {
                         quidaxWalletId: walletResponse.data.id, // Quidax wallet ID
-                        assetCurrency: walletResponse.data.currency.toUpperCase(),
+                        assetCurrency:
+                            walletResponse.data.currency.toUpperCase(),
                         assetName: walletResponse.data.name,
                         balance: walletResponse.data.balance,
                         locked: walletResponse.data.locked,
                         staked: walletResponse.data.staked,
                         convertedBalance: walletResponse.data.converted_balance,
-                        blockchainEnabled: walletResponse.data.blockchain_enabled,
+                        blockchainEnabled:
+                            walletResponse.data.blockchain_enabled,
                         defaultNetwork: walletResponse.data.default_network,
                         isCrypto: walletResponse.data.is_crypto,
                         networks: walletResponse.data.networks, // List of network objects with deposit/withdraw status
-                        referenceCurrency: walletResponse.data.reference_currency,
+                        referenceCurrency:
+                            walletResponse.data.reference_currency,
                         depositAddress: addressState.depositAddress,
                         destinationTag: addressState.destinationTag,
                         userId: walletAddress.user.id,
@@ -1189,13 +1320,13 @@ export class TradingService {
                         userId: walletAddress.user.id,
                         asset: walletAddress.assetSymbol,
                         walletId: walletResponse.data.id,
-                    }
+                    },
                 );
             }
         }
 
         const resolvedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-            assetWallet?.defaultNetwork
+            assetWallet?.defaultNetwork,
         );
         const resolvedWalletNetwork = walletAddress.network ?? webhookNetwork;
 
@@ -1238,7 +1369,7 @@ export class TradingService {
         if (!wallet) {
             // This is expected for main account wallets - skip silently
             this.logger.debug(
-                `Skipping wallet update for non-user wallet: ${data.walletId}`
+                `Skipping wallet update for non-user wallet: ${data.walletId}`,
             );
             return;
         }
@@ -1276,7 +1407,7 @@ export class TradingService {
     }
 
     async withdrawerTransactionHandler(
-        options: WithdrawerTransactionHandlerOptions
+        options: WithdrawerTransactionHandlerOptions,
     ) {
         return this.webhookHandlerService.withdrawerTransactionHandler(options);
     }
@@ -1290,14 +1421,18 @@ export class TradingService {
     async handleSweepConfirmation(
         transactionId: string,
         status: "completed" | "failed",
-        reason?: string
+        reason?: string,
     ) {
-        return this.sweepService.handleSweepConfirmation(transactionId, status, reason);
+        return this.sweepService.handleSweepConfirmation(
+            transactionId,
+            status,
+            reason,
+        );
     }
 
     async getFee(
         amount: number,
-        data: any
+        data: any,
     ): Promise<{ fee: number; type: string }> {
         if (data.type === "flat" && typeof data.fee === "number") {
             return { fee: data.fee, type: "flat" };
@@ -1313,40 +1448,43 @@ export class TradingService {
 
         throw new UnknownFeeStructureException(
             `Unknown fee type or structure. Received data: ${JSON.stringify(data)}`,
-            HttpStatus.INTERNAL_SERVER_ERROR
+            HttpStatus.INTERNAL_SERVER_ERROR,
         );
     }
 
     private calculateRangeFee(
         amount: number,
-        ranges: { min: number; max: number; type: string; value: number }[]
+        ranges: { min: number; max: number; type: string; value: number }[],
     ): { fee: number; type: string } {
         for (const range of ranges) {
             if (amount >= range.min && amount < range.max) {
-                const fee = range.type === "percentage"
-                    ? (amount * range.value) / 100
-                    : range.value;
-                return { fee, type: range.type === "percentage" ? "percentage" : "flat" };
+                const fee =
+                    range.type === "percentage"
+                        ? (amount * range.value) / 100
+                        : range.value;
+                return {
+                    fee,
+                    type: range.type === "percentage" ? "percentage" : "flat",
+                };
             }
         }
 
         throw new OutOfRangeException(
             "Amount is out of range.",
-            HttpStatus.BAD_REQUEST
+            HttpStatus.BAD_REQUEST,
         );
     }
 
     async getAmountInNaira(
         asset: string,
         amount: number,
-        rateType: "buy" | "sell" | "last" = "buy"
+        rateType: "buy" | "sell" | "last" = "buy",
     ): Promise<{ amount?: number; rate?: number } | null> {
         const referenceCurrency = "ngn";
         const assetCurrency = asset.toLowerCase();
         const marketSymbol = `${assetCurrency}${referenceCurrency}`;
-        const marketData = await this.quidaxService.getSingleMarketTicker(
-            marketSymbol
-        );
+        const marketData =
+            await this.quidaxService.getSingleMarketTicker(marketSymbol);
 
         const ticker = marketData.data?.ticker;
         if (!ticker) return null;
@@ -1369,35 +1507,58 @@ export class TradingService {
 
         // Try LiveCoinWatch first, fallback to CoinCap
         let marketData: any = null;
-        let historyData: { prices: [number, number][]; high24h: number; low24h: number } | null = null;
+        let historyData: {
+            prices: [number, number][];
+            high24h: number;
+            low24h: number;
+        } | null = null;
 
         // Try LCW for market data
         try {
             marketData = await this.liveCoinWatchService.getMarketData(asset);
         } catch (lcwErr) {
-            this.logger.warn(`LCW Market data failed, trying CoinCap: ${lcwErr.message}`);
+            this.logger.warn(
+                `LCW Market data failed, trying CoinCap: ${lcwErr.message}`,
+            );
             try {
-                const ccData = await this.coinCapService.getBatchMarketData([asset]);
+                const ccData = await this.coinCapService.getBatchMarketData([
+                    asset,
+                ]);
                 if (ccData[asset.toLowerCase()]) {
                     marketData = {
                         rate: ccData[asset.toLowerCase()].price,
-                        delta: { day: 1 + ccData[asset.toLowerCase()].change24h / 100 }
+                        delta: {
+                            day:
+                                1 + ccData[asset.toLowerCase()].change24h / 100,
+                        },
                     };
                 }
             } catch (ccErr) {
-                this.logger.warn(`CoinCap Market data also failed: ${ccErr.message}`);
+                this.logger.warn(
+                    `CoinCap Market data also failed: ${ccErr.message}`,
+                );
             }
         }
 
         // Try LCW for history
         try {
-            historyData = await this.liveCoinWatchService.getHistoricalData(asset, days);
+            historyData = await this.liveCoinWatchService.getHistoricalData(
+                asset,
+                days,
+            );
         } catch (lcwErr) {
-            this.logger.warn(`LCW History failed, trying CoinCap: ${lcwErr.message}`);
+            this.logger.warn(
+                `LCW History failed, trying CoinCap: ${lcwErr.message}`,
+            );
             try {
-                historyData = await this.coinCapService.getHistoricalData(asset, days);
+                historyData = await this.coinCapService.getHistoricalData(
+                    asset,
+                    days,
+                );
             } catch (ccErr) {
-                this.logger.warn(`CoinCap History also failed: ${ccErr.message}`);
+                this.logger.warn(
+                    `CoinCap History also failed: ${ccErr.message}`,
+                );
             }
         }
 
@@ -1442,24 +1603,36 @@ export class TradingService {
      */
     async getBatchSparklines(assets: string[]) {
         try {
-            const sparklines = await this.liveCoinWatchService.getBatchSparklines(assets);
+            const sparklines =
+                await this.liveCoinWatchService.getBatchSparklines(assets);
             return buildResponse({
                 message: "Sparkline data retrieved",
                 data: sparklines,
             });
         } catch (lcwErr) {
-            this.logger.warn(`LCW Sparklines failed, trying CoinCap: ${lcwErr.message}`);
+            this.logger.warn(
+                `LCW Sparklines failed, trying CoinCap: ${lcwErr.message}`,
+            );
             try {
-                const sparklines = await this.coinCapService.getBatchSparklines(assets);
+                const sparklines =
+                    await this.coinCapService.getBatchSparklines(assets);
                 return buildResponse({
                     message: "Sparkline data retrieved",
                     data: sparklines,
                 });
             } catch (ccErr) {
-                this.logger.error(`Both LCW and CoinCap sparklines failed: ${ccErr.message}`);
+                this.logger.error(
+                    `Both LCW and CoinCap sparklines failed: ${ccErr.message}`,
+                );
                 // Return empty sparklines instead of throwing
-                const emptyEntries = assets.map((asset) => [asset.toLowerCase(), [] as number[]]);
-                const empty = Object.fromEntries(emptyEntries) as Record<string, number[]>;
+                const emptyEntries = assets.map((asset) => [
+                    asset.toLowerCase(),
+                    [] as number[],
+                ]);
+                const empty = Object.fromEntries(emptyEntries) as Record<
+                    string,
+                    number[]
+                >;
                 return buildResponse({
                     message: "Sparkline data unavailable",
                     data: empty,
@@ -1487,16 +1660,22 @@ export class TradingService {
         if (!user?.cryptoSubAccountId) {
             throw new UserNotFoundException(
                 "User not found or no crypto sub-account",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
         // Check ALL supported currencies, not just those in wallet table
         // This ensures we catch deposits even if wallet address record is missing
-        const ALL_SUPPORTED_CURRENCIES: ReadonlySet<string> = new Set(ALL_SUPPORTED_CURRENCIES_FOR_SYNC);
+        const ALL_SUPPORTED_CURRENCIES: ReadonlySet<string> = new Set(
+            ALL_SUPPORTED_CURRENCIES_FOR_SYNC,
+        );
         // Default scan set for users with no wallet addresses yet — keeps the
         // first-deposit detection path working without polling every chain.
-        const DEFAULT_NEW_USER_CURRENCIES: readonly string[] = ['btc', 'usdt', 'eth'];
+        const DEFAULT_NEW_USER_CURRENCIES: readonly string[] = [
+            "btc",
+            "usdt",
+            "eth",
+        ];
 
         // Only use wallet-address rows that are already active and have a
         // resolved deposit address. This avoids polling currencies that are
@@ -1511,47 +1690,76 @@ export class TradingService {
         });
 
         const userCurrencies: string[] = Array.from(
-            new Set(walletAddresses.map((w) => String(w.assetSymbol).toLowerCase()))
+            new Set(
+                walletAddresses.map((w) => String(w.assetSymbol).toLowerCase()),
+            ),
         ).filter((c) => ALL_SUPPORTED_CURRENCIES.has(c));
 
         // Only scan currencies the user actually holds. For brand-new accounts
         // with no wallet addresses we fall back to a small default set so the
         // very first deposit is still detected without polling 10 chains.
-        const currenciesToScan: readonly string[] = userCurrencies.length > 0
-            ? userCurrencies
-            : DEFAULT_NEW_USER_CURRENCIES;
+        const currenciesToScan: readonly string[] =
+            userCurrencies.length > 0
+                ? userCurrencies
+                : DEFAULT_NEW_USER_CURRENCIES;
 
-        this.logger.log(`User ${user.email} has active wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
-        this.logger.log(`Scanning Quidax deposits for: ${currenciesToScan.join(', ')}`);
+        this.logger.log(
+            `User ${user.email} has active wallet addresses for: ${userCurrencies.join(", ") || "NONE"}`,
+        );
+        this.logger.log(
+            `Scanning Quidax deposits for: ${currenciesToScan.join(", ")}`,
+        );
 
         const syncResults = {
             synced: 0,
             skipped: 0,
             errors: 0,
-            details: [] as { currency: string; depositId: string; status: string; amount: string; result: string }[],
+            details: [] as {
+                currency: string;
+                depositId: string;
+                status: string;
+                amount: string;
+                result: string;
+            }[],
         };
 
         for (const currency of currenciesToScan) {
             try {
                 // Fetch deposits from Quidax
-                this.logger.log(`Fetching ${currency} deposits for sub-account: ${user.cryptoSubAccountId}`);
+                this.logger.log(
+                    `Fetching ${currency} deposits for sub-account: ${user.cryptoSubAccountId}`,
+                );
 
-                const depositsResponse = await this.quidaxService.fetchDeposits({
-                    user_id: user.cryptoSubAccountId,
-                    currency: currency as any,
-                });
+                const depositsResponse = await this.quidaxService.fetchDeposits(
+                    {
+                        user_id: user.cryptoSubAccountId,
+                        currency: currency as any,
+                    },
+                );
 
-                this.logger.log(`${currency} deposits response: ${JSON.stringify(depositsResponse?.data?.length || 0)} deposits found`);
+                this.logger.log(
+                    `${currency} deposits response: ${JSON.stringify(depositsResponse?.data?.length || 0)} deposits found`,
+                );
 
-                if (!depositsResponse?.data || depositsResponse.data.length === 0) {
+                if (
+                    !depositsResponse?.data ||
+                    depositsResponse.data.length === 0
+                ) {
                     this.logger.log(`No ${currency} deposits found on Quidax`);
                     continue;
                 }
 
-                this.logger.log(`Processing ${depositsResponse.data.length} ${currency} deposits...`);
+                this.logger.log(
+                    `Processing ${depositsResponse.data.length} ${currency} deposits...`,
+                );
 
                 for (const deposit of depositsResponse.data) {
-                    await this.syncSingleDeposit(user, currency, deposit, syncResults);
+                    await this.syncSingleDeposit(
+                        user,
+                        currency,
+                        deposit,
+                        syncResults,
+                    );
                 }
             } catch (currencyError) {
                 if (isQuidaxThrottleError(currencyError)) {
@@ -1567,7 +1775,7 @@ export class TradingService {
                         : String(currencyError);
 
                 this.logger.error(
-                    `Error fetching deposits for ${currency}: ${errorMessage}`
+                    `Error fetching deposits for ${currency}: ${errorMessage}`,
                 );
             }
         }
@@ -1582,39 +1790,77 @@ export class TradingService {
         user: { id: number; cryptoSubAccountId: string },
         currency: string,
         deposit: any,
-        syncResults: { synced: number; skipped: number; errors: number; details: any[] }
+        syncResults: {
+            synced: number;
+            skipped: number;
+            errors: number;
+            details: any[];
+        },
     ): Promise<void> {
         try {
-            this.logger.log(`Checking deposit ${deposit.id}: ${deposit.amount} ${currency}, status: ${deposit.status || deposit.state}`);
+            this.logger.log(
+                `Checking deposit ${deposit.id}: ${deposit.amount} ${currency}, status: ${deposit.status || deposit.state}`,
+            );
 
             const existingOrder = await this.prisma.order.findUnique({
                 where: { providerOrderId: deposit.id },
             });
 
             if (existingOrder) {
-                this.logger.log(`Deposit ${deposit.id} already exists as order ${existingOrder.id}`);
+                this.logger.log(
+                    `Deposit ${deposit.id} already exists as order ${existingOrder.id}`,
+                );
                 syncResults.skipped++;
-                syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: "skipped - already exists" });
+                syncResults.details.push({
+                    currency,
+                    depositId: deposit.id,
+                    status: deposit.status,
+                    amount: deposit.amount,
+                    result: "skipped - already exists",
+                });
                 return;
             }
 
-            const isBuyRelated = await this.isBuyOrderRelatedDeposit(user.id, currency, +deposit.amount);
+            const isBuyRelated = await this.isBuyOrderRelatedDeposit(
+                user.id,
+                currency,
+                +deposit.amount,
+            );
             if (isBuyRelated) {
-                this.logger.log(`Deposit ${deposit.id} is from a BUY order - skipping RECEIVE creation`);
+                this.logger.log(
+                    `Deposit ${deposit.id} is from a BUY order - skipping RECEIVE creation`,
+                );
                 syncResults.skipped++;
-                syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: "skipped - from BUY order" });
+                syncResults.details.push({
+                    currency,
+                    depositId: deposit.id,
+                    status: deposit.status,
+                    amount: deposit.amount,
+                    result: "skipped - from BUY order",
+                });
                 return;
             }
 
-            const normalizedStatus = this.normalizeDepositStatus(deposit.status || deposit.state);
-            this.logger.log(`Deposit ${deposit.id} timestamps: created_at=${deposit.created_at}, done_at=${deposit.done_at}, completed_at=${deposit.completed_at}`);
+            const normalizedStatus = this.normalizeDepositStatus(
+                deposit.status || deposit.state,
+            );
+            this.logger.log(
+                `Deposit ${deposit.id} timestamps: created_at=${deposit.created_at}, done_at=${deposit.done_at}, completed_at=${deposit.completed_at}`,
+            );
 
-            const amtFiat = await this.getAmountInNaira(currency, Number(deposit.amount), "buy");
+            const amtFiat = await this.getAmountInNaira(
+                currency,
+                Number(deposit.amount),
+                "buy",
+            );
             const transactionId = generateId({ type: "transaction" });
-            const depositCreatedAt = deposit.created_at ? new Date(deposit.created_at) : new Date();
-            const depositCompletedAt = deposit.completed_at || deposit.done_at
-                ? new Date(deposit.completed_at || deposit.done_at)
-                : null;
+            const depositCreatedAt = deposit.created_at
+                ? new Date(deposit.created_at)
+                : new Date();
+            const depositCompletedAt =
+                deposit.completed_at || deposit.done_at
+                    ? new Date(deposit.completed_at || deposit.done_at)
+                    : null;
 
             await this.prisma.order.create({
                 data: {
@@ -1636,12 +1882,28 @@ export class TradingService {
             });
 
             syncResults.synced++;
-            syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: "synced successfully" });
-            this.logger.log(`Synced deposit: ${deposit.id} - ${deposit.amount} ${currency}`);
+            syncResults.details.push({
+                currency,
+                depositId: deposit.id,
+                status: deposit.status,
+                amount: deposit.amount,
+                result: "synced successfully",
+            });
+            this.logger.log(
+                `Synced deposit: ${deposit.id} - ${deposit.amount} ${currency}`,
+            );
         } catch (depositError) {
             syncResults.errors++;
-            syncResults.details.push({ currency, depositId: deposit.id, status: deposit.status, amount: deposit.amount, result: `error: ${depositError.message}` });
-            this.logger.error(`Error syncing deposit ${deposit.id}: ${depositError.message}`);
+            syncResults.details.push({
+                currency,
+                depositId: deposit.id,
+                status: deposit.status,
+                amount: deposit.amount,
+                result: `error: ${depositError.message}`,
+            });
+            this.logger.error(
+                `Error syncing deposit ${deposit.id}: ${depositError.message}`,
+            );
         }
     }
 
@@ -1692,7 +1954,10 @@ export class TradingService {
         const dbWallet = await this.prisma.cryptoWalletAddress.findFirst({
             where: {
                 userId: user.id,
-                assetSymbol: { equals: currency.toUpperCase(), mode: 'insensitive' },
+                assetSymbol: {
+                    equals: currency.toUpperCase(),
+                    mode: "insensitive",
+                },
             },
         });
 
@@ -1707,8 +1972,12 @@ export class TradingService {
             const wallets = await this.quidaxService.getUserWalletList({
                 user_id: user.cryptoSubAccountId,
             });
-            this.logger.log(`Quidax wallets response: ${wallets?.data?.length} wallets`);
-            quidaxWallet = wallets?.data?.find(w => w.currency?.toLowerCase() === currency.toLowerCase());
+            this.logger.log(
+                `Quidax wallets response: ${wallets?.data?.length} wallets`,
+            );
+            quidaxWallet = wallets?.data?.find(
+                (w) => w.currency?.toLowerCase() === currency.toLowerCase(),
+            );
         } catch (e) {
             this.logger.error(`Error fetching wallets: ${e.message}`);
             quidaxError = e.message;
@@ -1720,7 +1989,9 @@ export class TradingService {
                 user_id: user.cryptoSubAccountId,
                 currency: currency.toLowerCase() as any,
             });
-            this.logger.log(`Quidax address response: ${JSON.stringify(quidaxAddress?.data)}`);
+            this.logger.log(
+                `Quidax address response: ${JSON.stringify(quidaxAddress?.data)}`,
+            );
         } catch (e) {
             this.logger.warn(`Address fetch warning: ${e.message}`);
             // Not a critical error - address may already exist
@@ -1732,7 +2003,9 @@ export class TradingService {
                 user_id: user.cryptoSubAccountId,
                 currency: currency.toLowerCase() as any,
             });
-            this.logger.log(`Quidax deposits response: ${deposits?.data?.length} deposits`);
+            this.logger.log(
+                `Quidax deposits response: ${deposits?.data?.length} deposits`,
+            );
             quidaxDeposits = deposits?.data || [];
         } catch (e) {
             this.logger.error(`Error fetching deposits: ${e.message}`);
@@ -1740,7 +2013,11 @@ export class TradingService {
         }
 
         return {
-            user: { id: user.id, email: user.email, cryptoSubAccountId: user.cryptoSubAccountId },
+            user: {
+                id: user.id,
+                email: user.email,
+                cryptoSubAccountId: user.cryptoSubAccountId,
+            },
             dbWallet: dbWallet || null,
             quidax: {
                 wallet: quidaxWallet || null,
@@ -1784,14 +2061,17 @@ export class TradingService {
             },
         });
 
-        const grouped = records.reduce((acc, record) => {
-            if (!acc[record.assetSymbol]) {
-                acc[record.assetSymbol] = [];
-            }
+        const grouped = records.reduce(
+            (acc, record) => {
+                if (!acc[record.assetSymbol]) {
+                    acc[record.assetSymbol] = [];
+                }
 
-            acc[record.assetSymbol].push(record);
-            return acc;
-        }, {} as Record<string, typeof records>);
+                acc[record.assetSymbol].push(record);
+                return acc;
+            },
+            {} as Record<string, typeof records>,
+        );
 
         return {
             user,
@@ -1818,7 +2098,7 @@ export class TradingService {
         if (!order) {
             throw new TransactionNotFoundException(
                 "Transaction not found",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
@@ -1854,15 +2134,17 @@ export class TradingService {
         if (!transaction) {
             throw new TransactionNotFoundException(
                 "Transaction not found",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
         // Only refresh pending/processing transactions
-        if (transaction.status === OrderStatus.done ||
+        if (
+            transaction.status === OrderStatus.done ||
             transaction.status === OrderStatus.completed ||
             transaction.status === OrderStatus.failed ||
-            transaction.status === OrderStatus.cancelled) {
+            transaction.status === OrderStatus.cancelled
+        ) {
             return buildResponse({
                 message: "Transaction status is already final",
                 data: {
@@ -1874,17 +2156,24 @@ export class TradingService {
         }
 
         if (!user.cryptoSubAccountId) {
-            this.logger.warn(`refreshTransactionStatus: user ${user.id} has no cryptoSubAccountId`);
+            this.logger.warn(
+                `refreshTransactionStatus: user ${user.id} has no cryptoSubAccountId`,
+            );
         }
 
         // Handle based on transaction category
-        if (transaction.orderCategory === OrderCategory.SEND ||
+        if (
+            transaction.orderCategory === OrderCategory.SEND ||
             transaction.orderCategory === OrderCategory.SELL ||
-            transaction.orderCategory === OrderCategory.SWAP) {
+            transaction.orderCategory === OrderCategory.SWAP
+        ) {
             // SWAP orders are settled atomically on-chain — no provider status to refresh.
             // For omnibus orders without provider metadata, return latest DB state.
-            if (transaction.orderCategory === OrderCategory.SWAP ||
-                !user.cryptoSubAccountId || !transaction.providerOrderId) {
+            if (
+                transaction.orderCategory === OrderCategory.SWAP ||
+                !user.cryptoSubAccountId ||
+                !transaction.providerOrderId
+            ) {
                 const latestOrder = await this.prisma.order.findFirst({
                     where: { transactionId },
                     orderBy: { updatedAt: "desc" },
@@ -1893,15 +2182,24 @@ export class TradingService {
                 return buildResponse({
                     message: "Transaction status refreshed from order state",
                     data: {
-                        transactionId: latestOrder?.transactionId ?? transactionId,
+                        transactionId:
+                            latestOrder?.transactionId ?? transactionId,
                         status: latestOrder?.status ?? transaction.status,
-                        streamlinedStatus: latestOrder?.streamlinedStatus ?? transaction.streamlinedStatus,
-                        orderCategory: latestOrder?.orderCategory ?? transaction.orderCategory,
+                        streamlinedStatus:
+                            latestOrder?.streamlinedStatus ??
+                            transaction.streamlinedStatus,
+                        orderCategory:
+                            latestOrder?.orderCategory ??
+                            transaction.orderCategory,
                     },
                 });
             }
 
-            return this.refreshWithdrawalStatus(transaction, user.cryptoSubAccountId, transactionId);
+            return this.refreshWithdrawalStatus(
+                transaction,
+                user.cryptoSubAccountId,
+                transactionId,
+            );
         }
 
         return buildResponse({
@@ -1915,21 +2213,26 @@ export class TradingService {
     }
 
     private async refreshWithdrawalStatus(
-        transaction: { transactionId: string; orderReference: string | null; status: OrderStatus; streamlinedStatus: string | null },
+        transaction: {
+            transactionId: string;
+            orderReference: string | null;
+            status: OrderStatus;
+            streamlinedStatus: string | null;
+        },
         cryptoSubAccountId: string,
-        transactionId: string
+        transactionId: string,
     ) {
         if (!transaction.orderReference) {
             throw new GeneralTransactionException(
                 "Transaction reference not found",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         try {
             const response = await this.getWithdrawerTransactionByReference(
                 transaction.orderReference,
-                cryptoSubAccountId
+                cryptoSubAccountId,
             );
 
             const quidaxStatus = response.data?.status?.toLowerCase();
@@ -1943,7 +2246,11 @@ export class TradingService {
 
                 return buildResponse({
                     message: "Transaction completed successfully",
-                    data: { transactionId: transaction.transactionId, status: OrderStatus.done, streamlinedStatus: "completed" },
+                    data: {
+                        transactionId: transaction.transactionId,
+                        status: OrderStatus.done,
+                        streamlinedStatus: "completed",
+                    },
                 });
             } else if (quidaxStatus === OrderStatus.rejected) {
                 await this.withdrawerTransactionHandler({
@@ -1954,29 +2261,47 @@ export class TradingService {
 
                 return buildResponse({
                     message: "Transaction was rejected",
-                    data: { transactionId: transaction.transactionId, status: OrderStatus.rejected, streamlinedStatus: "failed" },
+                    data: {
+                        transactionId: transaction.transactionId,
+                        status: OrderStatus.rejected,
+                        streamlinedStatus: "failed",
+                    },
                 });
             }
 
             return buildResponse({
                 message: "Transaction is still processing",
-                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus, providerStatus: quidaxStatus },
+                data: {
+                    transactionId: transaction.transactionId,
+                    status: transaction.status,
+                    streamlinedStatus: transaction.streamlinedStatus,
+                    providerStatus: quidaxStatus,
+                },
             });
         } catch (error) {
-            this.logger.error(`Error refreshing transaction ${transactionId}: ${error.message}`);
+            this.logger.error(
+                `Error refreshing transaction ${transactionId}: ${error.message}`,
+            );
             return buildResponse({
                 message: "Unable to refresh status. Please try again later.",
-                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus },
+                data: {
+                    transactionId: transaction.transactionId,
+                    status: transaction.status,
+                    streamlinedStatus: transaction.streamlinedStatus,
+                },
             });
         }
     }
-
 
     /**
      * Check if a deposit is the result of a BUY order completion
      * This prevents duplicate RECEIVE entries when user buys crypto
      */
-    private async isBuyOrderRelatedDeposit(userId: number, currency: string, depositAmount: number): Promise<boolean> {
+    private async isBuyOrderRelatedDeposit(
+        userId: number,
+        currency: string,
+        depositAmount: number,
+    ): Promise<boolean> {
         // Look for a recent BUY order (within last 2 hours) for this user
         // with matching currency and similar amount
         const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
@@ -1987,20 +2312,27 @@ export class TradingService {
                 orderCategory: OrderCategory.BUY,
                 currency: currency.toUpperCase(),
                 status: {
-                    in: [OrderStatus.pending, OrderStatus.processing, OrderStatus.confirmed, OrderStatus.done, OrderStatus.completed],
+                    in: [
+                        OrderStatus.pending,
+                        OrderStatus.processing,
+                        OrderStatus.confirmed,
+                        OrderStatus.done,
+                        OrderStatus.completed,
+                    ],
                 },
                 createdAt: {
                     gte: twoHoursAgo,
                 },
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { createdAt: "desc" },
         });
 
         // Check if any BUY order has a close amount match (within 25% tolerance for fees)
         for (const buyOrder of recentBuyOrders) {
             const buyAmount = buyOrder.amount || 0;
             const amountDiff = Math.abs(buyAmount - depositAmount);
-            const percentDiff = buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
+            const percentDiff =
+                buyAmount > 0 ? (amountDiff / buyAmount) * 100 : 100;
 
             if (percentDiff <= 25) {
                 return true;

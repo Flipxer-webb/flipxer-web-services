@@ -60,7 +60,17 @@ export * from "./errors";
         IdentityResolutionService,
         IndividualKycStageService,
     ],
-    exports: [AuthService, AuthGuard, SocketAuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService, IndividualKycStageService],
+    exports: [
+        AuthService,
+        AuthGuard,
+        SocketAuthGuard,
+        TierService,
+        TierVerificationService,
+        TwoFactorRateLimitService,
+        TwoFactorGuard,
+        KycStateMachineService,
+        IdentityResolutionService,
+        IndividualKycStageService,
+    ],
 })
-export class AuthModule { }
-
+export class AuthModule {}

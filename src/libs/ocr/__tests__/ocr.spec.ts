@@ -252,8 +252,14 @@ describe("OCR Extraction (extractTextFromDocument)", () => {
 
             child.stdin = {
                 end: jest.fn(() => {
-                    writeFileSync(`${outputPrefix}-1.png`, Buffer.from("page-1-image"));
-                    writeFileSync(`${outputPrefix}-2.png`, Buffer.from("page-2-image"));
+                    writeFileSync(
+                        `${outputPrefix}-1.png`,
+                        Buffer.from("page-1-image"),
+                    );
+                    writeFileSync(
+                        `${outputPrefix}-2.png`,
+                        Buffer.from("page-2-image"),
+                    );
                     setImmediate(() => child.emit("close", 0));
                 }),
                 once: jest.fn(),
@@ -275,7 +281,10 @@ describe("OCR Extraction (extractTextFromDocument)", () => {
                 },
             });
 
-        const result = await extractTextFromDocument(Buffer.from("%PDF-1.7"), "application/pdf");
+        const result = await extractTextFromDocument(
+            Buffer.from("%PDF-1.7"),
+            "application/pdf",
+        );
 
         expect(mockSpawn).toHaveBeenCalledTimes(1);
         expect(mockSpawn.mock.calls[0][0]).toBe("/usr/bin/pdftoppm");
@@ -366,13 +375,15 @@ describe("Document Validators", () => {
             Buffer.from("doc"),
             "John",
             "Doe",
-            "10 Main Street"
+            "10 Main Street",
         );
 
         expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(true);
         expect(result.decision).toBe("REVIEW");
-        expect(result.reason).toContain("Document country could not be confirmed as Nigeria");
+        expect(result.reason).toContain(
+            "Document country could not be confirmed as Nigeria",
+        );
     });
 
     it("rejects an address document when provider country is not Nigeria", () => {
@@ -396,7 +407,9 @@ describe("Document Validators", () => {
         expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(false);
         expect(result.decision).toBe("REJECT");
-        expect(result.reason).toBe("Only Nigerian proof of address documents are accepted. Please upload a valid Nigerian address document.");
+        expect(result.reason).toBe(
+            "Only Nigerian proof of address documents are accepted. Please upload a valid Nigerian address document.",
+        );
     });
 
     it("routes conflicting address name signals to manual review", () => {
@@ -419,7 +432,9 @@ describe("Document Validators", () => {
 
         expect(result.decision).toBe("REVIEW");
         expect(result.requiresManualReview).toBe(true);
-        expect(result.reason).toContain("Document owner details could not be confidently confirmed");
+        expect(result.reason).toContain(
+            "Document owner details could not be confidently confirmed",
+        );
     });
 
     it("should auto-approve a strong address document", async () => {
@@ -435,7 +450,7 @@ describe("Document Validators", () => {
             Buffer.from("doc"),
             "John",
             "Doe",
-            "10 Main Street Lagos"
+            "10 Main Street Lagos",
         );
 
         expect(result.isValid).toBe(true);
@@ -460,7 +475,7 @@ describe("Document Validators", () => {
             Buffer.from("doc"),
             "John",
             "Doe",
-            "10 Main Street Lagos"
+            "10 Main Street Lagos",
         );
 
         expect(result.isValid).toBe(false);
@@ -484,14 +499,16 @@ describe("Document Validators", () => {
             Buffer.from("doc"),
             "John",
             "Doe",
-            "Doe Close Abuja"
+            "Doe Close Abuja",
         );
 
         expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(true);
         expect(result.reason).toContain("Low document quality");
         expect(result.reason).toContain("User name could not be confirmed");
-        expect(result.reason).toContain("Address details could not be confirmed");
+        expect(result.reason).toContain(
+            "Address details could not be confirmed",
+        );
     });
 
     it("does not reject solely because the profile residential address text differs", async () => {
@@ -583,7 +600,9 @@ describe("Document Validators", () => {
         expect(result.matchedAddress).toBe(false);
         expect(result.addressDocumentType).toBeNull();
         expect(result.isAllowedDocumentType).toBe(false);
-        expect(result.reason).toBe("Please upload a valid address verification document.");
+        expect(result.reason).toBe(
+            "Please upload a valid address verification document.",
+        );
     });
 
     it("routes a valid Nigerian bank statement to manual review", async () => {
@@ -598,7 +617,7 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
         );
 
         expect(result.isValid).toBe(false);
@@ -662,7 +681,8 @@ describe("Document Validators", () => {
                 isValid: true,
                 reason: "VALID",
                 documentType: "",
-                rawText: "Income ReadyUser 12 Idowu Taylor Street Victoria Island Lagos Nigeria",
+                rawText:
+                    "Income ReadyUser 12 Idowu Taylor Street Victoria Island Lagos Nigeria",
                 nameMatches: true,
                 countryCode: "NG",
             },
@@ -689,13 +709,15 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
         );
 
         expect(result.decision).toBe("REVIEW");
         expect(result.countryConfirmed).toBe(true);
         expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
-        expect(result.reason).not.toBe("Please upload a valid Nigerian bank statement.");
+        expect(result.reason).not.toBe(
+            "Please upload a valid Nigerian bank statement.",
+        );
     });
 
     it("uses provider raw text when structured address type and date are missing", async () => {
@@ -744,7 +766,7 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
         );
 
         expect(result.isValid).toBe(false);
@@ -765,13 +787,15 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
         );
 
         expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(false);
         expect(result.decision).toBe("REJECT");
-        expect(result.reason).toContain("does not match the name on your profile");
+        expect(result.reason).toContain(
+            "does not match the name on your profile",
+        );
     });
 
     it("rejects a bank statement when Nigeria cannot be confirmed", async () => {
@@ -786,13 +810,15 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
         );
 
         expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(false);
         expect(result.decision).toBe("REJECT");
-        expect(result.reason).toBe("Please upload a valid Nigerian bank statement.");
+        expect(result.reason).toBe(
+            "Please upload a valid Nigerian bank statement.",
+        );
     });
 
     it("rejects an income document older than 3 months", async () => {
@@ -809,7 +835,7 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
         );
 
         expect(result.isValid).toBe(false);

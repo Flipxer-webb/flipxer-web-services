@@ -1,6 +1,10 @@
 import { DocumentVerificationStatus } from "@prisma/client";
 
-export type ManagedIndividualKycStage = "GOVERNMENT_ID" | "IDENTITY_DOCUMENT" | "ADDRESS" | "INCOME";
+export type ManagedIndividualKycStage =
+    | "GOVERNMENT_ID"
+    | "IDENTITY_DOCUMENT"
+    | "ADDRESS"
+    | "INCOME";
 export type ManagedGovernmentMethod = "BVN" | "NIN";
 
 export interface IndividualStageAttemptLike {
@@ -21,7 +25,9 @@ export interface IndividualVerificationSnapshot {
     incomeStatus: DocumentVerificationStatus | null;
 }
 
-export function getCurrentIndividualStageAttempt<T extends IndividualStageAttemptLike>(
+export function getCurrentIndividualStageAttempt<
+    T extends IndividualStageAttemptLike,
+>(
     attempts: T[] | null | undefined,
     stage: ManagedIndividualKycStage,
     method?: ManagedGovernmentMethod | null,
@@ -30,17 +36,19 @@ export function getCurrentIndividualStageAttempt<T extends IndividualStageAttemp
         return null;
     }
 
-    return attempts.find((attempt) => {
-        if (attempt?.stage !== stage || attempt?.isCurrent === false) {
-            return false;
-        }
+    return (
+        attempts.find((attempt) => {
+            if (attempt?.stage !== stage || attempt?.isCurrent === false) {
+                return false;
+            }
 
-        if (!method) {
-            return true;
-        }
+            if (!method) {
+                return true;
+            }
 
-        return attempt.method === method;
-    }) ?? null;
+            return attempt.method === method;
+        }) ?? null
+    );
 }
 
 export function isIndividualAttemptApproved(status?: string | null): boolean {
@@ -60,7 +68,10 @@ export function getCurrentGovernmentMethod(params: {
     bvn?: string | null;
     nin?: string | null;
 }): ManagedGovernmentMethod | null {
-    const stageAttempt = getCurrentIndividualStageAttempt(params.kycStageAttempts, "GOVERNMENT_ID");
+    const stageAttempt = getCurrentIndividualStageAttempt(
+        params.kycStageAttempts,
+        "GOVERNMENT_ID",
+    );
 
     if (stageAttempt?.method === "BVN" || stageAttempt?.method === "NIN") {
         return stageAttempt.method;
@@ -102,20 +113,42 @@ export function buildIndividualVerificationSnapshot(params: {
     nin?: string | null;
 }): IndividualVerificationSnapshot {
     const governmentMethod = getCurrentGovernmentMethod(params);
-    const governmentAttempt = getCurrentIndividualStageAttempt(params.kycStageAttempts, "GOVERNMENT_ID", governmentMethod);
-    const documentAttempt = getCurrentIndividualStageAttempt(params.kycStageAttempts, "IDENTITY_DOCUMENT");
-    const addressAttempt = getCurrentIndividualStageAttempt(params.kycStageAttempts, "ADDRESS");
-    const incomeAttempt = getCurrentIndividualStageAttempt(params.kycStageAttempts, "INCOME");
+    const governmentAttempt = getCurrentIndividualStageAttempt(
+        params.kycStageAttempts,
+        "GOVERNMENT_ID",
+        governmentMethod,
+    );
+    const documentAttempt = getCurrentIndividualStageAttempt(
+        params.kycStageAttempts,
+        "IDENTITY_DOCUMENT",
+    );
+    const addressAttempt = getCurrentIndividualStageAttempt(
+        params.kycStageAttempts,
+        "ADDRESS",
+    );
+    const incomeAttempt = getCurrentIndividualStageAttempt(
+        params.kycStageAttempts,
+        "INCOME",
+    );
 
-    const isGovernmentApproved = isIndividualAttemptApproved(governmentAttempt?.status);
-    const documentStatus = mapAttemptStatusToDocumentStatus(documentAttempt?.status);
-    const addressStatus = mapAttemptStatusToDocumentStatus(addressAttempt?.status);
-    const incomeStatus = mapAttemptStatusToDocumentStatus(incomeAttempt?.status);
+    const isGovernmentApproved = isIndividualAttemptApproved(
+        governmentAttempt?.status,
+    );
+    const documentStatus = mapAttemptStatusToDocumentStatus(
+        documentAttempt?.status,
+    );
+    const addressStatus = mapAttemptStatusToDocumentStatus(
+        addressAttempt?.status,
+    );
+    const incomeStatus = mapAttemptStatusToDocumentStatus(
+        incomeAttempt?.status,
+    );
 
     return {
         bvnVerified: governmentMethod === "BVN" && isGovernmentApproved,
         ninVerified: governmentMethod === "NIN" && isGovernmentApproved,
-        documentVerified: documentStatus === DocumentVerificationStatus.VERIFIED,
+        documentVerified:
+            documentStatus === DocumentVerificationStatus.VERIFIED,
         addressVerified: addressStatus === DocumentVerificationStatus.VERIFIED,
         incomeVerified: incomeStatus === DocumentVerificationStatus.VERIFIED,
         documentStatus,

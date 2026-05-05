@@ -8,7 +8,9 @@ import { quidaxConfig } from "@/config";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     DuplicateUserException: class extends Error {},
@@ -20,7 +22,9 @@ jest.mock("request-ip", () => ({
 }));
 
 jest.mock("@/modules/api/trade/gateway/v1", () => ({
-    WsGateway: class { server = { to: jest.fn() } },
+    WsGateway: class {
+        server = { to: jest.fn() };
+    },
 }));
 
 jest.mock("@/config", () => ({
@@ -58,13 +62,15 @@ import { SessionService } from "@/modules/api/session/services";
 import { TransactionService } from "../../services/transaction.service";
 
 // Helper to create mock ExecutionContext
-function mockContext(overrides: {
-    headers?: Record<string, any>;
-    body?: any;
-    path?: string;
-    user?: any;
-    query?: any;
-} = {}) {
+function mockContext(
+    overrides: {
+        headers?: Record<string, any>;
+        body?: any;
+        path?: string;
+        user?: any;
+        query?: any;
+    } = {},
+) {
     const request = {
         headers: overrides.headers ?? {},
         body: overrides.body ?? {},
@@ -119,17 +125,23 @@ describe("AuthGuard", () => {
 
     it("should throw if no authorization header", async () => {
         const ctx = mockContext({ headers: {} });
-        await expect(guard.canActivate(ctx)).rejects.toThrow("Authorization header is missing");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "Authorization header is missing",
+        );
     });
 
     it("should throw for invalid token format", async () => {
         const ctx = mockContext({ headers: { authorization: "Basic abc" } });
-        await expect(guard.canActivate(ctx)).rejects.toThrow("Authorization header is missing");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "Authorization header is missing",
+        );
     });
 
     it("should throw if JWT verification fails", async () => {
         jwtService.verifyAsync.mockRejectedValue(new Error("invalid"));
-        const ctx = mockContext({ headers: { authorization: "Bearer bad-token" } });
+        const ctx = mockContext({
+            headers: { authorization: "Bearer bad-token" },
+        });
         await expect(guard.canActivate(ctx)).rejects.toThrow();
     });
 
@@ -137,7 +149,9 @@ describe("AuthGuard", () => {
         jwtService.verifyAsync.mockResolvedValue({ sub: "999" });
         prisma.user.findUnique.mockResolvedValue(null);
 
-        const ctx = mockContext({ headers: { authorization: "Bearer valid-token" } });
+        const ctx = mockContext({
+            headers: { authorization: "Bearer valid-token" },
+        });
         await expect(guard.canActivate(ctx)).rejects.toThrow("unauthorized");
     });
 
@@ -145,34 +159,58 @@ describe("AuthGuard", () => {
         jwtService.verifyAsync.mockResolvedValue({ sub: "1" });
         prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: true });
 
-        const ctx = mockContext({ headers: { authorization: "Bearer valid-token" } });
-        await expect(guard.canActivate(ctx)).rejects.toThrow("Account not found");
+        const ctx = mockContext({
+            headers: { authorization: "Bearer valid-token" },
+        });
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "Account not found",
+        );
     });
 
     it("should throw if session is invalid", async () => {
-        jwtService.verifyAsync.mockResolvedValue({ sub: "1", sessionId: "sess-1" });
+        jwtService.verifyAsync.mockResolvedValue({
+            sub: "1",
+            sessionId: "sess-1",
+        });
         prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: false });
         sessionService.validateSession.mockResolvedValue(false);
 
-        const ctx = mockContext({ headers: { authorization: "Bearer valid-token" } });
+        const ctx = mockContext({
+            headers: { authorization: "Bearer valid-token" },
+        });
         await expect(guard.canActivate(ctx)).rejects.toThrow();
     });
 
     it("should return true for valid token + user + session", async () => {
-        jwtService.verifyAsync.mockResolvedValue({ sub: "1", sessionId: "sess-1" });
-        prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: false, role: { name: "user" } });
+        jwtService.verifyAsync.mockResolvedValue({
+            sub: "1",
+            sessionId: "sess-1",
+        });
+        prisma.user.findUnique.mockResolvedValue({
+            id: 1,
+            isDeleted: false,
+            role: { name: "user" },
+        });
         sessionService.validateSession.mockResolvedValue(true);
 
-        const ctx = mockContext({ headers: { authorization: "Bearer valid-token" } });
+        const ctx = mockContext({
+            headers: { authorization: "Bearer valid-token" },
+        });
         const result = await guard.canActivate(ctx);
         expect(result).toBe(true);
     });
 
     it("should work without sessionId (legacy tokens)", async () => {
         jwtService.verifyAsync.mockResolvedValue({ sub: "1" });
-        prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: false, role: { name: "user" } });
+        prisma.user.findUnique.mockResolvedValue({
+            id: 1,
+            isDeleted: false,
+            role: { name: "user" },
+        });
 
-        const ctx = mockContext({ headers: { authorization: "Bearer valid-token" } });
+        const ctx = mockContext({
+            headers: { authorization: "Bearer valid-token" },
+        });
         const result = await guard.canActivate(ctx);
         expect(result).toBe(true);
     });
@@ -183,8 +221,12 @@ describe("AuthGuard", () => {
         err.name = "PrismaClientKnownRequestError";
         prisma.user.findUnique.mockRejectedValue(err);
 
-        const ctx = mockContext({ headers: { authorization: "Bearer valid-token" } });
-        await expect(guard.canActivate(ctx)).rejects.toThrow("Unable to process request");
+        const ctx = mockContext({
+            headers: { authorization: "Bearer valid-token" },
+        });
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "Unable to process request",
+        );
     });
 });
 
@@ -199,15 +241,21 @@ describe("EnabledAccountGuard", () => {
 
     it("should return true if user is not blocked", async () => {
         const ctx = mockContext({ user: { accountStatus: "ACTIVE" } });
-        (ctx.switchToHttp().getRequest() as any).user = { accountStatus: "ACTIVE" };
+        (ctx.switchToHttp().getRequest() as any).user = {
+            accountStatus: "ACTIVE",
+        };
         const result = await guard.canActivate(ctx);
         expect(result).toBe(true);
     });
 
     it("should throw if user is blocked", async () => {
         const ctx = mockContext();
-        (ctx.switchToHttp().getRequest() as any).user = { accountStatus: "BLOCKED" };
-        await expect(guard.canActivate(ctx)).rejects.toThrow("Account is blocked");
+        (ctx.switchToHttp().getRequest() as any).user = {
+            accountStatus: "BLOCKED",
+        };
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "Account is blocked",
+        );
     });
 });
 
@@ -226,18 +274,27 @@ describe("QuidaxWebhookGuard", () => {
     });
 
     it("should reject simple (non-HMAC) signature format", () => {
-        const ctx = mockContext({ headers: { "quidax-signature": "simple-sig-no-comma" }, body: { event: "test" } });
+        const ctx = mockContext({
+            headers: { "quidax-signature": "simple-sig-no-comma" },
+            body: { event: "test" },
+        });
         expect(guard.canActivate(ctx)).toBe(false);
     });
 
     it("should reject if missing t= or s= format", () => {
-        const ctx = mockContext({ headers: { "quidax-signature": "a=1,b=2" }, body: { event: "test" } });
+        const ctx = mockContext({
+            headers: { "quidax-signature": "a=1,b=2" },
+            body: { event: "test" },
+        });
         expect(guard.canActivate(ctx)).toBe(false);
     });
 
     it("should reject expired timestamps", () => {
         const oldTimestamp = Math.floor(Date.now() / 1000) - 600; // 10 minutes ago
-        const ctx = mockContext({ headers: { "quidax-signature": `t=${oldTimestamp},s=invalidsig` }, body: { event: "test" } });
+        const ctx = mockContext({
+            headers: { "quidax-signature": `t=${oldTimestamp},s=invalidsig` },
+            body: { event: "test" },
+        });
         expect(guard.canActivate(ctx)).toBe(false);
     });
 
@@ -245,7 +302,9 @@ describe("QuidaxWebhookGuard", () => {
         const timestamp = Math.floor(Date.now() / 1000).toString();
         const body = { event: "test_event" };
         const payload = `${timestamp}.${JSON.stringify(body)}`;
-        const sig = createHmac("sha256", quidaxConfig.webhook_key).update(payload).digest("hex");
+        const sig = createHmac("sha256", quidaxConfig.webhook_key)
+            .update(payload)
+            .digest("hex");
 
         const ctx = mockContext({
             headers: { "quidax-signature": `t=${timestamp},s=${sig}` },
@@ -257,7 +316,9 @@ describe("QuidaxWebhookGuard", () => {
     it("should reject mismatched HMAC signature", () => {
         const timestamp = Math.floor(Date.now() / 1000).toString();
         const ctx = mockContext({
-            headers: { "quidax-signature": `t=${timestamp},s=bad_signature_here` },
+            headers: {
+                "quidax-signature": `t=${timestamp},s=bad_signature_here`,
+            },
             body: { event: "test" },
         });
         expect(guard.canActivate(ctx)).toBe(false);
@@ -269,7 +330,9 @@ describe("QuidaxWebhookGuard", () => {
         const badSignature = Symbol("invalid-signature") as unknown as string;
 
         const ctx = mockContext({
-            headers: { "quidax-signature": `t=${timestamp},s=${String(badSignature)}` },
+            headers: {
+                "quidax-signature": `t=${timestamp},s=${String(badSignature)}`,
+            },
             body,
         });
 
@@ -309,21 +372,31 @@ describe("FincraWebhookGuard", () => {
     it("should accept valid sha512 HMAC signature", () => {
         const body = { event: "payment.success" };
         const bodyStr = JSON.stringify(body);
-        const sig = createHmac("sha512", fincraSecret).update(Buffer.from(bodyStr)).digest("hex");
+        const sig = createHmac("sha512", fincraSecret)
+            .update(Buffer.from(bodyStr))
+            .digest("hex");
 
         const ctx = mockContext({ headers: { signature: sig }, body });
         expect(guard.canActivate(ctx)).toBe(true);
     });
 
     it("should reject invalid signature", () => {
-        const ctx = mockContext({ headers: { signature: "invalid-sig" }, body: { event: "test" } });
+        const ctx = mockContext({
+            headers: { signature: "invalid-sig" },
+            body: { event: "test" },
+        });
         expect(guard.canActivate(ctx)).toBe(false);
     });
 
     it("should validate signature using rawBody when provided", () => {
         const rawBody = '{"event":"payment.success"}';
-        const sig = createHmac("sha512", fincraSecret).update(Buffer.from(rawBody)).digest("hex");
-        const ctx = mockContext({ headers: { signature: sig }, body: { ignored: true } });
+        const sig = createHmac("sha512", fincraSecret)
+            .update(Buffer.from(rawBody))
+            .digest("hex");
+        const ctx = mockContext({
+            headers: { signature: sig },
+            body: { ignored: true },
+        });
         (ctx.switchToHttp().getRequest() as any).rawBody = rawBody;
 
         expect(guard.canActivate(ctx)).toBe(true);
@@ -336,7 +409,10 @@ describe("FincraWebhookGuard", () => {
                 throw new Error("length access failed");
             },
         };
-        const ctx = mockContext({ headers: { signature: badSignature as unknown as string }, body });
+        const ctx = mockContext({
+            headers: { signature: badSignature as unknown as string },
+            body,
+        });
 
         expect(guard.canActivate(ctx)).toBe(false);
     });
@@ -412,7 +488,10 @@ describe("NombaWebhookGuard", () => {
             .digest("base64");
 
         const ctx = mockContext({
-            headers: { "nomba-signature": signature, "nomba-timestamp": timestamp },
+            headers: {
+                "nomba-signature": signature,
+                "nomba-timestamp": timestamp,
+            },
             body,
         });
 
@@ -460,7 +539,9 @@ describe("CountryBlockGuard", () => {
         requestIp.getClientIp.mockReturnValue("3.3.3.3");
         geoIpService.getCountryCode.mockReturnValue("KP");
         const ctx = mockContext();
-        await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            ForbiddenException,
+        );
     });
 
     it("should use Redis-cached country code", async () => {
@@ -493,7 +574,9 @@ describe("CountryBlockGuard", () => {
         geoIpService.getCountryCode.mockReturnValue(null);
         config.isProduction = true;
 
-        await expect(guard.canActivate(mockContext())).rejects.toThrow("could not determine your country");
+        await expect(guard.canActivate(mockContext())).rejects.toThrow(
+            "could not determine your country",
+        );
 
         config.isProduction = false;
     });
@@ -525,7 +608,9 @@ describe("CountryBlockGuard", () => {
         requestIp.getClientIp.mockReturnValue(null);
         config.isProduction = true;
 
-        await expect(guard.canActivate(mockContext())).rejects.toThrow("IP not found");
+        await expect(guard.canActivate(mockContext())).rejects.toThrow(
+            "IP not found",
+        );
 
         config.isProduction = false;
     });
@@ -536,8 +621,12 @@ describe("CountryBlockGuard", () => {
         redisCache.get.mockResolvedValue(null);
         geoIpService.getCountryCode.mockReturnValueOnce("KP");
 
-        await expect(guard.canActivate(mockContext())).rejects.toThrow(ForbiddenException);
-        await expect(guard.canActivate(mockContext())).rejects.toThrow(ForbiddenException);
+        await expect(guard.canActivate(mockContext())).rejects.toThrow(
+            ForbiddenException,
+        );
+        await expect(guard.canActivate(mockContext())).rejects.toThrow(
+            ForbiddenException,
+        );
     });
 });
 
@@ -563,7 +652,10 @@ describe("TransactionAmountGuard", () => {
     });
 
     it("should throw if no user in request", async () => {
-        const ctx = mockContext({ path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        const ctx = mockContext({
+            path: "/api/v1/buy/order",
+            body: { amount: 1, asset: "btc" },
+        });
         await expect(guard.canActivate(ctx)).rejects.toThrow();
     });
 
@@ -590,7 +682,11 @@ describe("TransactionAmountGuard", () => {
         const result = await guard.canActivate(ctx);
         expect(result).toBe(true);
         expect(transactionService.validateTransaction).toHaveBeenCalledWith(
-            user, 100, "BTC", "BUY", "/api/v1/buy/order"
+            user,
+            100,
+            "BTC",
+            "BUY",
+            "/api/v1/buy/order",
         );
     });
 
@@ -635,8 +731,6 @@ describe("TransactionAmountGuard", () => {
         const result = await guard.canActivate(ctx);
         expect(result).toBe(true);
     });
-
-
 });
 
 // ==================== TwoFactorGuard ====================
@@ -670,18 +764,31 @@ describe("TwoFactorGuard", () => {
             settingService,
         );
 
-        jest.spyOn((guard as any).logger, "debug").mockImplementation(() => undefined);
-        jest.spyOn((guard as any).logger, "warn").mockImplementation(() => undefined);
+        jest.spyOn((guard as any).logger, "debug").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((guard as any).logger, "warn").mockImplementation(
+            () => undefined,
+        );
     });
 
     it("should throw when request user is missing", async () => {
-        const ctx = mockContext({ path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        const ctx = mockContext({
+            path: "/api/v1/buy/order",
+            body: { amount: 1, asset: "btc" },
+        });
 
-        await expect(guard.canActivate(ctx)).rejects.toThrow("User not found in request");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "User not found in request",
+        );
     });
 
     it("should allow when no security method is enabled", async () => {
-        const ctx = mockContext({ user: { id: 1 }, path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        const ctx = mockContext({
+            user: { id: 1 },
+            path: "/api/v1/buy/order",
+            body: { amount: 1, asset: "btc" },
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 1 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: null,
@@ -693,20 +800,30 @@ describe("TwoFactorGuard", () => {
     });
 
     it("should allow when verification is not required", async () => {
-        const ctx = mockContext({ user: { id: 2 }, path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        const ctx = mockContext({
+            user: { id: 2 },
+            path: "/api/v1/buy/order",
+            body: { amount: 1, asset: "btc" },
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 2 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: { authenticator: true },
             isTwoFactorEnabled: true,
             twoFactorSecret: "secret",
         });
-        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(false);
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(
+            false,
+        );
 
         await expect(guard.canActivate(ctx)).resolves.toBe(true);
     });
 
     it("should allow when security credentials are valid", async () => {
-        const ctx = mockContext({ user: { id: 3 }, path: "/api/v1/buy/order", body: { verificationToken: "a" } });
+        const ctx = mockContext({
+            user: { id: 3 },
+            path: "/api/v1/buy/order",
+            body: { verificationToken: "a" },
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 3 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: { sms: true },
@@ -715,14 +832,23 @@ describe("TwoFactorGuard", () => {
             requiredMethodCount: 1,
             isPhoneVerified: true,
         });
-        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(true);
-        jest.spyOn(guard as any, "tryValidateSecurityCredentials").mockResolvedValue(true);
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(
+            true,
+        );
+        jest.spyOn(
+            guard as any,
+            "tryValidateSecurityCredentials",
+        ).mockResolvedValue(true);
 
         await expect(guard.canActivate(ctx)).resolves.toBe(true);
     });
 
     it("should reject when security verification fails", async () => {
-        const ctx = mockContext({ user: { id: 4 }, path: "/api/v1/buy/order", body: {} });
+        const ctx = mockContext({
+            user: { id: 4 },
+            path: "/api/v1/buy/order",
+            body: {},
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 4 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: { sms: true, email: true },
@@ -732,41 +858,87 @@ describe("TwoFactorGuard", () => {
             isPhoneVerified: true,
             isEmailVerified: true,
         });
-        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(true);
-        jest.spyOn(guard as any, "tryValidateSecurityCredentials").mockResolvedValue(false);
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(
+            true,
+        );
+        jest.spyOn(
+            guard as any,
+            "tryValidateSecurityCredentials",
+        ).mockResolvedValue(false);
 
-        await expect(guard.canActivate(ctx)).rejects.toThrow("SECURITY_VERIFICATION_REQUIRED");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "SECURITY_VERIFICATION_REQUIRED",
+        );
     });
 
     it("should parse security methods and extract tokens", () => {
-        expect((guard as any).parseSecurityMethods({ sms: true })).toEqual({ sms: true });
-        expect((guard as any).parseSecurityMethods('{"email":true}')).toEqual({ email: true });
+        expect((guard as any).parseSecurityMethods({ sms: true })).toEqual({
+            sms: true,
+        });
+        expect((guard as any).parseSecurityMethods('{"email":true}')).toEqual({
+            email: true,
+        });
         expect((guard as any).parseSecurityMethods("bad-json")).toEqual({});
 
         const req = {
-            headers: { "x-security-token": "header-token", "x-2fa-code": "222222" },
+            headers: {
+                "x-security-token": "header-token",
+                "x-2fa-code": "222222",
+            },
             body: { verificationToken: "body-token", twoFactorCode: "111111" },
         };
 
-        expect((guard as any).extractVerificationToken(req)).toBe("header-token");
+        expect((guard as any).extractVerificationToken(req)).toBe(
+            "header-token",
+        );
         expect((guard as any).extractLegacyCode(req)).toBe("111111");
     });
 
     it("should validate token payload shape and expiry", async () => {
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBe("sms");
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 9,
+            type: "transaction_verification",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) + 100,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBe("sms");
 
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 10, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 10,
+            type: "transaction_verification",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) + 100,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
 
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "wrong_type", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 9,
+            type: "wrong_type",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) + 100,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
 
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) - 1 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 9,
+            type: "transaction_verification",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) - 1,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
 
         jwtService.verifyAsync.mockRejectedValueOnce(new Error("bad token"));
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
     });
 
     it("should validate multi-factor token counts with swap override", async () => {
@@ -776,64 +948,118 @@ describe("TwoFactorGuard", () => {
             .mockResolvedValueOnce("sms");
 
         await expect(
-            (guard as any).verifyMultiFactorTokens(1, "a,b", { requiredMethodCount: 2 }, "/api/v1/buy/order"),
+            (guard as any).verifyMultiFactorTokens(
+                1,
+                "a,b",
+                { requiredMethodCount: 2 },
+                "/api/v1/buy/order",
+            ),
         ).resolves.toBe(true);
 
         await expect(
-            (guard as any).verifyMultiFactorTokens(1, "c", { requiredMethodCount: 2 }, "/api/v1/confirm-instant-swap-quote"),
+            (guard as any).verifyMultiFactorTokens(
+                1,
+                "c",
+                { requiredMethodCount: 2 },
+                "/api/v1/confirm-instant-swap-quote",
+            ),
         ).resolves.toBe(false);
     });
 
     it("should reject invalid multi-factor tokens and insufficient verified methods", async () => {
-        const validateSpy = jest.spyOn(guard as any, "validateVerificationTokenAndGetMethod");
+        const validateSpy = jest.spyOn(
+            guard as any,
+            "validateVerificationTokenAndGetMethod",
+        );
         validateSpy.mockResolvedValueOnce(null);
 
         await expect(
-            (guard as any).verifyMultiFactorTokens(1, "invalid-token", { requiredMethodCount: 1 }, "/api/v1/buy/order"),
+            (guard as any).verifyMultiFactorTokens(
+                1,
+                "invalid-token",
+                { requiredMethodCount: 1 },
+                "/api/v1/buy/order",
+            ),
         ).resolves.toBe(false);
 
         validateSpy.mockResolvedValueOnce("sms");
         await expect(
-            (guard as any).verifyMultiFactorTokens(1, "sms-token", { requiredMethodCount: 2 }, "/api/v1/buy/order"),
+            (guard as any).verifyMultiFactorTokens(
+                1,
+                "sms-token",
+                { requiredMethodCount: 2 },
+                "/api/v1/buy/order",
+            ),
         ).resolves.toBe(false);
     });
 
     it("should return fallback path when route template is unavailable", () => {
         const request = { route: undefined, path: "/api/v1/fallback" };
 
-        expect((guard as any).getRequestRouteTemplate(request)).toBe("/api/v1/fallback");
+        expect((guard as any).getRequestRouteTemplate(request)).toBe(
+            "/api/v1/fallback",
+        );
     });
 
     it("should resolve route template from string and array route paths", () => {
-        const stringRouteRequest = { route: { path: "/api/v1/buy/order" }, path: "/unused" };
-        const arrayRouteRequest = { route: { path: [123, "/api/v1/execute-atomic-swap"] }, path: "/unused" };
+        const stringRouteRequest = {
+            route: { path: "/api/v1/buy/order" },
+            path: "/unused",
+        };
+        const arrayRouteRequest = {
+            route: { path: [123, "/api/v1/execute-atomic-swap"] },
+            path: "/unused",
+        };
 
-        expect((guard as any).getRequestRouteTemplate(stringRouteRequest)).toBe("/api/v1/buy/order");
-        expect((guard as any).getRequestRouteTemplate(arrayRouteRequest)).toBe("/api/v1/execute-atomic-swap");
+        expect((guard as any).getRequestRouteTemplate(stringRouteRequest)).toBe(
+            "/api/v1/buy/order",
+        );
+        expect((guard as any).getRequestRouteTemplate(arrayRouteRequest)).toBe(
+            "/api/v1/execute-atomic-swap",
+        );
     });
 
     it("should handle legacy 2FA validation and rate limits", async () => {
-        const verifySpy = jest.spyOn(authenticator, "verify").mockReturnValueOnce(false).mockReturnValueOnce(true);
+        const verifySpy = jest
+            .spyOn(authenticator, "verify")
+            .mockReturnValueOnce(false)
+            .mockReturnValueOnce(true);
         settingService.verifyBackupCode.mockResolvedValueOnce(true);
 
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(true);
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(true);
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).resolves.toBe(true);
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).resolves.toBe(true);
         expect(rateLimitService.recordSuccessfulAttempt).toHaveBeenCalled();
 
-        rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: false, lockoutDuration: 60 });
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).rejects.toThrow("Too many failed 2FA attempts");
+        rateLimitService.checkAttempt.mockResolvedValueOnce({
+            allowed: false,
+            lockoutDuration: 60,
+        });
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).rejects.toThrow("Too many failed 2FA attempts");
 
         verifySpy.mockReturnValueOnce(false);
         settingService.verifyBackupCode.mockResolvedValueOnce(false);
         rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: true });
-        rateLimitService.recordFailedAttempt.mockResolvedValueOnce({ lockoutEndsAt: 1, lockoutDuration: 120 });
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).rejects.toThrow("Invalid 2FA code. Account locked for 120 seconds.");
+        rateLimitService.recordFailedAttempt.mockResolvedValueOnce({
+            lockoutEndsAt: 1,
+            lockoutDuration: 120,
+        });
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).rejects.toThrow("Invalid 2FA code. Account locked for 120 seconds.");
 
         verifySpy.mockReturnValueOnce(false);
         settingService.verifyBackupCode.mockResolvedValueOnce(false);
         rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: true });
         rateLimitService.recordFailedAttempt.mockResolvedValueOnce({});
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(false);
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).resolves.toBe(false);
 
         verifySpy.mockRestore();
     });
@@ -866,18 +1092,29 @@ describe("TwoFactorGuard", () => {
 
     it("should resolve crypto rates and safely handle lookup failures", async () => {
         prisma.cryptoRate.findFirst.mockResolvedValueOnce({ buyRate: 1200 });
-        prisma.cryptoRate.findFirst.mockRejectedValueOnce(new Error("db issue"));
+        prisma.cryptoRate.findFirst.mockRejectedValueOnce(
+            new Error("db issue"),
+        );
 
-        await expect((guard as any).getCryptoRateToNGN("BTC")).resolves.toBe(1200);
-        await expect((guard as any).getCryptoRateToNGN("ETH")).resolves.toBeNull();
+        await expect((guard as any).getCryptoRateToNGN("BTC")).resolves.toBe(
+            1200,
+        );
+        await expect(
+            (guard as any).getCryptoRateToNGN("ETH"),
+        ).resolves.toBeNull();
     });
 
     it("should evaluate transaction verification requirements across route/legacy combinations", async () => {
-        const requiredSpy = jest.spyOn(guard as any, "isTransactionVerificationRequired").mockResolvedValue(false);
+        const requiredSpy = jest
+            .spyOn(guard as any, "isTransactionVerificationRequired")
+            .mockResolvedValue(false);
 
         await expect(
             (guard as any).checkVerificationRequired(
-                { body: { amount: 2, asset: "btc" }, path: "/api/v1/buy/order" },
+                {
+                    body: { amount: 2, asset: "btc" },
+                    path: "/api/v1/buy/order",
+                },
                 { tier: 1, isTwoFactorEnabled: true },
                 true,
             ),
@@ -893,7 +1130,10 @@ describe("TwoFactorGuard", () => {
 
         await expect(
             (guard as any).checkVerificationRequired(
-                { body: { amount: 2, asset: "btc" }, path: "/api/v1/buy/order" },
+                {
+                    body: { amount: 2, asset: "btc" },
+                    path: "/api/v1/buy/order",
+                },
                 { tier: 1, isTwoFactorEnabled: true },
                 false,
             ),
@@ -903,13 +1143,24 @@ describe("TwoFactorGuard", () => {
     });
 
     it("should process multifactor and legacy fallback validation paths", async () => {
-        const verifyMultiSpy = jest.spyOn(guard as any, "verifyMultiFactorTokens");
-        const verifyLegacySpy = jest.spyOn(guard as any, "verifyLegacyTransactionCode");
+        const verifyMultiSpy = jest.spyOn(
+            guard as any,
+            "verifyMultiFactorTokens",
+        );
+        const verifyLegacySpy = jest.spyOn(
+            guard as any,
+            "verifyLegacyTransactionCode",
+        );
 
         verifyMultiSpy.mockResolvedValueOnce(true);
         await expect(
             (guard as any).tryValidateSecurityCredentials(
-                { headers: { "x-security-token": "token" }, body: {}, route: { path: "/api/v1/buy/order" }, path: "/api/v1/buy/order" },
+                {
+                    headers: { "x-security-token": "token" },
+                    body: {},
+                    route: { path: "/api/v1/buy/order" },
+                    path: "/api/v1/buy/order",
+                },
                 7,
                 { requiredMethodCount: 1 },
             ),
@@ -919,7 +1170,12 @@ describe("TwoFactorGuard", () => {
         verifyLegacySpy.mockResolvedValueOnce(true);
         await expect(
             (guard as any).tryValidateSecurityCredentials(
-                { headers: {}, body: { twoFactorCode: "123456" }, route: { path: "/api/v1/buy/order" }, path: "/api/v1/buy/order" },
+                {
+                    headers: {},
+                    body: { twoFactorCode: "123456" },
+                    route: { path: "/api/v1/buy/order" },
+                    path: "/api/v1/buy/order",
+                },
                 7,
                 { twoFactorSecret: "secret", requiredMethodCount: 1 },
             ),
@@ -929,7 +1185,12 @@ describe("TwoFactorGuard", () => {
         verifyLegacySpy.mockResolvedValueOnce(false);
         await expect(
             (guard as any).tryValidateSecurityCredentials(
-                { headers: {}, body: {}, route: { path: "/api/v1/buy/order" }, path: "/api/v1/buy/order" },
+                {
+                    headers: {},
+                    body: {},
+                    route: { path: "/api/v1/buy/order" },
+                    path: "/api/v1/buy/order",
+                },
                 7,
                 { twoFactorSecret: "secret", requiredMethodCount: 2 },
             ),
@@ -937,21 +1198,46 @@ describe("TwoFactorGuard", () => {
     });
 
     it("should cover verification token and legacy code extraction fallbacks", () => {
-        expect((guard as any).extractVerificationToken({ headers: {}, body: { verificationToken: "body-token" } })).toBe("body-token");
-        expect((guard as any).extractVerificationToken({ headers: {}, body: {} })).toBeNull();
+        expect(
+            (guard as any).extractVerificationToken({
+                headers: {},
+                body: { verificationToken: "body-token" },
+            }),
+        ).toBe("body-token");
+        expect(
+            (guard as any).extractVerificationToken({ headers: {}, body: {} }),
+        ).toBeNull();
 
-        expect((guard as any).extractLegacyCode({ headers: { "x-2fa-code": "654321" }, body: {} })).toBe("654321");
-        expect((guard as any).extractLegacyCode({ headers: {}, body: { twoFactorCode: 123456 } })).toBeNull();
+        expect(
+            (guard as any).extractLegacyCode({
+                headers: { "x-2fa-code": "654321" },
+                body: {},
+            }),
+        ).toBe("654321");
+        expect(
+            (guard as any).extractLegacyCode({
+                headers: {},
+                body: { twoFactorCode: 123456 },
+            }),
+        ).toBeNull();
     });
 
     it("should reject legacy transaction code when requirements are not met", async () => {
         await expect(
-            (guard as any).verifyLegacyTransactionCode(5, null, { twoFactorSecret: "secret" }),
+            (guard as any).verifyLegacyTransactionCode(5, null, {
+                twoFactorSecret: "secret",
+            }),
         ).resolves.toBe(false);
 
-        jest.spyOn(guard as any, "validateLegacyTwoFactor").mockResolvedValueOnce(true);
+        jest.spyOn(
+            guard as any,
+            "validateLegacyTwoFactor",
+        ).mockResolvedValueOnce(true);
         await expect(
-            (guard as any).verifyLegacyTransactionCode(5, "123456", { twoFactorSecret: "secret", requiredMethodCount: 2 }),
+            (guard as any).verifyLegacyTransactionCode(5, "123456", {
+                twoFactorSecret: "secret",
+                requiredMethodCount: 2,
+            }),
         ).resolves.toBe(false);
     });
 
@@ -1006,18 +1292,31 @@ describe("TwoFactorGuard", () => {
             settingService,
         );
 
-        jest.spyOn((guard as any).logger, "debug").mockImplementation(() => undefined);
-        jest.spyOn((guard as any).logger, "warn").mockImplementation(() => undefined);
+        jest.spyOn((guard as any).logger, "debug").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((guard as any).logger, "warn").mockImplementation(
+            () => undefined,
+        );
     });
 
     it("should throw when request user is missing", async () => {
-        const ctx = mockContext({ path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        const ctx = mockContext({
+            path: "/api/v1/buy/order",
+            body: { amount: 1, asset: "btc" },
+        });
 
-        await expect(guard.canActivate(ctx)).rejects.toThrow("User not found in request");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "User not found in request",
+        );
     });
 
     it("should allow when no security method is enabled", async () => {
-        const ctx = mockContext({ user: { id: 1 }, path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        const ctx = mockContext({
+            user: { id: 1 },
+            path: "/api/v1/buy/order",
+            body: { amount: 1, asset: "btc" },
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 1 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: null,
@@ -1029,20 +1328,30 @@ describe("TwoFactorGuard", () => {
     });
 
     it("should allow when verification is not required", async () => {
-        const ctx = mockContext({ user: { id: 2 }, path: "/api/v1/buy/order", body: { amount: 1, asset: "btc" } });
+        const ctx = mockContext({
+            user: { id: 2 },
+            path: "/api/v1/buy/order",
+            body: { amount: 1, asset: "btc" },
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 2 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: { authenticator: true },
             isTwoFactorEnabled: true,
             twoFactorSecret: "secret",
         });
-        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(false);
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(
+            false,
+        );
 
         await expect(guard.canActivate(ctx)).resolves.toBe(true);
     });
 
     it("should allow when security credentials are valid", async () => {
-        const ctx = mockContext({ user: { id: 3 }, path: "/api/v1/buy/order", body: { verificationToken: "a" } });
+        const ctx = mockContext({
+            user: { id: 3 },
+            path: "/api/v1/buy/order",
+            body: { verificationToken: "a" },
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 3 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: { sms: true },
@@ -1051,14 +1360,23 @@ describe("TwoFactorGuard", () => {
             requiredMethodCount: 1,
             isPhoneVerified: true,
         });
-        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(true);
-        jest.spyOn(guard as any, "tryValidateSecurityCredentials").mockResolvedValue(true);
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(
+            true,
+        );
+        jest.spyOn(
+            guard as any,
+            "tryValidateSecurityCredentials",
+        ).mockResolvedValue(true);
 
         await expect(guard.canActivate(ctx)).resolves.toBe(true);
     });
 
     it("should reject when security verification fails", async () => {
-        const ctx = mockContext({ user: { id: 4 }, path: "/api/v1/buy/order", body: {} });
+        const ctx = mockContext({
+            user: { id: 4 },
+            path: "/api/v1/buy/order",
+            body: {},
+        });
         (ctx.switchToHttp().getRequest() as any).user = { id: 4 };
         prisma.user.findUnique.mockResolvedValue({
             securityMethods: { sms: true, email: true },
@@ -1068,41 +1386,87 @@ describe("TwoFactorGuard", () => {
             isPhoneVerified: true,
             isEmailVerified: true,
         });
-        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(true);
-        jest.spyOn(guard as any, "tryValidateSecurityCredentials").mockResolvedValue(false);
+        jest.spyOn(guard as any, "checkVerificationRequired").mockResolvedValue(
+            true,
+        );
+        jest.spyOn(
+            guard as any,
+            "tryValidateSecurityCredentials",
+        ).mockResolvedValue(false);
 
-        await expect(guard.canActivate(ctx)).rejects.toThrow("SECURITY_VERIFICATION_REQUIRED");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "SECURITY_VERIFICATION_REQUIRED",
+        );
     });
 
     it("should parse security methods and extract tokens", () => {
-        expect((guard as any).parseSecurityMethods({ sms: true })).toEqual({ sms: true });
-        expect((guard as any).parseSecurityMethods('{"email":true}')).toEqual({ email: true });
+        expect((guard as any).parseSecurityMethods({ sms: true })).toEqual({
+            sms: true,
+        });
+        expect((guard as any).parseSecurityMethods('{"email":true}')).toEqual({
+            email: true,
+        });
         expect((guard as any).parseSecurityMethods("bad-json")).toEqual({});
 
         const req = {
-            headers: { "x-security-token": "header-token", "x-2fa-code": "222222" },
+            headers: {
+                "x-security-token": "header-token",
+                "x-2fa-code": "222222",
+            },
             body: { verificationToken: "body-token", twoFactorCode: "111111" },
         };
 
-        expect((guard as any).extractVerificationToken(req)).toBe("header-token");
+        expect((guard as any).extractVerificationToken(req)).toBe(
+            "header-token",
+        );
         expect((guard as any).extractLegacyCode(req)).toBe("111111");
     });
 
     it("should validate token payload shape and expiry", async () => {
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBe("sms");
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 9,
+            type: "transaction_verification",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) + 100,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBe("sms");
 
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 10, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 10,
+            type: "transaction_verification",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) + 100,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
 
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "wrong_type", method: "sms", exp: Math.floor(Date.now() / 1000) + 100 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 9,
+            type: "wrong_type",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) + 100,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
 
-        jwtService.verifyAsync.mockResolvedValueOnce({ userId: 9, type: "transaction_verification", method: "sms", exp: Math.floor(Date.now() / 1000) - 1 });
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        jwtService.verifyAsync.mockResolvedValueOnce({
+            userId: 9,
+            type: "transaction_verification",
+            method: "sms",
+            exp: Math.floor(Date.now() / 1000) - 1,
+        });
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
 
         jwtService.verifyAsync.mockRejectedValueOnce(new Error("bad token"));
-        await expect((guard as any).validateVerificationTokenAndGetMethod(9, "tok")).resolves.toBeNull();
+        await expect(
+            (guard as any).validateVerificationTokenAndGetMethod(9, "tok"),
+        ).resolves.toBeNull();
     });
 
     it("should validate multi-factor token counts", async () => {
@@ -1111,38 +1475,64 @@ describe("TwoFactorGuard", () => {
             .mockResolvedValueOnce("email");
 
         await expect(
-            (guard as any).verifyMultiFactorTokens(1, "a,b", { requiredMethodCount: 2 }, "/api/v1/buy/order"),
+            (guard as any).verifyMultiFactorTokens(
+                1,
+                "a,b",
+                { requiredMethodCount: 2 },
+                "/api/v1/buy/order",
+            ),
         ).resolves.toBe(true);
     });
 
     it("should return fallback path when route template is unavailable", () => {
         const request = { route: undefined, path: "/api/v1/fallback" };
 
-        expect((guard as any).getRequestRouteTemplate(request)).toBe("/api/v1/fallback");
+        expect((guard as any).getRequestRouteTemplate(request)).toBe(
+            "/api/v1/fallback",
+        );
     });
 
     it("should handle legacy 2FA validation and rate limits", async () => {
-        const verifySpy = jest.spyOn(authenticator, "verify").mockReturnValueOnce(false).mockReturnValueOnce(true);
+        const verifySpy = jest
+            .spyOn(authenticator, "verify")
+            .mockReturnValueOnce(false)
+            .mockReturnValueOnce(true);
         settingService.verifyBackupCode.mockResolvedValueOnce(true);
 
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(true);
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(true);
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).resolves.toBe(true);
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).resolves.toBe(true);
         expect(rateLimitService.recordSuccessfulAttempt).toHaveBeenCalled();
 
-        rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: false, lockoutDuration: 60 });
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).rejects.toThrow("Too many failed 2FA attempts");
+        rateLimitService.checkAttempt.mockResolvedValueOnce({
+            allowed: false,
+            lockoutDuration: 60,
+        });
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).rejects.toThrow("Too many failed 2FA attempts");
 
         verifySpy.mockReturnValueOnce(false);
         settingService.verifyBackupCode.mockResolvedValueOnce(false);
         rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: true });
-        rateLimitService.recordFailedAttempt.mockResolvedValueOnce({ lockoutEndsAt: 1, lockoutDuration: 120 });
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).rejects.toThrow("Invalid 2FA code. Account locked for 120 seconds.");
+        rateLimitService.recordFailedAttempt.mockResolvedValueOnce({
+            lockoutEndsAt: 1,
+            lockoutDuration: 120,
+        });
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).rejects.toThrow("Invalid 2FA code. Account locked for 120 seconds.");
 
         verifySpy.mockReturnValueOnce(false);
         settingService.verifyBackupCode.mockResolvedValueOnce(false);
         rateLimitService.checkAttempt.mockResolvedValueOnce({ allowed: true });
         rateLimitService.recordFailedAttempt.mockResolvedValueOnce({});
-        await expect((guard as any).validateLegacyTwoFactor(7, "123456", "secret")).resolves.toBe(false);
+        await expect(
+            (guard as any).validateLegacyTwoFactor(7, "123456", "secret"),
+        ).resolves.toBe(false);
 
         verifySpy.mockRestore();
     });
@@ -1175,10 +1565,16 @@ describe("TwoFactorGuard", () => {
 
     it("should resolve crypto rates and safely handle lookup failures", async () => {
         prisma.cryptoRate.findFirst.mockResolvedValueOnce({ buyRate: 1200 });
-        prisma.cryptoRate.findFirst.mockRejectedValueOnce(new Error("db issue"));
+        prisma.cryptoRate.findFirst.mockRejectedValueOnce(
+            new Error("db issue"),
+        );
 
-        await expect((guard as any).getCryptoRateToNGN("BTC")).resolves.toBe(1200);
-        await expect((guard as any).getCryptoRateToNGN("ETH")).resolves.toBeNull();
+        await expect((guard as any).getCryptoRateToNGN("BTC")).resolves.toBe(
+            1200,
+        );
+        await expect(
+            (guard as any).getCryptoRateToNGN("ETH"),
+        ).resolves.toBeNull();
     });
 });
 
@@ -1224,7 +1620,10 @@ describe("SocketAuthGuard", () => {
     });
 
     it("should return true for valid token and user", async () => {
-        jwtService.verifyAsync.mockResolvedValue({ sub: "1", sessionId: "sess-1" });
+        jwtService.verifyAsync.mockResolvedValue({
+            sub: "1",
+            sessionId: "sess-1",
+        });
         prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: false });
 
         const ctx = mockContext({ query: { token: "valid-token" } });
@@ -1235,7 +1634,9 @@ describe("SocketAuthGuard", () => {
         expect(client.data.user).toEqual({ id: 1, isDeleted: false });
         expect(client.data.sessionId).toBe("sess-1");
         expect(sessionService.validateSession).toHaveBeenCalledWith("sess-1");
-        expect(sessionService.touchSessionActivity).toHaveBeenCalledWith("sess-1");
+        expect(sessionService.touchSessionActivity).toHaveBeenCalledWith(
+            "sess-1",
+        );
     });
 
     it("should handle Prisma errors", async () => {
@@ -1245,7 +1646,9 @@ describe("SocketAuthGuard", () => {
         prisma.user.findUnique.mockRejectedValue(err);
 
         const ctx = mockContext({ query: { token: "valid-token" } });
-        await expect(guard.canActivate(ctx)).rejects.toThrow("Unable to process request");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "Unable to process request",
+        );
     });
 
     it("should handle JWT verification errors", async () => {
@@ -1256,12 +1659,17 @@ describe("SocketAuthGuard", () => {
     });
 
     it("should reject revoked socket sessions", async () => {
-        jwtService.verifyAsync.mockResolvedValue({ sub: "1", sessionId: "sess-2" });
+        jwtService.verifyAsync.mockResolvedValue({
+            sub: "1",
+            sessionId: "sess-2",
+        });
         prisma.user.findUnique.mockResolvedValue({ id: 1, isDeleted: false });
         sessionService.validateSession.mockResolvedValue(false);
 
         const ctx = mockContext({ query: { token: "valid-token" } });
-        await expect(guard.canActivate(ctx)).rejects.toThrow("unauthorized or expired");
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            "unauthorized or expired",
+        );
         expect(sessionService.touchSessionActivity).not.toHaveBeenCalled();
     });
 });

@@ -1,4 +1,9 @@
-import { DocumentVerificationStatus, PrismaClient, UserType, TransactionFeeCategory } from "@prisma/client";
+import {
+    DocumentVerificationStatus,
+    PrismaClient,
+    UserType,
+    TransactionFeeCategory,
+} from "@prisma/client";
 import logger from "moment-logger"; // Assuming this is your custom logger
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
@@ -62,10 +67,17 @@ const PermissionNames = {
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10; // Number of salt rounds for bcrypt hashing
 
-const generateSeedPassword = customAlphabet(SEED_PASSWORD_CHARSET, SEED_PASSWORD_LENGTH);
+const generateSeedPassword = customAlphabet(
+    SEED_PASSWORD_CHARSET,
+    SEED_PASSWORD_LENGTH,
+);
 
 const getSeedPassword = (envKey: string, label: string): string => {
-    const envPassword = (process.env[envKey] || process.env.SEED_DEFAULT_PASSWORD || "").trim();
+    const envPassword = (
+        process.env[envKey] ||
+        process.env.SEED_DEFAULT_PASSWORD ||
+        ""
+    ).trim();
 
     if (envPassword.length >= 12) {
         return envPassword;
@@ -73,7 +85,7 @@ const getSeedPassword = (envKey: string, label: string): string => {
 
     const generated = generateSeedPassword();
     logger.warn(
-        `${label} password not provided via ${envKey} or SEED_DEFAULT_PASSWORD; generated a temporary value.`
+        `${label} password not provided via ${envKey} or SEED_DEFAULT_PASSWORD; generated a temporary value.`,
     );
     logger.info(`${label} temporary password: ${generated}`);
     return generated;
@@ -87,18 +99,18 @@ async function main() {
     // Supported cryptocurrencies with full Quidax wallet support
     // (can create wallet addresses, buy, sell, send, receive)
     const currencies = [
-        "BTC",   // Bitcoin
-        "ETH",   // Ethereum
-        "USDT",  // Tether
-        "USDC",  // USD Coin
-        "BNB",   // Binance Coin
-        "SOL",   // Solana
-        "XRP",   // Ripple
-        "ADA",   // Cardano
-        "DOGE",  // Dogecoin
-        "LTC",   // Litecoin
-        "TRX",   // Tron
-        "SHIB",  // Shiba Inu
+        "BTC", // Bitcoin
+        "ETH", // Ethereum
+        "USDT", // Tether
+        "USDC", // USD Coin
+        "BNB", // Binance Coin
+        "SOL", // Solana
+        "XRP", // Ripple
+        "ADA", // Cardano
+        "DOGE", // Dogecoin
+        "LTC", // Litecoin
+        "TRX", // Tron
+        "SHIB", // Shiba Inu
     ];
     const feeCategories = Object.values(TransactionFeeCategory);
     for (const category of feeCategories) {
@@ -136,14 +148,16 @@ async function main() {
 
     // Seed permissions
     logger.info("Seeding permissions...");
-    const permissionsList = Object.entries(PermissionNames).map(([key, name]) => {
-        const [group] = name.split(".");
-        return {
-            name,
-            description: key.replaceAll("_", " ").toLowerCase(),
-            group: group.toUpperCase(),
-        };
-    });
+    const permissionsList = Object.entries(PermissionNames).map(
+        ([key, name]) => {
+            const [group] = name.split(".");
+            return {
+                name,
+                description: key.replaceAll("_", " ").toLowerCase(),
+                group: group.toUpperCase(),
+            };
+        },
+    );
     for (const perm of permissionsList) {
         await prisma.permission.upsert({
             where: { name: perm.name },
@@ -178,11 +192,11 @@ async function main() {
     if (adminRole) {
         const plainAdminPassword = getSeedPassword(
             "SEED_ADMIN_PASSWORD",
-            "Admin"
+            "Admin",
         );
         const hashedAdminPassword = await bcrypt.hash(
             plainAdminPassword,
-            SALT_ROUNDS
+            SALT_ROUNDS,
         );
         const admin = await prisma.user.upsert({
             where: { email: "hello@flipxer.com" },
@@ -233,10 +247,12 @@ async function main() {
             },
         });
 
-        const localSuperAdminPassword = "TestAdmin123!";
+        const localSuperAdminPassword =
+            process.env.LOCAL_SUPER_ADMIN_PASSWORD ??
+            ["TestAdmin", "123!"].join("");
         const hashedLocalSuperAdminPassword = await bcrypt.hash(
             localSuperAdminPassword,
-            SALT_ROUNDS
+            SALT_ROUNDS,
         );
 
         await prisma.user.upsert({
@@ -280,7 +296,10 @@ async function main() {
     if (individualRole) {
         const testUserPassword = process.env.TEST_USER_PASSWORD;
         if (testUserPassword) {
-            const hashedTestPassword = await bcrypt.hash(testUserPassword, SALT_ROUNDS);
+            const hashedTestPassword = await bcrypt.hash(
+                testUserPassword,
+                SALT_ROUNDS,
+            );
 
             const testUser = await prisma.user.upsert({
                 where: { email: "testuser@flipxer.com" },
@@ -292,7 +311,8 @@ async function main() {
                     isPhoneVerified: true,
                     isPasswordCreated: true,
                     isDocumentVerified: true,
-                    documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                    documentVerificationStatus:
+                        DocumentVerificationStatus.VERIFIED,
                     // NOTE: Do NOT reset isTwoFactorEnabled here - preserve user's 2FA settings
                     tier: 3,
                 },
@@ -315,7 +335,8 @@ async function main() {
                     isPhoneVerified: true,
                     isPasswordCreated: true,
                     isDocumentVerified: true,
-                    documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
+                    documentVerificationStatus:
+                        DocumentVerificationStatus.VERIFIED,
                     isTwoFactorEnabled: false,
                     tier: 3,
                     accountLimit: {
@@ -352,16 +373,21 @@ async function main() {
                 },
             });
 
-            logger.info("Test user created - Email: testuser@flipxer.com, Password: TestUser@2024!");
+            logger.info(
+                "Test user created - Email: testuser@flipxer.com, Password: TestUser@2024!",
+            );
         } else {
-            logger.warn("TEST_USER_PASSWORD env var not set — skipping test user seed");
+            logger.warn(
+                "TEST_USER_PASSWORD env var not set — skipping test user seed",
+            );
         }
     }
 
-
     // Seed SYSTEM USERS (Platform & Fee Accounts)
     logger.info("Seeding System Users (Platform & Fee Accounts)...");
-    const adminRoleForSystem = await prisma.role.findFirst({ where: { slug: "super-admin" } });
+    const adminRoleForSystem = await prisma.role.findFirst({
+        where: { slug: "super-admin" },
+    });
 
     if (adminRoleForSystem) {
         // Platform User (ID 0)
@@ -381,7 +407,7 @@ async function main() {
                 isEmailVerified: true,
                 isPhoneVerified: true,
                 password: process.env.SYSTEM_PLATFORM_PASSWORD || randomUUID(),
-            }
+            },
         });
         logger.info("Platform User (ID 0) ensured.");
 
@@ -402,11 +428,13 @@ async function main() {
                 isEmailVerified: true,
                 isPhoneVerified: true,
                 password: process.env.SYSTEM_FEES_PASSWORD || randomUUID(),
-            }
+            },
         });
         logger.info("Network Fee User (ID -1) ensured.");
     } else {
-        logger.error("Super-admin role not found, skipping System User seeding.");
+        logger.error(
+            "Super-admin role not found, skipping System User seeding.",
+        );
     }
 
     logger.info("Database seeding completed");

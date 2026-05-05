@@ -32,7 +32,10 @@ describe("quidax error classes", () => {
     });
 
     it("stores optional error code for validation errors", () => {
-        const errorWithCode = new QuidaxValidationError("validation failed", "E0101");
+        const errorWithCode = new QuidaxValidationError(
+            "validation failed",
+            "E0101",
+        );
         const errorWithoutCode = new QuidaxValidationError("validation failed");
 
         expect(errorWithCode.name).toBe("QuidaxValidationError");
@@ -47,7 +50,11 @@ describe("quidax error classes", () => {
         );
         cloudflareBlock.status = 403;
 
-        expect(isQuidaxThrottleError(new QuidaxTooManyRequestError("rate-limited"))).toBe(true);
+        expect(
+            isQuidaxThrottleError(
+                new QuidaxTooManyRequestError("rate-limited"),
+            ),
+        ).toBe(true);
         expect(isQuidaxThrottleError({ status: 444 })).toBe(true);
         expect(isQuidaxThrottleError({ getStatus: () => 429 })).toBe(true);
         expect(isQuidaxThrottleError(cloudflareBlock)).toBe(true);

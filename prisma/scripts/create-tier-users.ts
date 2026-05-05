@@ -4,10 +4,13 @@ import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid";
 
 const prisma = new PrismaClient({
-    log: ['error', 'warn'],
+    log: ["error", "warn"],
 });
 const SALT_ROUNDS = 10;
-const generateIdentifier = customAlphabet("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 16);
+const generateIdentifier = customAlphabet(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    16,
+);
 const FIXTURE_PASSWORD_SUFFIX = "@2024!";
 
 interface TestUser {
@@ -95,7 +98,11 @@ const defaultAccountLimit = {
     receiveToken: "unlimited",
 } as const;
 
-function buildUserPayload(user: TestUser, hashedPassword: string, roleId: number) {
+function buildUserPayload(
+    user: TestUser,
+    hashedPassword: string,
+    roleId: number,
+) {
     return {
         email: user.email,
         phone: user.phone,
@@ -157,25 +164,34 @@ async function main() {
         process.exit(1);
     }
 
-    console.log(`Found role: ${individualRole.name} (ID: ${individualRole.id})\n`);
+    console.log(
+        `Found role: ${individualRole.name} (ID: ${individualRole.id})\n`,
+    );
 
     for (const user of testUsers) {
         try {
-            const hashedPassword = await bcrypt.hash(user.password, SALT_ROUNDS);
-            const userPayload = buildUserPayload(user, hashedPassword, individualRole.id);
+            const hashedPassword = await bcrypt.hash(
+                user.password,
+                SALT_ROUNDS,
+            );
+            const userPayload = buildUserPayload(
+                user,
+                hashedPassword,
+                individualRole.id,
+            );
             const existingUser = await findExistingTierUser(user);
 
             const created = existingUser
                 ? await prisma.user.update({
-                    where: { id: existingUser.id },
-                    data: userPayload,
-                })
+                      where: { id: existingUser.id },
+                      data: userPayload,
+                  })
                 : await prisma.user.create({
-                    data: {
-                        ...userPayload,
-                        identifier: generateIdentifier(),
-                    },
-                });
+                      data: {
+                          ...userPayload,
+                          identifier: generateIdentifier(),
+                      },
+                  });
 
             await prisma.accountLimit.upsert({
                 where: { userId: created.id },
@@ -200,7 +216,7 @@ async function main() {
     console.log("========================================");
     for (const user of testUsers) {
         console.log(
-            `Tier ${user.tier}: ${user.email} / password source: tier-user seed fixture`
+            `Tier ${user.tier}: ${user.email} / password source: tier-user seed fixture`,
         );
     }
     console.log("========================================\n");

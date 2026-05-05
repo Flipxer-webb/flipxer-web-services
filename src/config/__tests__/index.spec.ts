@@ -39,7 +39,8 @@ describe("config module", () => {
             NODE_ENV: "test",
             PORT: "4000",
             DATABASE_URL: "postgres://db",
-            ALLOWED_DOMAINS: "https://app.flipxer.com,https://admin.flipxer.com",
+            ALLOWED_DOMAINS:
+                "https://app.flipxer.com,https://admin.flipxer.com",
             ZEPTOMAIL_URL: "https://zepto",
             ZEPTOMAIL_SENDER: "mail@flipxer.com",
             REGISTRATION_SUCCESS_TEMPLATE: "reg-template",
@@ -86,21 +87,19 @@ describe("config module", () => {
     });
 
     it("exits early when non-test env contains placeholder secrets", () => {
-        const exitSpy = jest
-            .spyOn(process, "exit")
-            .mockImplementation((() => {
-                throw new Error("process.exit:1");
-            }) as never);
+        const exitSpy = jest.spyOn(process, "exit").mockImplementation((() => {
+            throw new Error("process.exit:1");
+        }) as never);
 
         expect(() =>
             loadConfig({
                 ...requiredNonTestOverrides,
                 JWT_SECRET: "SET_IN_SECURE_ENV",
-            })
+            }),
         ).toThrow("process.exit:1");
 
         expect(console.error).toHaveBeenCalledWith(
-            expect.stringContaining("Placeholder environment values detected")
+            expect.stringContaining("Placeholder environment values detected"),
         );
         expect(validateMock).not.toHaveBeenCalled();
 
@@ -108,22 +107,20 @@ describe("config module", () => {
     });
 
     it("treats template placeholder formats as fatal outside test env", () => {
-        const exitSpy = jest
-            .spyOn(process, "exit")
-            .mockImplementation((() => {
-                throw new Error("process.exit:1");
-            }) as never);
+        const exitSpy = jest.spyOn(process, "exit").mockImplementation((() => {
+            throw new Error("process.exit:1");
+        }) as never);
 
         expect(() =>
             loadConfig({
                 ...requiredNonTestOverrides,
                 JWT_SECRET: "generate-64-byte-hex-secret-here",
                 ZEPTOMAIL_TOKEN: "your-zeptomail-token",
-            })
+            }),
         ).toThrow("process.exit:1");
 
         expect(console.error).toHaveBeenCalledWith(
-            expect.stringContaining("Placeholder environment values detected")
+            expect.stringContaining("Placeholder environment values detected"),
         );
         expect(validateMock).not.toHaveBeenCalled();
 
@@ -166,7 +163,9 @@ describe("config module", () => {
         });
 
         expect(cfg.fincraOptions.baseUrl).toBe("https://api.fincra.com");
-        expect(cfg.sendchampConfig.baseUrl).toBe("https://api.sendchamp.com/api/v1");
+        expect(cfg.sendchampConfig.baseUrl).toBe(
+            "https://api.sendchamp.com/api/v1",
+        );
         expect(cfg.sendchampConfig.senderId).toBe("Flipxer");
         expect(cfg.nombaOptions.baseUrl).toBe("https://api.nomba.com");
         expect(cfg.sellPayoutProvider).toBe("fincra");
@@ -177,7 +176,7 @@ describe("config module", () => {
         expect(() =>
             loadConfig({
                 SELL_PAYOUT_PROVIDER: "stripe",
-            })
+            }),
         ).toThrow("Invalid SELL_PAYOUT_PROVIDER");
     });
 
@@ -185,7 +184,7 @@ describe("config module", () => {
         expect(() =>
             loadConfig({
                 BUY_PAYMENT_PROVIDER: "flutterwave",
-            })
+            }),
         ).toThrow("Invalid BUY_PAYMENT_PROVIDER");
     });
 
@@ -207,7 +206,7 @@ describe("config module", () => {
                 verify_account: "verify-template",
                 document_approved: "approved-template",
                 document_rejected: "rejected-template",
-            })
+            }),
         );
     });
 

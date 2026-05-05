@@ -12,16 +12,24 @@ import {
 } from "@nestjs/common";
 import { Request } from "express";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import {
-    AuthGuard,
-    EnabledAccountGuard,
-} from "@/modules/api/auth/guard";
-import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
+    UserTypes,
+    ADMIN_USER_TYPES,
+    Permissions,
+} from "@/modules/api/authorize/decorator";
+import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { UserType, User as UserModel } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { AdminUserService } from "../../services/admin";
-import { GetUserListDto, UnflagUserDto, FlagUserDto, SetLimitOverrideDto, RemoveLimitOverrideDto } from "../../dtos";
+import {
+    GetUserListDto,
+    UnflagUserDto,
+    FlagUserDto,
+    SetLimitOverrideDto,
+    RemoveLimitOverrideDto,
+} from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 import { User } from "../../decorators";
 import { ApiResponse } from "@/utils/api-response-util";
@@ -44,7 +52,11 @@ export class AdminUserController {
         @Query("startDate") startDate?: string,
         @Query("endDate") endDate?: string,
     ) {
-        return await this.adminService.getAnalyticsOverview(period, startDate, endDate);
+        return await this.adminService.getAnalyticsOverview(
+            period,
+            startDate,
+            endDate,
+        );
     }
 
     @Permissions([PermissionName.READ_USERS])
@@ -69,7 +81,7 @@ export class AdminUserController {
     @Get("transactions/:userId")
     async getUserTransactionList(
         @Param("userId", ParseIntPipe) userId: number,
-        @Query() query: GetUserTransactionListDto
+        @Query() query: GetUserTransactionListDto,
     ) {
         return this.adminService.getUserTransactionList(query, userId);
     }
@@ -78,7 +90,9 @@ export class AdminUserController {
     @ApiOperation({ summary: "Admin gets user personal info" })
     @ApiBearerAuth("access-token")
     @Get(":userId")
-    async getUserInfo(@Param("userId", ParseIntPipe) userId: number): Promise<ApiResponse> {
+    async getUserInfo(
+        @Param("userId", ParseIntPipe) userId: number,
+    ): Promise<ApiResponse> {
         return this.adminService.getUserInfo(userId);
     }
 
@@ -105,7 +119,10 @@ export class AdminUserController {
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
     @Post("limit-override")
-    async setLimitOverride(@Body() dto: SetLimitOverrideDto, @User() admin: UserModel) {
+    async setLimitOverride(
+        @Body() dto: SetLimitOverrideDto,
+        @User() admin: UserModel,
+    ) {
         return await this.adminService.setLimitOverride(dto, admin.id);
     }
 
@@ -114,8 +131,14 @@ export class AdminUserController {
     @ApiBearerAuth("access-token")
     @UserTypes([UserType.SUPER_ADMIN])
     @Post("limit-override/remove")
-    async removeLimitOverride(@Body() dto: RemoveLimitOverrideDto, @Req() req: Request) {
-        return await this.adminService.removeLimitOverride(dto, (req as any).user?.id);
+    async removeLimitOverride(
+        @Body() dto: RemoveLimitOverrideDto,
+        @Req() req: Request,
+    ) {
+        return await this.adminService.removeLimitOverride(
+            dto,
+            (req as any).user?.id,
+        );
     }
 
     @Permissions([PermissionName.READ_USERS])

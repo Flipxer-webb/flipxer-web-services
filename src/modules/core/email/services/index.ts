@@ -17,23 +17,33 @@ export class EmailService {
     }
 
     async sendMailWithTemplate(
-        options: SendMailWithTemplateOptions
+        options: SendMailWithTemplateOptions,
     ): Promise<any> {
-        this.logger.log(`Sending email to: ${JSON.stringify(options.to)}, template: ${options.template_key}`);
+        this.logger.log(
+            `Sending email to: ${JSON.stringify(options.to)}, template: ${options.template_key}`,
+        );
         try {
             const result = await this.client.sendMailWithTemplate(options);
-            this.logger.log(`Email sent successfully: ${JSON.stringify(result)}`);
+            this.logger.log(
+                `Email sent successfully: ${JSON.stringify(result)}`,
+            );
             return result;
         } catch (error) {
             const message =
                 error instanceof Error
                     ? error.message
-                    : error?.message ?? error?.error?.message ?? JSON.stringify(error);
-            const details =
-                error?.error?.details ? ` details=${JSON.stringify(error.error.details)}` : "";
+                    : (error?.message ??
+                      error?.error?.message ??
+                      JSON.stringify(error));
+            const details = error?.error?.details
+                ? ` details=${JSON.stringify(error.error.details)}`
+                : "";
             const stack = error instanceof Error ? error.stack : undefined;
 
-            this.logger.error(`Failed to send email: ${message}${details}`, stack);
+            this.logger.error(
+                `Failed to send email: ${message}${details}`,
+                stack,
+            );
             throw error;
         }
     }

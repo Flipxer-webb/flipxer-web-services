@@ -1,8 +1,12 @@
 import { Logger } from "@nestjs/common";
 
 const quidaxLibCtor = jest.fn().mockImplementation((options) => ({ options }));
-const quidaxServiceCtor = jest.fn().mockImplementation((quidax) => ({ quidax, type: "service" }));
-const tradingProviderCtor = jest.fn().mockImplementation((service) => ({ service, type: "provider" }));
+const quidaxServiceCtor = jest
+    .fn()
+    .mockImplementation((quidax) => ({ quidax, type: "service" }));
+const tradingProviderCtor = jest
+    .fn()
+    .mockImplementation((service) => ({ service, type: "provider" }));
 
 jest.mock("@/libs/quidax", () => ({
     QuidaxLib: quidaxLibCtor,
@@ -19,13 +23,21 @@ jest.mock("../../providers/quidax/quidax-trading-provider", () => ({
     __esModule: true,
 }));
 
-const safeProviderCtor = jest.fn().mockImplementation((inner, env) => ({ inner, env, type: "safe-provider" }));
+const safeProviderCtor = jest
+    .fn()
+    .mockImplementation((inner, env) => ({
+        inner,
+        env,
+        type: "safe-provider",
+    }));
 jest.mock("../../providers/safe/safe-trading-provider", () => ({
     SafeQuidaxTradingProvider: safeProviderCtor,
     __esModule: true,
 }));
 
-const mockProviderCtor = jest.fn().mockImplementation(() => ({ type: "mock-provider" }));
+const mockProviderCtor = jest
+    .fn()
+    .mockImplementation(() => ({ type: "mock-provider" }));
 jest.mock("../../providers/mock/mock-trading-provider", () => ({
     MockQuidaxTradingProvider: mockProviderCtor,
     __esModule: true,
@@ -48,7 +60,10 @@ describe("TradingFactory", () => {
     });
 
     it("buildQuidaxService creates QuidaxLib and QuidaxService", () => {
-        const requestBudget = { assertAllowed: jest.fn(), noteThrottle: jest.fn() };
+        const requestBudget = {
+            assertAllowed: jest.fn(),
+            noteThrottle: jest.fn(),
+        };
         const factory = new TradingFactory(tradingConfig, requestBudget as any);
 
         const service = factory.buildQuidaxService() as any;
@@ -63,7 +78,7 @@ describe("TradingFactory", () => {
         expect(quidaxServiceCtor).toHaveBeenCalledWith(
             expect.objectContaining({
                 options: expect.any(Object),
-            })
+            }),
         );
         expect(service.type).toBe("service");
     });
@@ -80,12 +95,14 @@ describe("TradingFactory", () => {
     it("buildProvider returns provider wrapper for quidax", () => {
         const factory = new TradingFactory(tradingConfig);
 
-        const provider = factory.buildProvider({ provider: "quidax" } as any) as any;
+        const provider = factory.buildProvider({
+            provider: "quidax",
+        } as any) as any;
 
         expect(tradingProviderCtor).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: "service",
-            })
+            }),
         );
         expect(safeProviderCtor).toHaveBeenCalledWith(
             expect.objectContaining({ type: "provider" }),
@@ -97,9 +114,9 @@ describe("TradingFactory", () => {
     it("buildProvider throws for unknown provider", () => {
         const factory = new TradingFactory(tradingConfig);
 
-        expect(() => factory.buildProvider({ provider: "unknown" } as any)).toThrow(
-            "Unknown provider: unknown"
-        );
+        expect(() =>
+            factory.buildProvider({ provider: "unknown" } as any),
+        ).toThrow("Unknown provider: unknown");
     });
 
     it("build returns QuidaxService for quidax provider", () => {
@@ -114,7 +131,7 @@ describe("TradingFactory", () => {
         const factory = new TradingFactory(tradingConfig);
 
         expect(() => factory.build({ provider: "unknown" } as any)).toThrow(
-            "Unknown provider: unknown"
+            "Unknown provider: unknown",
         );
     });
 
@@ -123,7 +140,9 @@ describe("TradingFactory", () => {
         process.env.QUIDAX_MOCK = "true";
         try {
             const factory = new TradingFactory(tradingConfig);
-            const provider = factory.buildProvider({ provider: "quidax" } as any) as any;
+            const provider = factory.buildProvider({
+                provider: "quidax",
+            } as any) as any;
 
             expect(mockProviderCtor).toHaveBeenCalled();
             expect(provider.type).toBe("mock-provider");
@@ -137,7 +156,9 @@ describe("TradingFactory", () => {
         process.env.NODE_ENV = "production";
         try {
             const factory = new TradingFactory(tradingConfig);
-            const provider = factory.buildProvider({ provider: "quidax" } as any) as any;
+            const provider = factory.buildProvider({
+                provider: "quidax",
+            } as any) as any;
 
             expect(safeProviderCtor).not.toHaveBeenCalled();
             expect(provider.type).toBe("provider");

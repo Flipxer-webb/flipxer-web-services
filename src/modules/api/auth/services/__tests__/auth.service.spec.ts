@@ -8,7 +8,9 @@ const HASHED_SECRET_VALUE = ["hashed", "secret"].join("_");
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     DuplicateUserException: class extends Error {},
@@ -122,8 +124,16 @@ function makePrisma() {
             upsert: jest.fn(),
         },
         role: { findUnique: jest.fn() },
-        accountVerificationRequest: { upsert: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
-        passwordResetRequest: { create: jest.fn(), delete: jest.fn(), deleteMany: jest.fn() },
+        accountVerificationRequest: {
+            upsert: jest.fn(),
+            findUnique: jest.fn(),
+            delete: jest.fn(),
+        },
+        passwordResetRequest: {
+            create: jest.fn(),
+            delete: jest.fn(),
+            deleteMany: jest.fn(),
+        },
         adminInvite: { findUnique: jest.fn(), update: jest.fn() },
         $transaction: jest.fn(),
         $executeRaw: jest.fn().mockResolvedValue(1),
@@ -133,7 +143,11 @@ function makePrisma() {
 describe("AuthService", () => {
     let service: AuthService;
     let prisma: ReturnType<typeof makePrisma>;
-    let jwtService: { signAsync: jest.Mock; verify: jest.Mock; verifyAsync: jest.Mock };
+    let jwtService: {
+        signAsync: jest.Mock;
+        verify: jest.Mock;
+        verifyAsync: jest.Mock;
+    };
     let emailService: { sendMailWithTemplate: jest.Mock };
     let redisCacheService: { set: jest.Mock; get: jest.Mock; del: jest.Mock };
     let notificationDispatcher: { notify: jest.Mock };
@@ -150,14 +164,22 @@ describe("AuthService", () => {
     beforeEach(async () => {
         prisma = makePrisma();
         prisma.kycStageAttempt.findFirst.mockResolvedValue(null);
-        prisma.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 0 } });
+        prisma.kycStageAttempt.aggregate.mockResolvedValue({
+            _max: { attemptNo: 0 },
+        });
         prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
         prisma.kycStageAttempt.create.mockResolvedValue({ id: 1 });
         prisma.kycAttemptEvent.create.mockResolvedValue({ id: 1 });
-        prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
+        prisma.$transaction.mockImplementation(
+            async (callback: (tx: typeof prisma) => Promise<unknown>) =>
+                callback(prisma),
+        );
 
         // Default: all identity checks pass (override in specific tests)
-        (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
+        (matchNames as jest.Mock).mockReturnValue({
+            matches: true,
+            detail: "Exact match",
+        });
         (matchDateOfBirth as jest.Mock).mockReturnValue(true);
 
         const mockJwt = {
@@ -165,7 +187,9 @@ describe("AuthService", () => {
             verify: jest.fn(),
             verifyAsync: jest.fn(),
         };
-        const mockEmail = { sendMailWithTemplate: jest.fn().mockResolvedValue(undefined) };
+        const mockEmail = {
+            sendMailWithTemplate: jest.fn().mockResolvedValue(undefined),
+        };
         const mockUploadFactory = { build: jest.fn().mockReturnValue({}) };
         const mockDojah = {
             analyzeDocument: jest.fn(),
@@ -180,7 +204,9 @@ describe("AuthService", () => {
         };
         const mockSms = { sendSms: jest.fn() };
         const mockSession = {
-            createSession: jest.fn().mockResolvedValue({ sessionId: "session-1" }),
+            createSession: jest
+                .fn()
+                .mockResolvedValue({ sessionId: "session-1" }),
             validateSession: jest.fn().mockResolvedValue(true),
         };
         const mock2FA = {
@@ -199,14 +225,20 @@ describe("AuthService", () => {
             getSetting: jest.fn(),
             verifyBackupCode: jest.fn().mockResolvedValue(false),
         };
-        const mockTier = { syncTierAndCache: jest.fn().mockResolvedValue(undefined) };
+        const mockTier = {
+            syncTierAndCache: jest.fn().mockResolvedValue(undefined),
+        };
         const mockRedis = {
             set: jest.fn().mockResolvedValue(undefined),
             get: jest.fn(),
             del: jest.fn(),
         };
         const mockLock = {
-            withLock: jest.fn().mockImplementation(async (_key: string, cb: () => any) => cb()),
+            withLock: jest
+                .fn()
+                .mockImplementation(async (_key: string, cb: () => any) =>
+                    cb(),
+                ),
         };
         const mockKyc = {
             transition: jest.fn().mockResolvedValue({
@@ -216,10 +248,19 @@ describe("AuthService", () => {
                 isActive: true,
             }),
         };
-        const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
+        const mockNotification = {
+            notify: jest.fn().mockResolvedValue(undefined),
+        };
         const mockNotificationEvent = { emit: jest.fn() };
-        const mockWsGateway = { sendToUser: jest.fn(), notifyProfileUpdate: jest.fn() };
-        const mockIdentityResolution = { resolveOrCreate: jest.fn().mockResolvedValue({ subjectId: 1, isNew: true }) };
+        const mockWsGateway = {
+            sendToUser: jest.fn(),
+            notifyProfileUpdate: jest.fn(),
+        };
+        const mockIdentityResolution = {
+            resolveOrCreate: jest
+                .fn()
+                .mockResolvedValue({ subjectId: 1, isNew: true }),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -228,8 +269,14 @@ describe("AuthService", () => {
                 { provide: PrismaService, useValue: prisma },
                 { provide: EmailService, useValue: mockEmail },
                 { provide: UploadFactory, useValue: mockUploadFactory },
-                { provide: IdentityComplianceInjectionToken.DOJAH, useValue: mockDojah },
-                { provide: CryptoAccountQueueProducer, useValue: mockCryptoQueue },
+                {
+                    provide: IdentityComplianceInjectionToken.DOJAH,
+                    useValue: mockDojah,
+                },
+                {
+                    provide: CryptoAccountQueueProducer,
+                    useValue: mockCryptoQueue,
+                },
                 { provide: SmsService, useValue: mockSms },
                 { provide: SessionService, useValue: mockSession },
                 { provide: TwoFactorRateLimitService, useValue: mock2FA },
@@ -241,7 +288,10 @@ describe("AuthService", () => {
                 { provide: NotificationDispatcher, useValue: mockNotification },
                 { provide: NotificationEvent, useValue: mockNotificationEvent },
                 { provide: WsGateway, useValue: mockWsGateway },
-                { provide: IdentityResolutionService, useValue: mockIdentityResolution },
+                {
+                    provide: IdentityResolutionService,
+                    useValue: mockIdentityResolution,
+                },
             ],
         }).compile();
 
@@ -310,11 +360,16 @@ describe("AuthService", () => {
 
         it("should store signup data in Redis and return success", async () => {
             prisma.user.findUnique.mockResolvedValue(null);
-            prisma.role.findUnique.mockResolvedValue({ id: 1, slug: "individual" });
+            prisma.role.findUnique.mockResolvedValue({
+                id: 1,
+                slug: "individual",
+            });
 
             const result = await service.signUp(signUpDto as any, "127.0.0.1");
 
-            expect(result.message).toContain("Account initialization successful");
+            expect(result.message).toContain(
+                "Account initialization successful",
+            );
             expect(redisCacheService.set).toHaveBeenCalledWith(
                 "pending_signup:test@example.com",
                 expect.objectContaining({ email: "test@example.com" }),
@@ -329,14 +384,18 @@ describe("AuthService", () => {
                 isDeleted: false,
             });
 
-            await expect(service.signUp(signUpDto as any, "127.0.0.1")).rejects.toThrow();
+            await expect(
+                service.signUp(signUpDto as any, "127.0.0.1"),
+            ).rejects.toThrow();
         });
 
         it("should throw when role not found", async () => {
             prisma.user.findUnique.mockResolvedValue(null);
             prisma.role.findUnique.mockResolvedValue(null);
 
-            await expect(service.signUp(signUpDto as any, "127.0.0.1")).rejects.toThrow();
+            await expect(
+                service.signUp(signUpDto as any, "127.0.0.1"),
+            ).rejects.toThrow();
         });
 
         it("should allow re-registration for deleted non-blocked users", async () => {
@@ -348,11 +407,16 @@ describe("AuthService", () => {
                 flaggedRecord: null,
             });
             prisma.user.delete.mockResolvedValue({});
-            prisma.role.findUnique.mockResolvedValue({ id: 1, slug: "individual" });
+            prisma.role.findUnique.mockResolvedValue({
+                id: 1,
+                slug: "individual",
+            });
 
             const result = await service.signUp(signUpDto as any, "127.0.0.1");
 
-            expect(result.message).toContain("Account initialization successful");
+            expect(result.message).toContain(
+                "Account initialization successful",
+            );
             expect(prisma.user.delete).toHaveBeenCalled();
         });
 
@@ -365,7 +429,9 @@ describe("AuthService", () => {
                 flaggedRecord: null,
             });
 
-            await expect(service.signUp(signUpDto as any, "127.0.0.1")).rejects.toThrow();
+            await expect(
+                service.signUp(signUpDto as any, "127.0.0.1"),
+            ).rejects.toThrow();
         });
 
         it("should block re-registration for flagged deleted users", async () => {
@@ -377,9 +443,9 @@ describe("AuthService", () => {
                 flaggedRecord: { flagged: true, reason: "Fraud review" },
             });
 
-            await expect(service.signUp(signUpDto as any, "127.0.0.1")).rejects.toThrow(
-                "This account has been flagged",
-            );
+            await expect(
+                service.signUp(signUpDto as any, "127.0.0.1"),
+            ).rejects.toThrow("This account has been flagged");
         });
     });
 
@@ -408,7 +474,9 @@ describe("AuthService", () => {
             prisma.user.findUnique.mockResolvedValue(null);
 
             await expect(
-                service.requestPasswordReset({ email: "nonexistent@example.com" } as any),
+                service.requestPasswordReset({
+                    email: "nonexistent@example.com",
+                } as any),
             ).rejects.toThrow();
         });
 
@@ -421,10 +489,14 @@ describe("AuthService", () => {
             });
             prisma.passwordResetRequest.deleteMany.mockResolvedValue({});
             prisma.passwordResetRequest.create.mockResolvedValue({});
-            emailService.sendMailWithTemplate.mockRejectedValue(new Error("smtp unavailable"));
+            emailService.sendMailWithTemplate.mockRejectedValue(
+                new Error("smtp unavailable"),
+            );
 
             await expect(
-                service.requestPasswordReset({ email: "test@example.com" } as any),
+                service.requestPasswordReset({
+                    email: "test@example.com",
+                } as any),
             ).rejects.toThrow("Failed to send password reset email");
         });
     });
@@ -534,7 +606,9 @@ describe("AuthService", () => {
                 role: { id: 2, name: "Ops", slug: "ops-admin" },
             });
 
-            const result = await service.validateAdminInvite({ token: "abc-token" } as any);
+            const result = await service.validateAdminInvite({
+                token: "abc-token",
+            } as any);
 
             expect(result.success).toBe(true);
             expect(result.message).toContain("valid");
@@ -548,9 +622,9 @@ describe("AuthService", () => {
                 expiresAt: new Date(Date.now() + 60_000),
             });
 
-            await expect(service.validateAdminInvite({ token: "used-token" } as any)).rejects.toThrow(
-                "Invalid admin invite",
-            );
+            await expect(
+                service.validateAdminInvite({ token: "used-token" } as any),
+            ).rejects.toThrow("Invalid admin invite");
         });
 
         it("rejects expired admin invite token during validation", async () => {
@@ -560,9 +634,9 @@ describe("AuthService", () => {
                 expiresAt: new Date(Date.now() - 60_000),
             });
 
-            await expect(service.validateAdminInvite({ token: "expired-token" } as any)).rejects.toThrow(
-                "Admin invite has expired",
-            );
+            await expect(
+                service.validateAdminInvite({ token: "expired-token" } as any),
+            ).rejects.toThrow("Admin invite has expired");
         });
 
         it("accepts invite and creates admin account", async () => {
@@ -588,8 +662,13 @@ describe("AuthService", () => {
                 role: { id: 2, name: "Ops", slug: "ops-admin" },
                 createdAt: new Date(),
             });
-            prisma.adminInvite.update.mockResolvedValue({ id: 7, acceptedAt: new Date() });
-            prisma.$transaction.mockImplementation(async (ops: Promise<any>[]) => Promise.all(ops));
+            prisma.adminInvite.update.mockResolvedValue({
+                id: 7,
+                acceptedAt: new Date(),
+            });
+            prisma.$transaction.mockImplementation(
+                async (ops: Promise<any>[]) => Promise.all(ops),
+            );
 
             const result = await service.acceptAdminInvite({
                 token: "abc-token",
@@ -613,7 +692,11 @@ describe("AuthService", () => {
             });
 
             await expect(
-                service.acceptAdminInvite({ token: "used", phone: "08011111111", password: "StrongPassword123!" } as any),
+                service.acceptAdminInvite({
+                    token: "used",
+                    phone: "08011111111",
+                    password: "StrongPassword123!",
+                } as any),
             ).rejects.toThrow("Invalid admin invite");
         });
 
@@ -626,7 +709,11 @@ describe("AuthService", () => {
             });
 
             await expect(
-                service.acceptAdminInvite({ token: "expired", phone: "08011111111", password: "StrongPassword123!" } as any),
+                service.acceptAdminInvite({
+                    token: "expired",
+                    phone: "08011111111",
+                    password: "StrongPassword123!",
+                } as any),
             ).rejects.toThrow("Admin invite has expired");
         });
     });
@@ -641,7 +728,9 @@ describe("AuthService", () => {
                 email: "newuser@example.com",
             } as any);
 
-            expect(result.message).toContain("An email verification code has been sent");
+            expect(result.message).toContain(
+                "An email verification code has been sent",
+            );
             expect(prisma.accountVerificationRequest.upsert).toHaveBeenCalled();
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -655,7 +744,9 @@ describe("AuthService", () => {
             redisCacheService.get.mockResolvedValue(null);
 
             await expect(
-                service.sendAccountVerificationEmail({ email: "missing@example.com" } as any),
+                service.sendAccountVerificationEmail({
+                    email: "missing@example.com",
+                } as any),
             ).rejects.toThrow("Kindly register first");
         });
 
@@ -667,7 +758,9 @@ describe("AuthService", () => {
             });
 
             await expect(
-                service.sendAccountVerificationEmail({ email: "verified@example.com" } as any),
+                service.sendAccountVerificationEmail({
+                    email: "verified@example.com",
+                } as any),
             ).rejects.toThrow("Account already verified");
         });
 
@@ -678,10 +771,14 @@ describe("AuthService", () => {
                 firstName: "Sam",
             });
             prisma.accountVerificationRequest.upsert.mockResolvedValue({});
-            emailService.sendMailWithTemplate.mockRejectedValue(new Error("mail gateway down"));
+            emailService.sendMailWithTemplate.mockRejectedValue(
+                new Error("mail gateway down"),
+            );
 
             await expect(
-                service.sendAccountVerificationEmail({ email: "sam@example.com" } as any),
+                service.sendAccountVerificationEmail({
+                    email: "sam@example.com",
+                } as any),
             ).rejects.toThrow("Failed to send account verification email");
         });
 
@@ -691,10 +788,15 @@ describe("AuthService", () => {
                 email: "user@example.com",
                 isEmailVerified: false,
             });
-            prisma.accountVerificationRequest.findUnique.mockResolvedValue(null);
+            prisma.accountVerificationRequest.findUnique.mockResolvedValue(
+                null,
+            );
 
             await expect(
-                service.verifyEmailOtp({ email: "user@example.com", otp: "123456" } as any),
+                service.verifyEmailOtp({
+                    email: "user@example.com",
+                    otp: "123456",
+                } as any),
             ).rejects.toThrow("Invalid verification code");
         });
 
@@ -705,13 +807,20 @@ describe("AuthService", () => {
                 email: "user@example.com",
                 isEmailVerified: false,
             });
-            prisma.accountVerificationRequest.findUnique.mockResolvedValue({ updatedAt: oldDate });
+            prisma.accountVerificationRequest.findUnique.mockResolvedValue({
+                updatedAt: oldDate,
+            });
             prisma.accountVerificationRequest.delete.mockResolvedValue({});
 
             await expect(
-                service.verifyEmailOtp({ email: "user@example.com", otp: "123456" } as any),
+                service.verifyEmailOtp({
+                    email: "user@example.com",
+                    otp: "123456",
+                } as any),
             ).rejects.toThrow("verification code has expired");
-            expect(prisma.accountVerificationRequest.delete).toHaveBeenCalledWith({
+            expect(
+                prisma.accountVerificationRequest.delete,
+            ).toHaveBeenCalledWith({
                 where: { email: "user@example.com" },
             });
         });
@@ -729,7 +838,9 @@ describe("AuthService", () => {
             };
             prisma.user.findUnique.mockResolvedValue(null);
             redisCacheService.get.mockResolvedValue(pendingSignup);
-            prisma.accountVerificationRequest.findUnique.mockResolvedValue({ updatedAt: new Date() });
+            prisma.accountVerificationRequest.findUnique.mockResolvedValue({
+                updatedAt: new Date(),
+            });
             prisma.user.create.mockResolvedValue({ id: 77 });
             prisma.accountVerificationRequest.delete.mockResolvedValue({});
 
@@ -751,8 +862,12 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect(redisCacheService.del).toHaveBeenCalledWith("pending_signup:newuser@example.com");
-            expect((service as any).tierService.syncTierAndCache).toHaveBeenCalledWith(77);
+            expect(redisCacheService.del).toHaveBeenCalledWith(
+                "pending_signup:newuser@example.com",
+            );
+            expect(
+                (service as any).tierService.syncTierAndCache,
+            ).toHaveBeenCalledWith(77);
             expect(saveRefreshTokenSpy).toHaveBeenCalled();
 
             saveRefreshTokenSpy.mockRestore();
@@ -804,21 +919,25 @@ describe("AuthService", () => {
 
             prisma.user.findFirst.mockResolvedValue(null);
             prisma.user.update.mockResolvedValue({});
-            (service as any).identityResolution.resolveOrCreate.mockResolvedValue({
+            (
+                service as any
+            ).identityResolution.resolveOrCreate.mockResolvedValue({
                 subjectId: 7,
                 isNew: true,
             });
 
-            const result = await service.bvnVerification(user, { bvn: "22222222222" } as any);
+            const result = await service.bvnVerification(user, {
+                bvn: "22222222222",
+            } as any);
 
             expect(result.message).toBe("Bvn Verification successfully");
             expect(dojahService.verifyBvn).not.toHaveBeenCalled();
-            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
-                "BVN",
-                expect.any(String),
-                41,
-            );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).identityResolution.resolveOrCreate,
+            ).toHaveBeenCalledWith("BVN", expect.any(String), 41);
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("executes BVN successful-path identity linking", async () => {
@@ -853,7 +972,9 @@ describe("AuthService", () => {
                     dob: "1990-01-01",
                 }),
             );
-            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
+            expect(
+                (service as any).identityResolution.resolveOrCreate,
+            ).toHaveBeenCalledWith(
                 "BVN",
                 "12345678901",
                 42,
@@ -879,7 +1000,9 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("creates an approved stage attempt without legacy writes for BVN dev-bypass resubmissions", async () => {
@@ -895,7 +1018,9 @@ describe("AuthService", () => {
 
             await service.bvnVerification(user, { bvn: "22222222222" } as any);
 
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -971,16 +1096,18 @@ describe("AuthService", () => {
             prisma.user.findFirst.mockResolvedValue(null);
             prisma.user.update.mockResolvedValue({});
 
-            const result = await service.ninVerification(user, { nin: "00000000001" } as any);
+            const result = await service.ninVerification(user, {
+                nin: "00000000001",
+            } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
             expect(dojahService.verifyNin).not.toHaveBeenCalled();
-            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
-                "NIN",
-                expect.any(String),
-                51,
-            );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).identityResolution.resolveOrCreate,
+            ).toHaveBeenCalledWith("NIN", expect.any(String), 51);
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -1023,7 +1150,9 @@ describe("AuthService", () => {
                     dob: "1990-01-01",
                 }),
             );
-            expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
+            expect(
+                (service as any).identityResolution.resolveOrCreate,
+            ).toHaveBeenCalledWith(
                 "NIN",
                 "98765432100",
                 52,
@@ -1168,7 +1297,10 @@ describe("AuthService", () => {
 
         it("rejects BVN verification on name or DOB mismatch and records review", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "DOB mismatch" });
+            (matchNames as jest.Mock).mockReturnValue({
+                matches: false,
+                detail: "DOB mismatch",
+            });
 
             const user = {
                 id: 66,
@@ -1191,7 +1323,9 @@ describe("AuthService", () => {
 
             await expect(
                 service.bvnVerification(user, { bvn: "33333333333" } as any),
-            ).rejects.toThrow("Incorrect first name, last name or date of birth");
+            ).rejects.toThrow(
+                "Incorrect first name, last name or date of birth",
+            );
 
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1209,12 +1343,17 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("rejects BVN verification when provider response omits identity fields", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Missing fields" });
+            (matchNames as jest.Mock).mockReturnValue({
+                matches: false,
+                detail: "Missing fields",
+            });
 
             const user = {
                 id: 68,
@@ -1234,7 +1373,9 @@ describe("AuthService", () => {
 
             await expect(
                 service.bvnVerification(user, { bvn: "33333333334" } as any),
-            ).rejects.toThrow("Incorrect first name, last name or date of birth");
+            ).rejects.toThrow(
+                "Incorrect first name, last name or date of birth",
+            );
 
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1244,12 +1385,17 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("auto-rejects BVN when provider details mismatch the profile", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(true);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+            (matchNames as jest.Mock).mockReturnValue({
+                matches: false,
+                detail: "Name mismatch",
+            });
 
             const user = {
                 id: 70,
@@ -1270,9 +1416,13 @@ describe("AuthService", () => {
                 },
             });
 
-            const result = await service.bvnVerification(user, { bvn: "33333333335" } as any);
+            const result = await service.bvnVerification(user, {
+                bvn: "33333333335",
+            } as any);
 
-            expect(result.message).toBe("The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.");
+            expect(result.message).toBe(
+                "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
+            );
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -1289,15 +1439,24 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:70");
-            expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
+            expect((service as any).redisCacheService.del).toHaveBeenCalledWith(
+                "user:profile:70",
+            );
+            expect(
+                (service as any).identityResolution.resolveOrCreate,
+            ).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("reopens BVN review with RESUBMITTED when PENDING transition is illegal", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(true);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+            (matchNames as jest.Mock).mockReturnValue({
+                matches: false,
+                detail: "Name mismatch",
+            });
 
             const user = {
                 id: 71,
@@ -1322,9 +1481,13 @@ describe("AuthService", () => {
                 .mockResolvedValueOnce(null)
                 .mockResolvedValueOnce({ status: "REJECTED" });
 
-            const result = await service.bvnVerification(user, { bvn: "33333333336" } as any);
+            const result = await service.bvnVerification(user, {
+                bvn: "33333333336",
+            } as any);
 
-            expect(result.message).toBe("We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.");
+            expect(result.message).toBe(
+                "We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -1333,12 +1496,17 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("auto-rejects NIN when provider details mismatch the profile", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(true);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+            (matchNames as jest.Mock).mockReturnValue({
+                matches: false,
+                detail: "Name mismatch",
+            });
 
             const user = {
                 id: 72,
@@ -1359,9 +1527,13 @@ describe("AuthService", () => {
                 },
             });
 
-            const result = await service.ninVerification(user, { nin: "44444444446" } as any);
+            const result = await service.ninVerification(user, {
+                nin: "44444444446",
+            } as any);
 
-            expect(result.message).toBe("The submitted NIN details do not match your profile. Please submit the correct NIN that belongs to you and matches your name and date of birth.");
+            expect(result.message).toBe(
+                "The submitted NIN details do not match your profile. Please submit the correct NIN that belongs to you and matches your name and date of birth.",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -1370,10 +1542,16 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:72");
-            expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
+            expect((service as any).redisCacheService.del).toHaveBeenCalledWith(
+                "user:profile:72",
+            );
+            expect(
+                (service as any).identityResolution.resolveOrCreate,
+            ).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("continues NIN verification when enqueue fails after persistence", async () => {
@@ -1397,13 +1575,21 @@ describe("AuthService", () => {
                 },
             });
             prisma.user.update.mockResolvedValue({});
-            (service as any).identityResolution.resolveOrCreate.mockResolvedValue({
+            (
+                service as any
+            ).identityResolution.resolveOrCreate.mockResolvedValue({
                 subjectId: 11,
                 isNew: false,
             });
-            (service as any).cryptoAccountQueueProducer.enqueue.mockRejectedValue("enqueue failed");
+            (
+                service as any
+            ).cryptoAccountQueueProducer.enqueue.mockRejectedValue(
+                "enqueue failed",
+            );
 
-            const result = await service.ninVerification(user, { nin: "44444444444" } as any);
+            const result = await service.ninVerification(user, {
+                nin: "44444444444",
+            } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
@@ -1414,7 +1600,9 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("continues NIN verification when enqueue throws an Error instance", async () => {
@@ -1438,13 +1626,21 @@ describe("AuthService", () => {
                 },
             });
             prisma.user.update.mockResolvedValue({});
-            (service as any).identityResolution.resolveOrCreate.mockResolvedValue({
+            (
+                service as any
+            ).identityResolution.resolveOrCreate.mockResolvedValue({
                 subjectId: 12,
                 isNew: false,
             });
-            (service as any).cryptoAccountQueueProducer.enqueue.mockRejectedValue(new Error("queue offline"));
+            (
+                service as any
+            ).cryptoAccountQueueProducer.enqueue.mockRejectedValue(
+                new Error("queue offline"),
+            );
 
-            const result = await service.ninVerification(user, { nin: "44444444445" } as any);
+            const result = await service.ninVerification(user, {
+                nin: "44444444445",
+            } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
@@ -1455,7 +1651,9 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
     });
 
@@ -1504,7 +1702,10 @@ describe("AuthService", () => {
                 .mockResolvedValueOnce("refresh-token");
             prisma.user.update.mockResolvedValue({});
 
-            const result = await service.userSignIn(signInDto as any, "127.0.0.1");
+            const result = await service.userSignIn(
+                signInDto as any,
+                "127.0.0.1",
+            );
 
             expect(result.data.accessToken).toBe("access-token");
             expect(result.data.refreshToken).toBe("refresh-token");
@@ -1551,7 +1752,9 @@ describe("AuthService", () => {
             });
             (bcrypt.compare as jest.Mock).mockResolvedValue(false);
             prisma.user.update.mockResolvedValue({});
-            await expect(service.userSignIn(signInDto as any, "127.0.0.1")).rejects.toThrow();
+            await expect(
+                service.userSignIn(signInDto as any, "127.0.0.1"),
+            ).rejects.toThrow();
         });
 
         it("should return 2FA challenge when 2FA enabled", async () => {
@@ -1572,7 +1775,10 @@ describe("AuthService", () => {
             (bcrypt.compare as jest.Mock).mockResolvedValue(true);
             jwtService.signAsync.mockResolvedValue("temp-token");
 
-            const result = await service.userSignIn(signInDto as any, "127.0.0.1");
+            const result = await service.userSignIn(
+                signInDto as any,
+                "127.0.0.1",
+            );
 
             expect(result.data.requiresTwoFactor).toBe(true);
             expect(result.data.tempToken).toBe("temp-token");
@@ -1589,13 +1795,17 @@ describe("AuthService", () => {
                 flaggedRecord: null,
             });
 
-            await expect(service.userSignIn(signInDto as any, "127.0.0.1")).rejects.toThrow();
+            await expect(
+                service.userSignIn(signInDto as any, "127.0.0.1"),
+            ).rejects.toThrow();
         });
 
         it("should throw for non-existent user", async () => {
             prisma.user.findUnique.mockResolvedValue(null);
 
-            await expect(service.userSignIn(signInDto as any, "127.0.0.1")).rejects.toThrow();
+            await expect(
+                service.userSignIn(signInDto as any, "127.0.0.1"),
+            ).rejects.toThrow();
         });
 
         it("returns admin payload for successful adminSignIn", async () => {
@@ -1621,7 +1831,10 @@ describe("AuthService", () => {
             prisma.user.update.mockResolvedValue({});
 
             const result = await service.adminSignIn(
-                { email: "admin@example.com", [CREDENTIAL_FIELD]: "AdminSecret123!" } as any,
+                {
+                    email: "admin@example.com",
+                    [CREDENTIAL_FIELD]: "AdminSecret123!",
+                } as any,
                 "127.0.0.1",
             );
 
@@ -1669,10 +1882,17 @@ describe("AuthService", () => {
             );
 
             expect(result.data.userType).toBe("business");
-            expect(result.data.verificationStatus.governmentIdVerified).toBe(true);
+            expect(result.data.verificationStatus.governmentIdVerified).toBe(
+                true,
+            );
             expect(result.data.verificationStatus.documentVerified).toBe(false);
-            expect(result.data.verificationStatus.businessRecordCompleted).toBe(true);
-            expect(result.data.verificationStatus.businessDocumentVerificationStatus).toBe("PENDING");
+            expect(result.data.verificationStatus.businessRecordCompleted).toBe(
+                true,
+            );
+            expect(
+                result.data.verificationStatus
+                    .businessDocumentVerificationStatus,
+            ).toBe("PENDING");
         });
     });
 
@@ -1693,10 +1913,13 @@ describe("AuthService", () => {
             // Mock validateRefreshToken via prisma — the method hashes and compares
             // We need the hashed incoming to match the stored hash
             // Since we can't control crypto.createHash in the test, we'll spy
-            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+            const validateSpy = jest
+                .spyOn(service, "validateRefreshToken" as any)
                 .mockResolvedValue({ valid: true, family: "family-1" });
 
-            const result = await service.refreshToken({ refreshToken: "old-refresh-token" } as any);
+            const result = await service.refreshToken({
+                refreshToken: "old-refresh-token",
+            } as any);
 
             expect(result.data.accessToken).toBe("new-access-token");
             expect(result.data.refreshToken).toBe("new-refresh-token");
@@ -1706,10 +1929,13 @@ describe("AuthService", () => {
         it("should throw for invalid refresh token", async () => {
             jwtService.verify.mockReturnValue({ sub: 1 });
 
-            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+            const validateSpy = jest
+                .spyOn(service, "validateRefreshToken" as any)
                 .mockResolvedValue({ valid: false });
 
-            await expect(service.refreshToken({ refreshToken: "invalid" } as any)).rejects.toThrow();
+            await expect(
+                service.refreshToken({ refreshToken: "invalid" } as any),
+            ).rejects.toThrow();
             validateSpy.mockRestore();
         });
 
@@ -1717,12 +1943,13 @@ describe("AuthService", () => {
             jwtService.verify.mockReturnValue({ sub: 1 });
             prisma.user.update.mockResolvedValue({});
 
-            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+            const validateSpy = jest
+                .spyOn(service, "validateRefreshToken" as any)
                 .mockResolvedValue({ valid: false, reuse: true });
 
-            await expect(service.refreshToken({ refreshToken: "stolen-token" } as any)).rejects.toThrow(
-                "Invalid refresh token",
-            );
+            await expect(
+                service.refreshToken({ refreshToken: "stolen-token" } as any),
+            ).rejects.toThrow("Invalid refresh token");
 
             expect(prisma.user.update).toHaveBeenCalledWith({
                 where: { id: 1 },
@@ -1733,36 +1960,69 @@ describe("AuthService", () => {
         });
 
         it("rejects refresh when session is no longer valid", async () => {
-            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-x" });
-            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+            jwtService.verify.mockReturnValue({
+                sub: 1,
+                sessionId: "session-x",
+            });
+            const validateSpy = jest
+                .spyOn(service, "validateRefreshToken" as any)
                 .mockResolvedValue({ valid: true, family: "family-1" });
 
-            (service as any).sessionService.validateSession.mockResolvedValue(false);
-
-            await expect(service.refreshToken({ refreshToken: "refresh-with-session" } as any)).rejects.toThrow(
-                "Session expired or invalid",
+            (service as any).sessionService.validateSession.mockResolvedValue(
+                false,
             );
+
+            await expect(
+                service.refreshToken({
+                    refreshToken: "refresh-with-session",
+                } as any),
+            ).rejects.toThrow("Session expired or invalid");
 
             validateSpy.mockRestore();
         });
 
         it("preserves sessionId, platform, and family on successful rotation", async () => {
-            jwtService.verify.mockReturnValue({ sub: 1, sessionId: "session-abc", platform: "USER" });
+            jwtService.verify.mockReturnValue({
+                sub: 1,
+                sessionId: "session-abc",
+                platform: "USER",
+            });
 
-            const validateSpy = jest.spyOn(service, "validateRefreshToken" as any)
+            const validateSpy = jest
+                .spyOn(service, "validateRefreshToken" as any)
                 .mockResolvedValue({ valid: true, family: "family-xyz" });
-            const generateSpy = jest.spyOn(service, "generateTokens")
-                .mockResolvedValue({ accessToken: "next-access", refreshToken: "next-refresh" } as any);
-            const saveSpy = jest.spyOn(service, "saveRefreshToken")
+            const generateSpy = jest
+                .spyOn(service, "generateTokens")
+                .mockResolvedValue({
+                    accessToken: "next-access",
+                    refreshToken: "next-refresh",
+                } as any);
+            const saveSpy = jest
+                .spyOn(service, "saveRefreshToken")
                 .mockResolvedValue({} as any);
 
-            (service as any).sessionService.validateSession.mockResolvedValue(true);
+            (service as any).sessionService.validateSession.mockResolvedValue(
+                true,
+            );
 
-            const result = await service.refreshToken({ refreshToken: "refresh-with-session" } as any);
+            const result = await service.refreshToken({
+                refreshToken: "refresh-with-session",
+            } as any);
 
-            expect(result.data).toMatchObject({ accessToken: "next-access", refreshToken: "next-refresh" });
-            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER", sessionId: "session-abc" });
-            expect(saveSpy).toHaveBeenCalledWith(1, "next-refresh", "family-xyz");
+            expect(result.data).toMatchObject({
+                accessToken: "next-access",
+                refreshToken: "next-refresh",
+            });
+            expect(generateSpy).toHaveBeenCalledWith({
+                sub: 1,
+                platform: "USER",
+                sessionId: "session-abc",
+            });
+            expect(saveSpy).toHaveBeenCalledWith(
+                1,
+                "next-refresh",
+                "family-xyz",
+            );
 
             validateSpy.mockRestore();
             generateSpy.mockRestore();
@@ -1805,7 +2065,9 @@ describe("AuthService", () => {
                 refreshTokenFamily: "family-1",
             });
 
-            const hashSpy = jest.spyOn(service as any, "hashToken").mockReturnValue("this-hash-is-much-longer");
+            const hashSpy = jest
+                .spyOn(service as any, "hashToken")
+                .mockReturnValue("this-hash-is-much-longer");
             const result = await service.validateRefreshToken(1, "token");
 
             expect(result).toEqual({ valid: false, reuse: true });
@@ -1818,7 +2080,9 @@ describe("AuthService", () => {
                 refreshTokenFamily: "family-2",
             });
 
-            const hashSpy = jest.spyOn(service as any, "hashToken").mockReturnValue("abc123");
+            const hashSpy = jest
+                .spyOn(service as any, "hashToken")
+                .mockReturnValue("abc123");
             const result = await service.validateRefreshToken(1, "token");
 
             expect(result).toEqual({ valid: true, family: "family-2" });
@@ -1831,13 +2095,14 @@ describe("AuthService", () => {
                 refreshTokenFamily: "family-3",
             });
 
-            const hashSpy = jest.spyOn(service as any, "hashToken").mockReturnValue("def456");
+            const hashSpy = jest
+                .spyOn(service as any, "hashToken")
+                .mockReturnValue("def456");
             const result = await service.validateRefreshToken(1, "token");
 
             expect(result).toEqual({ valid: false, reuse: true });
             hashSpy.mockRestore();
         });
-
     });
 
     describe("verify2FALogin + reset2FARateLimit", () => {
@@ -1873,83 +2138,126 @@ describe("AuthService", () => {
         it("rejects invalid or expired temporary 2FA token", async () => {
             jwtService.verifyAsync.mockRejectedValue(new Error("jwt invalid"));
 
-            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
-                "Invalid or expired token. Please log in again.",
-            );
+            await expect(
+                service.verify2FALogin(base2FADto as any, "127.0.0.1"),
+            ).rejects.toThrow("Invalid or expired token. Please log in again.");
         });
 
         it("rejects invalid 2FA token type", async () => {
-            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "wrong", platform: "USER" });
+            jwtService.verifyAsync.mockResolvedValue({
+                sub: 1,
+                type: "wrong",
+                platform: "USER",
+            });
 
-            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
-                "Invalid token type",
-            );
+            await expect(
+                service.verify2FALogin(base2FADto as any, "127.0.0.1"),
+            ).rejects.toThrow("Invalid token type");
         });
 
         it("rejects users without enabled 2FA configuration", async () => {
-            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
-            prisma.user.findUnique.mockResolvedValue({ ...base2FAUser, isTwoFactorEnabled: false });
+            jwtService.verifyAsync.mockResolvedValue({
+                sub: 1,
+                type: "2fa_pending",
+                platform: "USER",
+            });
+            prisma.user.findUnique.mockResolvedValue({
+                ...base2FAUser,
+                isTwoFactorEnabled: false,
+            });
 
-            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
-                "2FA is not enabled for this account",
-            );
+            await expect(
+                service.verify2FALogin(base2FADto as any, "127.0.0.1"),
+            ).rejects.toThrow("2FA is not enabled for this account");
         });
 
         it("locks immediately when rate-limit check denies attempts", async () => {
-            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            jwtService.verifyAsync.mockResolvedValue({
+                sub: 1,
+                type: "2fa_pending",
+                platform: "USER",
+            });
             prisma.user.findUnique.mockResolvedValue(base2FAUser);
             (authenticator.verify as jest.Mock).mockReturnValue(false);
-            (service as any).settingService.verifyBackupCode.mockResolvedValue(false);
-            (service as any).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(
+                false,
+            );
+            (
+                service as any
+            ).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
                 allowed: false,
                 lockoutDuration: 120,
             });
 
-            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
-                "Too many failed 2FA attempts",
-            );
+            await expect(
+                service.verify2FALogin(base2FADto as any, "127.0.0.1"),
+            ).rejects.toThrow("Too many failed 2FA attempts");
         });
 
         it("applies lockout after recording failed attempts", async () => {
-            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            jwtService.verifyAsync.mockResolvedValue({
+                sub: 1,
+                type: "2fa_pending",
+                platform: "USER",
+            });
             prisma.user.findUnique.mockResolvedValue(base2FAUser);
             (authenticator.verify as jest.Mock).mockReturnValue(false);
-            (service as any).settingService.verifyBackupCode.mockResolvedValue(false);
-            (service as any).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(
+                false,
+            );
+            (
+                service as any
+            ).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
                 allowed: true,
             });
-            (service as any).twoFactorRateLimitService.recordFailedAttempt.mockResolvedValue({
+            (
+                service as any
+            ).twoFactorRateLimitService.recordFailedAttempt.mockResolvedValue({
                 lockoutEndsAt: new Date().toISOString(),
                 lockoutDuration: 300,
                 remainingAttempts: 0,
             });
 
-            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
-                "Invalid verification code",
-            );
+            await expect(
+                service.verify2FALogin(base2FADto as any, "127.0.0.1"),
+            ).rejects.toThrow("Invalid verification code");
         });
 
         it("returns remaining-attempts error for invalid 2FA code without lockout", async () => {
-            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            jwtService.verifyAsync.mockResolvedValue({
+                sub: 1,
+                type: "2fa_pending",
+                platform: "USER",
+            });
             prisma.user.findUnique.mockResolvedValue(base2FAUser);
             (authenticator.verify as jest.Mock).mockReturnValue(false);
-            (service as any).settingService.verifyBackupCode.mockResolvedValue(false);
-            (service as any).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(
+                false,
+            );
+            (
+                service as any
+            ).twoFactorRateLimitService.checkAttempt.mockResolvedValue({
                 allowed: true,
             });
-            (service as any).twoFactorRateLimitService.recordFailedAttempt.mockResolvedValue({
+            (
+                service as any
+            ).twoFactorRateLimitService.recordFailedAttempt.mockResolvedValue({
                 lockoutEndsAt: null,
                 lockoutDuration: 0,
                 remainingAttempts: 2,
             });
 
-            await expect(service.verify2FALogin(base2FADto as any, "127.0.0.1")).rejects.toThrow(
-                "2 attempts remaining.",
-            );
+            await expect(
+                service.verify2FALogin(base2FADto as any, "127.0.0.1"),
+            ).rejects.toThrow("2 attempts remaining.");
         });
 
         it("completes login with backup code and tolerates session creation failure", async () => {
-            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            jwtService.verifyAsync.mockResolvedValue({
+                sub: 1,
+                type: "2fa_pending",
+                platform: "USER",
+            });
             prisma.user.findUnique.mockResolvedValue({
                 ...base2FAUser,
                 userType: "BUSINESS",
@@ -1957,23 +2265,43 @@ describe("AuthService", () => {
                 businessDocumentVerificationStatus: "PENDING",
             });
             (authenticator.verify as jest.Mock).mockReturnValue(false);
-            (service as any).settingService.verifyBackupCode.mockResolvedValue(true);
-            (service as any).sessionService.createSession.mockRejectedValue(new Error("redis unavailable"));
+            (service as any).settingService.verifyBackupCode.mockResolvedValue(
+                true,
+            );
+            (service as any).sessionService.createSession.mockRejectedValue(
+                new Error("redis unavailable"),
+            );
 
-            const generateSpy = jest.spyOn(service, "generateTokens")
-                .mockResolvedValue({ accessToken: "2fa-access", refreshToken: "2fa-refresh" } as any);
-            const saveSpy = jest.spyOn(service, "saveRefreshToken")
+            const generateSpy = jest
+                .spyOn(service, "generateTokens")
+                .mockResolvedValue({
+                    accessToken: "2fa-access",
+                    refreshToken: "2fa-refresh",
+                } as any);
+            const saveSpy = jest
+                .spyOn(service, "saveRefreshToken")
                 .mockResolvedValue({} as any);
             prisma.user.update.mockResolvedValue({});
 
-            const result = await service.verify2FALogin(base2FADto as any, "127.0.0.1");
+            const result = await service.verify2FALogin(
+                base2FADto as any,
+                "127.0.0.1",
+            );
 
             expect(result.data.accessToken).toBe("2fa-access");
             expect(result.data.userType).toBe("business");
-            expect(result.data.verificationStatus.businessRecordCompleted).toBe(true);
-            expect((service as any).twoFactorRateLimitService.recordSuccessfulAttempt).toHaveBeenCalledWith("1", "login");
+            expect(result.data.verificationStatus.businessRecordCompleted).toBe(
+                true,
+            );
+            expect(
+                (service as any).twoFactorRateLimitService
+                    .recordSuccessfulAttempt,
+            ).toHaveBeenCalledWith("1", "login");
             expect(saveSpy).toHaveBeenCalledWith(1, "2fa-refresh");
-            expect(generateSpy).toHaveBeenCalledWith({ sub: 1, platform: "USER" });
+            expect(generateSpy).toHaveBeenCalledWith({
+                sub: 1,
+                platform: "USER",
+            });
             expect(prisma.user.update).toHaveBeenCalledWith({
                 where: { id: 1 },
                 data: {
@@ -1998,19 +2326,33 @@ describe("AuthService", () => {
         });
 
         it("completes 2FA login with session creation success", async () => {
-            jwtService.verifyAsync.mockResolvedValue({ sub: 1, type: "2fa_pending", platform: "USER" });
+            jwtService.verifyAsync.mockResolvedValue({
+                sub: 1,
+                type: "2fa_pending",
+                platform: "USER",
+            });
             prisma.user.findUnique.mockResolvedValue(base2FAUser);
             (authenticator.verify as jest.Mock).mockReturnValue(true);
 
-            (service as any).sessionService.createSession.mockResolvedValue({ sessionId: "session-2fa-ok" });
+            (service as any).sessionService.createSession.mockResolvedValue({
+                sessionId: "session-2fa-ok",
+            });
 
-            const generateSpy = jest.spyOn(service, "generateTokens")
-                .mockResolvedValue({ accessToken: "ok-access", refreshToken: "ok-refresh" } as any);
-            const saveSpy = jest.spyOn(service, "saveRefreshToken")
+            const generateSpy = jest
+                .spyOn(service, "generateTokens")
+                .mockResolvedValue({
+                    accessToken: "ok-access",
+                    refreshToken: "ok-refresh",
+                } as any);
+            const saveSpy = jest
+                .spyOn(service, "saveRefreshToken")
                 .mockResolvedValue({} as any);
             prisma.user.update.mockResolvedValue({});
 
-            const result = await service.verify2FALogin(base2FADto as any, "127.0.0.1");
+            const result = await service.verify2FALogin(
+                base2FADto as any,
+                "127.0.0.1",
+            );
 
             expect(result.data.sessionId).toBe("session-2fa-ok");
             expect(generateSpy).toHaveBeenCalledWith({
@@ -2026,29 +2368,40 @@ describe("AuthService", () => {
         it("reset2FARateLimit throws when user is missing", async () => {
             prisma.user.findUnique.mockResolvedValue(null);
 
-            await expect(service.reset2FARateLimit({ userId: 999 })).rejects.toThrow("User not found");
+            await expect(
+                service.reset2FARateLimit({ userId: 999 }),
+            ).rejects.toThrow("User not found");
         });
 
         it("reset2FARateLimit supports context-specific and global resets", async () => {
             prisma.user.findUnique
-                .mockResolvedValueOnce({ id: 8, email: "u8@flipxer.com", isTwoFactorEnabled: true })
-                .mockResolvedValueOnce({ id: 8, email: "u8@flipxer.com", isTwoFactorEnabled: true });
+                .mockResolvedValueOnce({
+                    id: 8,
+                    email: "u8@flipxer.com",
+                    isTwoFactorEnabled: true,
+                })
+                .mockResolvedValueOnce({
+                    id: 8,
+                    email: "u8@flipxer.com",
+                    isTwoFactorEnabled: true,
+                });
 
-            const withContext = await service.reset2FARateLimit({ userId: 8, context: "login" });
-            const withoutContext = await service.reset2FARateLimit({ userId: 8 });
+            const withContext = await service.reset2FARateLimit({
+                userId: 8,
+                context: "login",
+            });
+            const withoutContext = await service.reset2FARateLimit({
+                userId: 8,
+            });
 
             expect(withContext.message).toContain("login 2FA rate limit");
             expect(withoutContext.message).toContain("all 2FA rate limits");
-            expect((service as any).twoFactorRateLimitService.resetAttempts).toHaveBeenNthCalledWith(
-                1,
-                "8",
-                "login",
-            );
-            expect((service as any).twoFactorRateLimitService.resetAttempts).toHaveBeenNthCalledWith(
-                2,
-                "8",
-                undefined,
-            );
+            expect(
+                (service as any).twoFactorRateLimitService.resetAttempts,
+            ).toHaveBeenNthCalledWith(1, "8", "login");
+            expect(
+                (service as any).twoFactorRateLimitService.resetAttempts,
+            ).toHaveBeenNthCalledWith(2, "8", undefined);
         });
     });
 
@@ -2062,18 +2415,28 @@ describe("AuthService", () => {
         };
 
         it("documentVerificationBase64 rejects already-verified users", async () => {
-            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "APPROVED" });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({
+                status: "APPROVED",
+            });
 
             await expect(
-                service.documentVerificationBase64({ id: 1, isDocumentVerified: true } as any, base64Dto as any),
+                service.documentVerificationBase64(
+                    { id: 1, isDocumentVerified: true } as any,
+                    base64Dto as any,
+                ),
             ).rejects.toThrow("Document has already been verified");
         });
 
         it("documentVerificationBase64 rejects duplicate pending verification", async () => {
-            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "PENDING_REVIEW" });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({
+                status: "PENDING_REVIEW",
+            });
 
             await expect(
-                service.documentVerificationBase64({ id: 1, isDocumentVerified: false } as any, base64Dto as any),
+                service.documentVerificationBase64(
+                    { id: 1, isDocumentVerified: false } as any,
+                    base64Dto as any,
+                ),
             ).rejects.toThrow("Document verification is pending review");
         });
 
@@ -2105,7 +2468,9 @@ describe("AuthService", () => {
             );
 
             expect(result.success).toBe(true);
-            expect(result.message).toBe("Wrong document. Please upload a valid NIN slip.");
+            expect(result.message).toBe(
+                "Wrong document. Please upload a valid NIN slip.",
+            );
             expect(result.data).toEqual(
                 expect.objectContaining({
                     stage: "IDENTITY_DOCUMENT",
@@ -2114,7 +2479,8 @@ describe("AuthService", () => {
                     isValid: false,
                     canSubmit: false,
                     reasonCode: "DOCUMENT_TYPE_MISMATCH",
-                    reasonMessage: "Wrong document. Please upload a valid NIN slip.",
+                    reasonMessage:
+                        "Wrong document. Please upload a valid NIN slip.",
                     reason: "DOCUMENT_TYPE_MISMATCH",
                     documentType: "passport",
                     documentTypeMatches: false,
@@ -2151,7 +2517,9 @@ describe("AuthService", () => {
             );
 
             expect(result.success).toBe(true);
-            expect(result.message).toBe("Document could not be verified. Please upload a valid document.");
+            expect(result.message).toBe(
+                "Document could not be verified. Please upload a valid document.",
+            );
             expect(result.data).toEqual(
                 expect.objectContaining({
                     stage: "IDENTITY_DOCUMENT",
@@ -2160,7 +2528,8 @@ describe("AuthService", () => {
                     isValid: false,
                     canSubmit: true,
                     reasonCode: "DOCUMENT_INVALID",
-                    reasonMessage: "Document could not be verified. Please upload a valid document.",
+                    reasonMessage:
+                        "Document could not be verified. Please upload a valid document.",
                     reason: "invalid",
                     documentType: "nin slip",
                     documentTypeMatches: true,
@@ -2196,7 +2565,9 @@ describe("AuthService", () => {
             );
 
             expect(result.success).toBe(true);
-            expect(result.message).toBe("Only Nigerian-issued documents are accepted. Please upload a valid Nigerian document.");
+            expect(result.message).toBe(
+                "Only Nigerian-issued documents are accepted. Please upload a valid Nigerian document.",
+            );
             expect(result.data).toEqual(
                 expect.objectContaining({
                     isValid: false,
@@ -2234,7 +2605,8 @@ describe("AuthService", () => {
                 } as any,
             );
 
-            const providerPayload = dojahService.analyzeDocument.mock.calls[0]?.[0];
+            const providerPayload =
+                dojahService.analyzeDocument.mock.calls[0]?.[0];
             expect(providerPayload).toEqual(
                 expect.objectContaining({
                     inputType: "base64",
@@ -2299,19 +2671,21 @@ describe("AuthService", () => {
         it("analyzeIncomeDocumentSignals preserves raw Dojah failure details for preview persistence", async () => {
             const fileBuffer = Buffer.from("fake-income-image");
 
-            dojahService.analyzeDocument.mockRejectedValueOnce(Object.assign(new Error("Service not available"), {
-                name: "DojahThirdPartyServiceFailureError",
-                status: 424,
-                responseBody: {
-                    error: "Service not available",
-                    code: "DOC_ANALYSIS_UNAVAILABLE",
-                },
-                requestMetadata: {
-                    method: "POST",
-                    url: "/api/v1/document/analysis",
-                    baseURL: "https://api.dojah.test",
-                },
-            }));
+            dojahService.analyzeDocument.mockRejectedValueOnce(
+                Object.assign(new Error("Service not available"), {
+                    name: "DojahThirdPartyServiceFailureError",
+                    status: 424,
+                    responseBody: {
+                        error: "Service not available",
+                        code: "DOC_ANALYSIS_UNAVAILABLE",
+                    },
+                    requestMetadata: {
+                        method: "POST",
+                        url: "/api/v1/document/analysis",
+                        baseURL: "https://api.dojah.test",
+                    },
+                }),
+            );
 
             const result = await service.analyzeIncomeDocumentSignals(
                 {
@@ -2364,10 +2738,8 @@ describe("AuthService", () => {
         it("analyzeIncomeDocumentSignals preserves metadata from wrapped DojahException failures", async () => {
             const fileBuffer = Buffer.from("fake-wrapped-income-image");
 
-            dojahService.analyzeDocument.mockRejectedValueOnce(new DojahException(
-                "Service not available",
-                424,
-                {
+            dojahService.analyzeDocument.mockRejectedValueOnce(
+                new DojahException("Service not available", 424, {
                     providerErrorName: "DojahThirdPartyServiceFailureError",
                     responseBody: {
                         error: "Service not available",
@@ -2377,8 +2749,8 @@ describe("AuthService", () => {
                         url: "/api/v1/document/analysis",
                         baseURL: "https://api.dojah.io",
                     },
-                },
-            ));
+                }),
+            );
 
             const result = await service.analyzeIncomeDocumentSignals(
                 {
@@ -2444,7 +2816,9 @@ describe("AuthService", () => {
                 },
             };
 
-            const result = (service as any).buildIdentityVerificationResultFromPreview(previewPayload);
+            const result = (
+                service as any
+            ).buildIdentityVerificationResultFromPreview(previewPayload);
 
             expect(result.parsed).toEqual(
                 expect.objectContaining({
@@ -2454,15 +2828,26 @@ describe("AuthService", () => {
                     documentNumber: "A1234567",
                 }),
             );
-            expect(JSON.parse(result.raw)).toEqual(previewPayload.providerInteraction);
+            expect(JSON.parse(result.raw)).toEqual(
+                previewPayload.providerInteraction,
+            );
         });
 
         it("documentVerificationBase64 auto-approves valid documents", async () => {
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-1" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-1" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-1",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-1",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: true,
@@ -2478,7 +2863,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -2486,9 +2874,13 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 11 }) },
+                    userDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 11 }),
+                    },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
                         create: jest.fn().mockResolvedValue({ id: 101 }),
                     },
@@ -2535,19 +2927,34 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
-            expect((service as any).tierService.syncTierAndCache).toHaveBeenCalledWith(1);
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
+            expect(
+                (service as any).tierService.syncTierAndCache,
+            ).toHaveBeenCalledWith(1);
         });
 
         it("documentVerificationBase64 falls back to the extracted document number for upload-only submissions", async () => {
             prisma.userDocument.findUnique.mockResolvedValue(null);
             const userDocumentUpsert = jest.fn().mockResolvedValue({ id: 12 });
-            const kycStageAttemptCreate = jest.fn().mockResolvedValue({ id: 102 });
+            const kycStageAttemptCreate = jest
+                .fn()
+                .mockResolvedValue({ id: 102 });
 
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-upload-only-1" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "front-upload-only-2" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-upload-only-1",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "front-upload-only-2",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: true,
@@ -2563,7 +2970,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -2573,7 +2983,9 @@ describe("AuthService", () => {
                     $executeRaw: prisma.$executeRaw,
                     userDocument: { upsert: userDocumentUpsert },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
                         create: kycStageAttemptCreate,
                     },
@@ -2599,8 +3011,12 @@ describe("AuthService", () => {
             expect(result.message).toBe("Document verified successfully");
             expect(userDocumentUpsert).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    update: expect.objectContaining({ documentNumber: "P43210" }),
-                    create: expect.objectContaining({ documentNumber: "P43210" }),
+                    update: expect.objectContaining({
+                        documentNumber: "P43210",
+                    }),
+                    create: expect.objectContaining({
+                        documentNumber: "P43210",
+                    }),
                 }),
             );
             expect(kycStageAttemptCreate).toHaveBeenCalledWith(
@@ -2611,7 +3027,9 @@ describe("AuthService", () => {
                             submittedDocumentNumber: null,
                             extractedDocumentNumber: "P43210",
                         }),
-                        comparisonSummary: expect.objectContaining({ documentNumberMatches: null }),
+                        comparisonSummary: expect.objectContaining({
+                            documentNumberMatches: null,
+                        }),
                     }),
                 }),
             );
@@ -2620,9 +3038,18 @@ describe("AuthService", () => {
         it("documentVerificationBase64 rejects invalid documents before manual review", async () => {
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-2" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-2" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-2",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-2",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: false,
                 nameMatches: false,
@@ -2647,12 +3074,15 @@ describe("AuthService", () => {
                 base64Dto as any,
             );
 
-            expect(result.message).toBe("Document could not be verified. Please upload a valid document.");
+            expect(result.message).toBe(
+                "Document could not be verified. Please upload a valid document.",
+            );
             expect(result.data).toEqual(
                 expect.objectContaining({
                     status: "DECLINED",
                     outcome: "REJECTED_HARD_STOP",
-                    reasonMessage: "Document could not be verified. Please upload a valid document.",
+                    reasonMessage:
+                        "Document could not be verified. Please upload a valid document.",
                 }),
             );
             expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
@@ -2665,23 +3095,36 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+            expect(
+                (service as any).notificationDispatcher.notify,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 1,
                     title: "Document Rejected",
                     body: "Document could not be verified. Please upload a valid document.",
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("documentVerificationBase64 auto-rejects valid documents when both name and DOB mismatch", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-3" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-3" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-3",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-3",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: false,
@@ -2697,7 +3140,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -2705,9 +3151,13 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 13 }) },
+                    userDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 13 }),
+                    },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
                         create: jest.fn().mockResolvedValue({ id: 103 }),
                     },
@@ -2727,7 +3177,9 @@ describe("AuthService", () => {
                 base64Dto as any,
             );
 
-            expect(result.message).toBe("The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.");
+            expect(result.message).toBe(
+                "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
                 1,
                 expect.objectContaining({
@@ -2747,7 +3199,9 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+            expect(
+                (service as any).notificationDispatcher.notify,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 1,
                     title: "Document Rejected",
@@ -2758,20 +3212,32 @@ describe("AuthService", () => {
                 expect.objectContaining({
                     template_key: "tpl-rejected",
                     merge_info: expect.objectContaining({
-                        rejection_reason: "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+                        rejection_reason:
+                            "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("documentVerificationBase64 auto-rejects valid documents when extracted full name mismatches and DOB is unavailable", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-3b" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-3b" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-3b",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-3b",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: false,
@@ -2787,7 +3253,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -2795,11 +3264,16 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 13 }) },
+                    userDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 13 }),
+                    },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-                        create: jest.fn().mockResolvedValue({ id: 103 }) },
+                        create: jest.fn().mockResolvedValue({ id: 103 }),
+                    },
                     kycAttemptEvent: prisma.kycAttemptEvent,
                 }),
             );
@@ -2820,7 +3294,9 @@ describe("AuthService", () => {
                 } as any,
             );
 
-            expect(result.message).toBe("The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.");
+            expect(result.message).toBe(
+                "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
                 2,
                 expect.objectContaining({
@@ -2831,7 +3307,9 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+            expect(
+                (service as any).notificationDispatcher.notify,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 1,
                     title: "Document Rejected",
@@ -2842,15 +3320,26 @@ describe("AuthService", () => {
                     template_key: "tpl-rejected",
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("documentVerificationBase64 auto-rejects NIN slips when the extracted NIN mismatches the verified profile NIN", async () => {
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-nin-profile-mismatch" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-nin-profile-mismatch" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-nin-profile-mismatch",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-nin-profile-mismatch",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: false,
@@ -2866,7 +3355,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -2874,9 +3366,13 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 17 }) },
+                    userDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 17 }),
+                    },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
                         create: jest.fn().mockResolvedValue({ id: 107 }),
                     },
@@ -2901,7 +3397,9 @@ describe("AuthService", () => {
                 } as any,
             );
 
-            expect(result.message).toBe("The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.");
+            expect(result.message).toBe(
+                "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
                 2,
                 expect.objectContaining({
@@ -2912,7 +3410,9 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+            expect(
+                (service as any).notificationDispatcher.notify,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 9,
                     title: "Document Rejected",
@@ -2923,20 +3423,32 @@ describe("AuthService", () => {
                 expect.objectContaining({
                     template_key: "tpl-rejected",
                     merge_info: expect.objectContaining({
-                        rejection_reason: "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.",
+                        rejection_reason:
+                            "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.",
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("documentVerificationBase64 keeps partial OCR extraction pending review instead of auto-rejecting", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-partial" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-partial" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-partial",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-partial",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: false,
@@ -2953,7 +3465,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -2961,9 +3476,13 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 15 }) },
+                    userDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 15 }),
+                    },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
                         create: jest.fn().mockResolvedValue({ id: 105 }),
                     },
@@ -2983,7 +3502,9 @@ describe("AuthService", () => {
                 base64Dto as any,
             );
 
-            expect(result.message).toBe("Document verification is pending review");
+            expect(result.message).toBe(
+                "Document verification is pending review",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledTimes(1);
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -2993,7 +3514,9 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+            expect(
+                (service as any).notificationDispatcher.notify,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 1,
                     title: "Document Submitted",
@@ -3004,18 +3527,31 @@ describe("AuthService", () => {
                     template_key: "tpl-pending-review",
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("documentVerificationBase64 keeps valid passports with only a partial profile name pending review", async () => {
             prisma.userDocument.findUnique.mockResolvedValue(null);
             const userDocumentUpsert = jest.fn().mockResolvedValue({ id: 16 });
-            const kycStageAttemptCreate = jest.fn().mockResolvedValue({ id: 106 });
+            const kycStageAttemptCreate = jest
+                .fn()
+                .mockResolvedValue({ id: 106 });
 
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-passport-partial" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-passport-partial" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-passport-partial",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-passport-partial",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: false,
@@ -3032,7 +3568,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -3042,7 +3581,9 @@ describe("AuthService", () => {
                     $executeRaw: prisma.$executeRaw,
                     userDocument: { upsert: userDocumentUpsert },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
                         create: kycStageAttemptCreate,
                     },
@@ -3066,7 +3607,9 @@ describe("AuthService", () => {
                 } as any,
             );
 
-            expect(result.message).toBe("Document verification is pending review");
+            expect(result.message).toBe(
+                "Document verification is pending review",
+            );
             expect(userDocumentUpsert).toHaveBeenCalledWith(
                 expect.objectContaining({
                     update: expect.objectContaining({
@@ -3106,16 +3649,27 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).tierService.syncTierAndCache).toHaveBeenCalledWith(1);
+            expect(
+                (service as any).tierService.syncTierAndCache,
+            ).toHaveBeenCalledWith(1);
         });
 
         it("documentVerificationBase64 auto-rejects valid documents when DOB mismatches even if the name matches", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-4" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-4" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-4",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-4",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: true,
@@ -3131,7 +3685,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -3139,9 +3696,13 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 14 }) },
+                    userDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 14 }),
+                    },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 0 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
                         create: jest.fn().mockResolvedValue({ id: 104 }),
                     },
@@ -3160,7 +3721,9 @@ describe("AuthService", () => {
                 base64Dto as any,
             );
 
-            expect(result.message).toBe("The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.");
+            expect(result.message).toBe(
+                "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -3169,15 +3732,28 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("documentVerificationBase64 blocks rejected resubmissions when the new document is invalid", async () => {
-            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "REJECTED" });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({
+                status: "REJECTED",
+            });
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-5" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-5" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-5",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-5",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: false,
                 nameMatches: false,
@@ -3201,7 +3777,9 @@ describe("AuthService", () => {
                 base64Dto as any,
             );
 
-            expect(result.message).toBe("Document could not be verified. Please upload a valid document.");
+            expect(result.message).toBe(
+                "Document could not be verified. Please upload a valid document.",
+            );
             expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
                 1,
                 expect.objectContaining({
@@ -3221,16 +3799,29 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(
+                (service as any).kycStateMachine.transition,
+            ).not.toHaveBeenCalled();
         });
 
         it("documentVerificationBase64 records RESUBMITTED before APPROVED on auto-approved resubmission", async () => {
-            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "REJECTED" });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({
+                status: "REJECTED",
+            });
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
-                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-4" })
-                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-4" });
-            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                .mockResolvedValueOnce({
+                    url: "https://img/front.png",
+                    fileId: "front-4",
+                })
+                .mockResolvedValueOnce({
+                    url: "https://img/back.png",
+                    fileId: "back-4",
+                });
+            jest.spyOn(
+                service as any,
+                "callDojahDocumentVerification",
+            ).mockResolvedValue({
                 success: true,
                 isValid: true,
                 nameMatches: true,
@@ -3246,7 +3837,10 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+            jest.spyOn(
+                service as any,
+                "applyDojahPostValidation",
+            ).mockReturnValue({
                 isDocumentValid: true,
                 hardRejectMessage: null,
             });
@@ -3254,9 +3848,13 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 16 }) },
+                    userDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 16 }),
+                    },
                     kycStageAttempt: {
-                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 1 } }),
+                        aggregate: jest
+                            .fn()
+                            .mockResolvedValue({ _max: { attemptNo: 1 } }),
                         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
                         create: jest.fn().mockResolvedValue({ id: 106 }),
                     },
@@ -3320,8 +3918,14 @@ describe("AuthService", () => {
                     {
                         cacDocumentNumber: "RC-123",
                         uploadedFiles: {
-                            cacImage: { url: "https://img/cac.png", fileId: "cac-1" },
-                            certificateOfIncorporation: { url: "https://img/legacy-cac.png", fileId: "legacy-1" },
+                            cacImage: {
+                                url: "https://img/cac.png",
+                                fileId: "cac-1",
+                            },
+                            certificateOfIncorporation: {
+                                url: "https://img/legacy-cac.png",
+                                fileId: "legacy-1",
+                            },
                         },
                     } as any,
                 ),
@@ -3330,16 +3934,23 @@ describe("AuthService", () => {
 
         it("submitBusinessDocumentsFromUrls persists structured docs and dispatches review flow", async () => {
             const runDojahSpy = jest
-                .spyOn(service as any, "runDojahBusinessVerificationFromStoredDocument")
+                .spyOn(
+                    service as any,
+                    "runDojahBusinessVerificationFromStoredDocument",
+                )
                 .mockResolvedValue(undefined);
-            prisma.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 0 } });
+            prisma.kycStageAttempt.aggregate.mockResolvedValue({
+                _max: { attemptNo: 0 },
+            });
             prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
             prisma.kycStageAttempt.create.mockResolvedValue({ id: 901 });
 
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    businessDocument: { upsert: jest.fn().mockResolvedValue({ id: 321 }) },
+                    businessDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 321 }),
+                    },
                     businessDirector: {
                         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
                         createMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -3384,7 +3995,11 @@ describe("AuthService", () => {
                         },
                     ],
                     uploadedFiles: {
-                        cacImage: { url: "https://img/cac.png", fileId: "cac-1", originalName: "cac.png" },
+                        cacImage: {
+                            url: "https://img/cac.png",
+                            fileId: "cac-1",
+                            originalName: "cac.png",
+                        },
                         "directors[0].idDocument": {
                             url: "https://img/director-id.png",
                             fileId: "dir-id-1",
@@ -3411,7 +4026,9 @@ describe("AuthService", () => {
 
             expect(result.message).toBe("Document Verification successfully");
             expect((service as any).redisCacheService.del).toHaveBeenCalled();
-            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+            expect(
+                (service as any).notificationDispatcher.notify,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 2,
                     title: "Business Documents Submitted",
@@ -3449,14 +4066,18 @@ describe("AuthService", () => {
                 url: "https://img/cac-upload.png",
                 fileId: "cac-upload-1",
             });
-            prisma.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 0 } });
+            prisma.kycStageAttempt.aggregate.mockResolvedValue({
+                _max: { attemptNo: 0 },
+            });
             prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
             prisma.kycStageAttempt.create.mockResolvedValue({ id: 902 });
 
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     $executeRaw: prisma.$executeRaw,
-                    businessDocument: { upsert: jest.fn().mockResolvedValue({ id: 654 }) },
+                    businessDocument: {
+                        upsert: jest.fn().mockResolvedValue({ id: 654 }),
+                    },
                     user: { update: jest.fn().mockResolvedValue({ id: 4 }) },
                     kycStageAttempt: prisma.kycStageAttempt,
                     kycAttemptEvent: prisma.kycAttemptEvent,
@@ -3500,7 +4121,12 @@ describe("AuthService", () => {
                     }),
                 }),
             );
-            expect(runDojahSpy).toHaveBeenCalledWith(4, "RC-UP-1", expect.any(Object), 902);
+            expect(runDojahSpy).toHaveBeenCalledWith(
+                4,
+                "RC-UP-1",
+                expect.any(Object),
+                902,
+            );
             runDojahSpy.mockRestore();
         });
     });
@@ -3547,7 +4173,9 @@ describe("AuthService", () => {
         });
 
         it("uploadSingleBusinessDocumentFile rethrows upload errors", async () => {
-            jest.spyOn(service as any, "uploadAsFile").mockRejectedValue(new Error("upload failed"));
+            jest.spyOn(service as any, "uploadAsFile").mockRejectedValue(
+                new Error("upload failed"),
+            );
 
             await expect(
                 service.uploadSingleBusinessDocumentFile(
@@ -3563,7 +4191,10 @@ describe("AuthService", () => {
                 businessName: "Acme Ltd",
                 taxIdentificationNumber: "TIN-123",
             });
-            prisma.kycStageAttempt.findFirst.mockResolvedValue({ id: 811, status: "SUBMITTED" });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({
+                id: 811,
+                status: "SUBMITTED",
+            });
             prisma.kycStageAttempt.update.mockResolvedValue({ id: 811 });
             (dojahService as any).verifyBusinessDocuments.mockResolvedValue({
                 cac: {
@@ -3596,7 +4227,9 @@ describe("AuthService", () => {
                 }),
             ).resolves.toBeUndefined();
 
-            expect((dojahService as any).verifyBusinessDocuments).toHaveBeenCalledWith(
+            expect(
+                (dojahService as any).verifyBusinessDocuments,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     cacDocumentNumber: "RC-123",
                     taxIdentificationNumber: "TIN-123",
@@ -3631,37 +4264,71 @@ describe("AuthService", () => {
         });
 
         it("runDojahBusinessVerification swallows provider failures", async () => {
-            prisma.businessRecord.findUnique.mockResolvedValue({ businessName: "Acme", taxIdentificationNumber: null });
-            (dojahService as any).verifyBusinessDocuments.mockRejectedValue(new Error("provider down"));
+            prisma.businessRecord.findUnique.mockResolvedValue({
+                businessName: "Acme",
+                taxIdentificationNumber: null,
+            });
+            (dojahService as any).verifyBusinessDocuments.mockRejectedValue(
+                new Error("provider down"),
+            );
 
-            await expect((service as any).runDojahBusinessVerification(10, "RC-404")).resolves.toBeUndefined();
+            await expect(
+                (service as any).runDojahBusinessVerification(10, "RC-404"),
+            ).resolves.toBeUndefined();
         });
 
         it("runDojahBusinessVerificationFromStoredDocument handles missing and untrusted URLs", async () => {
             prisma.businessDocument.findUnique
                 .mockResolvedValueOnce({ cacImageUrl: null })
-                .mockResolvedValueOnce({ cacImageUrl: "https://malicious.example/cac.png" });
+                .mockResolvedValueOnce({
+                    cacImageUrl: "https://malicious.example/cac.png",
+                });
 
-            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(11, "RC-1")).resolves.toBeUndefined();
-            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(11, "RC-2")).resolves.toBeUndefined();
+            await expect(
+                (service as any).runDojahBusinessVerificationFromStoredDocument(
+                    11,
+                    "RC-1",
+                ),
+            ).resolves.toBeUndefined();
+            await expect(
+                (service as any).runDojahBusinessVerificationFromStoredDocument(
+                    11,
+                    "RC-2",
+                ),
+            ).resolves.toBeUndefined();
         });
 
         it("runDojahBusinessVerificationFromStoredDocument fetches trusted URL and forwards synthetic file", async () => {
-            prisma.businessDocument.findUnique.mockResolvedValue({ cacImageUrl: "https://ik.imagekit.io/folder/cac.webp" });
+            prisma.businessDocument.findUnique.mockResolvedValue({
+                cacImageUrl: "https://ik.imagekit.io/folder/cac.webp",
+            });
             const fetchSpy = jest
                 .spyOn(service as any, "fetchTrustedDocumentBuffer")
                 .mockResolvedValue(Buffer.from("binary"));
-            const runSpy = jest.spyOn(service as any, "runDojahBusinessVerification").mockResolvedValue(undefined);
+            const runSpy = jest
+                .spyOn(service as any, "runDojahBusinessVerification")
+                .mockResolvedValue(undefined);
 
-            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(12, "RC-12", 777)).resolves.toBeUndefined();
+            await expect(
+                (service as any).runDojahBusinessVerificationFromStoredDocument(
+                    12,
+                    "RC-12",
+                    777,
+                ),
+            ).resolves.toBeUndefined();
 
             expect(fetchSpy).toHaveBeenCalledTimes(1);
             expect(fetchSpy.mock.calls[0][0]).toBeInstanceOf(URL);
-            expect(fetchSpy.mock.calls[0][0].toString()).toBe("https://ik.imagekit.io/folder/cac.webp");
+            expect(fetchSpy.mock.calls[0][0].toString()).toBe(
+                "https://ik.imagekit.io/folder/cac.webp",
+            );
             expect(runSpy).toHaveBeenCalledWith(
                 12,
                 "RC-12",
-                expect.objectContaining({ fieldname: "cacImage", mimetype: "image/webp" }),
+                expect.objectContaining({
+                    fieldname: "cacImage",
+                    mimetype: "image/webp",
+                }),
                 777,
             );
 
@@ -3673,7 +4340,12 @@ describe("AuthService", () => {
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
                     businessRecord: {
-                        upsert: jest.fn().mockResolvedValue({ id: 501, businessName: "Acme Ltd" }),
+                        upsert: jest
+                            .fn()
+                            .mockResolvedValue({
+                                id: 501,
+                                businessName: "Acme Ltd",
+                            }),
                     },
                     user: {
                         update: jest.fn().mockResolvedValue({ id: 33 }),
@@ -3694,8 +4366,12 @@ describe("AuthService", () => {
                 } as any,
             );
 
-            expect(result.message).toBe("Business record submitted successfully");
-            expect((service as any).cryptoAccountQueueProducer.enqueue).toHaveBeenCalledWith(33);
+            expect(result.message).toBe(
+                "Business record submitted successfully",
+            );
+            expect(
+                (service as any).cryptoAccountQueueProducer.enqueue,
+            ).toHaveBeenCalledWith(33);
             expect((service as any).redisCacheService.del).toHaveBeenCalled();
         });
     });
@@ -3704,8 +4380,12 @@ describe("AuthService", () => {
         it("masks sensitive IDs correctly", () => {
             expect((service as any).maskSensitiveId()).toBe("N/A");
             expect((service as any).maskSensitiveId("1234")).toBe("1234");
-            expect((service as any).maskSensitiveId("1234567890")).toBe("******7890");
-            expect((service as any).maskSensitiveId("1234567890", 2)).toBe("********90");
+            expect((service as any).maskSensitiveId("1234567890")).toBe(
+                "******7890",
+            );
+            expect((service as any).maskSensitiveId("1234567890", 2)).toBe(
+                "********90",
+            );
         });
 
         it("maps Dojah errors to friendly user messages", () => {
@@ -3741,21 +4421,41 @@ describe("AuthService", () => {
         });
 
         it("validates document expiry across formats", () => {
-            expect((service as any).isDocumentExpired("2030-01-01")).toBe(false);
-            expect((service as any).isDocumentExpired("01/01/2030")).toBe(false);
-            expect((service as any).isDocumentExpired("01-01-2030")).toBe(false);
+            expect((service as any).isDocumentExpired("2030-01-01")).toBe(
+                false,
+            );
+            expect((service as any).isDocumentExpired("01/01/2030")).toBe(
+                false,
+            );
+            expect((service as any).isDocumentExpired("01-01-2030")).toBe(
+                false,
+            );
             expect((service as any).isDocumentExpired("2010-01-01")).toBe(true);
-            expect((service as any).isDocumentExpired("bad-date-format")).toBe(false);
+            expect((service as any).isDocumentExpired("bad-date-format")).toBe(
+                false,
+            );
             expect((service as any).isDocumentExpired(undefined)).toBe(false);
         });
 
         it("enforces post-validation hard rejects and expiry handling", () => {
             const logger = { warn: jest.fn(), log: jest.fn() } as any;
 
-            const parsed = { expiryDate: "2010-01-01", reason: undefined, hasExtractedText: true };
-            expect((service as any).applyDojahPostValidation(true, parsed, 1, logger)).toEqual({
+            const parsed = {
+                expiryDate: "2010-01-01",
+                reason: undefined,
+                hasExtractedText: true,
+            };
+            expect(
+                (service as any).applyDojahPostValidation(
+                    true,
+                    parsed,
+                    1,
+                    logger,
+                ),
+            ).toEqual({
                 isDocumentValid: false,
-                hardRejectMessage: "Document appears to be expired. Please upload a valid, unexpired document.",
+                hardRejectMessage:
+                    "Document appears to be expired. Please upload a valid, unexpired document.",
             });
             expect(parsed.reason).toBe("Document has expired");
 
@@ -3768,7 +4468,8 @@ describe("AuthService", () => {
                 ),
             ).toEqual({
                 isDocumentValid: false,
-                hardRejectMessage: "This document type is not supported. Please upload a valid passport, driver's license, or national ID.",
+                hardRejectMessage:
+                    "This document type is not supported. Please upload a valid passport, driver's license, or national ID.",
             });
 
             expect(
@@ -3780,21 +4481,31 @@ describe("AuthService", () => {
                 ),
             ).toEqual({
                 isDocumentValid: false,
-                hardRejectMessage: "Document could not be verified. Please upload a valid document.",
+                hardRejectMessage:
+                    "Document could not be verified. Please upload a valid document.",
             });
         });
 
         it("validates login platform and default security methods", () => {
             expect(() =>
-                (service as any).validateLoginPlatform(UserType.INDIVIDUAL, "ADMIN"),
+                (service as any).validateLoginPlatform(
+                    UserType.INDIVIDUAL,
+                    "ADMIN",
+                ),
             ).toThrow("Incorrect email or password");
 
             expect(() =>
-                (service as any).validateLoginPlatform(UserType.INDIVIDUAL, "USER"),
+                (service as any).validateLoginPlatform(
+                    UserType.INDIVIDUAL,
+                    "USER",
+                ),
             ).not.toThrow();
 
             expect(() =>
-                (service as any).validateLoginPlatform(UserType.INDIVIDUAL, "MOBILE"),
+                (service as any).validateLoginPlatform(
+                    UserType.INDIVIDUAL,
+                    "MOBILE",
+                ),
             ).toThrow("Invalid login platform");
 
             expect((service as any).getDefaultSecurityMethods()).toEqual({
@@ -3806,40 +4517,72 @@ describe("AuthService", () => {
         });
 
         it("maps Dojah reasons and document types", () => {
-            expect((service as any).mapDojahReasonToUserMessage("not_valid")).toContain(
-                "could not be verified",
-            );
-            expect((service as any).mapDojahReasonToUserMessage("too_blurry")).toContain("unclear");
-            expect((service as any).mapDojahReasonToUserMessage("expired_document")).toContain("expired");
-            expect((service as any).mapDojahReasonToUserMessage("unsupported")).toContain("not supported");
-            expect((service as any).mapDojahReasonToUserMessage("CUSTOM_REASON")).toBe(
+            expect(
+                (service as any).mapDojahReasonToUserMessage("not_valid"),
+            ).toContain("could not be verified");
+            expect(
+                (service as any).mapDojahReasonToUserMessage("too_blurry"),
+            ).toContain("unclear");
+            expect(
+                (service as any).mapDojahReasonToUserMessage(
+                    "expired_document",
+                ),
+            ).toContain("expired");
+            expect(
+                (service as any).mapDojahReasonToUserMessage("unsupported"),
+            ).toContain("not supported");
+            expect(
+                (service as any).mapDojahReasonToUserMessage("CUSTOM_REASON"),
+            ).toBe(
                 "Document could not be verified. Please upload a valid document.",
             );
 
-            expect((service as any).mapDojahToDocumentType("passport", undefined)).toBe(
-                (DocumentType as any).INTERNATIONAL_PASSPORT,
-            );
-            expect((service as any).mapDojahToDocumentType("drivers license", undefined)).toBe(
-                (DocumentType as any).DRIVER_LICENSE,
-            );
-            expect((service as any).mapDojahToDocumentType(undefined, "driver_license")).toBe(
-                (DocumentType as any).DRIVER_LICENSE,
-            );
-            expect((service as any).mapDojahToDocumentType(undefined, "nin")).toBe((DocumentType as any).NIN);
+            expect(
+                (service as any).mapDojahToDocumentType("passport", undefined),
+            ).toBe((DocumentType as any).INTERNATIONAL_PASSPORT);
+            expect(
+                (service as any).mapDojahToDocumentType(
+                    "drivers license",
+                    undefined,
+                ),
+            ).toBe((DocumentType as any).DRIVER_LICENSE);
+            expect(
+                (service as any).mapDojahToDocumentType(
+                    undefined,
+                    "driver_license",
+                ),
+            ).toBe((DocumentType as any).DRIVER_LICENSE);
+            expect(
+                (service as any).mapDojahToDocumentType(undefined, "nin"),
+            ).toBe((DocumentType as any).NIN);
         });
 
         it("only accepts trusted HTTPS document URLs", () => {
-            const trustedOrigins = (service as any).getTrustedDocumentOrigins() as Set<string>;
+            const trustedOrigins = (
+                service as any
+            ).getTrustedDocumentOrigins() as Set<string>;
             expect(trustedOrigins.has("https://ik.imagekit.io")).toBe(true);
 
-            const trusted = (service as any).resolveTrustedDocumentUrl("https://ik.imagekit.io/folder/id.png");
+            const trusted = (service as any).resolveTrustedDocumentUrl(
+                "https://ik.imagekit.io/folder/id.png",
+            );
             expect(trusted).toBeInstanceOf(URL);
 
             const insecureUrl = new URL("https://ik.imagekit.io/folder/id.png");
             insecureUrl.protocol = "http:";
-            expect((service as any).resolveTrustedDocumentUrl(insecureUrl.toString())).toBeNull();
-            expect((service as any).resolveTrustedDocumentUrl("https://malicious.example/id.png")).toBeNull();
-            expect((service as any).resolveTrustedDocumentUrl("not-a-url")).toBeNull();
+            expect(
+                (service as any).resolveTrustedDocumentUrl(
+                    insecureUrl.toString(),
+                ),
+            ).toBeNull();
+            expect(
+                (service as any).resolveTrustedDocumentUrl(
+                    "https://malicious.example/id.png",
+                ),
+            ).toBeNull();
+            expect(
+                (service as any).resolveTrustedDocumentUrl("not-a-url"),
+            ).toBeNull();
         });
 
         it("returns structured success result from Dojah document verification call", async () => {
@@ -3854,12 +4597,17 @@ describe("AuthService", () => {
                 "front-base64",
                 "back-base64",
                 { id: 42, firstName: "Jane", lastName: "Doe" },
-                { imageFrontBase64: "front-base64", imageBackBase64: "back-base64" },
+                {
+                    imageFrontBase64: "front-base64",
+                    imageBackBase64: "back-base64",
+                },
                 Date.now(),
                 logger,
             );
 
-            expect(dojahService.verifyDocumentWithNameMatch).toHaveBeenCalledWith(
+            expect(
+                dojahService.verifyDocumentWithNameMatch,
+            ).toHaveBeenCalledWith(
                 {
                     inputType: "base64",
                     imageFrontSide: "front-base64",
@@ -3886,12 +4634,17 @@ describe("AuthService", () => {
                 "front-base64",
                 "back-base64",
                 { id: 42, firstName: "Jane", lastName: "Doe" },
-                { imageFrontBase64: "front-base64", imageBackBase64: "back-base64", documentType: DocumentType.DRIVER_LICENSE },
+                {
+                    imageFrontBase64: "front-base64",
+                    imageBackBase64: "back-base64",
+                    documentType: DocumentType.DRIVER_LICENSE,
+                },
                 Date.now(),
                 logger,
             );
 
-            const providerPayload = dojahService.verifyDocumentWithNameMatch.mock.calls[0]?.[0];
+            const providerPayload =
+                dojahService.verifyDocumentWithNameMatch.mock.calls[0]?.[0];
             expect(providerPayload).toEqual(
                 expect.objectContaining({
                     inputType: "base64",
@@ -3948,7 +4701,8 @@ describe("AuthService", () => {
             expect(result).toEqual(
                 expect.objectContaining({
                     isDocumentValid: false,
-                    hardRejectMessage: "Only Nigerian-issued documents are accepted. Please upload a valid Nigerian document.",
+                    hardRejectMessage:
+                        "Only Nigerian-issued documents are accepted. Please upload a valid Nigerian document.",
                 }),
             );
         });
@@ -3957,12 +4711,16 @@ describe("AuthService", () => {
             const lockedUser = {
                 id: 1,
                 failedLoginAttempts: 4,
-                lockedUntil: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+                lockedUntil: new Date(
+                    Date.now() + 10 * 60 * 1000,
+                ).toISOString(),
             } as any;
 
             await expect(
                 (service as any).handleFailedLogin(lockedUser, "127.0.0.1"),
-            ).rejects.toThrow("Account temporarily locked due to too many failed attempts");
+            ).rejects.toThrow(
+                "Account temporarily locked due to too many failed attempts",
+            );
 
             expect(prisma.user.update).not.toHaveBeenCalled();
         });
@@ -3976,7 +4734,9 @@ describe("AuthService", () => {
                     update: jest.fn().mockResolvedValue({ id: 2 }),
                 },
             };
-            prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback(tx),
+            );
 
             const user = {
                 id: 2,
@@ -3984,7 +4744,9 @@ describe("AuthService", () => {
                 lastFailedLogin: new Date().toISOString(),
             } as any;
 
-            await expect((service as any).handleFailedLogin(user, "client-ip-1")).rejects.toThrow(
+            await expect(
+                (service as any).handleFailedLogin(user, "client-ip-1"),
+            ).rejects.toThrow(
                 "Account temporarily locked due to too many failed attempts",
             );
 
@@ -4006,7 +4768,9 @@ describe("AuthService", () => {
             const user = {
                 id: 3,
                 failedLoginAttempts: 3,
-                lastFailedLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                lastFailedLogin: new Date(
+                    Date.now() - 2 * 60 * 60 * 1000,
+                ).toISOString(),
                 lockedUntil: null,
             } as any;
 
@@ -4030,7 +4794,12 @@ describe("AuthService", () => {
 
     describe("sendPendingReviewEmail", () => {
         it("should send pending review email when config is set", () => {
-            (service as any).sendPendingReviewEmail(1, "user@test.com", "John", "BVN");
+            (service as any).sendPendingReviewEmail(
+                1,
+                "user@test.com",
+                "John",
+                "BVN",
+            );
 
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -4045,7 +4814,12 @@ describe("AuthService", () => {
         });
 
         it("should default name to 'User' when firstName is empty", () => {
-            (service as any).sendPendingReviewEmail(1, "user@test.com", "", "NIN");
+            (service as any).sendPendingReviewEmail(
+                1,
+                "user@test.com",
+                "",
+                "NIN",
+            );
 
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -4085,14 +4859,24 @@ describe("AuthService", () => {
 
         it("should auto-reject and send rejection notification + email when DOB mismatches", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "DOB mismatch" });
+            (matchNames as jest.Mock).mockReturnValue({
+                matches: false,
+                detail: "DOB mismatch",
+            });
 
-            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN", "12345678901");
+            const result = await (service as any).rejectOnIdentityMismatch(
+                mockUser,
+                mockResult,
+                "BVN",
+                "12345678901",
+            );
 
             expect(result).toEqual({
                 disposition: "AUTO_REJECT",
-                responseMessage: "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
-                reasonMessage: "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
+                responseMessage:
+                    "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
+                reasonMessage:
+                    "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
             });
 
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
@@ -4124,7 +4908,8 @@ describe("AuthService", () => {
                     template_key: "tpl-rejected",
                     merge_info: expect.objectContaining({
                         document_type: "BVN",
-                        rejection_reason: "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
+                        rejection_reason:
+                            "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
                         status: "Rejected",
                     }),
                 }),
@@ -4143,12 +4928,19 @@ describe("AuthService", () => {
                 },
             };
 
-            const result = await (service as any).rejectOnIdentityMismatch(mockUser, incompleteResult, "NIN", "12345678901");
+            const result = await (service as any).rejectOnIdentityMismatch(
+                mockUser,
+                incompleteResult,
+                "NIN",
+                "12345678901",
+            );
 
             expect(result).toEqual({
                 disposition: "MANUAL_REVIEW",
-                responseMessage: "We couldn't confidently compare the submitted NIN details to your profile. Your verification has been sent for manual review.",
-                reasonMessage: "We couldn't confidently compare the submitted NIN details to your profile. Your verification has been sent for manual review.",
+                responseMessage:
+                    "We couldn't confidently compare the submitted NIN details to your profile. Your verification has been sent for manual review.",
+                reasonMessage:
+                    "We couldn't confidently compare the submitted NIN details to your profile. Your verification has been sent for manual review.",
             });
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -4187,9 +4979,17 @@ describe("AuthService", () => {
 
         it("should return MATCHED when both names and DOB match", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(true);
-            (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
+            (matchNames as jest.Mock).mockReturnValue({
+                matches: true,
+                detail: "Exact match",
+            });
 
-            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN", "12345678901");
+            const result = await (service as any).rejectOnIdentityMismatch(
+                mockUser,
+                mockResult,
+                "BVN",
+                "12345678901",
+            );
 
             expect(result).toEqual({ disposition: "MATCHED" });
             expect(notificationDispatcher.notify).not.toHaveBeenCalled();
@@ -4207,14 +5007,23 @@ describe("AuthService", () => {
                     },
                 },
             };
-            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "REJECTED" });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({
+                status: "REJECTED",
+            });
 
-            const result = await (service as any).rejectOnIdentityMismatch(mockUser, incompleteResult, "BVN", "12345678901");
+            const result = await (service as any).rejectOnIdentityMismatch(
+                mockUser,
+                incompleteResult,
+                "BVN",
+                "12345678901",
+            );
 
             expect(result).toEqual({
                 disposition: "MANUAL_REVIEW",
-                responseMessage: "We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.",
-                reasonMessage: "We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.",
+                responseMessage:
+                    "We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.",
+                reasonMessage:
+                    "We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.",
             });
             expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({

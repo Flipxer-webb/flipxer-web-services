@@ -1,12 +1,26 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsString, IsOptional, IsNumber, IsIn, IsNotEmpty } from "class-validator";
+import {
+    IsString,
+    IsOptional,
+    IsNumber,
+    IsIn,
+    IsNotEmpty,
+} from "class-validator";
 import { Type } from "class-transformer";
 
-export const adminKycProviderLookupTypes = ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"] as const;
+export const adminKycProviderLookupTypes = [
+    "BVN",
+    "NIN",
+    "DOCUMENT",
+    "ADDRESS",
+    "INCOME",
+    "BUSINESS_DOCUMENT",
+] as const;
 export const adminKycLookupProviders = ["DOJAH", "OCR"] as const;
 
-export type AdminKycProviderLookupType = typeof adminKycProviderLookupTypes[number];
-export type AdminKycLookupProvider = typeof adminKycLookupProviders[number];
+export type AdminKycProviderLookupType =
+    (typeof adminKycProviderLookupTypes)[number];
+export type AdminKycLookupProvider = (typeof adminKycLookupProviders)[number];
 
 export class GetKycQueueDto {
     @ApiPropertyOptional({ description: "Page number", default: 1 })
@@ -31,7 +45,14 @@ export class GetKycQueueDto {
 
     @ApiPropertyOptional({
         description: "KYC status filter",
-        enum: ["PENDING", "NEEDS_REVIEW", "APPROVED", "REJECTED", "ESCALATED", "all"],
+        enum: [
+            "PENDING",
+            "NEEDS_REVIEW",
+            "APPROVED",
+            "REJECTED",
+            "ESCALATED",
+            "all",
+        ],
     })
     @IsOptional()
     @IsString()
@@ -39,7 +60,15 @@ export class GetKycQueueDto {
 
     @ApiPropertyOptional({
         description: "Verification type filter",
-        enum: ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT", "all"],
+        enum: [
+            "BVN",
+            "NIN",
+            "DOCUMENT",
+            "ADDRESS",
+            "INCOME",
+            "BUSINESS_DOCUMENT",
+            "all",
+        ],
     })
     @IsOptional()
     @IsString()
@@ -56,7 +85,11 @@ export class GetKycQueueDto {
     @IsNumber()
     tier?: number;
 
-    @ApiPropertyOptional({ description: "Sort order", enum: ["asc", "desc"], default: "desc" })
+    @ApiPropertyOptional({
+        description: "Sort order",
+        enum: ["asc", "desc"],
+        default: "desc",
+    })
     @IsOptional()
     @IsString()
     sortBy?: "asc" | "desc";
@@ -81,7 +114,10 @@ export class KycDecisionDto {
     @IsNotEmpty()
     verificationType: string;
 
-    @ApiPropertyOptional({ description: "Expected active verification version for optimistic locking" })
+    @ApiPropertyOptional({
+        description:
+            "Expected active verification version for optimistic locking",
+    })
     @IsOptional()
     @Type(() => Number)
     @IsNumber()
@@ -104,12 +140,17 @@ export class AdminKycAttemptDecisionDto {
     @IsIn(["APPROVE", "REJECT", "ESCALATE"])
     action: "APPROVE" | "REJECT" | "ESCALATE";
 
-    @ApiProperty({ description: "Expected attempt version for optimistic locking" })
+    @ApiProperty({
+        description: "Expected attempt version for optimistic locking",
+    })
     @Type(() => Number)
     @IsNumber()
     expectedVersion: number;
 
-    @ApiPropertyOptional({ description: "Verification type for the targeted attempt. Required when the attemptId refers to a staged attempt." })
+    @ApiPropertyOptional({
+        description:
+            "Verification type for the targeted attempt. Required when the attemptId refers to a staged attempt.",
+    })
     @IsOptional()
     @IsString()
     verificationType?: string;
@@ -129,12 +170,17 @@ export class RunKycAttemptRecheckDto {
     @IsIn(adminKycLookupProviders)
     provider: AdminKycLookupProvider;
 
-    @ApiPropertyOptional({ description: "Optional note captured with the recheck request" })
+    @ApiPropertyOptional({
+        description: "Optional note captured with the recheck request",
+    })
     @IsOptional()
     @IsString()
     note?: string;
 
-    @ApiPropertyOptional({ description: "Verification type for the targeted attempt. Required when the attemptId refers to a staged attempt." })
+    @ApiPropertyOptional({
+        description:
+            "Verification type for the targeted attempt. Required when the attemptId refers to a staged attempt.",
+    })
     @IsOptional()
     @IsString()
     verificationType?: string;
@@ -188,12 +234,16 @@ export class GetKycStatsDto {
     @IsString()
     period?: string;
 
-    @ApiPropertyOptional({ description: "Start date (ISO string) - overrides period" })
+    @ApiPropertyOptional({
+        description: "Start date (ISO string) - overrides period",
+    })
     @IsOptional()
     @IsString()
     startDate?: string;
 
-    @ApiPropertyOptional({ description: "End date (ISO string) - overrides period" })
+    @ApiPropertyOptional({
+        description: "End date (ISO string) - overrides period",
+    })
     @IsOptional()
     @IsString()
     endDate?: string;
@@ -213,7 +263,10 @@ export class ApproveDocumentDto {
     @IsIn(["address", "income", "business"])
     documentType: "address" | "income" | "business";
 
-    @ApiPropertyOptional({ description: "Expected active verification version for optimistic locking" })
+    @ApiPropertyOptional({
+        description:
+            "Expected active verification version for optimistic locking",
+    })
     @IsOptional()
     @Type(() => Number)
     @IsNumber()
@@ -239,7 +292,10 @@ export class RejectDocumentDto {
     @IsNotEmpty()
     reason: string;
 
-    @ApiPropertyOptional({ description: "Expected active verification version for optimistic locking" })
+    @ApiPropertyOptional({
+        description:
+            "Expected active verification version for optimistic locking",
+    })
     @IsOptional()
     @Type(() => Number)
     @IsNumber()

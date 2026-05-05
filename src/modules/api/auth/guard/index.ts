@@ -1,4 +1,3 @@
-
 import {
     CanActivate,
     ExecutionContext,
@@ -42,12 +41,13 @@ import {
     WsPrismaNetworkException,
     WsUserNotFoundException,
 } from "../errors/ws";
-import {
-    InvalidTransactionAmountException,
-} from "@/modules/api/trade/errors";
+import { InvalidTransactionAmountException } from "@/modules/api/trade/errors";
 import { TransactionService } from "../services/transaction.service";
 import { authenticator } from "otplib";
-import { isTwoFactorRequiredForTransaction, convertToNGN } from "../utils/tier-threshold.util";
+import {
+    isTwoFactorRequiredForTransaction,
+    convertToNGN,
+} from "../utils/tier-threshold.util";
 import {
     blockedCountries,
     isProduction,
@@ -64,8 +64,8 @@ export class AuthGuard implements CanActivate {
     constructor(
         private readonly jwtService: JwtService,
         private readonly prisma: PrismaService,
-        private readonly sessionService: SessionService
-    ) { }
+        private readonly sessionService: SessionService,
+    ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest<RequestWithUser>();
@@ -74,7 +74,7 @@ export class AuthGuard implements CanActivate {
         if (!token) {
             throw new InvalidAuthTokenException(
                 "Authorization header is missing",
-                HttpStatus.UNAUTHORIZED
+                HttpStatus.UNAUTHORIZED,
             );
         }
 
@@ -91,7 +91,7 @@ export class AuthGuard implements CanActivate {
     private async verifyAndFetchUser(token: string) {
         const payload: DataStoredInToken = await this.jwtService.verifyAsync(
             token,
-            { secret: jwtSecret }
+            { secret: jwtSecret },
         );
 
         const user = await this.prisma.user.findUnique({
@@ -102,27 +102,27 @@ export class AuthGuard implements CanActivate {
         if (!user) {
             throw new UserNotFoundException(
                 "Your session is unauthorized",
-                HttpStatus.UNAUTHORIZED
+                HttpStatus.UNAUTHORIZED,
             );
         }
 
         if (user.isDeleted) {
             throw new AccountDeletedException(
                 "Account not found",
-                HttpStatus.UNAUTHORIZED
+                HttpStatus.UNAUTHORIZED,
             );
         }
 
         // Backward compatibility: legacy tokens may not include sessionId.
         if (payload.sessionId) {
             const isSessionValid = await this.sessionService.validateSession(
-                payload.sessionId
+                payload.sessionId,
             );
 
             if (!isSessionValid) {
                 throw new InvalidAuthTokenException(
                     "Your session is unauthorized or expired",
-                    HttpStatus.UNAUTHORIZED
+                    HttpStatus.UNAUTHORIZED,
                 );
             }
 
@@ -146,13 +146,13 @@ export class AuthGuard implements CanActivate {
         if (error.name === "PrismaClientKnownRequestError") {
             throw new PrismaNetworkException(
                 "Unable to process request. Please try again",
-                HttpStatus.SERVICE_UNAVAILABLE
+                HttpStatus.SERVICE_UNAVAILABLE,
             );
         }
 
         throw new AuthTokenValidationException(
             "Your session is unauthorized or expired",
-            HttpStatus.UNAUTHORIZED
+            HttpStatus.UNAUTHORIZED,
         );
     }
 
@@ -172,7 +172,7 @@ export class EnabledAccountGuard implements CanActivate {
         }
         throw new UserAccountDisabledException(
             "Account is blocked. Kindly contact customer support",
-            HttpStatus.BAD_REQUEST
+            HttpStatus.BAD_REQUEST,
         );
     }
 }
@@ -182,13 +182,13 @@ export class QuidaxWebhookGuard implements CanActivate {
     private readonly logger = new Logger("QuidaxWebhookGuard");
     private readonly TIMESTAMP_TOLERANCE_SECONDS = 300; // 5 minutes
 
-    canActivate(
-        context: ExecutionContext
-    ): GuardActivationResult {
+    canActivate(context: ExecutionContext): GuardActivationResult {
         const request = context.switchToHttp().getRequest<RequestFromQuidax>();
 
         if (!quidaxConfig.webhook_key) {
-            this.logger.error("[WEBHOOK AUTH] SECURITY: QUIDAX_WEBHOOK_KEY not configured - rejecting all webhooks");
+            this.logger.error(
+                "[WEBHOOK AUTH] SECURITY: QUIDAX_WEBHOOK_KEY not configured - rejecting all webhooks",
+            );
             return false;
         }
 
@@ -199,25 +199,33 @@ export class QuidaxWebhookGuard implements CanActivate {
 
         if (!quidaxSignature) {
             this.logger.error("[WEBHOOK AUTH] Missing quidax-signature header");
-            this.logger.debug(`[WEBHOOK AUTH] Headers: ${JSON.stringify(request.headers)}`);
+            this.logger.debug(
+                `[WEBHOOK AUTH] Headers: ${JSON.stringify(request.headers)}`,
+            );
             return false;
         }
 
         // SECURITY: Reject simple signature format - require HMAC
         if (!quidaxSignature.includes(",")) {
-            this.logger.error("[WEBHOOK AUTH] SECURITY: Rejected simple signature format - HMAC required");
-            this.logger.warn(`[WEBHOOK AUTH] Received non-HMAC signature for event: ${request.body?.event}`);
+            this.logger.error(
+                "[WEBHOOK AUTH] SECURITY: Rejected simple signature format - HMAC required",
+            );
+            this.logger.warn(
+                `[WEBHOOK AUTH] Received non-HMAC signature for event: ${request.body?.event}`,
+            );
             return false;
         }
 
         // HMAC format: t=<timestamp>,v=<signature>
         // HMAC format: t=<timestamp>,s=<signature> (order independent)
         const parts = quidaxSignature.split(",");
-        const timestampPart = parts.find(p => p.trim().startsWith("t="));
-        const signaturePart = parts.find(p => p.trim().startsWith("s="));
+        const timestampPart = parts.find((p) => p.trim().startsWith("t="));
+        const signaturePart = parts.find((p) => p.trim().startsWith("s="));
 
         if (!timestampPart || !signaturePart) {
-            this.logger.error(`[WEBHOOK AUTH] Invalid signature format - missing t= or s= components. Received: ${quidaxSignature}`);
+            this.logger.error(
+                `[WEBHOOK AUTH] Invalid signature format - missing t= or s= components. Received: ${quidaxSignature}`,
+            );
             return false;
         }
 
@@ -225,7 +233,9 @@ export class QuidaxWebhookGuard implements CanActivate {
         const signature = signaturePart.trim().substring(2);
 
         if (!timestamp || !signature) {
-            this.logger.error(`[WEBHOOK AUTH] Invalid signature format - empty timestamp or signature. Received: ${quidaxSignature}`);
+            this.logger.error(
+                `[WEBHOOK AUTH] Invalid signature format - empty timestamp or signature. Received: ${quidaxSignature}`,
+            );
             return false;
         }
 
@@ -235,8 +245,12 @@ export class QuidaxWebhookGuard implements CanActivate {
         const timeDifference = Math.abs(now - webhookTimestamp);
 
         if (timeDifference > this.TIMESTAMP_TOLERANCE_SECONDS) {
-            this.logger.error(`[WEBHOOK AUTH] SECURITY: Timestamp too old/future (${timeDifference}s difference)`);
-            this.logger.warn(`[WEBHOOK AUTH] Possible replay attack for event: ${request.body?.event}`);
+            this.logger.error(
+                `[WEBHOOK AUTH] SECURITY: Timestamp too old/future (${timeDifference}s difference)`,
+            );
+            this.logger.warn(
+                `[WEBHOOK AUTH] Possible replay attack for event: ${request.body?.event}`,
+            );
             return false;
         }
 
@@ -256,41 +270,44 @@ export class QuidaxWebhookGuard implements CanActivate {
 
         // SECURITY: Use timing-safe comparison to prevent timing attacks
         try {
-            const signatureBuffer = Buffer.from(signature, 'utf8');
-            const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+            const signatureBuffer = Buffer.from(signature, "utf8");
+            const expectedBuffer = Buffer.from(expectedSignature, "utf8");
 
             if (signatureBuffer.length !== expectedBuffer.length) {
-                this.logger.error(`[WEBHOOK AUTH] Signature length mismatch for event: ${request.body?.event}`);
+                this.logger.error(
+                    `[WEBHOOK AUTH] Signature length mismatch for event: ${request.body?.event}`,
+                );
                 return false;
             }
 
             const isValid = timingSafeEqual(signatureBuffer, expectedBuffer);
 
             if (isValid) {
-                this.logger.log(`[WEBHOOK AUTH] Signature verified for event: ${request.body?.event}`);
+                this.logger.log(
+                    `[WEBHOOK AUTH] Signature verified for event: ${request.body?.event}`,
+                );
                 return true;
             } else {
-                this.logger.error(`[WEBHOOK AUTH] Signature mismatch for event: ${request.body?.event}`);
+                this.logger.error(
+                    `[WEBHOOK AUTH] Signature mismatch for event: ${request.body?.event}`,
+                );
                 return false;
             }
         } catch (error) {
-            this.logger.error(`[WEBHOOK AUTH] Error verifying signature: ${error}`);
+            this.logger.error(
+                `[WEBHOOK AUTH] Error verifying signature: ${error}`,
+            );
             return false;
         }
     }
 }
 
-
 @Injectable()
 export class FincraWebhookGuard implements CanActivate {
-    private readonly logger = new Logger('FincraWebhookGuard');
+    private readonly logger = new Logger("FincraWebhookGuard");
 
-    canActivate(
-        context: ExecutionContext
-    ): GuardActivationResult {
-        const request = context
-            .switchToHttp()
-            .getRequest<Request>();
+    canActivate(context: ExecutionContext): GuardActivationResult {
+        const request = context.switchToHttp().getRequest<Request>();
         const webhookEvent = getWebhookEventName(request.body);
 
         this.logger.log(`Received Fincra webhook request`);
@@ -304,12 +321,8 @@ export class FincraWebhookGuard implements CanActivate {
 export class NombaWebhookGuard implements CanActivate {
     private readonly logger = new Logger("NombaWebhookGuard");
 
-    canActivate(
-        context: ExecutionContext,
-    ): GuardActivationResult {
-        const request = context
-            .switchToHttp()
-            .getRequest<Request>();
+    canActivate(context: ExecutionContext): GuardActivationResult {
+        const request = context.switchToHttp().getRequest<Request>();
         const webhookEvent = getWebhookEventName(request.body);
 
         this.logger.log("Received Nomba webhook request");
@@ -323,9 +336,11 @@ export class NombaWebhookGuard implements CanActivate {
     }
 }
 
-
 // In-memory cache for GeoIP lookups to reduce Redis load
-const geoIpMemoryCache = new Map<string, { countryCode: string; expiresAt: number }>();
+const geoIpMemoryCache = new Map<
+    string,
+    { countryCode: string; expiresAt: number }
+>();
 const GEOIP_MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in memory
 const GEOIP_MEMORY_CACHE_MAX_SIZE = 500;
 
@@ -347,8 +362,8 @@ const getWebhookEventName = (body: unknown): string | undefined => {
 export class CountryBlockGuard implements CanActivate {
     constructor(
         private readonly geoIPService: GeoIPService,
-        private readonly redisCacheService: RedisCacheService
-    ) { }
+        private readonly redisCacheService: RedisCacheService,
+    ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const req = context.switchToHttp().getRequest();
@@ -368,7 +383,7 @@ export class CountryBlockGuard implements CanActivate {
             const countryCode = memCached.countryCode;
             if (countryCode && blockedCountries.includes(countryCode)) {
                 throw new ForbiddenException(
-                    `Access denied from your country: ${countryCode}`
+                    `Access denied from your country: ${countryCode}`,
                 );
             }
             return true;
@@ -382,30 +397,33 @@ export class CountryBlockGuard implements CanActivate {
             await this.redisCacheService.set(
                 redisKey,
                 countryCode ?? "",
-                60 * 60
+                60 * 60,
             ); // 1 hour
         }
 
         // Store in memory cache
         if (geoIpMemoryCache.size >= GEOIP_MEMORY_CACHE_MAX_SIZE) {
             // Clear oldest entries
-            const keysToDelete = Array.from(geoIpMemoryCache.keys()).slice(0, 100);
-            keysToDelete.forEach(k => geoIpMemoryCache.delete(k));
+            const keysToDelete = Array.from(geoIpMemoryCache.keys()).slice(
+                0,
+                100,
+            );
+            keysToDelete.forEach((k) => geoIpMemoryCache.delete(k));
         }
         geoIpMemoryCache.set(clientIp, {
             countryCode: countryCode ?? "",
-            expiresAt: now + GEOIP_MEMORY_CACHE_TTL
+            expiresAt: now + GEOIP_MEMORY_CACHE_TTL,
         });
 
         if (countryCode && blockedCountries.includes(countryCode)) {
             throw new ForbiddenException(
-                `Access denied from your country: ${countryCode}`
+                `Access denied from your country: ${countryCode}`,
             );
         }
 
         if (!countryCode && isProduction) {
             throw new ForbiddenException(
-                "Access denied: could not determine your country"
+                "Access denied: could not determine your country",
             );
         }
 
@@ -418,8 +436,8 @@ export class SocketAuthGuard implements CanActivate {
     constructor(
         private readonly jwtService: JwtService,
         private readonly prisma: PrismaService,
-        private readonly sessionService: SessionService
-    ) { }
+        private readonly sessionService: SessionService,
+    ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const client: Socket = context.switchToWs().getClient<Socket>();
@@ -432,7 +450,7 @@ export class SocketAuthGuard implements CanActivate {
 
         if (!token) {
             throw new WsMissingAuthorizationToken(
-                "Your session is unauthorized"
+                "Your session is unauthorized",
             );
         }
 
@@ -449,22 +467,25 @@ export class SocketAuthGuard implements CanActivate {
 
             if (!user || user.isDeleted) {
                 throw new WsUserNotFoundException(
-                    "Your session is unauthorized"
+                    "Your session is unauthorized",
                 );
             }
 
             if (payload.sessionId) {
-                const isSessionValid = await this.sessionService.validateSession(
-                    payload.sessionId
-                );
+                const isSessionValid =
+                    await this.sessionService.validateSession(
+                        payload.sessionId,
+                    );
 
                 if (!isSessionValid) {
                     throw new WsAuthTokenValidationException(
-                        "Your session is unauthorized or expired"
+                        "Your session is unauthorized or expired",
                     );
                 }
 
-                await this.sessionService.touchSessionActivity(payload.sessionId);
+                await this.sessionService.touchSessionActivity(
+                    payload.sessionId,
+                );
             }
 
             client.data.user = user;
@@ -491,12 +512,12 @@ export class SocketAuthGuard implements CanActivate {
 
         if (error.name === "PrismaClientKnownRequestError") {
             throw new WsPrismaNetworkException(
-                "Unable to process request. Please try again"
+                "Unable to process request. Please try again",
             );
         }
 
         throw new WsAuthTokenValidationException(
-            "Your session is unauthorized"
+            "Your session is unauthorized",
         );
     }
 }
@@ -522,14 +543,17 @@ const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
         getCurrency: (body) => body.asset?.toUpperCase(),
     },
     {
-        patterns: ["request-instant-swap-quote", "refresh-instant-swap-quote", "estimate-swap"],
+        patterns: [
+            "request-instant-swap-quote",
+            "refresh-instant-swap-quote",
+            "estimate-swap",
+        ],
         category: OrderCategory.SWAP,
         getAmount: (body) => body.from_amount || body.to_amount,
         getCurrency: (body) =>
             body.from_amount
                 ? body.from_currency?.toUpperCase()
                 : body.to_currency?.toUpperCase(),
-
     },
     {
         patterns: ["withdrawer-request"],
@@ -541,10 +565,10 @@ const TRANSACTION_ROUTE_CONFIGS: TransactionRouteConfig[] = [
 
 function extractTransactionDataFromRoute(
     body: any,
-    path: string
+    path: string,
 ): { amount: number; currency: string; category: OrderCategory } | null {
     const config = TRANSACTION_ROUTE_CONFIGS.find((cfg) =>
-        cfg.patterns.some((pattern) => path.includes(pattern))
+        cfg.patterns.some((pattern) => path.includes(pattern)),
     );
 
     if (!config) return null;
@@ -559,9 +583,7 @@ function extractTransactionDataFromRoute(
 
 @Injectable()
 export class TransactionAmountGuard implements CanActivate {
-    constructor(
-        private readonly transactionService: TransactionService
-    ) { }
+    constructor(private readonly transactionService: TransactionService) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest<RequestWithUser>();
@@ -570,7 +592,7 @@ export class TransactionAmountGuard implements CanActivate {
         if (!user) {
             throw new InvalidAuthTokenException(
                 "User not found in request",
-                HttpStatus.UNAUTHORIZED
+                HttpStatus.UNAUTHORIZED,
             );
         }
 
@@ -580,7 +602,7 @@ export class TransactionAmountGuard implements CanActivate {
         if (!transactionData) {
             throw new InvalidTransactionAmountException(
                 `Missing amount, currency, or invalid path at ${path}`,
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -589,7 +611,7 @@ export class TransactionAmountGuard implements CanActivate {
             transactionData.amount,
             transactionData.currency,
             transactionData.category,
-            path
+            path,
         );
 
         return true;
@@ -609,18 +631,18 @@ interface SecurityMethods {
 
 /**
  * Enhanced TwoFactorGuard that supports multi-factor security preferences.
- * 
+ *
  * The guard checks if the user has any security methods enabled and validates
  * that a verification token is present. The frontend obtains this token by
  * completing verification via the /settings/verify-security-method endpoint.
- * 
+ *
  * Supported verification methods:
  * - Authenticator (TOTP)
  * - Trading Password
  * - SMS OTP
  * - Email OTP
  * - Backup Codes (universal fallback)
- * 
+ *
  * The verification token is passed via:
  * - x-security-token header (preferred)
  * - verificationToken in request body
@@ -628,14 +650,14 @@ interface SecurityMethods {
  */
 @Injectable()
 export class TwoFactorGuard implements CanActivate {
-    private readonly logger = new Logger('TwoFactorGuard');
+    private readonly logger = new Logger("TwoFactorGuard");
 
     constructor(
         private readonly prisma: PrismaService,
         private readonly jwtService: JwtService,
         @Optional() private readonly twoFactorRateLimitService?: any,
-        @Optional() private readonly settingService?: any
-    ) { }
+        @Optional() private readonly settingService?: any,
+    ) {}
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest<RequestWithUser>();
@@ -644,39 +666,56 @@ export class TwoFactorGuard implements CanActivate {
         if (!user) {
             throw new InvalidAuthTokenException(
                 "User not found in request",
-                HttpStatus.UNAUTHORIZED
+                HttpStatus.UNAUTHORIZED,
             );
         }
 
         const userData = await this.fetchUserSecurityData(user.id);
-        const securityMethods = this.parseSecurityMethods(userData?.securityMethods);
-        const hasSecurityMethodsEnabled = this.hasAnySecurityMethod(securityMethods);
-        const hasLegacy2FA = !!(userData?.isTwoFactorEnabled && userData?.twoFactorSecret);
+        const securityMethods = this.parseSecurityMethods(
+            userData?.securityMethods,
+        );
+        const hasSecurityMethodsEnabled =
+            this.hasAnySecurityMethod(securityMethods);
+        const hasLegacy2FA = !!(
+            userData?.isTwoFactorEnabled && userData?.twoFactorSecret
+        );
 
         if (!hasSecurityMethodsEnabled && !hasLegacy2FA) {
             return true;
         }
 
         const isVerificationRequired = await this.checkVerificationRequired(
-            request, userData, hasLegacy2FA
+            request,
+            userData,
+            hasLegacy2FA,
         );
         if (!isVerificationRequired) {
             return true;
         }
 
-        if (await this.tryValidateSecurityCredentials(request, user.id, userData)) {
+        if (
+            await this.tryValidateSecurityCredentials(
+                request,
+                user.id,
+                userData,
+            )
+        ) {
             return true;
         }
 
-        const availableMethods = this.getAvailableMethods(securityMethods, userData);
+        const availableMethods = this.getAvailableMethods(
+            securityMethods,
+            userData,
+        );
         throw new UserForbiddenException(
             JSON.stringify({
                 code: "SECURITY_VERIFICATION_REQUIRED",
-                message: "Security verification is required for this transaction",
+                message:
+                    "Security verification is required for this transaction",
                 availableMethods,
                 requiredCount: userData?.requiredMethodCount || 1,
             }),
-            HttpStatus.FORBIDDEN
+            HttpStatus.FORBIDDEN,
         );
     }
 
@@ -702,13 +741,16 @@ export class TwoFactorGuard implements CanActivate {
     private async checkVerificationRequired(
         request: RequestWithUser,
         userData: any,
-        hasLegacy2FA: boolean | null | undefined
+        hasLegacy2FA: boolean | null | undefined,
     ): Promise<boolean> {
         const { body, path } = request;
         const transactionData = extractTransactionDataFromRoute(body, path);
 
         if (transactionData && hasLegacy2FA) {
-            return this.isTransactionVerificationRequired(transactionData, userData);
+            return this.isTransactionVerificationRequired(
+                transactionData,
+                userData,
+            );
         }
         return true;
     }
@@ -719,7 +761,7 @@ export class TwoFactorGuard implements CanActivate {
     private async tryValidateSecurityCredentials(
         request: RequestWithUser,
         userId: number,
-        userData: any
+        userData: any,
     ): Promise<boolean> {
         const verificationToken = this.extractVerificationToken(request);
         const legacyCode = this.extractLegacyCode(request);
@@ -733,9 +775,15 @@ export class TwoFactorGuard implements CanActivate {
         );
         if (isMultiFactorValid) return true;
 
-        const isLegacyValid = await this.verifyLegacyTransactionCode(userId, legacyCode, userData);
+        const isLegacyValid = await this.verifyLegacyTransactionCode(
+            userId,
+            legacyCode,
+            userData,
+        );
         if (isLegacyValid) {
-            this.logger.debug(`User ${userId}: Valid legacy 2FA code, allowing transaction`);
+            this.logger.debug(
+                `User ${userId}: Valid legacy 2FA code, allowing transaction`,
+            );
             return true;
         }
 
@@ -751,7 +799,8 @@ export class TwoFactorGuard implements CanActivate {
         if (headerToken) return headerToken;
 
         // Check body
-        if (request.body?.verificationToken) return request.body.verificationToken;
+        if (request.body?.verificationToken)
+            return request.body.verificationToken;
 
         return null;
     }
@@ -775,11 +824,19 @@ export class TwoFactorGuard implements CanActivate {
         legacyCode: string | null,
         userData: any,
     ): Promise<boolean> {
-        if (!legacyCode || legacyCode.length > 6 || !userData?.twoFactorSecret) {
+        if (
+            !legacyCode ||
+            legacyCode.length > 6 ||
+            !userData?.twoFactorSecret
+        ) {
             return false;
         }
 
-        const isValidLegacy = await this.validateLegacyTwoFactor(userId, legacyCode, userData.twoFactorSecret);
+        const isValidLegacy = await this.validateLegacyTwoFactor(
+            userId,
+            legacyCode,
+            userData.twoFactorSecret,
+        );
         const requiredCount = userData?.requiredMethodCount || 1;
         return isValidLegacy && requiredCount <= 1;
     }
@@ -805,15 +862,20 @@ export class TwoFactorGuard implements CanActivate {
         userData: { requiredMethodCount?: number },
         routeTemplate: string,
     ): Promise<boolean> {
-        const tokens = verificationToken.split(',');
+        const tokens = verificationToken.split(",");
         const verifiedMethods = new Set<string>();
 
         for (const token of tokens) {
             if (!token.trim()) continue;
 
-            const method = await this.validateVerificationTokenAndGetMethod(userId, token.trim());
+            const method = await this.validateVerificationTokenAndGetMethod(
+                userId,
+                token.trim(),
+            );
             if (!method) {
-                this.logger.warn(`User ${userId}: Invalid verification token(s) provided`);
+                this.logger.warn(
+                    `User ${userId}: Invalid verification token(s) provided`,
+                );
                 return false;
             }
 
@@ -823,11 +885,15 @@ export class TwoFactorGuard implements CanActivate {
         const requiredCount = userData?.requiredMethodCount || 1;
 
         if (verifiedMethods.size >= requiredCount) {
-            this.logger.debug(`User ${userId}: Verified ${verifiedMethods.size}/${requiredCount} methods (${Array.from(verifiedMethods).join(', ')}), allowing transaction`);
+            this.logger.debug(
+                `User ${userId}: Verified ${verifiedMethods.size}/${requiredCount} methods (${Array.from(verifiedMethods).join(", ")}), allowing transaction`,
+            );
             return true;
         }
 
-        this.logger.warn(`User ${userId}: Insufficient methods verified. Got ${verifiedMethods.size}, required ${requiredCount}`);
+        this.logger.warn(
+            `User ${userId}: Insufficient methods verified. Got ${verifiedMethods.size}, required ${requiredCount}`,
+        );
         return false;
     }
 
@@ -838,7 +904,9 @@ export class TwoFactorGuard implements CanActivate {
         }
 
         if (Array.isArray(routePath)) {
-            const firstPath = routePath.find((path) => typeof path === "string");
+            const firstPath = routePath.find(
+                (path) => typeof path === "string",
+            );
             if (firstPath) {
                 return firstPath;
             }
@@ -850,7 +918,10 @@ export class TwoFactorGuard implements CanActivate {
     /**
      * Validate a verification token and return the method used
      */
-    private async validateVerificationTokenAndGetMethod(userId: number, token: string): Promise<string | null> {
+    private async validateVerificationTokenAndGetMethod(
+        userId: number,
+        token: string,
+    ): Promise<string | null> {
         try {
             const payload = await this.jwtService.verifyAsync(token, {
                 secret: jwtSecret,
@@ -858,7 +929,9 @@ export class TwoFactorGuard implements CanActivate {
 
             // Check that token is for the correct user
             if (payload.userId !== userId) {
-                this.logger.warn(`Token userId ${payload.userId} does not match request userId ${userId}`);
+                this.logger.warn(
+                    `Token userId ${payload.userId} does not match request userId ${userId}`,
+                );
                 return null;
             }
 
@@ -871,11 +944,15 @@ export class TwoFactorGuard implements CanActivate {
             // Check expiry
             const now = Math.floor(Date.now() / 1000);
             if (payload.exp && payload.exp < now) {
-                this.logger.warn(`Token expired at ${payload.exp}, current time ${now}`);
+                this.logger.warn(
+                    `Token expired at ${payload.exp}, current time ${now}`,
+                );
                 return null;
             }
 
-            this.logger.debug(`Valid verification token for user ${userId}, method: ${payload.method}`);
+            this.logger.debug(
+                `Valid verification token for user ${userId}, method: ${payload.method}`,
+            );
             return payload.method;
         } catch (error) {
             this.logger.warn(`Token validation error: ${error.message}`);
@@ -886,18 +963,23 @@ export class TwoFactorGuard implements CanActivate {
     /**
      * Validate legacy TOTP code (backward compatibility)
      */
-    private async validateLegacyTwoFactor(userId: number, code: string, secret: string): Promise<boolean> {
+    private async validateLegacyTwoFactor(
+        userId: number,
+        code: string,
+        secret: string,
+    ): Promise<boolean> {
         // Check rate limit if service available
         if (this.twoFactorRateLimitService) {
-            const rateLimitResult = await this.twoFactorRateLimitService.checkAttempt(
-                userId.toString(),
-                'transaction'
-            );
+            const rateLimitResult =
+                await this.twoFactorRateLimitService.checkAttempt(
+                    userId.toString(),
+                    "transaction",
+                );
 
             if (!rateLimitResult.allowed) {
                 throw new UserForbiddenException(
                     `Too many failed 2FA attempts. Account locked for ${rateLimitResult.lockoutDuration} seconds.`,
-                    HttpStatus.TOO_MANY_REQUESTS
+                    HttpStatus.TOO_MANY_REQUESTS,
                 );
             }
         }
@@ -916,15 +998,16 @@ export class TwoFactorGuard implements CanActivate {
         if (!isValid) {
             // Record failed attempt if service available
             if (this.twoFactorRateLimitService) {
-                const failedResult = await this.twoFactorRateLimitService.recordFailedAttempt(
-                    userId.toString(),
-                    'transaction'
-                );
+                const failedResult =
+                    await this.twoFactorRateLimitService.recordFailedAttempt(
+                        userId.toString(),
+                        "transaction",
+                    );
 
                 if (failedResult.lockoutEndsAt) {
                     throw new UserForbiddenException(
                         `Invalid 2FA code. Account locked for ${failedResult.lockoutDuration} seconds.`,
-                        HttpStatus.TOO_MANY_REQUESTS
+                        HttpStatus.TOO_MANY_REQUESTS,
                     );
                 }
             }
@@ -935,7 +1018,7 @@ export class TwoFactorGuard implements CanActivate {
         if (this.twoFactorRateLimitService) {
             await this.twoFactorRateLimitService.recordSuccessfulAttempt(
                 userId.toString(),
-                'transaction'
+                "transaction",
             );
         }
 
@@ -947,7 +1030,7 @@ export class TwoFactorGuard implements CanActivate {
      */
     private parseSecurityMethods(methods: any): SecurityMethods {
         if (!methods) return {};
-        if (typeof methods === 'string') {
+        if (typeof methods === "string") {
             try {
                 return JSON.parse(methods);
             } catch {
@@ -961,36 +1044,46 @@ export class TwoFactorGuard implements CanActivate {
      * Check if user has any security methods enabled
      */
     private hasAnySecurityMethod(methods: SecurityMethods): boolean {
-        return methods.sms || methods.email || methods.authenticator || methods.tradingPassword || methods.biometric || false;
+        return (
+            methods.sms ||
+            methods.email ||
+            methods.authenticator ||
+            methods.tradingPassword ||
+            methods.biometric ||
+            false
+        );
     }
 
     /**
      * Get list of available methods for user based on their setup
      */
-    private getAvailableMethods(methods: SecurityMethods, userData: any): string[] {
+    private getAvailableMethods(
+        methods: SecurityMethods,
+        userData: any,
+    ): string[] {
         const available: string[] = [];
 
         if (methods.sms && userData?.isPhoneVerified) {
-            available.push('sms');
+            available.push("sms");
         }
         if (methods.email && userData?.isEmailVerified) {
-            available.push('email');
+            available.push("email");
         }
         if (methods.authenticator && userData?.twoFactorSecret) {
-            available.push('authenticator');
+            available.push("authenticator");
         }
         if (methods.tradingPassword && userData?.tradingPassword) {
-            available.push('tradingPassword');
+            available.push("tradingPassword");
         }
         if (methods.biometric) {
             // Biometric is available if the user has it enabled in preferences
             // The frontend handles checking if the device actually supports it
-            available.push('biometric');
+            available.push("biometric");
         }
 
         // Backup codes are always available if any method is set up
         if (available.length > 0) {
-            available.push('backupCode');
+            available.push("backupCode");
         }
 
         return available;
@@ -1002,13 +1095,16 @@ export class TwoFactorGuard implements CanActivate {
                     currency: currency,
                 },
                 select: { buyRate: true },
-                orderBy: { createdAt: 'desc' },
+                orderBy: { createdAt: "desc" },
             });
 
             return rate?.buyRate || null;
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Failed to load crypto rate for ${currency}: ${errorMessage}`);
+            const errorMessage =
+                error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+                `Failed to load crypto rate for ${currency}: ${errorMessage}`,
+            );
             return null;
         }
     }

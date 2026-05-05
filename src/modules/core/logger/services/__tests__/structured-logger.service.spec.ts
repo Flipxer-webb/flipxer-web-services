@@ -5,7 +5,10 @@ jest.mock("node:crypto", () => ({
     randomUUID: uuidMock,
 }));
 
-import { createLogger, StructuredLoggerService } from "../structured-logger.service";
+import {
+    createLogger,
+    StructuredLoggerService,
+} from "../structured-logger.service";
 
 describe("StructuredLoggerService", () => {
     let logger: StructuredLoggerService;
@@ -16,18 +19,18 @@ describe("StructuredLoggerService", () => {
     });
 
     it("setContext and child preserve correlation/request context", () => {
-        logger
-            .setContext("ParentCtx")
-            .setRequestContext({
-                correlationId: "parent-corr",
-                method: "GET",
-                path: "/health",
-                userId: 9,
-                startTime: 1000,
-            });
+        logger.setContext("ParentCtx").setRequestContext({
+            correlationId: "parent-corr",
+            method: "GET",
+            path: "/health",
+            userId: 9,
+            startTime: 1000,
+        });
 
         const child = logger.child("ChildCtx");
-        const infoSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+        const infoSpy = jest
+            .spyOn(console, "log")
+            .mockImplementation(() => undefined);
 
         child.log("child-message", { x: 1 });
 
@@ -48,17 +51,27 @@ describe("StructuredLoggerService", () => {
     });
 
     it("routes levels to expected console methods", () => {
-        const debugSpy = jest.spyOn(console, "debug").mockImplementation(() => undefined);
-        const infoSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
-        const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
-        const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+        const debugSpy = jest
+            .spyOn(console, "debug")
+            .mockImplementation(() => undefined);
+        const infoSpy = jest
+            .spyOn(console, "log")
+            .mockImplementation(() => undefined);
+        const warnSpy = jest
+            .spyOn(console, "warn")
+            .mockImplementation(() => undefined);
+        const errorSpy = jest
+            .spyOn(console, "error")
+            .mockImplementation(() => undefined);
 
         logger.debug("debug-msg", { a: 1 });
         logger.log("info-msg", { b: 2 });
         logger.warn("warn-msg", { c: 3 });
         logger.error("error-msg", new Error("boom"), { d: 4 });
 
-        expect(JSON.parse(String(debugSpy.mock.calls[0][0])).level).toBe("debug");
+        expect(JSON.parse(String(debugSpy.mock.calls[0][0])).level).toBe(
+            "debug",
+        );
         expect(JSON.parse(String(infoSpy.mock.calls[0][0])).level).toBe("info");
         expect(JSON.parse(String(warnSpy.mock.calls[0][0])).level).toBe("warn");
 
@@ -74,11 +87,17 @@ describe("StructuredLoggerService", () => {
     });
 
     it("logRequestStart and logRequestEnd track duration and clear context", () => {
-        const infoSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+        const infoSpy = jest
+            .spyOn(console, "log")
+            .mockImplementation(() => undefined);
         const nowSpy = jest.spyOn(Date, "now");
 
         nowSpy.mockReturnValueOnce(1000);
-        const correlationId = logger.logRequestStart("POST", "/api/v1/session", 42);
+        const correlationId = logger.logRequestStart(
+            "POST",
+            "/api/v1/session",
+            42,
+        );
         expect(correlationId).toBe("corr-123");
 
         nowSpy.mockReturnValueOnce(1750);
@@ -97,17 +116,25 @@ describe("StructuredLoggerService", () => {
     });
 
     it("logOperation logs completion path with duration", async () => {
-        const infoSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+        const infoSpy = jest
+            .spyOn(console, "log")
+            .mockImplementation(() => undefined);
         const nowSpy = jest.spyOn(Date, "now");
 
         nowSpy.mockReturnValueOnce(100).mockReturnValueOnce(240);
 
-        const result = await logger.logOperation("SyncBalances", async () => "done", {
-            accountId: "acc-1",
-        });
+        const result = await logger.logOperation(
+            "SyncBalances",
+            async () => "done",
+            {
+                accountId: "acc-1",
+            },
+        );
 
         expect(result).toBe("done");
-        expect(JSON.parse(String(infoSpy.mock.calls[0][0])).message).toBe("SyncBalances started");
+        expect(JSON.parse(String(infoSpy.mock.calls[0][0])).message).toBe(
+            "SyncBalances started",
+        );
 
         const completedEntry = JSON.parse(String(infoSpy.mock.calls[1][0]));
         expect(completedEntry.message).toBe("SyncBalances completed");
@@ -118,7 +145,9 @@ describe("StructuredLoggerService", () => {
     });
 
     it("logOperation logs failure path and rethrows", async () => {
-        const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+        const errorSpy = jest
+            .spyOn(console, "error")
+            .mockImplementation(() => undefined);
         const nowSpy = jest.spyOn(Date, "now");
 
         nowSpy.mockReturnValueOnce(500).mockReturnValueOnce(900);
@@ -129,8 +158,8 @@ describe("StructuredLoggerService", () => {
                 async () => {
                     throw new Error("db failure");
                 },
-                { eventId: "evt-1" }
-            )
+                { eventId: "evt-1" },
+            ),
         ).rejects.toThrow("db failure");
 
         const failedEntry = JSON.parse(String(errorSpy.mock.calls[0][0]));
@@ -143,7 +172,9 @@ describe("StructuredLoggerService", () => {
     });
 
     it("createLogger returns logger with provided context", () => {
-        const infoSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+        const infoSpy = jest
+            .spyOn(console, "log")
+            .mockImplementation(() => undefined);
 
         const customLogger = createLogger("CustomCtx");
         customLogger.log("hello");

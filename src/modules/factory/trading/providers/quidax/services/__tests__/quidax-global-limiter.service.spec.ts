@@ -33,7 +33,9 @@ describe("QuidaxGlobalLimiterService", () => {
             cooldownUntil: 6_000,
         });
 
-        await expect(service.assertAllowed("main")).rejects.toBeInstanceOf(QuidaxTooManyRequestError);
+        await expect(service.assertAllowed("main")).rejects.toBeInstanceOf(
+            QuidaxTooManyRequestError,
+        );
         expect(rateLimiterService.checkLimit).not.toHaveBeenCalled();
 
         jest.restoreAllMocks();
@@ -81,7 +83,9 @@ describe("QuidaxGlobalLimiterService", () => {
             resetTime: 14_000,
         });
 
-        await expect(service.assertAllowed("main")).rejects.toBeInstanceOf(QuidaxTooManyRequestError);
+        await expect(service.assertAllowed("main")).rejects.toBeInstanceOf(
+            QuidaxTooManyRequestError,
+        );
 
         expect(redisCacheService.set).toHaveBeenCalledWith(
             "quidax:cooldown:main",

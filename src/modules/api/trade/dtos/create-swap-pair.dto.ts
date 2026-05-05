@@ -1,4 +1,11 @@
-import { IsBoolean, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
+import {
+    IsBoolean,
+    IsIn,
+    IsNotEmpty,
+    IsNumber,
+    IsOptional,
+    IsString,
+} from "class-validator";
 import { Transform } from "class-transformer";
 import { SUPPORTED_TRADE_ASSET_SYMBOLS } from "../constants";
 
@@ -44,7 +51,7 @@ export class BulkUpdateSwapPairDto {
     @IsNumber()
     rateMultiplier: number; // e.g. 1.05 to increase all by 5%
 
-    // Or set explicit rate? No, explicit rate varies by coin. 
+    // Or set explicit rate? No, explicit rate varies by coin.
     // Maybe just bulk enable/disable?
     @IsOptional()
     @IsBoolean()

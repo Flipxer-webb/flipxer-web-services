@@ -2,7 +2,14 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { Prisma, User, UserType } from "@prisma/client";
-import { TIER_WITHDRAWAL_LIMITS, BUSINESS_WITHDRAWAL_LIMITS, TIER_DAILY_LIMITS, BUSINESS_DAILY_LIMITS, TierLevel, OperationLimits } from "@/modules/shared/tier-limits";
+import {
+    TIER_WITHDRAWAL_LIMITS,
+    BUSINESS_WITHDRAWAL_LIMITS,
+    TIER_DAILY_LIMITS,
+    BUSINESS_DAILY_LIMITS,
+    TierLevel,
+    OperationLimits,
+} from "@/modules/shared/tier-limits";
 import { buildIndividualVerificationSnapshot } from "../utils/individual-kyc-stage-state.util";
 
 export { TierLevel } from "@/modules/shared/tier-limits";
@@ -42,46 +49,45 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
     tier: TierLevel;
     check: (user: Partial<UserWithTier>) => boolean;
 }> = [
-        {
-            // Tier 4 (Premium): All verifications complete including income
-            tier: 4,
-            check: (user) =>
-                !!user.governmentIdVerified &&
-                !!user.documentVerified &&
-                !!user.addressVerified &&
-                !!user.incomeVerified,
-        },
-        {
-            // Tier 3 (Pro): BVN/NIN + Document + Address verified
-            tier: 3,
-            check: (user) =>
-                !!user.governmentIdVerified &&
-                !!user.documentVerified &&
-                !!user.addressVerified,
-        },
-        {
-            // Tier 2 (Intermediate): BVN/NIN + Document verified
-            tier: 2,
-            check: (user) =>
-                !!user.governmentIdVerified &&
-                !!user.documentVerified,
-        },
-        {
-            // Tier 1 (Standard): BVN or NIN verified
-            tier: 1,
-            check: (user) => !!user.governmentIdVerified,
-        },
-    ];
+    {
+        // Tier 4 (Premium): All verifications complete including income
+        tier: 4,
+        check: (user) =>
+            !!user.governmentIdVerified &&
+            !!user.documentVerified &&
+            !!user.addressVerified &&
+            !!user.incomeVerified,
+    },
+    {
+        // Tier 3 (Pro): BVN/NIN + Document + Address verified
+        tier: 3,
+        check: (user) =>
+            !!user.governmentIdVerified &&
+            !!user.documentVerified &&
+            !!user.addressVerified,
+    },
+    {
+        // Tier 2 (Intermediate): BVN/NIN + Document verified
+        tier: 2,
+        check: (user) => !!user.governmentIdVerified && !!user.documentVerified,
+    },
+    {
+        // Tier 1 (Standard): BVN or NIN verified
+        tier: 1,
+        check: (user) => !!user.governmentIdVerified,
+    },
+];
 
 @Injectable()
 export class TierService {
     private readonly logger = new Logger(TierService.name);
-    private readonly PROFILE_CACHE_KEY = (userId: number) => `user:profile:${userId}`;
+    private readonly PROFILE_CACHE_KEY = (userId: number) =>
+        `user:profile:${userId}`;
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly redisCacheService: RedisCacheService
-    ) { }
+        private readonly redisCacheService: RedisCacheService,
+    ) {}
 
     /**
      * Calculate the tier for a user based on their verification status
@@ -147,7 +153,10 @@ export class TierService {
      * @param userType - Optional user type for business-specific limits
      * @returns The withdrawal limit in USD or "unlimited"
      */
-    getWithdrawalLimit(tier: TierLevel, userType?: string): number | "unlimited" {
+    getWithdrawalLimit(
+        tier: TierLevel,
+        userType?: string,
+    ): number | "unlimited" {
         if (userType === UserType.BUSINESS) {
             const businessTier = Math.min(tier, 1) as 0 | 1;
             return BUSINESS_WITHDRAWAL_LIMITS[businessTier];
@@ -168,7 +177,10 @@ export class TierService {
      */
     async getTierInfo(user: Partial<UserWithTier>): Promise<TierInfo> {
         const tier = this.calculateTier(user);
-        const withdrawalLimit: number | "unlimited" = this.getWithdrawalLimit(tier, user.userType);
+        const withdrawalLimit: number | "unlimited" = this.getWithdrawalLimit(
+            tier,
+            user.userType,
+        );
         const dailyLimits = this.getDailyLimits(tier, user.userType);
 
         return {
@@ -197,18 +209,22 @@ export class TierService {
         const resolvedUser = this.resolveTierVerificationState(user);
 
         // Debug logging to track tier calculation
-        this.logger.log(`[Tier Calc] User ${userId} verification status: ` +
-            `email=${resolvedUser.emailVerified}, governmentId=${resolvedUser.governmentIdVerified}, ` +
-            `doc=${resolvedUser.documentVerified}, address=${resolvedUser.addressVerified}, income=${resolvedUser.incomeVerified}, ` +
-            `currentTier=${user.tier ?? 0}`);
+        this.logger.log(
+            `[Tier Calc] User ${userId} verification status: ` +
+                `email=${resolvedUser.emailVerified}, governmentId=${resolvedUser.governmentIdVerified}, ` +
+                `doc=${resolvedUser.documentVerified}, address=${resolvedUser.addressVerified}, income=${resolvedUser.incomeVerified}, ` +
+                `currentTier=${user.tier ?? 0}`,
+        );
 
         const newTier = this.calculateTier(resolvedUser);
 
-        this.logger.log(`[Tier Calc] User ${userId} calculated tier: ${newTier}`);
+        this.logger.log(
+            `[Tier Calc] User ${userId} calculated tier: ${newTier}`,
+        );
 
         if ((user.tier ?? 0) !== newTier) {
             this.logger.log(
-                `Updating user ${userId} tier from ${user.tier ?? 0} to ${newTier}`
+                `Updating user ${userId} tier from ${user.tier ?? 0} to ${newTier}`,
             );
 
             const updatedUser = await this.prisma.user.update({
@@ -219,7 +235,9 @@ export class TierService {
             return updatedUser;
         }
 
-        this.logger.log(`[Tier Calc] User ${userId} tier unchanged at ${user.tier ?? 0}`);
+        this.logger.log(
+            `[Tier Calc] User ${userId} tier unchanged at ${user.tier ?? 0}`,
+        );
         return user;
     }
 
@@ -275,7 +293,14 @@ export class TierService {
                     where: {
                         isCurrent: true,
                         journeyType: "INDIVIDUAL",
-                        stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
+                        stage: {
+                            in: [
+                                "GOVERNMENT_ID",
+                                "IDENTITY_DOCUMENT",
+                                "ADDRESS",
+                                "INCOME",
+                            ],
+                        },
                     },
                     select: {
                         stage: true,
@@ -307,7 +332,9 @@ export class TierService {
                     data: { tier: newTier } as any,
                 });
 
-                await this.redisCacheService.del(this.PROFILE_CACHE_KEY(user.id));
+                await this.redisCacheService.del(
+                    this.PROFILE_CACHE_KEY(user.id),
+                );
 
                 changes.push({
                     email: user.email,
@@ -316,19 +343,19 @@ export class TierService {
                 });
 
                 this.logger.log(
-                    `Updated ${user.email}: Tier ${currentTier} -> ${newTier}`
+                    `Updated ${user.email}: Tier ${currentTier} -> ${newTier}`,
                 );
                 updated++;
             } catch (error) {
                 this.logger.error(
-                    `Error updating tier for user ${user.id}: ${error.message}`
+                    `Error updating tier for user ${user.id}: ${error.message}`,
                 );
                 errors++;
             }
         }
 
         this.logger.log(
-            `Bulk tier update complete: ${updated} updated, ${unchanged} unchanged, ${errors} errors`
+            `Bulk tier update complete: ${updated} updated, ${unchanged} unchanged, ${errors} errors`,
         );
 
         return {
@@ -350,7 +377,7 @@ export class TierService {
     async validateWithdrawal(
         user: Partial<UserWithTier>,
         amountInUSD: number,
-        currentDailyTotal: number
+        currentDailyTotal: number,
     ): Promise<{ canWithdraw: boolean; reason?: string }> {
         const tierInfo = await this.getTierInfo(user);
 
@@ -394,7 +421,14 @@ export class TierService {
                 where: {
                     isCurrent: true,
                     journeyType: "INDIVIDUAL",
-                    stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
+                    stage: {
+                        in: [
+                            "GOVERNMENT_ID",
+                            "IDENTITY_DOCUMENT",
+                            "ADDRESS",
+                            "INCOME",
+                        ],
+                    },
                 },
                 select: {
                     stage: true,
@@ -406,7 +440,9 @@ export class TierService {
         };
     }
 
-    private resolveTierVerificationState(user: Partial<UserWithTier>): Partial<UserWithTier> {
+    private resolveTierVerificationState(
+        user: Partial<UserWithTier>,
+    ): Partial<UserWithTier> {
         if (user.userType === UserType.BUSINESS) {
             return user;
         }
@@ -421,17 +457,18 @@ export class TierService {
         return {
             ...user,
             emailVerified: user.emailVerified ?? user.isEmailVerified ?? false,
-            documentVerified: Boolean(
-                user.documentVerified
-                ?? user.isDocumentVerified
-                ?? false,
-            ) || verificationSnapshot.documentVerified,
+            documentVerified:
+                Boolean(
+                    user.documentVerified ?? user.isDocumentVerified ?? false,
+                ) || verificationSnapshot.documentVerified,
             governmentIdVerified:
-                user.governmentIdVerified
-                ?? (verificationSnapshot.bvnVerified || verificationSnapshot.ninVerified),
-            addressVerified: user.addressVerified ?? verificationSnapshot.addressVerified,
-            incomeVerified: user.incomeVerified ?? verificationSnapshot.incomeVerified,
+                user.governmentIdVerified ??
+                (verificationSnapshot.bvnVerified ||
+                    verificationSnapshot.ninVerified),
+            addressVerified:
+                user.addressVerified ?? verificationSnapshot.addressVerified,
+            incomeVerified:
+                user.incomeVerified ?? verificationSnapshot.incomeVerified,
         };
     }
-
 }

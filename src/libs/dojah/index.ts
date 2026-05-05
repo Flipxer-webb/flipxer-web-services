@@ -15,25 +15,35 @@ export class DojahLib {
         },
     });
 
-    private buildRequestMetadata(config?: AxiosRequestConfig): Record<string, unknown> | null {
+    private buildRequestMetadata(
+        config?: AxiosRequestConfig,
+    ): Record<string, unknown> | null {
         if (!config) {
             return null;
         }
 
         return {
-            method: typeof config.method === "string" ? config.method.toUpperCase() : null,
+            method:
+                typeof config.method === "string"
+                    ? config.method.toUpperCase()
+                    : null,
             url: config.url ?? null,
             baseURL: config.baseURL ?? this.instanceOptions.baseURL ?? null,
             timeout: config.timeout ?? null,
             hasParams: Boolean(config.params),
             dataKeys:
-                config.data && typeof config.data === "object" && !Array.isArray(config.data)
+                config.data &&
+                typeof config.data === "object" &&
+                !Array.isArray(config.data)
                     ? Object.keys(config.data as Record<string, unknown>)
                     : null,
         };
     }
 
-    private enrichDojahError<T extends e.DojahError>(dojahError: T, error: AxiosError<any>): T {
+    private enrichDojahError<T extends e.DojahError>(
+        dojahError: T,
+        error: AxiosError<any>,
+    ): T {
         dojahError.responseBody = error.response?.data;
         dojahError.requestMetadata = this.buildRequestMetadata(error.config);
 
@@ -47,57 +57,82 @@ export class DojahLib {
     private handleDojahError(error: AxiosError<any>) {
         // Handle network errors (no response from server)
         if (!error.response) {
-            let message = error.message || 'Network error connecting to Dojah';
+            let message = error.message || "Network error connecting to Dojah";
 
-            if (error.code === 'ECONNABORTED') {
-                message = 'Request timeout - Dojah API took too long to respond';
-            } else if (error.code === 'ENOTFOUND') {
-                message = 'Network error - Could not reach Dojah API';
+            if (error.code === "ECONNABORTED") {
+                message =
+                    "Request timeout - Dojah API took too long to respond";
+            } else if (error.code === "ENOTFOUND") {
+                message = "Network error - Could not reach Dojah API";
             }
 
-            throw this.enrichDojahError(new e.DojahNetworkError(message), error);
+            throw this.enrichDojahError(
+                new e.DojahNetworkError(message),
+                error,
+            );
         }
 
         switch (true) {
             case error.response?.status == 401: {
-                throw this.enrichDojahError(new e.DojahAuthorizationError(error.response.data.error), error);
+                throw this.enrichDojahError(
+                    new e.DojahAuthorizationError(error.response.data.error),
+                    error,
+                );
             }
             case error.response?.status == 400: {
-                throw this.enrichDojahError(new e.DojahValidationError(error.response.data.error), error);
+                throw this.enrichDojahError(
+                    new e.DojahValidationError(error.response.data.error),
+                    error,
+                );
             }
 
             case error.response?.status == 402: {
-                throw this.enrichDojahError(new e.DojahLowBalanceError(error.response.data.error), error);
+                throw this.enrichDojahError(
+                    new e.DojahLowBalanceError(error.response.data.error),
+                    error,
+                );
             }
 
             case error.response?.status == 404: {
-                throw this.enrichDojahError(new e.DojahNotFoundError(error.response.data.error), error);
+                throw this.enrichDojahError(
+                    new e.DojahNotFoundError(error.response.data.error),
+                    error,
+                );
             }
 
             case error.response?.status == 405: {
-                throw this.enrichDojahError(new e.DojahMethodNotFoundError(error.response.data.error), error);
+                throw this.enrichDojahError(
+                    new e.DojahMethodNotFoundError(error.response.data.error),
+                    error,
+                );
             }
 
             case error.response?.status == 408: {
-                throw this.enrichDojahError(new e.DojahRequestTimeoutError(error.response.data.error), error);
+                throw this.enrichDojahError(
+                    new e.DojahRequestTimeoutError(error.response.data.error),
+                    error,
+                );
             }
 
             case error.response?.status == 424: {
                 throw this.enrichDojahError(
                     new e.DojahThirdPartyServiceFailureError(
-                        error.response.data.error
+                        error.response.data.error,
                     ),
                     error,
                 );
             }
 
             case error.response?.status == 429: {
-                throw this.enrichDojahError(new e.DojahTooManyRequestError(error.response.data.error), error);
+                throw this.enrichDojahError(
+                    new e.DojahTooManyRequestError(error.response.data.error),
+                    error,
+                );
             }
 
             default: {
                 const err = new e.DojahGenericError(
-                    error.response?.data?.error || error.response?.statusText
+                    error.response?.data?.error || error.response?.statusText,
                 );
                 err.status = error.response?.status;
                 throw this.enrichDojahError(err, error);
@@ -106,7 +141,7 @@ export class DojahLib {
     }
 
     async verifyBvn(
-        options: t.VerifyBvnOptions
+        options: t.VerifyBvnOptions,
     ): Promise<t.DojahResponse<t.VerifyBvnResponseData>> {
         try {
             const requestOptions: AxiosRequestConfig = {
@@ -119,9 +154,8 @@ export class DojahLib {
                     dob: options.dob,
                 } as t.VerifyBvnOptions,
             };
-            const resp = await this.axios<t.VerifyBvnResponseData>(
-                requestOptions
-            );
+            const resp =
+                await this.axios<t.VerifyBvnResponseData>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.DojahError("Failed to verify bvn");
@@ -139,7 +173,7 @@ export class DojahLib {
     }
 
     async verifyNin(
-        options: t.VerifyNinOptions
+        options: t.VerifyNinOptions,
     ): Promise<t.DojahResponse<t.VerifyNinResponseData>> {
         try {
             const requestOptions: AxiosRequestConfig = {
@@ -152,9 +186,8 @@ export class DojahLib {
                     dob: options.dob,
                 } as t.VerifyNinOptions,
             };
-            const resp = await this.axios<t.VerifyNinResponseData>(
-                requestOptions
-            );
+            const resp =
+                await this.axios<t.VerifyNinResponseData>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.DojahError("Failed to verify NIN");
@@ -176,7 +209,7 @@ export class DojahLib {
      * Uses Dojah's Document Analysis API
      */
     async analyzeDocument(
-        options: t.DocumentAnalysisOptions
+        options: t.DocumentAnalysisOptions,
     ): Promise<t.DojahResponse<t.DocumentAnalysisResponseData>> {
         try {
             const body: Record<string, string> = {
@@ -194,9 +227,10 @@ export class DojahLib {
                 data: body,
             };
 
-            const resp = await this.axios<t.DocumentAnalysisResponseData>(
-                requestOptions
-            );
+            const resp =
+                await this.axios<t.DocumentAnalysisResponseData>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.DojahError("Failed to analyze document");
@@ -217,25 +251,34 @@ export class DojahLib {
     /**
      * Parse document analysis response into a more usable format
      */
-    parseDocumentData(data: t.DocumentAnalysisResponseData): t.ParsedDocumentData {
+    parseDocumentData(
+        data: t.DocumentAnalysisResponseData,
+    ): t.ParsedDocumentData {
         const entity = data.entity;
         const textData = entity.text_data || [];
         const rawText = textData
             .map((field) => field?.value)
-            .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+            .filter(
+                (value): value is string =>
+                    typeof value === "string" && value.trim().length > 0,
+            )
             .join("\n");
         const countryCode = entity.document_type?.document_country_code || "";
 
         const getFieldValue = (key: string): string | undefined => {
             const field = textData.find((f) => f.field_key === key);
-            return field?.status === 1 && field?.value ? field.value : undefined;
+            return field?.status === 1 && field?.value
+                ? field.value
+                : undefined;
         };
 
         return {
             isValid: entity.status.overall_status === 1,
             reason: entity.status.reason,
             documentType: entity.document_type?.document_name || "",
-            country: entity.document_type?.document_country_name || (countryCode.toUpperCase() === "NG" ? "Nigeria" : ""),
+            country:
+                entity.document_type?.document_country_name ||
+                (countryCode.toUpperCase() === "NG" ? "Nigeria" : ""),
             countryCode,
             rawText,
             firstName: getFieldValue("first_name"),
@@ -261,14 +304,16 @@ export class DojahLib {
      * Get verification result by reference/verification ID
      * Used to validate widget verification results server-to-server
      */
-    async getVerificationResult(verificationId: string): Promise<t.DojahResponse<any> | null> {
+    async getVerificationResult(
+        verificationId: string,
+    ): Promise<t.DojahResponse<any> | null> {
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/api/v1/kyc/verification`,
                 method: "GET",
                 params: {
-                    reference_id: verificationId
-                }
+                    reference_id: verificationId,
+                },
             };
             const resp = await this.axios<any>(requestOptions);
 
@@ -291,7 +336,7 @@ export class DojahLib {
     }
 
     async lookupCAC(
-        options: t.CACLookupOptions
+        options: t.CACLookupOptions,
     ): Promise<t.DojahResponse<t.CACLookupResponseData>> {
         try {
             const requestOptions: AxiosRequestConfig = {
@@ -301,9 +346,8 @@ export class DojahLib {
                     rc_number: options.rcNumber,
                 },
             };
-            const resp = await this.axios<t.CACLookupResponseData>(
-                requestOptions
-            );
+            const resp =
+                await this.axios<t.CACLookupResponseData>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.DojahError("Failed to lookup CAC");
@@ -321,7 +365,7 @@ export class DojahLib {
     }
 
     async verifyTIN(
-        options: t.TINVerifyOptions
+        options: t.TINVerifyOptions,
     ): Promise<t.DojahResponse<t.TINVerifyResponseData>> {
         try {
             const requestOptions: AxiosRequestConfig = {
@@ -331,9 +375,8 @@ export class DojahLib {
                     tin: options.tin,
                 },
             };
-            const resp = await this.axios<t.TINVerifyResponseData>(
-                requestOptions
-            );
+            const resp =
+                await this.axios<t.TINVerifyResponseData>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.DojahError("Failed to verify TIN");

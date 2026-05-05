@@ -1,15 +1,20 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
-import { 
-    ReportFilters, 
-    ReportConfig, 
+import {
+    ReportFilters,
+    ReportConfig,
     ReportResult,
     TransactionReportRow,
     UserReportRow,
     RevenueReportRow,
     TaxReportRow,
 } from "../types";
-import { KycStage, OrderCategory, OrderStreamlinedStatus, Prisma } from "@prisma/client";
+import {
+    KycStage,
+    OrderCategory,
+    OrderStreamlinedStatus,
+    Prisma,
+} from "@prisma/client";
 import { buildIndividualVerificationSnapshot } from "@/modules/api/auth/utils/individual-kyc-stage-state.util";
 
 @Injectable()
@@ -22,7 +27,9 @@ export class ReportsService {
      * Generate a report based on configuration
      */
     async generateReport(config: ReportConfig): Promise<ReportResult> {
-        this.logger.log(`Generating ${config.type} report in ${config.format} format`);
+        this.logger.log(
+            `Generating ${config.type} report in ${config.format} format`,
+        );
 
         let data: any[];
         let filename: string;
@@ -48,13 +55,15 @@ export class ReportsService {
                 throw new Error(`Unknown report type: ${config.type}`);
         }
 
-        const content = config.format === "csv" 
-            ? this.convertToCSV(data, config.includeHeaders !== false)
-            : JSON.stringify(data, null, 2);
+        const content =
+            config.format === "csv"
+                ? this.convertToCSV(data, config.includeHeaders !== false)
+                : JSON.stringify(data, null, 2);
 
         return {
             filename: `${filename}.${config.format}`,
-            contentType: config.format === "csv" ? "text/csv" : "application/json",
+            contentType:
+                config.format === "csv" ? "text/csv" : "application/json",
             data: content,
             rowCount: data.length,
             generatedAt: new Date(),
@@ -64,7 +73,9 @@ export class ReportsService {
     /**
      * Get transaction data for report
      */
-    private async getTransactionData(filters: ReportFilters): Promise<TransactionReportRow[]> {
+    private async getTransactionData(
+        filters: ReportFilters,
+    ): Promise<TransactionReportRow[]> {
         const where: Prisma.OrderWhereInput = this.buildOrderFilters(filters);
 
         const orders = await this.prisma.order.findMany({
@@ -88,7 +99,8 @@ export class ReportsService {
             date: order.createdAt.toISOString(),
             userId: order.userId,
             userEmail: order.user.email,
-            userName: `${order.user.firstName || ""} ${order.user.lastName || ""}`.trim(),
+            userName:
+                `${order.user.firstName || ""} ${order.user.lastName || ""}`.trim(),
             orderCategory: order.orderCategory,
             fromCurrency: order.fromCurrency || order.currency || "",
             toCurrency: order.toCurrency || "",
@@ -104,7 +116,9 @@ export class ReportsService {
     /**
      * Get user data for report
      */
-    private async getUserData(filters: ReportFilters): Promise<UserReportRow[]> {
+    private async getUserData(
+        filters: ReportFilters,
+    ): Promise<UserReportRow[]> {
         const where: Prisma.UserWhereInput = {
             isDeleted: false,
             userType: { not: "ADMIN" },
@@ -151,7 +165,10 @@ export class ReportsService {
                         stage: KycStage.GOVERNMENT_ID,
                         isCurrent: true,
                     },
-                    orderBy: [{ updatedAt: Prisma.SortOrder.desc }, { id: Prisma.SortOrder.desc }],
+                    orderBy: [
+                        { updatedAt: Prisma.SortOrder.desc },
+                        { id: Prisma.SortOrder.desc },
+                    ],
                     select: {
                         stage: true,
                         method: true,
@@ -185,10 +202,10 @@ export class ReportsService {
                 emailVerified: user.isEmailVerified,
                 phoneVerified: user.isPhoneVerified,
                 governmentIdVerified:
-                    verificationSnapshot.bvnVerified
-                    || verificationSnapshot.ninVerified
-                    || Boolean(user.bvn)
-                    || Boolean(user.nin),
+                    verificationSnapshot.bvnVerified ||
+                    verificationSnapshot.ninVerified ||
+                    Boolean(user.bvn) ||
+                    Boolean(user.nin),
                 documentVerified: user.isDocumentVerified,
                 createdAt: user.createdAt.toISOString(),
                 lastLogin: user.lastLogin?.toISOString() || "",
@@ -200,7 +217,9 @@ export class ReportsService {
     /**
      * Get revenue data for report (aggregated)
      */
-    private async getRevenueData(filters: ReportFilters): Promise<RevenueReportRow[]> {
+    private async getRevenueData(
+        filters: ReportFilters,
+    ): Promise<RevenueReportRow[]> {
         const where: Prisma.OrderWhereInput = this.buildOrderFilters(filters);
         where.streamlinedStatus = "completed";
 
@@ -251,9 +270,10 @@ export class ReportsService {
         // Calculate averages
         const result = Array.from(grouped.values());
         for (const row of result) {
-            row.avgTransactionValue = row.transactionCount > 0 
-                ? row.totalVolume / row.transactionCount 
-                : 0;
+            row.avgTransactionValue =
+                row.transactionCount > 0
+                    ? row.totalVolume / row.transactionCount
+                    : 0;
         }
 
         return result.sort((a, b) => a.date.localeCompare(b.date));
@@ -290,7 +310,8 @@ export class ReportsService {
                 grouped.set(order.userId, {
                     userId: order.userId,
                     userEmail: order.user.email,
-                    userName: `${order.user.firstName || ""} ${order.user.lastName || ""}`.trim(),
+                    userName:
+                        `${order.user.firstName || ""} ${order.user.lastName || ""}`.trim(),
                     userType: order.user.userType,
                     totalTransactions: 0,
                     totalVolume: 0,
@@ -298,7 +319,10 @@ export class ReportsService {
                     totalBuyVolume: 0,
                     totalSellVolume: 0,
                     totalSwapVolume: 0,
-                    period: this.formatPeriod(filters.startDate, filters.endDate),
+                    period: this.formatPeriod(
+                        filters.startDate,
+                        filters.endDate,
+                    ),
                 });
             }
 
@@ -307,7 +331,7 @@ export class ReportsService {
                 continue;
             }
             const amount = order.amount || order.fromAmount || 0;
-            
+
             row.totalTransactions++;
             row.totalVolume += amount;
             row.totalFees += order.fee || 0;
@@ -325,8 +349,9 @@ export class ReportsService {
             }
         }
 
-        return Array.from(grouped.values())
-            .sort((a, b) => b.totalVolume - a.totalVolume);
+        return Array.from(grouped.values()).sort(
+            (a, b) => b.totalVolume - a.totalVolume,
+        );
     }
 
     /**
@@ -379,7 +404,10 @@ export class ReportsService {
             const values = headers.map((header) => {
                 const value = row[header];
                 if (value === null || value === undefined) return "";
-                if (typeof value === "string" && (value.includes(",") || value.includes('"'))) {
+                if (
+                    typeof value === "string" &&
+                    (value.includes(",") || value.includes('"'))
+                ) {
                     return `"${value.replaceAll('"', '""')}"`;
                 }
                 return String(value);
@@ -423,19 +451,54 @@ export class ReportsService {
         switch (config.type) {
             case "transactions":
                 data = await this.getTransactionData(config.filters || {});
-                columns = ["id", "date", "userEmail", "userName", "orderCategory", "fromCurrency", "toCurrency", "amount", "fee", "total", "status"];
+                columns = [
+                    "id",
+                    "date",
+                    "userEmail",
+                    "userName",
+                    "orderCategory",
+                    "fromCurrency",
+                    "toCurrency",
+                    "amount",
+                    "fee",
+                    "total",
+                    "status",
+                ];
                 break;
             case "users":
                 data = await this.getUserData(config.filters || {});
-                columns = ["id", "email", "firstName", "lastName", "createdAt", "verificationTier", "country", "status"];
+                columns = [
+                    "id",
+                    "email",
+                    "firstName",
+                    "lastName",
+                    "createdAt",
+                    "verificationTier",
+                    "country",
+                    "status",
+                ];
                 break;
             case "revenue":
                 data = await this.getRevenueData(config.filters || {});
-                columns = ["date", "category", "currency", "transactionCount", "totalVolume", "totalFees"];
+                columns = [
+                    "date",
+                    "category",
+                    "currency",
+                    "transactionCount",
+                    "totalVolume",
+                    "totalFees",
+                ];
                 break;
             case "tax":
                 data = await this.getTaxData(config.filters || {});
-                columns = ["userId", "userEmail", "userName", "totalTransactions", "totalVolume", "totalFees"];
+                columns = [
+                    "userId",
+                    "userEmail",
+                    "userName",
+                    "totalTransactions",
+                    "totalVolume",
+                    "totalFees",
+                ];
                 break;
             default:
                 throw new Error(`Unknown report type: ${config.type}`);
@@ -445,9 +508,10 @@ export class ReportsService {
         const sampleSize = Math.min(10, data.length);
         const sampleData = data.slice(0, sampleSize);
         const sampleJson = JSON.stringify(sampleData);
-        const avgRowSize = sampleSize > 0 ? sampleJson.length / sampleSize : 100;
+        const avgRowSize =
+            sampleSize > 0 ? sampleJson.length / sampleSize : 100;
         const estimatedBytes = avgRowSize * data.length;
-        
+
         let estimatedSize: string;
         if (estimatedBytes < 1024) {
             estimatedSize = `${estimatedBytes.toFixed(0)} B`;
@@ -473,19 +537,28 @@ export class ReportsService {
             {
                 type: "transactions",
                 name: "Transaction Report",
-                description: "All transactions with user details, amounts, fees, and status",
-                filters: ["startDate", "endDate", "currency", "status", "orderCategory"],
+                description:
+                    "All transactions with user details, amounts, fees, and status",
+                filters: [
+                    "startDate",
+                    "endDate",
+                    "currency",
+                    "status",
+                    "orderCategory",
+                ],
             },
             {
                 type: "users",
                 name: "User Report",
-                description: "All registered users with verification status and activity",
+                description:
+                    "All registered users with verification status and activity",
                 filters: ["startDate", "endDate", "userType", "country"],
             },
             {
                 type: "revenue",
                 name: "Revenue Report",
-                description: "Aggregated revenue by date, category, and currency",
+                description:
+                    "Aggregated revenue by date, category, and currency",
                 filters: ["startDate", "endDate", "currency", "orderCategory"],
             },
             {

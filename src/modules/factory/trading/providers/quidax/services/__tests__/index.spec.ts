@@ -127,7 +127,10 @@ describe("Quidax error handler", () => {
     });
 
     it("handleQuidaxError should preserve status and code for Quidax errors", () => {
-        const validationError = new QuidaxValidationError("already exists", "E0101");
+        const validationError = new QuidaxValidationError(
+            "already exists",
+            "E0101",
+        );
 
         try {
             handleQuidaxError(validationError, "fallback", logger);
@@ -187,7 +190,9 @@ describe("namespaceEmail", () => {
         const originalNode = process.env.NODE_ENV;
         delete process.env.NODE_ENV;
         try {
-            expect(namespaceEmail("user@example.com")).toBe("dev_user@example.com");
+            expect(namespaceEmail("user@example.com")).toBe(
+                "dev_user@example.com",
+            );
         } finally {
             process.env.NODE_ENV = originalNode;
         }
@@ -206,9 +211,15 @@ describe("QuidaxAccountService", () => {
         quidax = buildQuidaxMock();
         service = new QuidaxAccountService(quidax as any);
 
-        jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
-        jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
-        jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        jest.spyOn((service as any).logger, "log").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((service as any).logger, "warn").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((service as any).logger, "error").mockImplementation(
+            () => undefined,
+        );
     });
 
     afterEach(() => {
@@ -222,21 +233,31 @@ describe("QuidaxAccountService", () => {
     });
 
     it("findSubAccountByEmail should namespace and delegate to Quidax library", async () => {
-        quidax.findSubAccountByEmail.mockResolvedValue({ id: "sub-1", email: "stg_user@example.com" });
+        quidax.findSubAccountByEmail.mockResolvedValue({
+            id: "sub-1",
+            email: "stg_user@example.com",
+        });
 
         const result = await service.findSubAccountByEmail("user@example.com");
 
         expect(result).toEqual({ id: "sub-1", email: "stg_user@example.com" });
-        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith("stg_user@example.com");
+        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith(
+            "stg_user@example.com",
+        );
     });
 
     it("findSubAccountByEmail should not namespace in production", async () => {
         process.env.ENVIRONMENT = "production";
-        quidax.findSubAccountByEmail.mockResolvedValue({ id: "sub-1", email: "user@example.com" });
+        quidax.findSubAccountByEmail.mockResolvedValue({
+            id: "sub-1",
+            email: "user@example.com",
+        });
 
         const result = await service.findSubAccountByEmail("user@example.com");
 
-        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith("user@example.com");
+        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith(
+            "user@example.com",
+        );
         expect(result).toEqual({ id: "sub-1", email: "user@example.com" });
     });
 
@@ -252,7 +273,9 @@ describe("QuidaxAccountService", () => {
 
         expect(result.status).toBe("success");
         expect(result.data).toEqual(existing);
-        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith("stg_user@example.com");
+        expect(quidax.findSubAccountByEmail).toHaveBeenCalledWith(
+            "stg_user@example.com",
+        );
     });
 
     it("createOrFindSubAccount should retry lookup on E0101 and return found account", async () => {
@@ -267,7 +290,10 @@ describe("QuidaxAccountService", () => {
 
         quidax.findSubAccountByEmail
             .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce({ id: "sub-retry", email: "stg_retry@gmail.com" });
+            .mockResolvedValueOnce({
+                id: "sub-retry",
+                email: "stg_retry@gmail.com",
+            });
 
         quidax.createSubAccount.mockRejectedValueOnce(
             new QuidaxValidationError("already exists", "E0101"),
@@ -393,7 +419,9 @@ describe("QuidaxService facade", () => {
         }
 
         service = new QuidaxService(quidax as any);
-        jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
+        jest.spyOn((service as any).logger, "log").mockImplementation(
+            () => undefined,
+        );
     });
 
     afterEach(() => {
@@ -403,39 +431,108 @@ describe("QuidaxService facade", () => {
 
     it("should delegate operations across all composed domain services", async () => {
         await service.findSubAccountByEmail("user@example.com");
-        await service.createOrFindSubAccount({ email: "user@example.com", first_name: "F", last_name: "L" } as any);
-        await service.createSubAccount({ email: "user@example.com", first_name: "F", last_name: "L" } as any);
+        await service.createOrFindSubAccount({
+            email: "user@example.com",
+            first_name: "F",
+            last_name: "L",
+        } as any);
+        await service.createSubAccount({
+            email: "user@example.com",
+            first_name: "F",
+            last_name: "L",
+        } as any);
         await service.getAccountDetail({ user_id: "uid" } as any);
 
         await service.getUserWalletList({ user_id: "uid" } as any);
         await service.getUserWallet({ user_id: "uid", currency: "btc" } as any);
-        await service.getPaymentAddress({ user_id: "uid", currency: "btc" } as any);
-        await service.getPaymentAddressList({ user_id: "uid", currency: "btc" } as any);
-        await service.getPaymentAddressById({ user_id: "uid", currency: "btc", address_id: "a1" } as any);
-        await service.createPaymentAddress({ user_id: "uid", currency: "btc", network: "btc" } as any);
-        await service.verifyAddress({ currency: "btc", address: "addr" } as any);
+        await service.getPaymentAddress({
+            user_id: "uid",
+            currency: "btc",
+        } as any);
+        await service.getPaymentAddressList({
+            user_id: "uid",
+            currency: "btc",
+        } as any);
+        await service.getPaymentAddressById({
+            user_id: "uid",
+            currency: "btc",
+            address_id: "a1",
+        } as any);
+        await service.createPaymentAddress({
+            user_id: "uid",
+            currency: "btc",
+            network: "btc",
+        } as any);
+        await service.verifyAddress({
+            currency: "btc",
+            address: "addr",
+        } as any);
 
         await service.fetchDeposits({ user_id: "uid" } as any);
-        await service.fetchDeposit({ user_id: "uid", currency: "btc", deposit_id: "d1" } as any);
+        await service.fetchDeposit({
+            user_id: "uid",
+            currency: "btc",
+            deposit_id: "d1",
+        } as any);
 
-        await service.createWithdrawerRequest({ user_id: "uid", currency: "btc", amount: "1" } as any);
-        await service.cancelWithdrawerRequest({ user_id: "uid", withdrawal_id: "w1" } as any);
-        await service.getWithdrawerList("uid", { currency: "btc", state: "done" } as any);
-        await service.getWithdrawerDetail({ user_id: "uid", withdrawal_id: "w1" } as any);
-        await service.getWithdrawerByReference({ user_id: "uid", reference: "ref-1" } as any);
+        await service.createWithdrawerRequest({
+            user_id: "uid",
+            currency: "btc",
+            amount: "1",
+        } as any);
+        await service.cancelWithdrawerRequest({
+            user_id: "uid",
+            withdrawal_id: "w1",
+        } as any);
+        await service.getWithdrawerList("uid", {
+            currency: "btc",
+            state: "done",
+        } as any);
+        await service.getWithdrawerDetail({
+            user_id: "uid",
+            withdrawal_id: "w1",
+        } as any);
+        await service.getWithdrawerByReference({
+            user_id: "uid",
+            reference: "ref-1",
+        } as any);
         await service.getWithdrawerFees({ currency: "btc" } as any);
 
-        await service.buyOrSellOrderRequest("uid", { market: "btcngn", side: "buy" } as any);
-        await service.cancelBuyOrSellOrderRequest("uid", { user_id: "uid", order_id: "o1" } as any);
-        await service.getAllOrders("uid", { market: "btcngn", state: "done" } as any);
+        await service.buyOrSellOrderRequest("uid", {
+            market: "btcngn",
+            side: "buy",
+        } as any);
+        await service.cancelBuyOrSellOrderRequest("uid", {
+            user_id: "uid",
+            order_id: "o1",
+        } as any);
+        await service.getAllOrders("uid", {
+            market: "btcngn",
+            state: "done",
+        } as any);
         await service.getOrderRecord({ user_id: "uid", order_id: "o1" } as any);
         await service.getOrderBookItemsForAMarket({ market: "btcngn" } as any);
-        await service.instantOrdersRequery({ user_id: "uid", instant_order_id: "io1" } as any);
+        await service.instantOrdersRequery({
+            user_id: "uid",
+            instant_order_id: "io1",
+        } as any);
 
-        await service.createInstantSwapRequest("uid", { from_currency: "btc", to_currency: "eth", from_amount: "1" } as any);
-        await service.confirmInstantSwap({ user_id: "uid", quotation_id: "q1" } as any);
-        await service.refreshInstantSwapQuote("uid", "q1", { amount: "1" } as any);
-        await service.getSwapTransaction({ user_id: "uid", swap_transaction_id: "s1" } as any);
+        await service.createInstantSwapRequest("uid", {
+            from_currency: "btc",
+            to_currency: "eth",
+            from_amount: "1",
+        } as any);
+        await service.confirmInstantSwap({
+            user_id: "uid",
+            quotation_id: "q1",
+        } as any);
+        await service.refreshInstantSwapQuote("uid", "q1", {
+            amount: "1",
+        } as any);
+        await service.getSwapTransaction({
+            user_id: "uid",
+            swap_transaction_id: "s1",
+        } as any);
         await service.getSwapTransactionList("uid");
 
         await service.getMarketList();
@@ -445,8 +542,14 @@ describe("QuidaxService facade", () => {
         await service.getPaymentMethods({ token_symbol: "btc" } as any);
         await service.getPurchaseLimitForBuy({ currency_symbol: "btc" } as any);
         await service.getPurchaseLimitForSell({ token_symbol: "btc" } as any);
-        await service.getPurchaseQuoteForBuy({ token: "btc", fiat_amount: "1000" } as any);
-        await service.getPurchaseQuoteForSell({ token: "btc", token_amount: "1" } as any);
+        await service.getPurchaseQuoteForBuy({
+            token: "btc",
+            fiat_amount: "1000",
+        } as any);
+        await service.getPurchaseQuoteForSell({
+            token: "btc",
+            token_amount: "1",
+        } as any);
 
         expect(quidax.findSubAccountByEmail).toHaveBeenCalled();
         expect(quidax.createSubAccount).toHaveBeenCalled();

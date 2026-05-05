@@ -114,10 +114,13 @@ export class AcceptAdminInviteDto {
     @IsNotEmpty()
     @IsString()
     @MinLength(12)
-    @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])/, {
-        message:
-            "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
-    })
+    @Matches(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~])/,
+        {
+            message:
+                "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+        },
+    )
     password: string;
 }
 
@@ -132,12 +135,18 @@ export class Verify2FALoginDto {
     @Matches(/^\d{6}$/, { message: "TOTP code must be 6 digits" })
     code: string;
 
-    @ApiProperty({ required: false, description: "Device name for session tracking" })
+    @ApiProperty({
+        required: false,
+        description: "Device name for session tracking",
+    })
     @IsString()
     @IsOptional()
     deviceName?: string;
 
-    @ApiProperty({ required: false, description: "Device type (mobile, desktop, tablet)" })
+    @ApiProperty({
+        required: false,
+        description: "Device type (mobile, desktop, tablet)",
+    })
     @IsString()
     @IsOptional()
     deviceType?: string;
@@ -151,8 +160,6 @@ export class Verify2FALoginDto {
     @IsString()
     @IsOptional()
     os?: string;
-
-
 }
 
 enum AccountType {
@@ -304,7 +311,8 @@ export class OnboardIndividualDto {
     dateOfBirth: string;
 
     @ApiProperty({
-        description: "Residential address used for address-verification matching",
+        description:
+            "Residential address used for address-verification matching",
         example: "10 Main Street, Ikeja, Lagos",
     })
     @IsNotEmpty()
@@ -321,12 +329,18 @@ export class SignInDto {
     @IsString({ message: "Invalid password format" })
     password: string;
 
-    @ApiProperty({ required: false, description: "Device name for session tracking" })
+    @ApiProperty({
+        required: false,
+        description: "Device name for session tracking",
+    })
     @IsString()
     @IsOptional()
     deviceName?: string;
 
-    @ApiProperty({ required: false, description: "Device type (mobile, desktop, tablet)" })
+    @ApiProperty({
+        required: false,
+        description: "Device type (mobile, desktop, tablet)",
+    })
     @IsString()
     @IsOptional()
     deviceType?: string;
@@ -340,8 +354,6 @@ export class SignInDto {
     @IsString()
     @IsOptional()
     os?: string;
-
-
 }
 
 export enum UserSignInAppType {
@@ -349,7 +361,7 @@ export enum UserSignInAppType {
     ADMIN = "ADMIN",
 }
 
-export class UserSigInDto extends SignInDto { }
+export class UserSigInDto extends SignInDto {}
 
 export class SendPhoneVerificationCodeDto {
     @ApiProperty()
@@ -423,13 +435,16 @@ export class DocumentVerificationBase64Dto {
     @IsEnum(Country)
     country: Country;
 
-    @ApiPropertyOptional({ description: "Document number (e.g., passport number, license number)" })
+    @ApiPropertyOptional({
+        description: "Document number (e.g., passport number, license number)",
+    })
     @IsOptional()
     @IsString()
     documentNumber?: string;
 
     @ApiProperty({
-        description: "Base64-encoded front image of the document (without data:image prefix)",
+        description:
+            "Base64-encoded front image of the document (without data:image prefix)",
     })
     @IsNotEmpty()
     @IsString()
@@ -437,7 +452,8 @@ export class DocumentVerificationBase64Dto {
 
     @ApiProperty({
         required: false,
-        description: "Base64-encoded back image of the document (without data:image prefix)",
+        description:
+            "Base64-encoded back image of the document (without data:image prefix)",
     })
     @IsOptional()
     @IsString()
@@ -454,7 +470,8 @@ export class DocumentPreviewDto {
         required: false,
         enum: DocumentType,
         enumName: "DocumentType",
-        description: "Selected document type/path to validate the uploaded document against",
+        description:
+            "Selected document type/path to validate the uploaded document against",
     })
     @IsOptional()
     @IsEnum(DocumentType)
@@ -500,7 +517,10 @@ export class UploadBusinessDocumentFileDto {
 }
 
 export class UploadBusinessDocumentFileFormDto {
-    @ApiProperty({ type: "string", description: "Supported business document field name" })
+    @ApiProperty({
+        type: "string",
+        description: "Supported business document field name",
+    })
     fieldName: string;
 
     @ApiProperty({
@@ -537,7 +557,10 @@ export class BusinessDirectorDto {
     @IsString()
     businessAddress: string;
 
-    @ApiPropertyOptional({ description: "National Identification Number (NIN)", required: false })
+    @ApiPropertyOptional({
+        description: "National Identification Number (NIN)",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     nin?: string;
@@ -569,7 +592,10 @@ export class BusinessShareholderDto {
     @IsString()
     businessAddress: string;
 
-    @ApiPropertyOptional({ description: "National Identification Number (NIN)", required: false })
+    @ApiPropertyOptional({
+        description: "National Identification Number (NIN)",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     nin?: string;
@@ -595,17 +621,26 @@ export class SubmitBusinessDocumentsDto {
     @IsOptional()
     articleOfAssociationNumber?: string;
 
-    @ApiPropertyOptional({ description: "Company website URL", required: false })
+    @ApiPropertyOptional({
+        description: "Company website URL",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     companyWebsite?: string;
 
-    @ApiPropertyOptional({ description: "Company tax ID (TIN) as text value", required: false })
+    @ApiPropertyOptional({
+        description: "Company tax ID (TIN) as text value",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     companyTaxId?: string;
 
-    @ApiPropertyOptional({ description: "Company registered address", required: false })
+    @ApiPropertyOptional({
+        description: "Company registered address",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     companyAddress?: string;
@@ -646,7 +681,8 @@ export class SubmitBusinessDocumentsDto {
     directors?: BusinessDirectorDto[];
 
     @ApiPropertyOptional({
-        description: "Shareholders (>5%) list (with per-shareholder KYC details)",
+        description:
+            "Shareholders (>5%) list (with per-shareholder KYC details)",
         required: false,
         type: () => [BusinessShareholderDto],
     })
@@ -657,11 +693,13 @@ export class SubmitBusinessDocumentsDto {
     shareholders?: BusinessShareholderDto[];
 
     @ApiProperty({
-        description:
-            "Map of fieldName → ImageKit URL for each uploaded file",
+        description: "Map of fieldName → ImageKit URL for each uploaded file",
     })
     @IsNotEmpty()
-    uploadedFiles: Record<string, { url: string; fileId: string; originalName?: string }>;
+    uploadedFiles: Record<
+        string,
+        { url: string; fileId: string; originalName?: string }
+    >;
 }
 
 export class BusinessDocumentUploadFormDto {
@@ -762,25 +800,39 @@ export class RefreshTokenDto {
 // ==================== Tier 2/3 Verification DTOs ====================
 
 export class VerifyAddressUploadFormDto {
-    @ApiProperty({ type: "string", format: "binary", description: "Address proof document (utility bill, bank statement)" })
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "Address proof document (utility bill, bank statement)",
+    })
     document: Express.Multer.File;
 }
 
 export class VerifyIncomeUploadFormDto {
-    @ApiProperty({ type: "string", format: "binary", description: "Income proof document (payslip, bank statement, tax document)" })
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description:
+            "Income proof document (payslip, bank statement, tax document)",
+    })
     document: Express.Multer.File;
 }
 
 export class IndividualKycStageFileUploadFormDto {
     @ApiPropertyOptional({
-        description: "Optional stage method override for the new stage-based KYC routes",
+        description:
+            "Optional stage method override for the new stage-based KYC routes",
         required: false,
     })
     @IsOptional()
     @IsString()
     method?: string;
 
-    @ApiProperty({ type: "string", format: "binary", description: "KYC evidence file" })
+    @ApiProperty({
+        type: "string",
+        format: "binary",
+        description: "KYC evidence file",
+    })
     document: Express.Multer.File;
 }
 
@@ -789,7 +841,9 @@ export class CreateTradingPasswordDto {
     @IsNotEmpty()
     @IsString()
     @MinLength(6, { message: "Trading password must be at least 6 characters" })
-    @MaxLength(50, { message: "Trading password must not exceed 50 characters" })
+    @MaxLength(50, {
+        message: "Trading password must not exceed 50 characters",
+    })
     tradingPassword: string;
 
     @ApiProperty({ description: "Confirm trading password" })
@@ -799,7 +853,10 @@ export class CreateTradingPasswordDto {
 }
 
 export class Reset2FARateLimitDto {
-    @ApiProperty({ example: 123, description: "User ID to reset rate limit for" })
+    @ApiProperty({
+        example: 123,
+        description: "User ID to reset rate limit for",
+    })
     @IsNotEmpty()
     @IsNumber()
     userId: number;
@@ -808,7 +865,7 @@ export class Reset2FARateLimitDto {
         example: "login",
         description: "Context to reset (login, transaction, or omit for all)",
         required: false,
-        enum: ["login", "transaction"]
+        enum: ["login", "transaction"],
     })
     @IsOptional()
     @IsEnum(["login", "transaction"])

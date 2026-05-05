@@ -95,7 +95,9 @@ describe("UserService coverage wave", () => {
 
     const tierService = {
         getWithdrawalLimit: jest.fn().mockReturnValue(100),
-        getDailyLimits: jest.fn().mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 }),
+        getDailyLimits: jest
+            .fn()
+            .mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 }),
     };
 
     const liveCoinWatchService = {
@@ -140,14 +142,29 @@ describe("UserService coverage wave", () => {
             liveCoinWatchService as any,
             redisCacheService as any,
             ledgerService as any,
-            rateService as any
+            rateService as any,
         );
     });
 
     it("calculates percentage change with valid and invalid inputs", () => {
-        expect(service.calculatePercentageChange({ open: "100", last: "120" } as any)).toBe(20);
-        expect(service.calculatePercentageChange({ open: "0", last: "120" } as any)).toBeNull();
-        expect(service.calculatePercentageChange({ open: undefined, last: "120" } as any)).toBeNull();
+        expect(
+            service.calculatePercentageChange({
+                open: "100",
+                last: "120",
+            } as any),
+        ).toBe(20);
+        expect(
+            service.calculatePercentageChange({
+                open: "0",
+                last: "120",
+            } as any),
+        ).toBeNull();
+        expect(
+            service.calculatePercentageChange({
+                open: undefined,
+                last: "120",
+            } as any),
+        ).toBeNull();
     });
 
     it("computes withdrawal usage with USD conversion", async () => {
@@ -159,7 +176,12 @@ describe("UserService coverage wave", () => {
         liveCoinWatchService.getPriceInUSD
             .mockResolvedValueOnce(10)
             .mockResolvedValueOnce(5);
-        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+        tierService.getDailyLimits.mockReturnValue({
+            buy: 100,
+            sell: 100,
+            swap: 100,
+            send: 100,
+        });
 
         const result = await service.getWithdrawalUsage(user);
 
@@ -176,10 +198,17 @@ describe("UserService coverage wave", () => {
             { amount: 3, currency: "ETH", orderCategory: "SWAP" },
         ]);
         prisma.limitOverride.findUnique.mockResolvedValue(null);
-        liveCoinWatchService.getPriceInUSD.mockImplementation(async (currency: string) => {
-            return currency === "btc" ? 10 : 5;
+        liveCoinWatchService.getPriceInUSD.mockImplementation(
+            async (currency: string) => {
+                return currency === "btc" ? 10 : 5;
+            },
+        );
+        tierService.getDailyLimits.mockReturnValue({
+            buy: 100,
+            sell: 100,
+            swap: 100,
+            send: 100,
         });
-        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
 
         const result = await service.getWithdrawalUsage(user);
 
@@ -192,24 +221,40 @@ describe("UserService coverage wave", () => {
     });
 
     it("handles rate fetch failures in withdrawal usage", async () => {
-        prisma.order.findMany.mockResolvedValue([{ amount: 2, currency: "BTC", orderCategory: "BUY" }]);
+        prisma.order.findMany.mockResolvedValue([
+            { amount: 2, currency: "BTC", orderCategory: "BUY" },
+        ]);
         prisma.limitOverride.findUnique.mockResolvedValue(null);
-        liveCoinWatchService.getPriceInUSD.mockRejectedValue(new Error("rate-api-failed"));
-        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+        liveCoinWatchService.getPriceInUSD.mockRejectedValue(
+            new Error("rate-api-failed"),
+        );
+        tierService.getDailyLimits.mockReturnValue({
+            buy: 100,
+            sell: 100,
+            swap: 100,
+            send: 100,
+        });
 
         const result = await service.getWithdrawalUsage(user);
         expect(result.data.buy.usedToday).toBe(0);
     });
 
     it("uses the active daily limit override for all operations", async () => {
-        prisma.order.findMany.mockResolvedValue([{ amount: 2, currency: "BTC", orderCategory: "BUY" }]);
+        prisma.order.findMany.mockResolvedValue([
+            { amount: 2, currency: "BTC", orderCategory: "BUY" },
+        ]);
         prisma.limitOverride.findUnique.mockResolvedValue({
             userId: user.id,
             dailyLimitUSD: 250,
             expiresAt: null,
         });
         liveCoinWatchService.getPriceInUSD.mockResolvedValueOnce(10);
-        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+        tierService.getDailyLimits.mockReturnValue({
+            buy: 100,
+            sell: 100,
+            swap: 100,
+            send: 100,
+        });
 
         const result = await service.getWithdrawalUsage(user);
 
@@ -271,7 +316,7 @@ describe("UserService coverage wave", () => {
         const result = await service.updateUserDetails(
             { firstName: "Ada" } as any,
             user,
-            { buffer: Buffer.from("image") } as any
+            { buffer: Buffer.from("image") } as any,
         );
 
         expect(result.message).toContain("updated successfully");
@@ -281,14 +326,14 @@ describe("UserService coverage wave", () => {
     });
 
     it("throws generic exception when profile upload fails", async () => {
-        mockUploadService.uploadCompressedImage.mockRejectedValue(new Error("upload-failed"));
+        mockUploadService.uploadCompressedImage.mockRejectedValue(
+            new Error("upload-failed"),
+        );
 
         await expect(
-            service.updateUserDetails(
-                { firstName: "Ada" } as any,
-                user,
-                { buffer: Buffer.from("image") } as any
-            )
+            service.updateUserDetails({ firstName: "Ada" } as any, user, {
+                buffer: Buffer.from("image"),
+            } as any),
         ).rejects.toMatchObject({
             message: "Failed to update profile image",
             status: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -300,7 +345,7 @@ describe("UserService coverage wave", () => {
             new Map([
                 ["BTC", { available: "2", held: "0" }],
                 ["ETH", { available: "1", held: "0" }],
-            ])
+            ]),
         );
 
         rateService.getAllRates.mockResolvedValue([
@@ -341,7 +386,7 @@ describe("UserService coverage wave", () => {
         });
 
         ledgerService.getAllBalances.mockResolvedValue(
-            new Map([["BTC", { available: "2", held: "0.5" }]])
+            new Map([["BTC", { available: "2", held: "0.5" }]]),
         );
 
         liveCoinWatchService.getBatchMarketData.mockResolvedValue({
@@ -371,7 +416,13 @@ describe("UserService coverage wave", () => {
     it("creates synthetic wallets for ledger-only balances", async () => {
         // DB has BTC wallet, ledger has BTC + ETH
         prisma.assetWallet.findMany.mockResolvedValue([
-            { id: 11, userId: user.id, assetCurrency: "BTC", assetName: "Bitcoin", createdAt: new Date() },
+            {
+                id: 11,
+                userId: user.id,
+                assetCurrency: "BTC",
+                assetName: "Bitcoin",
+                createdAt: new Date(),
+            },
         ]);
         prisma.assetWallet.count.mockResolvedValue(1);
 
@@ -386,7 +437,7 @@ describe("UserService coverage wave", () => {
             new Map([
                 ["BTC", { available: "2", held: "0" }],
                 ["ETH", { available: "1.5", held: "0.1" }],
-            ])
+            ]),
         );
 
         liveCoinWatchService.getBatchMarketData.mockResolvedValue({});
@@ -430,7 +481,7 @@ describe("UserService coverage wave", () => {
             new Map([
                 ["BTC", { available: "1", held: "0" }],
                 ["ETH", { available: "1", held: "0" }],
-            ])
+            ]),
         );
         liveCoinWatchService.getBatchMarketData.mockResolvedValue({});
 
@@ -451,7 +502,7 @@ describe("UserService coverage wave", () => {
         rateService.getAllRates.mockResolvedValue([]);
         quidaxCacheService.getMarketTickers.mockResolvedValue({});
         ledgerService.getAllBalances.mockResolvedValue(
-            new Map([["DOGE", { available: "0", held: "0" }]])
+            new Map([["DOGE", { available: "0", held: "0" }]]),
         );
         liveCoinWatchService.getBatchMarketData.mockResolvedValue({});
 
@@ -470,8 +521,8 @@ describe("UserService coverage wave", () => {
         await expect(
             service.updateProfilePassword(
                 { oldPassword: "bad", newPassword: "new" } as any,
-                user
-            )
+                user,
+            ),
         ).rejects.toThrow("does not match");
     });
 
@@ -481,8 +532,8 @@ describe("UserService coverage wave", () => {
         await expect(
             service.updateProfilePassword(
                 { oldPassword: "same", newPassword: "same" } as any,
-                user
-            )
+                user,
+            ),
         ).rejects.toThrow("must be different");
     });
 
@@ -497,7 +548,7 @@ describe("UserService coverage wave", () => {
 
         const result = await service.updateProfilePassword(
             passwordPayload,
-            user
+            user,
         );
 
         expect(result.message).toContain("successfully updated");
@@ -509,13 +560,16 @@ describe("UserService coverage wave", () => {
 
         const result = await service.sendRecoveryEmailOtp(
             { email: " recovery@flipxer.dev " } as any,
-            user
+            user,
         );
 
         expect(result.message).toContain(user.email);
-        expect(prisma.recoveryEmailVerificationRequest.upsert).toHaveBeenCalled();
+        expect(
+            prisma.recoveryEmailVerificationRequest.upsert,
+        ).toHaveBeenCalled();
 
-        const upsertPayload = prisma.recoveryEmailVerificationRequest.upsert.mock.calls[0][0];
+        const upsertPayload =
+            prisma.recoveryEmailVerificationRequest.upsert.mock.calls[0][0];
         expect(upsertPayload.update.email).toBe("recovery@flipxer.dev");
         expect(upsertPayload.update.code).toMatch(/^\d{6}$/);
     });
@@ -536,32 +590,38 @@ describe("UserService coverage wave", () => {
 
         const result = await service.verifyRecoveryEmailOtp(
             { otp: "123456" } as any,
-            user
+            user,
         );
 
         expect(result.message).toContain("verified successfully");
     });
 
     it("rejects invalid, duplicate, and expired recovery email OTP", async () => {
-        prisma.recoveryEmailVerificationRequest.findFirst.mockResolvedValueOnce(null);
+        prisma.recoveryEmailVerificationRequest.findFirst.mockResolvedValueOnce(
+            null,
+        );
         await expect(
-            service.verifyRecoveryEmailOtp({ otp: "000000" } as any, user)
+            service.verifyRecoveryEmailOtp({ otp: "000000" } as any, user),
         ).rejects.toThrow("Invalid verification code");
 
-        prisma.recoveryEmailVerificationRequest.findFirst.mockResolvedValueOnce({
-            isVerified: true,
-            updatedAt: new Date(),
-        });
+        prisma.recoveryEmailVerificationRequest.findFirst.mockResolvedValueOnce(
+            {
+                isVerified: true,
+                updatedAt: new Date(),
+            },
+        );
         await expect(
-            service.verifyRecoveryEmailOtp({ otp: "111111" } as any, user)
+            service.verifyRecoveryEmailOtp({ otp: "111111" } as any, user),
         ).rejects.toThrow("already verified");
 
-        prisma.recoveryEmailVerificationRequest.findFirst.mockResolvedValueOnce({
-            isVerified: false,
-            updatedAt: new Date(Date.now() - 31 * 60 * 1000),
-        });
+        prisma.recoveryEmailVerificationRequest.findFirst.mockResolvedValueOnce(
+            {
+                isVerified: false,
+                updatedAt: new Date(Date.now() - 31 * 60 * 1000),
+            },
+        );
         await expect(
-            service.verifyRecoveryEmailOtp({ otp: "222222" } as any, user)
+            service.verifyRecoveryEmailOtp({ otp: "222222" } as any, user),
         ).rejects.toThrow("has expired");
     });
 
@@ -574,7 +634,7 @@ describe("UserService coverage wave", () => {
             user,
             "token-abc",
             "Pixel",
-            "android"
+            "android",
         );
         expect(enabled.message).toContain("enabled");
 
@@ -587,7 +647,10 @@ describe("UserService coverage wave", () => {
         prisma.deviceToken.upsert.mockRejectedValue(new Error("upsert-failed"));
         prisma.user.update.mockResolvedValue({});
 
-        const result = await service.updateNotificationToken(user, "legacy-token");
+        const result = await service.updateNotificationToken(
+            user,
+            "legacy-token",
+        );
         expect(result.message).toContain("enabled");
         expect(prisma.user.update).toHaveBeenCalledWith({
             where: { id: user.id },
@@ -610,9 +673,9 @@ describe("UserService coverage wave", () => {
         expect(result.data.id).toBe(99);
 
         prisma.user.findUnique.mockResolvedValueOnce(null);
-        await expect(service.getUserByEmail("missing@flipxer.dev")).rejects.toThrow(
-            "User not found"
-        );
+        await expect(
+            service.getUserByEmail("missing@flipxer.dev"),
+        ).rejects.toThrow("User not found");
     });
 
     it("returns null for expired limit override", async () => {
@@ -622,7 +685,12 @@ describe("UserService coverage wave", () => {
             dailyLimitUSD: 500,
             expiresAt: new Date("2020-01-01"),
         });
-        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+        tierService.getDailyLimits.mockReturnValue({
+            buy: 100,
+            sell: 100,
+            swap: 100,
+            send: 100,
+        });
 
         const result = await service.getWithdrawalUsage(user);
         expect(result.data.buy.dailyLimit).toBe(100);
@@ -630,8 +698,15 @@ describe("UserService coverage wave", () => {
 
     it("falls back to tier defaults when limitOverride query throws", async () => {
         prisma.order.findMany.mockResolvedValue([]);
-        prisma.limitOverride.findUnique.mockRejectedValue(new Error("db error"));
-        tierService.getDailyLimits.mockReturnValue({ buy: 100, sell: 100, swap: 100, send: 100 });
+        prisma.limitOverride.findUnique.mockRejectedValue(
+            new Error("db error"),
+        );
+        tierService.getDailyLimits.mockReturnValue({
+            buy: 100,
+            sell: 100,
+            swap: 100,
+            send: 100,
+        });
 
         const result = await service.getWithdrawalUsage(user);
         expect(result.data.buy.dailyLimit).toBe(100);

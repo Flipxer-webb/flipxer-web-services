@@ -9,10 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Tesseract from "tesseract.js";
 import { Logger } from "@nestjs/common";
-import {
-    jaroWinklerSimilarity,
-    normaliseName,
-} from "@/utils/name-matcher";
+import { jaroWinklerSimilarity, normaliseName } from "@/utils/name-matcher";
 
 const logger = new Logger("OCRService");
 
@@ -35,7 +32,10 @@ export interface OCRResult {
     confidence: number;
 }
 
-export type AddressDocumentType = "UTILITY_BILL" | "BANK_STATEMENT" | "GOVERNMENT_LETTER";
+export type AddressDocumentType =
+    | "UTILITY_BILL"
+    | "BANK_STATEMENT"
+    | "GOVERNMENT_LETTER";
 export type IncomeDocumentType = "BANK_STATEMENT";
 
 export interface AddressProviderSignals {
@@ -118,14 +118,29 @@ function isPdfDocument(documentBuffer: Buffer, mimeType?: string): boolean {
         return true;
     }
 
-    return documentBuffer.subarray(0, PDF_FILE_SIGNATURE.length).toString("utf8") === PDF_FILE_SIGNATURE;
+    return (
+        documentBuffer
+            .subarray(0, PDF_FILE_SIGNATURE.length)
+            .toString("utf8") === PDF_FILE_SIGNATURE
+    );
 }
 
-async function rasterizePdfToImages(documentBuffer: Buffer, outputPrefix: string): Promise<void> {
+async function rasterizePdfToImages(
+    documentBuffer: Buffer,
+    outputPrefix: string,
+): Promise<void> {
     await new Promise<void>((resolve, reject) => {
         const child = spawn(
             PDFTOPPM_BINARY_PATH,
-            ["-png", "-f", "1", "-l", String(MAX_PDF_PAGES_FOR_OCR), "-", outputPrefix],
+            [
+                "-png",
+                "-f",
+                "1",
+                "-l",
+                String(MAX_PDF_PAGES_FOR_OCR),
+                "-",
+                outputPrefix,
+            ],
             { stdio: ["pipe", "pipe", "pipe"] },
         );
         let settled = false;
@@ -174,7 +189,11 @@ async function rasterizePdfToImages(documentBuffer: Buffer, outputPrefix: string
                 return;
             }
 
-            fail(new Error(stderr || `pdftoppm exited with code ${code ?? "unknown"}`));
+            fail(
+                new Error(
+                    stderr || `pdftoppm exited with code ${code ?? "unknown"}`,
+                ),
+            );
         });
         child.stdin?.once("error", fail);
         child.stdin?.end(documentBuffer);
@@ -191,7 +210,11 @@ async function rasterizePdfPages(documentBuffer: Buffer): Promise<Buffer[]> {
         const rasterizedPages: Buffer[] = [];
         const generatedFiles = new Set(await readdir(tempDir));
 
-        for (let pageIndex = 1; pageIndex <= MAX_PDF_PAGES_FOR_OCR; pageIndex += 1) {
+        for (
+            let pageIndex = 1;
+            pageIndex <= MAX_PDF_PAGES_FOR_OCR;
+            pageIndex += 1
+        ) {
             const pageFileName = `page-${pageIndex}.png`;
             if (!generatedFiles.has(pageFileName)) {
                 break;
@@ -268,7 +291,10 @@ export async function extractTextFromDocument(
                 .join("\n\n"),
             confidence:
                 results.length > 0
-                    ? results.reduce((sum, result) => sum + result.confidence, 0) / results.length
+                    ? results.reduce(
+                          (sum, result) => sum + result.confidence,
+                          0,
+                      ) / results.length
                     : 0,
         };
     } catch (error) {
@@ -313,7 +339,7 @@ function normalizeString(str: string): string {
 export function checkNameInText(
     extractedText: string,
     firstName: string,
-    lastName: string
+    lastName: string,
 ): boolean {
     const normalizedText = normalizeString(extractedText);
     const normalizedFirst = normalizeString(firstName);
@@ -354,11 +380,11 @@ export function checkNameInText(
         if (word.length >= 2) {
             const firstScore = jaroWinklerSimilarity(
                 normaliseName(word),
-                normaliseName(normalizedFirst)
+                normaliseName(normalizedFirst),
             );
             const lastScore = jaroWinklerSimilarity(
                 normaliseName(word),
-                normaliseName(normalizedLast)
+                normaliseName(normalizedLast),
             );
             bestFirstScore = Math.max(bestFirstScore, firstScore);
             bestLastScore = Math.max(bestLastScore, lastScore);
@@ -366,7 +392,10 @@ export function checkNameInText(
     }
 
     // Both first and last name must fuzzy-match
-    if (bestFirstScore >= NAME_MATCH_THRESHOLD && bestLastScore >= NAME_MATCH_THRESHOLD) {
+    if (
+        bestFirstScore >= NAME_MATCH_THRESHOLD &&
+        bestLastScore >= NAME_MATCH_THRESHOLD
+    ) {
         return true;
     }
 
@@ -382,10 +411,13 @@ export function checkAddressIndicators(extractedText: string): boolean {
     return detectAddressDocumentType(extractedText) !== null;
 }
 
-export function detectAddressDocumentType(extractedText: string): AddressDocumentType | null {
+export function detectAddressDocumentType(
+    extractedText: string,
+): AddressDocumentType | null {
     const normalizedText = normalizeString(extractedText);
 
-    const hasAny = (keywords: string[]): boolean => keywords.some((keyword) => normalizedText.includes(keyword));
+    const hasAny = (keywords: string[]): boolean =>
+        keywords.some((keyword) => normalizedText.includes(keyword));
 
     const utilityBillKeywords = [
         "utility bill",
@@ -413,7 +445,9 @@ export function detectAddressDocumentType(extractedText: string): AddressDocumen
         "yedc",
     ];
 
-    if (hasAny(["utility bill", "electricity bill", "water bill", "gas bill"])) {
+    if (
+        hasAny(["utility bill", "electricity bill", "water bill", "gas bill"])
+    ) {
         return "UTILITY_BILL";
     }
 
@@ -422,7 +456,14 @@ export function detectAddressDocumentType(extractedText: string): AddressDocumen
     }
 
     const bankStatementKeywords = ["bank statement", "statement of account"];
-    const bankEvidenceKeywords = ["bank", "account", "transaction", "debit", "credit", "balance"];
+    const bankEvidenceKeywords = [
+        "bank",
+        "account",
+        "transaction",
+        "debit",
+        "credit",
+        "balance",
+    ];
 
     if (hasAny(bankStatementKeywords)) {
         return "BANK_STATEMENT";
@@ -457,14 +498,19 @@ export function detectAddressDocumentType(extractedText: string): AddressDocumen
         return "GOVERNMENT_LETTER";
     }
 
-    if (hasAny(governmentKeywords) && hasAny(["letter", "reference", "ref", "official"])) {
+    if (
+        hasAny(governmentKeywords) &&
+        hasAny(["letter", "reference", "ref", "official"])
+    ) {
         return "GOVERNMENT_LETTER";
     }
 
     return null;
 }
 
-function normalizeAddressProviderDocumentType(documentType?: string | null): AddressDocumentType | null {
+function normalizeAddressProviderDocumentType(
+    documentType?: string | null,
+): AddressDocumentType | null {
     const normalizedType = normalizeString(documentType || "");
 
     if (!normalizedType) {
@@ -472,30 +518,31 @@ function normalizeAddressProviderDocumentType(documentType?: string | null): Add
     }
 
     if (
-        normalizedType.includes("utility")
-        || normalizedType.includes("electricity bill")
-        || normalizedType.includes("water bill")
-        || normalizedType.includes("gas bill")
-        || normalizedType.includes("bill")
+        normalizedType.includes("utility") ||
+        normalizedType.includes("electricity bill") ||
+        normalizedType.includes("water bill") ||
+        normalizedType.includes("gas bill") ||
+        normalizedType.includes("bill")
     ) {
         return "UTILITY_BILL";
     }
 
     if (
-        normalizedType.includes("bank statement")
-        || (normalizedType.includes("bank") && normalizedType.includes("statement"))
-        || normalizedType.includes("statement of account")
+        normalizedType.includes("bank statement") ||
+        (normalizedType.includes("bank") &&
+            normalizedType.includes("statement")) ||
+        normalizedType.includes("statement of account")
     ) {
         return "BANK_STATEMENT";
     }
 
     if (
-        normalizedType.includes("government")
-        || normalizedType.includes("official letter")
-        || normalizedType.includes("letterhead")
-        || normalizedType.includes("ministry")
-        || normalizedType.includes("agency")
-        || normalizedType.includes("commission")
+        normalizedType.includes("government") ||
+        normalizedType.includes("official letter") ||
+        normalizedType.includes("letterhead") ||
+        normalizedType.includes("ministry") ||
+        normalizedType.includes("agency") ||
+        normalizedType.includes("commission")
     ) {
         return "GOVERNMENT_LETTER";
     }
@@ -503,14 +550,19 @@ function normalizeAddressProviderDocumentType(documentType?: string | null): Add
     return null;
 }
 
-function detectIncomeDocumentType(extractedText: string): IncomeDocumentType | null {
+function detectIncomeDocumentType(
+    extractedText: string,
+): IncomeDocumentType | null {
     return detectAddressDocumentType(extractedText) === "BANK_STATEMENT"
         ? "BANK_STATEMENT"
         : null;
 }
 
-function normalizeIncomeProviderDocumentType(documentType?: string | null): IncomeDocumentType | null {
-    return normalizeAddressProviderDocumentType(documentType) === "BANK_STATEMENT"
+function normalizeIncomeProviderDocumentType(
+    documentType?: string | null,
+): IncomeDocumentType | null {
+    return normalizeAddressProviderDocumentType(documentType) ===
+        "BANK_STATEMENT"
         ? "BANK_STATEMENT"
         : null;
 }
@@ -550,25 +602,41 @@ function checkResidentialAddressMatch(
         return false;
     }
 
-    const matchedTokens = addressTokens.filter((token) => normalizedText.includes(token));
-    return matchedTokens.length >= Math.max(2, Math.ceil(addressTokens.length * 0.6));
+    const matchedTokens = addressTokens.filter((token) =>
+        normalizedText.includes(token),
+    );
+    return (
+        matchedTokens.length >=
+        Math.max(2, Math.ceil(addressTokens.length * 0.6))
+    );
 }
 
 // ───────────────────── Document Recency ─────────────────────
 
 const MONTH_MAP: Record<string, number> = {
-    jan: 0, january: 0,
-    feb: 1, february: 1,
-    mar: 2, march: 2,
-    apr: 3, april: 3,
+    jan: 0,
+    january: 0,
+    feb: 1,
+    february: 1,
+    mar: 2,
+    march: 2,
+    apr: 3,
+    april: 3,
     may: 4,
-    jun: 5, june: 5,
-    jul: 6, july: 6,
-    aug: 7, august: 7,
-    sep: 8, september: 8,
-    oct: 9, october: 9,
-    nov: 10, november: 10,
-    dec: 11, december: 11,
+    jun: 5,
+    june: 5,
+    jul: 6,
+    july: 6,
+    aug: 7,
+    august: 7,
+    sep: 8,
+    september: 8,
+    oct: 9,
+    october: 9,
+    nov: 10,
+    november: 10,
+    dec: 11,
+    december: 11,
 };
 
 /**
@@ -589,7 +657,11 @@ export function extractDocumentDate(text: string): Date | null {
         if (day < 1 || day > 31) return;
         const d = new Date(year, month, day);
         // Verify the date didn't overflow (e.g. Feb 30 → Mar 2)
-        if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) {
+        if (
+            d.getFullYear() === year &&
+            d.getMonth() === month &&
+            d.getDate() === day
+        ) {
             dates.push(d);
         }
     };
@@ -673,7 +745,9 @@ function buildAddressReviewReason(params: {
     }
 
     if (params.hasNameConflict) {
-        issues.push("Document owner details could not be confidently confirmed");
+        issues.push(
+            "Document owner details could not be confidently confirmed",
+        );
     } else if (!params.matchedName) {
         issues.push("User name could not be confirmed");
     }
@@ -747,7 +821,9 @@ type AddressCountrySignals = {
 
 function isNigeriaCountryName(country?: string | null): boolean {
     const normalized = normalizeString(country || "");
-    return normalized === "nigeria" || normalized === "federal republic of nigeria";
+    return (
+        normalized === "nigeria" || normalized === "federal republic of nigeria"
+    );
 }
 
 function isNigeriaCountryCode(countryCode?: string | null): boolean {
@@ -756,12 +832,14 @@ function isNigeriaCountryCode(countryCode?: string | null): boolean {
 
 function isKnownCountryValue(country?: string | null): boolean {
     const normalized = normalizeString(country || "");
-    return Boolean(normalized)
-        && normalized !== "unknown"
-        && normalized !== "n a"
-        && normalized !== "na"
-        && normalized !== "null"
-        && normalized !== "undefined";
+    return (
+        Boolean(normalized) &&
+        normalized !== "unknown" &&
+        normalized !== "n a" &&
+        normalized !== "na" &&
+        normalized !== "null" &&
+        normalized !== "undefined"
+    );
 }
 
 function hasNigerianAddressCountryHints(extractedText: string): boolean {
@@ -826,10 +904,14 @@ function resolveCombinedAddressCountrySignals(params: {
 }): AddressCountrySignals {
     const providerCountry = params.providerCountry ?? null;
     const providerCountryCode = params.providerCountryCode ?? null;
-    const providerHasCountrySignal = isKnownCountryValue(providerCountry) || isKnownCountryValue(providerCountryCode);
+    const providerHasCountrySignal =
+        isKnownCountryValue(providerCountry) ||
+        isKnownCountryValue(providerCountryCode);
 
     if (providerHasCountrySignal) {
-        const isNigeria = isNigeriaCountryCode(providerCountryCode) || isNigeriaCountryName(providerCountry);
+        const isNigeria =
+            isNigeriaCountryCode(providerCountryCode) ||
+            isNigeriaCountryName(providerCountry);
 
         return {
             isNigeriaConfirmed: isNigeria,
@@ -840,7 +922,9 @@ function resolveCombinedAddressCountrySignals(params: {
     }
 
     return {
-        isNigeriaConfirmed: hasNigerianAddressCountryHints(params.extractedText),
+        isNigeriaConfirmed: hasNigerianAddressCountryHints(
+            params.extractedText,
+        ),
         isNonNigeriaConfirmed: false,
         providerCountry,
         providerCountryCode,
@@ -895,18 +979,17 @@ function resolveCombinedAddressDateSignals(params: {
         : null;
 
     return {
-        resolvedDocumentDate: params.ocrDocumentDate ?? params.providerDocumentDate,
-        recent: params.ocrDocumentDate
-            ? ocrRecent
-            : providerRecent ?? false,
+        resolvedDocumentDate:
+            params.ocrDocumentDate ?? params.providerDocumentDate,
+        recent: params.ocrDocumentDate ? ocrRecent : (providerRecent ?? false),
         hasDocumentDateConflict:
-            params.ocrDocumentDate !== null
-            && params.providerDocumentDate !== null
-            && ocrRecent !== providerRecent,
+            params.ocrDocumentDate !== null &&
+            params.providerDocumentDate !== null &&
+            ocrRecent !== providerRecent,
         hasStrongProviderRescue:
-            params.providerAddressDocumentType !== null
-            && params.providerNameMatches === true
-            && providerRecent === true,
+            params.providerAddressDocumentType !== null &&
+            params.providerNameMatches === true &&
+            providerRecent === true,
     };
 }
 
@@ -984,12 +1067,13 @@ function resolveAddressNameMismatchDecision(params: {
 
     return {
         decision: "REJECT",
-        reason: buildAddressRejectReason({
-            matchedName: params.matchedName,
-            matchedAddress: params.matchedAddress,
-            documentDate: params.resolvedDocumentDate,
-            isRecent: params.recent,
-        }) || undefined,
+        reason:
+            buildAddressRejectReason({
+                matchedName: params.matchedName,
+                matchedAddress: params.matchedAddress,
+                documentDate: params.resolvedDocumentDate,
+                isRecent: params.recent,
+            }) || undefined,
     };
 }
 
@@ -1015,7 +1099,10 @@ function resolveCombinedAddressDecision(params: {
     }
 
     if (!params.matchedAddress) {
-        if (params.confidence < MIN_CONFIDENCE_THRESHOLD && !params.hasExplicitUnsupportedProviderType) {
+        if (
+            params.confidence < MIN_CONFIDENCE_THRESHOLD &&
+            !params.hasExplicitUnsupportedProviderType
+        ) {
             return {
                 decision: "REVIEW",
                 reason: buildAddressReviewReason({
@@ -1029,12 +1116,13 @@ function resolveCombinedAddressDecision(params: {
 
         return {
             decision: "REJECT",
-            reason: buildAddressRejectReason({
-                matchedName: params.matchedName,
-                matchedAddress: params.matchedAddress,
-                documentDate: params.resolvedDocumentDate,
-                isRecent: params.recent,
-            }) || undefined,
+            reason:
+                buildAddressRejectReason({
+                    matchedName: params.matchedName,
+                    matchedAddress: params.matchedAddress,
+                    documentDate: params.resolvedDocumentDate,
+                    isRecent: params.recent,
+                }) || undefined,
         };
     }
 
@@ -1068,24 +1156,26 @@ function resolveCombinedAddressDecision(params: {
     if (params.hasKnownNameMismatch) {
         return {
             decision: "REJECT",
-            reason: buildAddressRejectReason({
-                matchedName: false,
-                matchedAddress: params.matchedAddress,
-                documentDate: params.resolvedDocumentDate,
-                isRecent: params.recent,
-            }) || undefined,
+            reason:
+                buildAddressRejectReason({
+                    matchedName: false,
+                    matchedAddress: params.matchedAddress,
+                    documentDate: params.resolvedDocumentDate,
+                    isRecent: params.recent,
+                }) || undefined,
         };
     }
 
     if (params.resolvedDocumentDate && !params.recent) {
         return {
             decision: "REJECT",
-            reason: buildAddressRejectReason({
-                matchedName: params.matchedName,
-                matchedAddress: params.matchedAddress,
-                documentDate: params.resolvedDocumentDate,
-                isRecent: false,
-            }) || undefined,
+            reason:
+                buildAddressRejectReason({
+                    matchedName: params.matchedName,
+                    matchedAddress: params.matchedAddress,
+                    documentDate: params.resolvedDocumentDate,
+                    isRecent: false,
+                }) || undefined,
         };
     }
 
@@ -1105,7 +1195,10 @@ function resolveCombinedAddressDecision(params: {
         return resolveAddressNameMismatchDecision(params);
     }
 
-    if (params.confidence < MIN_CONFIDENCE_THRESHOLD && !params.hasStrongProviderRescue) {
+    if (
+        params.confidence < MIN_CONFIDENCE_THRESHOLD &&
+        !params.hasStrongProviderRescue
+    ) {
         return {
             decision: "REVIEW",
             reason: buildAddressReviewReason({
@@ -1129,21 +1222,31 @@ export function combineAddressSignals(
     const providerDocumentDate = params.providerSignals?.documentDate ?? null;
     const providerCountry = params.providerSignals?.country ?? null;
     const providerCountryCode = params.providerSignals?.countryCode ?? null;
-    const providerVerified = typeof params.providerSignals?.isValid === "boolean"
-        ? params.providerSignals.isValid
-        : null;
+    const providerVerified =
+        typeof params.providerSignals?.isValid === "boolean"
+            ? params.providerSignals.isValid
+            : null;
     const providerReason = params.providerSignals?.reason ?? null;
-    const providerAddressDocumentTypeFromName = normalizeAddressProviderDocumentType(providerDocumentType);
-    const providerAddressDocumentTypeFromText = providerRawText ? detectAddressDocumentType(providerRawText) : null;
-    const providerAddressDocumentType = providerAddressDocumentTypeFromName ?? providerAddressDocumentTypeFromText;
-    const providerDate = parseDocumentDateValue(providerDocumentDate) ?? (providerRawText ? extractDocumentDate(providerRawText) : null);
+    const providerAddressDocumentTypeFromName =
+        normalizeAddressProviderDocumentType(providerDocumentType);
+    const providerAddressDocumentTypeFromText = providerRawText
+        ? detectAddressDocumentType(providerRawText)
+        : null;
+    const providerAddressDocumentType =
+        providerAddressDocumentTypeFromName ??
+        providerAddressDocumentTypeFromText;
+    const providerDate =
+        parseDocumentDateValue(providerDocumentDate) ??
+        (providerRawText ? extractDocumentDate(providerRawText) : null);
     const hasExplicitUnsupportedProviderType =
-        Boolean(providerDocumentType)
-        && providerAddressDocumentTypeFromName === null
-        && providerAddressDocumentTypeFromText === null;
+        Boolean(providerDocumentType) &&
+        providerAddressDocumentTypeFromName === null &&
+        providerAddressDocumentTypeFromText === null;
 
-    const matchedAddress = params.matchedAddress || providerAddressDocumentType !== null;
-    const addressDocumentType = params.addressDocumentType ?? providerAddressDocumentType ?? null;
+    const matchedAddress =
+        params.matchedAddress || providerAddressDocumentType !== null;
+    const addressDocumentType =
+        params.addressDocumentType ?? providerAddressDocumentType ?? null;
     const nameSignals = resolveCombinedAddressNameSignals({
         ocrMatchedName: params.matchedName,
         confidence: params.confidence,
@@ -1156,29 +1259,32 @@ export function combineAddressSignals(
         providerNameMatches,
     });
     const countrySignals = resolveCombinedAddressCountrySignals({
-        extractedText: [params.extractedText, providerRawText].filter(Boolean).join("\n"),
+        extractedText: [params.extractedText, providerRawText]
+            .filter(Boolean)
+            .join("\n"),
         providerCountry,
         providerCountryCode,
     });
-    const decisionResult = providerVerified === false
-        ? {
-            decision: "REJECT" as DocumentValidationDecision,
-            reason: buildAddressProviderRejectReason(providerReason),
-        }
-        : resolveCombinedAddressDecision({
-            confidence: params.confidence,
-            matchedName: nameSignals.matchedName,
-            matchedAddress,
-            resolvedDocumentDate: dateSignals.resolvedDocumentDate,
-            recent: dateSignals.recent,
-            isNigeriaConfirmed: countrySignals.isNigeriaConfirmed,
-            isNonNigeriaConfirmed: countrySignals.isNonNigeriaConfirmed,
-            hasNameConflict: nameSignals.hasNameConflict,
-            hasKnownNameMismatch: nameSignals.hasKnownNameMismatch,
-            hasDocumentDateConflict: dateSignals.hasDocumentDateConflict,
-            hasStrongProviderRescue: dateSignals.hasStrongProviderRescue,
-            hasExplicitUnsupportedProviderType,
-        });
+    const decisionResult =
+        providerVerified === false
+            ? {
+                  decision: "REJECT" as DocumentValidationDecision,
+                  reason: buildAddressProviderRejectReason(providerReason),
+              }
+            : resolveCombinedAddressDecision({
+                  confidence: params.confidence,
+                  matchedName: nameSignals.matchedName,
+                  matchedAddress,
+                  resolvedDocumentDate: dateSignals.resolvedDocumentDate,
+                  recent: dateSignals.recent,
+                  isNigeriaConfirmed: countrySignals.isNigeriaConfirmed,
+                  isNonNigeriaConfirmed: countrySignals.isNonNigeriaConfirmed,
+                  hasNameConflict: nameSignals.hasNameConflict,
+                  hasKnownNameMismatch: nameSignals.hasKnownNameMismatch,
+                  hasDocumentDateConflict: dateSignals.hasDocumentDateConflict,
+                  hasStrongProviderRescue: dateSignals.hasStrongProviderRescue,
+                  hasExplicitUnsupportedProviderType,
+              });
 
     return buildAddressValidationResult({
         input: params,
@@ -1209,16 +1315,18 @@ type CombineIncomeSignalsInput = {
     providerSignals?: IncomeProviderSignals | null;
 };
 
-function hasIncomeProviderSignals(providerSignals?: IncomeProviderSignals | null): boolean {
+function hasIncomeProviderSignals(
+    providerSignals?: IncomeProviderSignals | null,
+): boolean {
     return Boolean(
-        providerSignals?.documentType
-        || providerSignals?.rawText
-        || providerSignals?.documentDate
-        || providerSignals?.country
-        || providerSignals?.countryCode
-        || providerSignals?.reason
-        || typeof providerSignals?.nameMatches === "boolean"
-        || typeof providerSignals?.isValid === "boolean",
+        providerSignals?.documentType ||
+        providerSignals?.rawText ||
+        providerSignals?.documentDate ||
+        providerSignals?.country ||
+        providerSignals?.countryCode ||
+        providerSignals?.reason ||
+        typeof providerSignals?.nameMatches === "boolean" ||
+        typeof providerSignals?.isValid === "boolean",
     );
 }
 
@@ -1257,9 +1365,9 @@ function buildIncomeProviderRejectReason(reason?: string | null): string {
     }
 
     if (
-        normalized.includes("notvalid")
-        || normalized.includes("invalid")
-        || normalized.includes("unsupported")
+        normalized.includes("notvalid") ||
+        normalized.includes("invalid") ||
+        normalized.includes("unsupported")
     ) {
         return "Please upload a valid Nigerian bank statement.";
     }
@@ -1316,23 +1424,34 @@ function combineIncomeSignals(
     const providerDocumentDate = params.providerSignals?.documentDate ?? null;
     const providerCountry = params.providerSignals?.country ?? null;
     const providerCountryCode = params.providerSignals?.countryCode ?? null;
-    const providerVerified = typeof params.providerSignals?.isValid === "boolean"
-        ? params.providerSignals.isValid
-        : null;
+    const providerVerified =
+        typeof params.providerSignals?.isValid === "boolean"
+            ? params.providerSignals.isValid
+            : null;
     const providerReason = params.providerSignals?.reason ?? null;
-    const providerIncomeDocumentTypeFromName = normalizeIncomeProviderDocumentType(providerDocumentType);
-    const providerIncomeDocumentTypeFromText = providerRawText ? detectIncomeDocumentType(providerRawText) : null;
-    const providerIncomeDocumentType = providerIncomeDocumentTypeFromName ?? providerIncomeDocumentTypeFromText;
-    const hasExplicitUnsupportedProviderType = Boolean(providerDocumentType)
-        && providerIncomeDocumentTypeFromName === null
-        && providerIncomeDocumentTypeFromText === null;
-    const resolvedIncomeDocumentType = params.incomeDocumentType ?? providerIncomeDocumentType ?? null;
-    const resolvedDocumentDate = params.documentDate
-        ?? parseDocumentDateValue(providerDocumentDate)
-        ?? (providerRawText ? extractDocumentDate(providerRawText) : null);
+    const providerIncomeDocumentTypeFromName =
+        normalizeIncomeProviderDocumentType(providerDocumentType);
+    const providerIncomeDocumentTypeFromText = providerRawText
+        ? detectIncomeDocumentType(providerRawText)
+        : null;
+    const providerIncomeDocumentType =
+        providerIncomeDocumentTypeFromName ??
+        providerIncomeDocumentTypeFromText;
+    const hasExplicitUnsupportedProviderType =
+        Boolean(providerDocumentType) &&
+        providerIncomeDocumentTypeFromName === null &&
+        providerIncomeDocumentTypeFromText === null;
+    const resolvedIncomeDocumentType =
+        params.incomeDocumentType ?? providerIncomeDocumentType ?? null;
+    const resolvedDocumentDate =
+        params.documentDate ??
+        parseDocumentDateValue(providerDocumentDate) ??
+        (providerRawText ? extractDocumentDate(providerRawText) : null);
     const recent = isDocumentRecent(resolvedDocumentDate);
     const countrySignals = resolveCombinedAddressCountrySignals({
-        extractedText: [params.extractedText, providerRawText].filter(Boolean).join("\n"),
+        extractedText: [params.extractedText, providerRawText]
+            .filter(Boolean)
+            .join("\n"),
         providerCountry,
         providerCountryCode,
     });
@@ -1341,28 +1460,39 @@ function combineIncomeSignals(
         confidence: params.confidence,
         providerNameMatches,
     });
-    const hasStrongProviderStatementSignals = providerVerified === true
-        && resolvedIncomeDocumentType === "BANK_STATEMENT"
-        && nameSignals.matchedName
-        && countrySignals.isNigeriaConfirmed;
+    const hasStrongProviderStatementSignals =
+        providerVerified === true &&
+        resolvedIncomeDocumentType === "BANK_STATEMENT" &&
+        nameSignals.matchedName &&
+        countrySignals.isNigeriaConfirmed;
 
     let decision: DocumentValidationDecision = "REVIEW";
-    let reason = "Your bank statement passed automated checks and will be reviewed by our team.";
+    let reason =
+        "Your bank statement passed automated checks and will be reviewed by our team.";
 
     if (providerVerified === false) {
         decision = "REJECT";
         reason = buildIncomeProviderRejectReason(providerReason);
-    } else if (resolvedIncomeDocumentType !== "BANK_STATEMENT" || hasExplicitUnsupportedProviderType) {
+    } else if (
+        resolvedIncomeDocumentType !== "BANK_STATEMENT" ||
+        hasExplicitUnsupportedProviderType
+    ) {
         decision = "REJECT";
-        reason = "Only bank statements are accepted for income verification. Please upload a recent bank statement that shows your full name.";
-    } else if (countrySignals.isNonNigeriaConfirmed || !countrySignals.isNigeriaConfirmed) {
+        reason =
+            "Only bank statements are accepted for income verification. Please upload a recent bank statement that shows your full name.";
+    } else if (
+        countrySignals.isNonNigeriaConfirmed ||
+        !countrySignals.isNigeriaConfirmed
+    ) {
         decision = "REJECT";
         reason = "Please upload a valid Nigerian bank statement.";
     } else if (!nameSignals.matchedName) {
         decision = "REJECT";
-        reason = "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.";
+        reason =
+            "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.";
     } else if (!resolvedDocumentDate && hasStrongProviderStatementSignals) {
-        reason = "We could not confidently confirm the statement date. Your bank statement will be reviewed by our team.";
+        reason =
+            "We could not confidently confirm the statement date. Your bank statement will be reviewed by our team.";
     } else if (!recent) {
         decision = "REJECT";
         reason = resolvedDocumentDate
@@ -1408,14 +1538,14 @@ export async function validateAddressDocument(
 ): Promise<DocumentValidationResult> {
     const ocrResult = await extractTextFromDocument(imageBuffer, mimeType);
     const hasProviderSignals = Boolean(
-        providerSignals?.documentType
-        || providerSignals?.rawText
-        || providerSignals?.documentDate
-        || providerSignals?.country
-        || providerSignals?.countryCode
-        || providerSignals?.reason
-        || typeof providerSignals?.nameMatches === "boolean"
-        || typeof providerSignals?.isValid === "boolean",
+        providerSignals?.documentType ||
+        providerSignals?.rawText ||
+        providerSignals?.documentDate ||
+        providerSignals?.country ||
+        providerSignals?.countryCode ||
+        providerSignals?.reason ||
+        typeof providerSignals?.nameMatches === "boolean" ||
+        typeof providerSignals?.isValid === "boolean",
     );
 
     if ((!ocrResult.text || ocrResult.confidence < 10) && !hasProviderSignals) {
@@ -1470,8 +1600,12 @@ export async function validateIncomeDocument(
 ): Promise<DocumentValidationResult> {
     const ocrResult = await extractTextFromDocument(imageBuffer, mimeType);
     const extractedText = ocrResult.text || "";
-    const incomeDocumentType = extractedText ? detectIncomeDocumentType(extractedText) : null;
-    const matchedName = extractedText ? checkNameInText(extractedText, firstName, lastName) : false;
+    const incomeDocumentType = extractedText
+        ? detectIncomeDocumentType(extractedText)
+        : null;
+    const matchedName = extractedText
+        ? checkNameInText(extractedText, firstName, lastName)
+        : false;
     const docDate = extractedText ? extractDocumentDate(extractedText) : null;
     const hasProviderData = hasIncomeProviderSignals(providerSignals);
 
@@ -1488,7 +1622,9 @@ export async function validateIncomeDocument(
             reason: "We could not read enough details from the uploaded bank statement. Please upload a clearer bank statement.",
             documentDate: docDate?.toISOString(),
             isRecent: isDocumentRecent(docDate),
-            countryConfirmed: extractedText ? hasNigerianAddressCountryHints(extractedText) : false,
+            countryConfirmed: extractedText
+                ? hasNigerianAddressCountryHints(extractedText)
+                : false,
         };
     }
 

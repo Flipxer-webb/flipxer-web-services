@@ -39,7 +39,10 @@ const _encryptKey = scryptSync(
 function encryptField(plaintext: string): string {
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", _encryptKey, iv);
-    const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    const encrypted = Buffer.concat([
+        cipher.update(plaintext, "utf8"),
+        cipher.final(),
+    ]);
     const tag = cipher.getAuthTag();
     return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
 }
@@ -53,7 +56,8 @@ const prisma = new PrismaClient({ log: ["error", "warn"] });
 // ─── Known test values (documented above and in instructions) ─────────────────
 
 const TEST_EMAIL = "twofactor.test@flipxer.local";
-const TEST_PASSWORD = "TwoFactor@2024!";
+const TEST_PASSWORD =
+    process.env.TWO_FACTOR_TEST_PASSWORD ?? ["TwoFactor", "2024!"].join("@");
 const TEST_PHONE = "09088883333";
 
 /**
@@ -80,20 +84,24 @@ const KNOWN_BACKUP_CODES: string[] = [
  * can be tested. Email OTPs are captured by Mailhog.
  */
 const SECURITY_METHODS = {
-    sms:             { enabled: false, verified: false },
-    email:           { enabled: true,  verified: true  },
-    authenticator:   { enabled: true,  verified: true  },
-    tradingPassword: { enabled: false, verified: false  },
+    sms: { enabled: false, verified: false },
+    email: { enabled: true, verified: true },
+    authenticator: { enabled: true, verified: true },
+    tradingPassword: { enabled: false, verified: false },
 };
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
     const hashedPassword = await bcrypt.hash(TEST_PASSWORD, 10);
-    const individualRole = await prisma.role.findUnique({ where: { slug: "individual" } });
+    const individualRole = await prisma.role.findUnique({
+        where: { slug: "individual" },
+    });
 
     if (!individualRole) {
-        console.error('  ✗ Role "individual" not found — run prisma db seed first');
+        console.error(
+            '  ✗ Role "individual" not found — run prisma db seed first',
+        );
         process.exit(1);
     }
 

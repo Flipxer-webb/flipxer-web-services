@@ -44,15 +44,21 @@ describe("NotificationEvent", () => {
                     header: "Deposit Completed",
                     transaction_id: "TX-1",
                 }),
-            })
+            }),
         );
     });
 
     it("handles send failures without throwing", async () => {
-        emailService.sendMailWithTemplate.mockRejectedValue(new Error("mail down"));
-        const loggerSpy = jest.spyOn((event as any).logger, "log").mockImplementation();
+        emailService.sendMailWithTemplate.mockRejectedValue(
+            new Error("mail down"),
+        );
+        const loggerSpy = jest
+            .spyOn((event as any).logger, "log")
+            .mockImplementation();
 
-        await expect(event.sendTransactionNotification(basePayload)).resolves.toBeUndefined();
+        await expect(
+            event.sendTransactionNotification(basePayload),
+        ).resolves.toBeUndefined();
         expect(loggerSpy).toHaveBeenCalled();
 
         loggerSpy.mockRestore();
@@ -96,13 +102,15 @@ describe("NotificationEvent", () => {
                         status,
                     });
 
-                    expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                    expect(
+                        emailService.sendMailWithTemplate,
+                    ).toHaveBeenCalledWith(
                         expect.objectContaining({
                             merge_info: expect.objectContaining({
                                 header: `${label} ${suffix}`,
                                 status,
                             }),
-                        })
+                        }),
                     );
                 });
             }
@@ -138,7 +146,7 @@ describe("NotificationEvent", () => {
                     merge_info: expect.objectContaining({
                         header: "Purchase Completed",
                     }),
-                })
+                }),
             );
         });
     });
@@ -156,7 +164,7 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     merge_info: expect.objectContaining({ notice }),
-                })
+                }),
             );
         });
     });
@@ -167,7 +175,8 @@ describe("NotificationEvent", () => {
         it("fills blockchain, swap, fiat, and receipt fields with empty strings when omitted", async () => {
             await event.sendTransactionNotification(basePayload);
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.tx_hash).toBe("");
             expect(merge_info.network).toBe("");
             expect(merge_info.wallet_address).toBe("");
@@ -197,11 +206,14 @@ describe("NotificationEvent", () => {
                 networkFee: "0.001 ETH",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.tx_hash).toBe("0xabc");
             expect(merge_info.network).toBe("Ethereum");
             expect(merge_info.wallet_address).toBe("0x123");
-            expect(merge_info.explorer_url).toBe("https://etherscan.io/tx/0xabc");
+            expect(merge_info.explorer_url).toBe(
+                "https://etherscan.io/tx/0xabc",
+            );
             expect(merge_info.recipient).toBe("0x456");
             expect(merge_info.network_fee).toBe("0.001 ETH");
         });
@@ -227,7 +239,8 @@ describe("NotificationEvent", () => {
                 exchangeRate: "50000 NGN/BTC",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Purchase Completed");
             expect(merge_info.fiat_amount).toBe("25000");
             expect(merge_info.bank_name).toBe("GTBank");
@@ -246,7 +259,8 @@ describe("NotificationEvent", () => {
                 date: "2026-04-16T02:31:00Z",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Purchase Cancelled");
             expect(merge_info.notice).toContain("cancelled");
         });
@@ -266,7 +280,8 @@ describe("NotificationEvent", () => {
                 accountNumber: "9876543210",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Sale Completed");
             expect(merge_info.fiat_amount).toBe("150000");
         });
@@ -283,7 +298,8 @@ describe("NotificationEvent", () => {
                 date: "2026-04-16T12:00:00Z",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Sale Failed");
         });
 
@@ -303,7 +319,8 @@ describe("NotificationEvent", () => {
                 explorerUrl: "https://etherscan.io/tx/0xdeadbeef",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Deposit Completed");
             expect(merge_info.tx_hash).toBe("0xdeadbeef");
             expect(merge_info.network).toBe("Ethereum");
@@ -322,7 +339,8 @@ describe("NotificationEvent", () => {
                 network: "Tron",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Deposit Pending");
         });
 
@@ -342,9 +360,12 @@ describe("NotificationEvent", () => {
                 networkFee: "0.0001 BTC",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Withdrawal Completed");
-            expect(merge_info.recipient).toBe("bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh");
+            expect(merge_info.recipient).toBe(
+                "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+            );
             expect(merge_info.network_fee).toBe("0.0001 BTC");
         });
 
@@ -360,7 +381,8 @@ describe("NotificationEvent", () => {
                 date: "2026-04-16T15:00:00Z",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Withdrawal Failed");
         });
 
@@ -376,7 +398,8 @@ describe("NotificationEvent", () => {
                 date: "2026-04-16T16:00:00Z",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Withdrawal Reversed");
         });
 
@@ -397,7 +420,8 @@ describe("NotificationEvent", () => {
                 exchangeRate: "1 BTC = 50000 USDT",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Swap Completed");
             expect(merge_info.from_amount).toBe("0.01");
             expect(merge_info.from_currency).toBe("BTC");
@@ -417,7 +441,8 @@ describe("NotificationEvent", () => {
                 date: "2026-04-16T13:30:00Z",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Swap Failed");
         });
 
@@ -433,7 +458,8 @@ describe("NotificationEvent", () => {
                 date: "2026-04-16T13:45:00Z",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Swap Processing");
         });
 
@@ -450,7 +476,8 @@ describe("NotificationEvent", () => {
                 orderReference: "ORD-EXP456",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.header).toBe("Purchase Cancelled");
             expect(merge_info.order_reference).toBe("ORD-EXP456");
         });
@@ -470,7 +497,7 @@ describe("NotificationEvent", () => {
                     merge_info: expect.objectContaining({
                         team: "Flipxer",
                     }),
-                })
+                }),
             );
         });
     });
@@ -480,7 +507,9 @@ describe("NotificationEvent", () => {
 
     describe("status validation and normalization", () => {
         it("rejects invalid status with warning log", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
 
             await event.sendTransactionNotification({
                 ...basePayload,
@@ -488,7 +517,7 @@ describe("NotificationEvent", () => {
             });
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Invalid status")
+                expect.stringContaining("Invalid status"),
             );
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
 
@@ -496,7 +525,9 @@ describe("NotificationEvent", () => {
         });
 
         it("rejects invalid transaction type with warning log", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
 
             await event.sendTransactionNotification({
                 ...basePayload,
@@ -504,7 +535,7 @@ describe("NotificationEvent", () => {
             });
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Invalid type")
+                expect.stringContaining("Invalid type"),
             );
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
 
@@ -520,9 +551,9 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     merge_info: expect.objectContaining({
-                        status: "failed",  // Normalized to lowercase
+                        status: "failed", // Normalized to lowercase
                     }),
-                })
+                }),
             );
         });
 
@@ -538,7 +569,7 @@ describe("NotificationEvent", () => {
                         header: "Purchase Completed",
                         transaction_type: "buy",
                     }),
-                })
+                }),
             );
         });
 
@@ -553,12 +584,19 @@ describe("NotificationEvent", () => {
                     merge_info: expect.objectContaining({
                         status: "completed",
                     }),
-                })
+                }),
             );
         });
 
         it("all valid statuses pass validation", async () => {
-            const validStatuses = ["completed", "failed", "cancelled", "reversed", "pending", "processing"];
+            const validStatuses = [
+                "completed",
+                "failed",
+                "cancelled",
+                "reversed",
+                "pending",
+                "processing",
+            ];
 
             for (const validStatus of validStatuses) {
                 emailService.sendMailWithTemplate.mockClear();
@@ -573,7 +611,7 @@ describe("NotificationEvent", () => {
                         merge_info: expect.objectContaining({
                             status: validStatus,
                         }),
-                    })
+                    }),
                 );
             }
         });
@@ -602,7 +640,7 @@ describe("NotificationEvent", () => {
                         status: "failed",
                         notice: expect.stringContaining("failed"),
                     }),
-                })
+                }),
             );
         });
 
@@ -624,7 +662,7 @@ describe("NotificationEvent", () => {
                         header: "Purchase Failed",
                         status: "failed",
                     }),
-                })
+                }),
             );
         });
 
@@ -646,7 +684,7 @@ describe("NotificationEvent", () => {
                         header: "Sale Failed",
                         status: "failed",
                     }),
-                })
+                }),
             );
         });
 
@@ -668,7 +706,7 @@ describe("NotificationEvent", () => {
                         header: "Swap Failed",
                         status: "failed",
                     }),
-                })
+                }),
             );
         });
 
@@ -690,7 +728,7 @@ describe("NotificationEvent", () => {
                         header: "Withdrawal Failed",
                         status: "failed",
                     }),
-                })
+                }),
             );
         });
 
@@ -700,7 +738,8 @@ describe("NotificationEvent", () => {
                 status: "failed",
             });
 
-            const { merge_info } = emailService.sendMailWithTemplate.mock.calls[0][0];
+            const { merge_info } =
+                emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(merge_info.status).toBe("failed");
             expect(merge_info.status).not.toBe("completed");
             expect(merge_info.header).not.toContain("Completed");
@@ -711,7 +750,9 @@ describe("NotificationEvent", () => {
 
     describe("transaction email logging", () => {
         it("logs transaction email sending with details", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "log").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "log")
+                .mockImplementation();
 
             await event.sendTransactionNotification({
                 email: "user@example.com",
@@ -726,32 +767,36 @@ describe("NotificationEvent", () => {
 
             // Verify first log call (sending attempt)
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("[TransactionEmail]")
+                expect.stringContaining("[TransactionEmail]"),
             );
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("txId=TXN-123")
+                expect.stringContaining("txId=TXN-123"),
             );
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("type=buy")
+                expect.stringContaining("type=buy"),
             );
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("status=completed")
+                expect.stringContaining("status=completed"),
             );
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("recipient=user@example.com")
+                expect.stringContaining("recipient=user@example.com"),
             );
 
             loggerSpy.mockRestore();
         });
 
         it("logs successful send completion", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "log").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "log")
+                .mockImplementation();
 
             await event.sendTransactionNotification(basePayload);
 
             // Verify success log contains "Sent successfully"
             const logs = loggerSpy.mock.calls.map((call) => call[0]);
-            const successLog = logs.find((log: string) => log.includes("Sent successfully"));
+            const successLog = logs.find((log: string) =>
+                log.includes("Sent successfully"),
+            );
             expect(successLog).toBeDefined();
 
             loggerSpy.mockRestore();
@@ -760,23 +805,29 @@ describe("NotificationEvent", () => {
         it("logs error when email service fails", async () => {
             const error = new Error("Email service down");
             emailService.sendMailWithTemplate.mockRejectedValue(error);
-            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "error")
+                .mockImplementation();
 
             await event.sendTransactionNotification(basePayload);
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("[TransactionEmail]")
+                expect.stringContaining("[TransactionEmail]"),
             );
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Email service down")
+                expect.stringContaining("Email service down"),
             );
 
             loggerSpy.mockRestore();
         });
 
         it("logs when email service throws (non-Error)", async () => {
-            emailService.sendMailWithTemplate.mockRejectedValue("mail service error");
-            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+            emailService.sendMailWithTemplate.mockRejectedValue(
+                "mail service error",
+            );
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "error")
+                .mockImplementation();
 
             await event.sendTransactionNotification(basePayload);
 
@@ -790,7 +841,9 @@ describe("NotificationEvent", () => {
 
     describe("required field validation", () => {
         it("skips send if email is missing", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
 
             await event.sendTransactionNotification({
                 ...basePayload,
@@ -798,7 +851,7 @@ describe("NotificationEvent", () => {
             });
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Missing email")
+                expect.stringContaining("Missing email"),
             );
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
 
@@ -806,7 +859,9 @@ describe("NotificationEvent", () => {
         });
 
         it("skips send if email is whitespace only", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
 
             await event.sendTransactionNotification({
                 ...basePayload,
@@ -814,7 +869,7 @@ describe("NotificationEvent", () => {
             });
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Missing email")
+                expect.stringContaining("Missing email"),
             );
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
 
@@ -822,7 +877,9 @@ describe("NotificationEvent", () => {
         });
 
         it("skips send if transactionId is missing", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
 
             await event.sendTransactionNotification({
                 ...basePayload,
@@ -830,7 +887,7 @@ describe("NotificationEvent", () => {
             });
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Missing transactionId")
+                expect.stringContaining("Missing transactionId"),
             );
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
 
@@ -838,7 +895,9 @@ describe("NotificationEvent", () => {
         });
 
         it("skips send if status is missing", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
 
             await event.sendTransactionNotification({
                 ...basePayload,
@@ -846,7 +905,7 @@ describe("NotificationEvent", () => {
             });
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Invalid status")
+                expect.stringContaining("Invalid status"),
             );
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
 
@@ -859,7 +918,7 @@ describe("NotificationEvent", () => {
                 ...basePayload,
                 status: "failed",
             });
-            
+
             const call = emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(call.template_key).toBeDefined();
             expect(call.template_key).not.toBe("");
@@ -867,13 +926,15 @@ describe("NotificationEvent", () => {
 
         // Test that unknown status doesn't send email at all
         it("does not send email for completely unknown status", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
-            
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
+
             await event.sendTransactionNotification({
                 ...basePayload,
                 status: "gibberish_123" as any,
             });
-            
+
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
             loggerSpy.mockRestore();
         });
@@ -884,7 +945,7 @@ describe("NotificationEvent", () => {
                 ...basePayload,
                 amount: "123.45" as any,
             });
-            
+
             expect(emailService.sendMailWithTemplate).toHaveBeenCalled();
         });
     });
@@ -898,7 +959,7 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "transaction-template",
-                })
+                }),
             );
         });
 
@@ -910,7 +971,7 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "transaction-template",
-                })
+                }),
             );
         });
 
@@ -922,7 +983,7 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "transaction-template",
-                })
+                }),
             );
         });
 
@@ -934,7 +995,7 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "transaction-template",
-                })
+                }),
             );
         });
 
@@ -946,7 +1007,7 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "transaction-template",
-                })
+                }),
             );
         });
 
@@ -958,7 +1019,7 @@ describe("NotificationEvent", () => {
             expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "transaction-template",
-                })
+                }),
             );
         });
     });
@@ -989,19 +1050,20 @@ describe("NotificationEvent", () => {
                         name: "John Doe",
                         ip_address: "192.168.1.100",
                         user_agent: "Chrome on Windows",
-                        account_security_url: "https://app.flipxer.com/security",
+                        account_security_url:
+                            "https://app.flipxer.com/security",
                         current_year: new Date().getFullYear().toString(),
                     }),
-                })
+                }),
             );
         });
 
         it("uses default userAgent when not provided", async () => {
-    const payload = { ...baseLoginPayload, userAgent: undefined };
-    await event.sendLoginNotification(payload);
+            const payload = { ...baseLoginPayload, userAgent: undefined };
+            await event.sendLoginNotification(payload);
 
-    const call = emailService.sendMailWithTemplate.mock.calls[0][0];
-    expect(call.merge_info.user_agent).toBe("Unknown");  // ← Changed
+            const call = emailService.sendMailWithTemplate.mock.calls[0][0];
+            expect(call.merge_info.user_agent).toBe("Unknown"); // ← Changed
         });
 
         it("uses default userAgent when empty string", async () => {
@@ -1009,7 +1071,7 @@ describe("NotificationEvent", () => {
             await event.sendLoginNotification(payload);
 
             const call = emailService.sendMailWithTemplate.mock.calls[0][0];
-            expect(call.merge_info.user_agent).toBe("Unknown");  // ← Changed
+            expect(call.merge_info.user_agent).toBe("Unknown"); // ← Changed
         });
 
         it("formats login_time as locale string", async () => {
@@ -1017,11 +1079,15 @@ describe("NotificationEvent", () => {
 
             const call = emailService.sendMailWithTemplate.mock.calls[0][0];
             // Should NOT be the raw ISO string
-            expect(call.merge_info.login_time).not.toBe(baseLoginPayload.loginTime);
+            expect(call.merge_info.login_time).not.toBe(
+                baseLoginPayload.loginTime,
+            );
             // Should be a string (the formatted date)
             expect(typeof call.merge_info.login_time).toBe("string");
             // Should contain date components (year, month, day, time)
-            expect(call.merge_info.login_time).toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/); // matches DD/MM/YYYY or MM/DD/YYYY
+            expect(call.merge_info.login_time).toMatch(
+                /\d{1,2}\/\d{1,2}\/\d{4}/,
+            ); // matches DD/MM/YYYY or MM/DD/YYYY
         });
 
         it("includes current year in footer", async () => {
@@ -1029,38 +1095,49 @@ describe("NotificationEvent", () => {
 
             const call = emailService.sendMailWithTemplate.mock.calls[0][0];
             expect(call.merge_info.current_year).toBe(
-                new Date().getFullYear().toString()
+                new Date().getFullYear().toString(),
             );
         });
 
         it("logs warning when login_notification template is not configured", async () => {
-            const originalTemplate = require("@/config").emailTemplateConfig.login_notification;
-            require("@/config").emailTemplateConfig.login_notification = undefined;
+            const originalTemplate =
+                require("@/config").emailTemplateConfig.login_notification;
+            require("@/config").emailTemplateConfig.login_notification =
+                undefined;
 
-            const loggerSpy = jest.spyOn((event as any).logger, "warn").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "warn")
+                .mockImplementation();
 
             await event.sendLoginNotification(baseLoginPayload);
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Login notification template not configured")
+                expect.stringContaining(
+                    "Login notification template not configured",
+                ),
             );
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
 
             loggerSpy.mockRestore();
-            require("@/config").emailTemplateConfig.login_notification = originalTemplate;
+            require("@/config").emailTemplateConfig.login_notification =
+                originalTemplate;
         });
 
         it("handles email service failure gracefully", async () => {
-            emailService.sendMailWithTemplate.mockRejectedValue(new Error("Email service down"));
-            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+            emailService.sendMailWithTemplate.mockRejectedValue(
+                new Error("Email service down"),
+            );
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "error")
+                .mockImplementation();
 
             await event.sendLoginNotification(baseLoginPayload);
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Failed to send")
+                expect.stringContaining("Failed to send"),
             );
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("user@example.com")
+                expect.stringContaining("user@example.com"),
             );
 
             loggerSpy.mockRestore();
@@ -1068,12 +1145,14 @@ describe("NotificationEvent", () => {
 
         it("handles non-Error exceptions", async () => {
             emailService.sendMailWithTemplate.mockRejectedValue("String error");
-            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "error")
+                .mockImplementation();
 
             await event.sendLoginNotification(baseLoginPayload);
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("String error")
+                expect.stringContaining("String error"),
             );
 
             loggerSpy.mockRestore();
@@ -1081,23 +1160,36 @@ describe("NotificationEvent", () => {
 
         it("handles null exceptions without throwing inside catch", async () => {
             emailService.sendMailWithTemplate.mockRejectedValue(null);
-            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "error")
+                .mockImplementation();
 
-            await expect(event.sendLoginNotification(baseLoginPayload)).resolves.toBeUndefined();
+            await expect(
+                event.sendLoginNotification(baseLoginPayload),
+            ).resolves.toBeUndefined();
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("null")
+                expect.stringContaining("null"),
             );
 
             loggerSpy.mockRestore();
         });
 
         it("serializes object exceptions without logging [object Object]", async () => {
-            emailService.sendMailWithTemplate.mockRejectedValue({ detail: "SMTP failed", retryable: false });
-            const loggerSpy = jest.spyOn((event as any).logger, "error").mockImplementation();
+            emailService.sendMailWithTemplate.mockRejectedValue({
+                detail: "SMTP failed",
+                retryable: false,
+            });
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "error")
+                .mockImplementation();
 
-            await expect(event.sendLoginNotification(baseLoginPayload)).resolves.toBeUndefined();
+            await expect(
+                event.sendLoginNotification(baseLoginPayload),
+            ).resolves.toBeUndefined();
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining('{"detail":"SMTP failed","retryable":false}')
+                expect.stringContaining(
+                    '{"detail":"SMTP failed","retryable":false}',
+                ),
             );
 
             loggerSpy.mockRestore();
@@ -1132,19 +1224,27 @@ describe("NotificationEvent", () => {
             await event.sendLoginNotification(payload);
 
             const call = emailService.sendMailWithTemplate.mock.calls[0][0];
-            expect(call.merge_info.ip_address).toBe("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+            expect(call.merge_info.ip_address).toBe(
+                "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+            );
         });
 
-       it("logs successful send", async () => {
-            const loggerSpy = jest.spyOn((event as any).logger, "log").mockImplementation();
+        it("logs successful send", async () => {
+            const loggerSpy = jest
+                .spyOn((event as any).logger, "log")
+                .mockImplementation();
 
             await event.sendLoginNotification(baseLoginPayload);
 
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("[LoginNotification] Sending login notification to")
+                expect.stringContaining(
+                    "[LoginNotification] Sending login notification to",
+                ),
             );
             expect(loggerSpy).toHaveBeenCalledWith(
-                expect.stringContaining("[LoginNotification] Sent successfully")
+                expect.stringContaining(
+                    "[LoginNotification] Sent successfully",
+                ),
             );
 
             loggerSpy.mockRestore();

@@ -37,26 +37,48 @@ describe("TradeHelpersService", () => {
         });
 
         it("should normalize direct network matches", () => {
-            expect(service.normalizeNetworkInput("trc20")).toBe(NetworkTypes.trc20);
-            expect(service.normalizeNetworkInput("erc20")).toBe(NetworkTypes.erc20);
-            expect(service.normalizeNetworkInput("bep20")).toBe(NetworkTypes.bep20);
+            expect(service.normalizeNetworkInput("trc20")).toBe(
+                NetworkTypes.trc20,
+            );
+            expect(service.normalizeNetworkInput("erc20")).toBe(
+                NetworkTypes.erc20,
+            );
+            expect(service.normalizeNetworkInput("bep20")).toBe(
+                NetworkTypes.bep20,
+            );
         });
 
         it("should be case-insensitive", () => {
-            expect(service.normalizeNetworkInput("TRC20")).toBe(NetworkTypes.trc20);
-            expect(service.normalizeNetworkInput("ERC20")).toBe(NetworkTypes.erc20);
-            expect(service.normalizeNetworkInput("Bep20")).toBe(NetworkTypes.bep20);
+            expect(service.normalizeNetworkInput("TRC20")).toBe(
+                NetworkTypes.trc20,
+            );
+            expect(service.normalizeNetworkInput("ERC20")).toBe(
+                NetworkTypes.erc20,
+            );
+            expect(service.normalizeNetworkInput("Bep20")).toBe(
+                NetworkTypes.bep20,
+            );
         });
 
         it("should handle common aliases", () => {
-            expect(service.normalizeNetworkInput("tron")).toBe(NetworkTypes.trc20);
-            expect(service.normalizeNetworkInput("ethereum")).toBe(NetworkTypes.erc20);
-            expect(service.normalizeNetworkInput("bsc")).toBe(NetworkTypes.bep20);
+            expect(service.normalizeNetworkInput("tron")).toBe(
+                NetworkTypes.trc20,
+            );
+            expect(service.normalizeNetworkInput("ethereum")).toBe(
+                NetworkTypes.erc20,
+            );
+            expect(service.normalizeNetworkInput("bsc")).toBe(
+                NetworkTypes.bep20,
+            );
         });
 
         it("should handle compound formats", () => {
-            expect(service.normalizeNetworkInput("tron_trc20")).toBe(NetworkTypes.trc20);
-            expect(service.normalizeNetworkInput("ethereum/erc20")).toBe(NetworkTypes.erc20);
+            expect(service.normalizeNetworkInput("tron_trc20")).toBe(
+                NetworkTypes.trc20,
+            );
+            expect(service.normalizeNetworkInput("ethereum/erc20")).toBe(
+                NetworkTypes.erc20,
+            );
         });
 
         it("should return null for unknown networks", () => {
@@ -80,10 +102,18 @@ describe("TradeHelpersService", () => {
 
     describe("getNetworkDisplayName", () => {
         it("should return human-readable network names", () => {
-            expect(service.getNetworkDisplayName(NetworkTypes.trc20)).toBe("Tron (TRC-20)");
-            expect(service.getNetworkDisplayName(NetworkTypes.erc20)).toBe("Ethereum (ERC-20)");
-            expect(service.getNetworkDisplayName(NetworkTypes.btc)).toBe("Bitcoin");
-            expect(service.getNetworkDisplayName(NetworkTypes.solana)).toBe("Solana");
+            expect(service.getNetworkDisplayName(NetworkTypes.trc20)).toBe(
+                "Tron (TRC-20)",
+            );
+            expect(service.getNetworkDisplayName(NetworkTypes.erc20)).toBe(
+                "Ethereum (ERC-20)",
+            );
+            expect(service.getNetworkDisplayName(NetworkTypes.btc)).toBe(
+                "Bitcoin",
+            );
+            expect(service.getNetworkDisplayName(NetworkTypes.solana)).toBe(
+                "Solana",
+            );
         });
     });
 
@@ -155,12 +185,12 @@ describe("TradeHelpersService", () => {
         });
 
         it("should handle nested objects", () => {
-            const obj = { 
-                level1: { 
-                    level2: { 
-                        value: "deep" 
-                    } 
-                } 
+            const obj = {
+                level1: {
+                    level2: {
+                        value: "deep",
+                    },
+                },
             };
             const result = service.safeJsonStringify(obj);
             expect(result).toContain("deep");
@@ -216,8 +246,14 @@ describe("TradeHelpersService", () => {
                 service.validateMinimumAmountInUSDT(0.0001, "BTC", 3, "buy"),
             ).resolves.not.toThrow();
 
-            expect(mockRateService.getAssetRate).toHaveBeenNthCalledWith(1, "BTC");
-            expect(mockRateService.getAssetRate).toHaveBeenNthCalledWith(2, "USDT");
+            expect(mockRateService.getAssetRate).toHaveBeenNthCalledWith(
+                1,
+                "BTC",
+            );
+            expect(mockRateService.getAssetRate).toHaveBeenNthCalledWith(
+                2,
+                "USDT",
+            );
         });
 
         it("should include the trade type when a converted amount is below the minimum", async () => {

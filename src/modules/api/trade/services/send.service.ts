@@ -14,7 +14,11 @@ import {
     QueueReason,
     User,
 } from "@prisma/client";
-import { IncompleteAccountSetupException, RateLimitExceededException, GeneralTransactionException } from "../errors";
+import {
+    IncompleteAccountSetupException,
+    RateLimitExceededException,
+    GeneralTransactionException,
+} from "../errors";
 import {
     CancelWithdrawerRequestDto,
     GetCryptoWithdrawerFeeDto,
@@ -35,16 +39,29 @@ import { TransactionMonitorService } from "./ledger/transaction-monitor.service"
 
 // Withdrawal rate limits: configurable via environment variables
 // Default: 5 withdrawals per hour per user
-const WITHDRAWAL_RATE_LIMIT = Number.parseInt(process.env.WITHDRAWAL_RATE_LIMIT || "5", 10);
-const WITHDRAWAL_RATE_WINDOW_SECONDS = Number.parseInt(process.env.WITHDRAWAL_RATE_WINDOW_SECONDS || "3600", 10); // 1 hour default
+const WITHDRAWAL_RATE_LIMIT = Number.parseInt(
+    process.env.WITHDRAWAL_RATE_LIMIT || "5",
+    10,
+);
+const WITHDRAWAL_RATE_WINDOW_SECONDS = Number.parseInt(
+    process.env.WITHDRAWAL_RATE_WINDOW_SECONDS || "3600",
+    10,
+); // 1 hour default
 
 // Stuck order thresholds: auto-fail orders older than these durations
-const STUCK_ORDER_SUBMITTED_THRESHOLD_MS = Number.parseInt(process.env.STUCK_ORDER_SUBMITTED_THRESHOLD_MS || String(30 * 60 * 1000), 10); // 30 min
-const STUCK_ORDER_PROCESSING_THRESHOLD_MS = Number.parseInt(process.env.STUCK_ORDER_PROCESSING_THRESHOLD_MS || String(2 * 60 * 60 * 1000), 10); // 2 hours
+const STUCK_ORDER_SUBMITTED_THRESHOLD_MS = Number.parseInt(
+    process.env.STUCK_ORDER_SUBMITTED_THRESHOLD_MS || String(30 * 60 * 1000),
+    10,
+); // 30 min
+const STUCK_ORDER_PROCESSING_THRESHOLD_MS = Number.parseInt(
+    process.env.STUCK_ORDER_PROCESSING_THRESHOLD_MS ||
+        String(2 * 60 * 60 * 1000),
+    10,
+); // 2 hours
 
 /**
  * Send Service
- * 
+ *
  * Handles all crypto send/withdrawal operations including:
  * - Creating withdrawal requests
  * - Calculating withdrawal fees
@@ -89,8 +106,8 @@ export class SendService {
         private readonly rateService: RateService,
         private readonly transactionMonitor: TransactionMonitorService,
         private readonly notificationDispatcher: NotificationDispatcher,
-        private readonly distributedLockService: DistributedLockService
-    ) { }
+        private readonly distributedLockService: DistributedLockService,
+    ) {}
 
     /**
      * Checks withdrawal rate limits
@@ -99,7 +116,7 @@ export class SendService {
      */
     private async checkWithdrawalRateLimits(
         userId: number,
-        currency: string
+        currency: string,
     ): Promise<{ allowed: boolean; reason?: string }> {
         // Check hourly rate limit (5/hour)
         const rateLimitResult = await this.rateLimiter.checkLimit(
@@ -108,12 +125,12 @@ export class SendService {
                 limit: WITHDRAWAL_RATE_LIMIT,
                 windowSeconds: WITHDRAWAL_RATE_WINDOW_SECONDS,
                 keyPrefix: "ratelimit:",
-            }
+            },
         );
 
         if (!rateLimitResult.allowed) {
             this.logger.warn(
-                `Withdrawal rate limit (hourly) hit | userId: ${userId} | currency: ${currency} | limit: ${WITHDRAWAL_RATE_LIMIT}/hr | retryAfter: ${Math.ceil(rateLimitResult.retryAfter || 0)}s`
+                `Withdrawal rate limit (hourly) hit | userId: ${userId} | currency: ${currency} | limit: ${WITHDRAWAL_RATE_LIMIT}/hr | retryAfter: ${Math.ceil(rateLimitResult.retryAfter || 0)}s`,
             );
             return {
                 allowed: false,
@@ -136,14 +153,21 @@ export class SendService {
                     ],
                 },
             },
-            select: { id: true, orderReference: true, amount: true, status: true, createdAt: true },
+            select: {
+                id: true,
+                orderReference: true,
+                amount: true,
+                status: true,
+                createdAt: true,
+            },
         });
 
         if (pendingWithdrawal) {
             // Auto-resolve stuck orders: if a pending order is older than the
             // configured threshold, mark it as failed so the user isn't blocked
             // indefinitely by an order that will never complete.
-            const orderAgeMs = Date.now() - new Date(pendingWithdrawal.createdAt).getTime();
+            const orderAgeMs =
+                Date.now() - new Date(pendingWithdrawal.createdAt).getTime();
             const isSubmittedOrPending =
                 pendingWithdrawal.status === OrderStatus.submitted ||
                 pendingWithdrawal.status === OrderStatus.pending;
@@ -152,11 +176,17 @@ export class SendService {
                 : STUCK_ORDER_PROCESSING_THRESHOLD_MS;
 
             if (orderAgeMs > threshold) {
-                await this.autoFailStuckOrder(userId, currency, pendingWithdrawal, orderAgeMs, threshold);
+                await this.autoFailStuckOrder(
+                    userId,
+                    currency,
+                    pendingWithdrawal,
+                    orderAgeMs,
+                    threshold,
+                );
                 // Order resolved — allow the new withdrawal to proceed
             } else {
                 this.logger.warn(
-                    `Withdrawal blocked by pending order | userId: ${userId} | currency: ${currency} | orderId: ${pendingWithdrawal.id} | ref: ${pendingWithdrawal.orderReference} | status: ${pendingWithdrawal.status} | age: ${Math.round(orderAgeMs / 60000)}min`
+                    `Withdrawal blocked by pending order | userId: ${userId} | currency: ${currency} | orderId: ${pendingWithdrawal.id} | ref: ${pendingWithdrawal.orderReference} | status: ${pendingWithdrawal.status} | age: ${Math.round(orderAgeMs / 60000)}min`,
                 );
                 return {
                     allowed: false,
@@ -174,12 +204,17 @@ export class SendService {
     private async autoFailStuckOrder(
         userId: number,
         currency: string,
-        order: { id: number; orderReference: string; amount: any; status: string },
+        order: {
+            id: number;
+            orderReference: string;
+            amount: any;
+            status: string;
+        },
         orderAgeMs: number,
-        threshold: number
+        threshold: number,
     ): Promise<void> {
         this.logger.warn(
-            `Auto-failing stuck withdrawal order | userId: ${userId} | currency: ${currency} | orderId: ${order.id} | ref: ${order.orderReference} | status: ${order.status} | age: ${Math.round(orderAgeMs / 60000)}min | threshold: ${Math.round(threshold / 60000)}min`
+            `Auto-failing stuck withdrawal order | userId: ${userId} | currency: ${currency} | orderId: ${order.id} | ref: ${order.orderReference} | status: ${order.status} | age: ${Math.round(orderAgeMs / 60000)}min | threshold: ${Math.round(threshold / 60000)}min`,
         );
 
         await this.prisma.order.update({
@@ -195,22 +230,22 @@ export class SendService {
             const releaseResult = await this.ledgerService.releaseHold(
                 `withdrawal:${order.orderReference}`,
                 false,
-                "Stuck order auto-failed"
+                "Stuck order auto-failed",
             );
             if (releaseResult.success) {
                 this.logger.log(
-                    `Released held funds for stuck order | userId: ${userId} | currency: ${currency} | amount: ${order.amount} | ref: ${order.orderReference}`
+                    `Released held funds for stuck order | userId: ${userId} | currency: ${currency} | amount: ${order.amount} | ref: ${order.orderReference}`,
                 );
             } else {
                 this.logger.warn(
-                    `No hold entry found to release for stuck order (may have been released already or order predates ledger holds) | userId: ${userId} | orderId: ${order.id} | ref: ${order.orderReference} | error: ${releaseResult.error}`
+                    `No hold entry found to release for stuck order (may have been released already or order predates ledger holds) | userId: ${userId} | orderId: ${order.id} | ref: ${order.orderReference} | error: ${releaseResult.error}`,
                 );
             }
         } catch (releaseError) {
             // Log but don't block — the order is already marked failed.
             // Manual reconciliation may be needed if hold release fails.
             this.logger.error(
-                `Failed to release hold for auto-failed order | userId: ${userId} | orderId: ${order.id} | error: ${releaseError.message}`
+                `Failed to release hold for auto-failed order | userId: ${userId} | orderId: ${order.id} | error: ${releaseError.message}`,
             );
         }
 
@@ -230,10 +265,12 @@ export class SendService {
                         },
                     ],
                 },
-                { alertKey: `stuck_withdrawal:${order.id}` }
+                { alertKey: `stuck_withdrawal:${order.id}` },
             );
         } catch (err) {
-            this.logger.debug(`Slack notification failed for stuck withdrawal: ${err}`);
+            this.logger.debug(
+                `Slack notification failed for stuck withdrawal: ${err}`,
+            );
         }
     }
 
@@ -242,7 +279,7 @@ export class SendService {
      */
     private async getFee(
         amount: number,
-        data: any
+        data: any,
     ): Promise<{ fee: number; type: string }> {
         if (data.type === "flat" && typeof data.fee === "number") {
             return { fee: data.fee, type: "flat" };
@@ -263,7 +300,7 @@ export class SendService {
 
         throw new IncompleteAccountSetupException(
             "Unknown fee structure",
-            HttpStatus.INTERNAL_SERVER_ERROR
+            HttpStatus.INTERNAL_SERVER_ERROR,
         );
     }
 
@@ -272,7 +309,12 @@ export class SendService {
      */
     private getRangeFee(
         amount: number,
-        ranges: Array<{ min: number; max: number; type: string; value: number }>
+        ranges: Array<{
+            min: number;
+            max: number;
+            type: string;
+            value: number;
+        }>,
     ): { fee: number; type: string } {
         for (const range of ranges) {
             if (amount >= range.min && amount < range.max) {
@@ -284,7 +326,7 @@ export class SendService {
 
         throw new IncompleteAccountSetupException(
             "Amount is out of range.",
-            HttpStatus.BAD_REQUEST
+            HttpStatus.BAD_REQUEST,
         );
     }
 
@@ -296,7 +338,7 @@ export class SendService {
         userId: number,
         amount: number,
         currency: string,
-        network: string
+        network: string,
     ) {
         try {
             return await this.getCryptoWithdrawerFee({
@@ -305,12 +347,15 @@ export class SendService {
                 network: network as any,
             });
         } catch (feeError) {
-            if (feeError?.status === 429 || feeError?.name === "DojahTooManyRequestError") {
+            if (
+                feeError?.status === 429 ||
+                feeError?.name === "DojahTooManyRequestError"
+            ) {
                 this.logger.warn(
-                    `Quidax 429 during fee fetch | userId: ${userId} | currency: ${currency} | error: ${feeError.message}`
+                    `Quidax 429 during fee fetch | userId: ${userId} | currency: ${currency} | error: ${feeError.message}`,
                 );
                 throw new RateLimitExceededException(
-                    "Our withdrawal service is temporarily busy. Please try again in a few seconds."
+                    "Our withdrawal service is temporarily busy. Please try again in a few seconds.",
                 );
             }
             throw feeError;
@@ -322,10 +367,12 @@ export class SendService {
      */
     private async getAmountInNaira(
         currency: string,
-        amount: number
+        amount: number,
     ): Promise<{ amount: number; rate: number } | null> {
         try {
-            const rate = await this.rateService.getAssetRate(currency.toUpperCase());
+            const rate = await this.rateService.getAssetRate(
+                currency.toUpperCase(),
+            );
             // Use buy rate for outgoing (what user sends out)
             return {
                 amount: amount * rate.buyRate,
@@ -351,31 +398,52 @@ export class SendService {
         destinationTag?: string,
     ): Promise<void> {
         const addr = destinationAddress.trim();
-        const isEVMOrTRC20 = /^(0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})$/.test(addr);
+        const isEVMOrTRC20 =
+            /^(0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})$/.test(addr);
         const normalizedDestinationTag = destinationTag?.trim() || null;
-        const compareByDestinationTag = this.requiresDestinationTag(currency, network);
-        const normalizeTag = (value: string | null | undefined): string | null => value?.trim() || null;
+        const compareByDestinationTag = this.requiresDestinationTag(
+            currency,
+            network,
+        );
+        const normalizeTag = (
+            value: string | null | undefined,
+        ): string | null => value?.trim() || null;
 
         // 1. Check CryptoWalletAddress table (per-network addresses)
-        const ownCryptoAddress = await this.prisma.cryptoWalletAddress.findFirst({
-            where: {
-                userId,
-                ...(isEVMOrTRC20
-                    ? { address: { equals: addr, mode: "insensitive" as any } }
-                    : { address: addr }),
-            },
-            select: { address: true, network: true, destination_tag: true },
-        });
+        const ownCryptoAddress =
+            await this.prisma.cryptoWalletAddress.findFirst({
+                where: {
+                    userId,
+                    ...(isEVMOrTRC20
+                        ? {
+                              address: {
+                                  equals: addr,
+                                  mode: "insensitive" as any,
+                              },
+                          }
+                        : { address: addr }),
+                },
+                select: { address: true, network: true, destination_tag: true },
+            });
 
         // 2. Fallback: check AssetWallet.depositAddress (older storage)
         const ownWallet = await this.prisma.assetWallet.findFirst({
             where: {
                 userId,
                 ...(isEVMOrTRC20
-                    ? { depositAddress: { equals: addr, mode: "insensitive" as any } }
+                    ? {
+                          depositAddress: {
+                              equals: addr,
+                              mode: "insensitive" as any,
+                          },
+                      }
                     : { depositAddress: addr }),
             },
-            select: { depositAddress: true, assetCurrency: true, destinationTag: true },
+            select: {
+                depositAddress: true,
+                assetCurrency: true,
+                destinationTag: true,
+            },
         });
 
         if (!ownCryptoAddress && !ownWallet) {
@@ -385,20 +453,20 @@ export class SendService {
         const blockSelfSend = (): never => {
             if (ownCryptoAddress) {
                 this.logger.warn(
-                    `Blocked self-send to own deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | matchedNetwork: ${ownCryptoAddress.network}`
+                    `Blocked self-send to own deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | matchedNetwork: ${ownCryptoAddress.network}`,
                 );
                 throw new IncompleteAccountSetupException(
                     "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
 
             this.logger.warn(
-                `Blocked self-send to own wallet deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${ownWallet.assetCurrency}`
+                `Blocked self-send to own wallet deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${ownWallet.assetCurrency}`,
             );
             throw new IncompleteAccountSetupException(
                 "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         };
 
@@ -406,17 +474,24 @@ export class SendService {
             blockSelfSend();
         }
 
-        const ownCryptoDestinationTag = normalizeTag(ownCryptoAddress?.destination_tag);
+        const ownCryptoDestinationTag = normalizeTag(
+            ownCryptoAddress?.destination_tag,
+        );
         const ownWalletDestinationTag = normalizeTag(ownWallet?.destinationTag);
-        const effectiveOwnTag = ownCryptoDestinationTag ?? ownWalletDestinationTag;
+        const effectiveOwnTag =
+            ownCryptoDestinationTag ?? ownWalletDestinationTag;
 
-        if (effectiveOwnTag && normalizedDestinationTag && effectiveOwnTag === normalizedDestinationTag) {
+        if (
+            effectiveOwnTag &&
+            normalizedDestinationTag &&
+            effectiveOwnTag === normalizedDestinationTag
+        ) {
             blockSelfSend();
         }
 
         if (!effectiveOwnTag) {
             this.logger.warn(
-                `Allowed same-address withdrawal because sender deposit metadata is incomplete | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`
+                `Allowed same-address withdrawal because sender deposit metadata is incomplete | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`,
             );
             return;
         }
@@ -426,7 +501,7 @@ export class SendService {
         }
 
         this.logger.log(
-            `Allowed same-address withdrawal because destination tag differs from sender's own deposit tag | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`
+            `Allowed same-address withdrawal because destination tag differs from sender's own deposit tag | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`,
         );
     }
 
@@ -434,9 +509,9 @@ export class SendService {
      * Resolve the network type from the address format when not explicitly provided.
      */
     private resolveNetwork(
-        userId: number, 
-        explicitNetwork: string | undefined, 
-        address: string
+        userId: number,
+        explicitNetwork: string | undefined,
+        address: string,
     ): NetworkTypes | undefined {
         if (explicitNetwork) return explicitNetwork as NetworkTypes;
         const family = this.inferAddressFamily(address);
@@ -458,7 +533,7 @@ export class SendService {
         };
         const resolved = familyToNetwork[family];
         this.logger.log(
-            `Auto-detected network from address | userId: ${userId} | family: ${family} | resolvedNetwork: ${resolved}`
+            `Auto-detected network from address | userId: ${userId} | family: ${family} | resolvedNetwork: ${resolved}`,
         );
         return resolved;
     }
@@ -476,25 +551,26 @@ export class SendService {
         const addressFamily = this.inferAddressFamily(address);
 
         try {
-            const verification = await this.walletAddressService.verifyWalletAddress({
-                currency: currency.toLowerCase() as any,
-                address,
-                network,
-            });
+            const verification =
+                await this.walletAddressService.verifyWalletAddress({
+                    currency: currency.toLowerCase() as any,
+                    address,
+                    network,
+                });
 
             if (!verification?.data?.valid) {
                 if (addressFamily !== "unknown") {
                     this.logger.warn(
-                        `Quidax rejected address but local validation passed — proceeding | userId: ${userId} | currency: ${currency} | network: ${network} | family: ${addressFamily} | address: ${address.slice(0, 10)}...`
+                        `Quidax rejected address but local validation passed — proceeding | userId: ${userId} | currency: ${currency} | network: ${network} | family: ${addressFamily} | address: ${address.slice(0, 10)}...`,
                     );
                     return;
                 }
                 this.logger.warn(
-                    `Address validation returned invalid | userId: ${userId} | currency: ${currency} | network: ${network} | address: ${address.slice(0, 10)}...`
+                    `Address validation returned invalid | userId: ${userId} | currency: ${currency} | network: ${network} | address: ${address.slice(0, 10)}...`,
                 );
                 throw new IncompleteAccountSetupException(
                     "Invalid wallet address for selected currency",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
         } catch (error) {
@@ -502,19 +578,24 @@ export class SendService {
 
             if (addressFamily !== "unknown") {
                 this.logger.warn(
-                    `Address verification API failed but local validation passed — proceeding | userId: ${userId} | currency: ${currency} | network: ${network} | family: ${addressFamily} | error: ${error.message}`
+                    `Address verification API failed but local validation passed — proceeding | userId: ${userId} | currency: ${currency} | network: ${network} | family: ${addressFamily} | error: ${error.message}`,
                 );
                 return;
             }
-            this.logger.warn(`Address verification failed | userId: ${userId} | currency: ${currency} | network: ${network} | error: ${error.message}`);
+            this.logger.warn(
+                `Address verification failed | userId: ${userId} | currency: ${currency} | network: ${network} | error: ${error.message}`,
+            );
             throw new IncompleteAccountSetupException(
                 "Unable to verify wallet address. Please check the address and try again.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
     }
 
-    private requiresDestinationTag(currency: string, network?: NetworkTypes): boolean {
+    private requiresDestinationTag(
+        currency: string,
+        network?: NetworkTypes,
+    ): boolean {
         if (network && this.memoTagRequiredNetworks.has(network)) {
             return true;
         }
@@ -535,13 +616,14 @@ export class SendService {
         const trimmedTag = destinationTag?.trim();
 
         // XRP/Ripple tags are numeric in the downstream exchange flows we support.
-        const requiresNumericTag = currency.toUpperCase() === "XRP" || network === NetworkTypes.ripple;
+        const requiresNumericTag =
+            currency.toUpperCase() === "XRP" || network === NetworkTypes.ripple;
 
         if (trimmedTag) {
             if (requiresNumericTag && !/^\d{1,20}$/.test(trimmedTag)) {
                 throw new IncompleteAccountSetupException(
                     "Destination tag must be numeric for XRP withdrawals",
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
             return;
@@ -550,16 +632,18 @@ export class SendService {
         if (!destinationTagNotRequiredConfirmed) {
             throw new IncompleteAccountSetupException(
                 "Destination tag/memo is required for this wallet type, or confirm recipient wallet does not require one",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         this.logger.warn(
-            `Destination tag omitted with explicit user confirmation | currency: ${currency} | network: ${network}`
+            `Destination tag omitted with explicit user confirmation | currency: ${currency} | network: ${network}`,
         );
     }
 
-    private inferAddressFamily(address: string):
+    private inferAddressFamily(
+        address: string,
+    ):
         | "evm"
         | "trc20"
         | "btc"
@@ -591,12 +675,16 @@ export class SendService {
         return "unknown";
     }
 
-    private isNetworkCompatibleWithAddress(network: string | undefined, address: string): boolean {
+    private isNetworkCompatibleWithAddress(
+        network: string | undefined,
+        address: string,
+    ): boolean {
         if (!network) {
             return true;
         }
 
-        const normalizedNetwork = this.tradeHelpers.normalizeNetworkInput(network);
+        const normalizedNetwork =
+            this.tradeHelpers.normalizeNetworkInput(network);
         if (!normalizedNetwork) {
             return true;
         }
@@ -610,7 +698,10 @@ export class SendService {
             return this.evmNetworks.has(normalizedNetwork);
         }
 
-        const familyNetworkMap: Record<Exclude<typeof family, "evm" | "unknown">, NetworkTypes> = {
+        const familyNetworkMap: Record<
+            Exclude<typeof family, "evm" | "unknown">,
+            NetworkTypes
+        > = {
             trc20: NetworkTypes.trc20,
             btc: NetworkTypes.btc,
             ltc: NetworkTypes.ltc,
@@ -642,7 +733,7 @@ export class SendService {
         if (!providerFeeInfo?.data) {
             throw new IncompleteAccountSetupException(
                 "Fee information is not available for the selected currency and network combination",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -669,7 +760,7 @@ export class SendService {
 
     /**
      * Creates a withdrawal/send request
-     * 
+     *
      * VIRTUAL BALANCE FLOW:
      * 1. Check rate limits
      * 2. Check for pending sweeps (block if user's deposits not yet confirmed)
@@ -682,212 +773,274 @@ export class SendService {
         return this.distributedLockService.withLock(
             `trade:withdraw:${user.id}`,
             async () => {
-        this.logger.log(
-            `withdrawerRequest called | userId: ${user.id}, currency: ${dto.currency}, amount: ${dto.amount}, recipient: ${dto.recipientWalletAddress?.slice(0, 10)}...`
-        );
+                this.logger.log(
+                    `withdrawerRequest called | userId: ${user.id}, currency: ${dto.currency}, amount: ${dto.amount}, recipient: ${dto.recipientWalletAddress?.slice(0, 10)}...`,
+                );
 
-        // Handle Internal Transfer
-        if (dto.isInternal === true) {
-            return this.processInternalTransfer(user, dto);
-        }
+                // Handle Internal Transfer
+                if (dto.isInternal === true) {
+                    return this.processInternalTransfer(user, dto);
+                }
 
-        const currency = dto.currency.toUpperCase();
-        const recipientWalletAddress = dto.recipientWalletAddress?.trim();
+                const currency = dto.currency.toUpperCase();
+                const recipientWalletAddress =
+                    dto.recipientWalletAddress?.trim();
 
-        if (!recipientWalletAddress) {
-            throw new IncompleteAccountSetupException(
-                "Recipient wallet address is required",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+                if (!recipientWalletAddress) {
+                    throw new IncompleteAccountSetupException(
+                        "Recipient wallet address is required",
+                        HttpStatus.BAD_REQUEST,
+                    );
+                }
 
-        // Auto-detect network from address format when not provided by the client.
-        const resolvedNetwork = this.resolveNetwork(user.id, dto.network, recipientWalletAddress);
+                // Auto-detect network from address format when not provided by the client.
+                const resolvedNetwork = this.resolveNetwork(
+                    user.id,
+                    dto.network,
+                    recipientWalletAddress,
+                );
 
-        this.logger.debug(
-            `Withdrawal validation | userId: ${user.id} | currency: ${currency} | dto.network: ${dto.network} | resolvedNetwork: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`
-        );
+                this.logger.debug(
+                    `Withdrawal validation | userId: ${user.id} | currency: ${currency} | dto.network: ${dto.network} | resolvedNetwork: ${resolvedNetwork} | address: ${recipientWalletAddress.slice(0, 10)}...`,
+                );
 
-        if (!this.isNetworkCompatibleWithAddress(resolvedNetwork, recipientWalletAddress)) {
-            throw new IncompleteAccountSetupException(
-                "Wallet address is not compatible with the selected network",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+                if (
+                    !this.isNetworkCompatibleWithAddress(
+                        resolvedNetwork,
+                        recipientWalletAddress,
+                    )
+                ) {
+                    throw new IncompleteAccountSetupException(
+                        "Wallet address is not compatible with the selected network",
+                        HttpStatus.BAD_REQUEST,
+                    );
+                }
 
-        this.validateDestinationTagRequirements(
-            currency,
-            resolvedNetwork,
-            dto.destinationTag,
-            dto.destinationTagNotRequiredConfirmed,
-        );
+                this.validateDestinationTagRequirements(
+                    currency,
+                    resolvedNetwork,
+                    dto.destinationTag,
+                    dto.destinationTagNotRequiredConfirmed,
+                );
 
-        // Block self-sends: prevent user from sending to their own deposit address.
-        // This avoids a wasted withdrawal fee (funds leave via on-chain withdrawal
-        // and immediately return as a new deposit on the same sub-account).
-        await this.assertNotOwnDepositAddress(
-            user.id,
-            recipientWalletAddress,
-            currency,
-            resolvedNetwork,
-            dto.destinationTag,
-        );
+                // Block self-sends: prevent user from sending to their own deposit address.
+                // This avoids a wasted withdrawal fee (funds leave via on-chain withdrawal
+                // and immediately return as a new deposit on the same sub-account).
+                await this.assertNotOwnDepositAddress(
+                    user.id,
+                    recipientWalletAddress,
+                    currency,
+                    resolvedNetwork,
+                    dto.destinationTag,
+                );
 
-        // Verify address with provider, falling back to local regex validation.
-        await this.validateWalletAddress(user.id, recipientWalletAddress, currency, resolvedNetwork);
+                // Verify address with provider, falling back to local regex validation.
+                await this.validateWalletAddress(
+                    user.id,
+                    recipientWalletAddress,
+                    currency,
+                    resolvedNetwork,
+                );
 
-        // Check rate limits FIRST (cheap local check before any external API calls)
-        const rateLimitCheck = await this.checkWithdrawalRateLimits(user.id, currency);
-        if (!rateLimitCheck.allowed) {
-            this.logger.warn(
-                `Withdrawal blocked by rate limit | userId: ${user.id} | currency: ${currency} | reason: ${rateLimitCheck.reason}`
-            );
-            throw new RateLimitExceededException(rateLimitCheck.reason);
-        }
+                // Check rate limits FIRST (cheap local check before any external API calls)
+                const rateLimitCheck = await this.checkWithdrawalRateLimits(
+                    user.id,
+                    currency,
+                );
+                if (!rateLimitCheck.allowed) {
+                    this.logger.warn(
+                        `Withdrawal blocked by rate limit | userId: ${user.id} | currency: ${currency} | reason: ${rateLimitCheck.reason}`,
+                    );
+                    throw new RateLimitExceededException(rateLimitCheck.reason);
+                }
 
-        // 1. Calculate Fees (External Only)
-        // We must fetch the authoritative fee from the provider/admin settings
-        // to ensure the user has enough balance for Amount + Fee.
-        const feeDataRes = await this.fetchWithdrawalFee(user.id, dto.amount, currency, resolvedNetwork);
+                // 1. Calculate Fees (External Only)
+                // We must fetch the authoritative fee from the provider/admin settings
+                // to ensure the user has enough balance for Amount + Fee.
+                const feeDataRes = await this.fetchWithdrawalFee(
+                    user.id,
+                    dto.amount,
+                    currency,
+                    resolvedNetwork,
+                );
 
-        const networkFee = new Decimal(feeDataRes.data.totalFee || 0);
-        const amount = new Decimal(dto.amount);
-        const totalAmount = amount.plus(networkFee); // Total = Amount + Fee
+                const networkFee = new Decimal(feeDataRes.data.totalFee || 0);
+                const amount = new Decimal(dto.amount);
+                const totalAmount = amount.plus(networkFee); // Total = Amount + Fee
 
-        // Check for pending sweeps - user can't withdraw until deposits are confirmed
-        // NOTE: In omnibus mode (no sub-account), this auto-resolves and returns false.
-        await this.assertNoPendingSweeps(user.id, currency);
+                // Check for pending sweeps - user can't withdraw until deposits are confirmed
+                // NOTE: In omnibus mode (no sub-account), this auto-resolves and returns false.
+                await this.assertNoPendingSweeps(user.id, currency);
 
-        // Get user's available balance from ledger
-        // We don't check totalAmount here because we do strict check inside the lock below.
-        // But a quick check fails fast.
-        const balance = await this.ledgerService.getBalance(user.id, currency);
-        if (balance.available.lessThan(totalAmount)) {
-            throw new IncompleteAccountSetupException(
-                `Insufficient balance. Available: ${balance.available.toString()} ${currency} (Required: ${totalAmount.toString()} ${currency})`,
-                HttpStatus.BAD_REQUEST
-            );
-        }
+                // Get user's available balance from ledger
+                // We don't check totalAmount here because we do strict check inside the lock below.
+                // But a quick check fails fast.
+                const balance = await this.ledgerService.getBalance(
+                    user.id,
+                    currency,
+                );
+                if (balance.available.lessThan(totalAmount)) {
+                    throw new IncompleteAccountSetupException(
+                        `Insufficient balance. Available: ${balance.available.toString()} ${currency} (Required: ${totalAmount.toString()} ${currency})`,
+                        HttpStatus.BAD_REQUEST,
+                    );
+                }
 
-        const reference = generateId({ type: "reference" });
-        const transactionId = generateId({ type: "transaction" });
+                const reference = generateId({ type: "reference" });
+                const transactionId = generateId({ type: "transaction" });
 
-        // Pre-hold validation: Real-time monitoring for high-value transactions
-        // This runs BEFORE the lock to avoid holding the lock during external calls.
-        // The hold() method acquires its own lock internally for balance operations.
-        const monitorResult = await this.transactionMonitor.validateBeforeExecution({
-            userId: user.id,
-            currency,
-            amount: totalAmount.toNumber(),
-            operationType: "WITHDRAWAL",
-            reference: `withdrawal:${reference}`,
-        });
+                // Pre-hold validation: Real-time monitoring for high-value transactions
+                // This runs BEFORE the lock to avoid holding the lock during external calls.
+                // The hold() method acquires its own lock internally for balance operations.
+                const monitorResult =
+                    await this.transactionMonitor.validateBeforeExecution({
+                        userId: user.id,
+                        currency,
+                        amount: totalAmount.toNumber(),
+                        operationType: "WITHDRAWAL",
+                        reference: `withdrawal:${reference}`,
+                    });
 
-        if (!monitorResult.success) {
-            this.logger.warn(
-                `Transaction monitor blocked withdrawal | User: ${user.id} | Amount: ${totalAmount} ${currency} | Reason: ${monitorResult.reason}`
-            );
-            throw new GeneralTransactionException(
-                monitorResult.reason || "Transaction blocked by monitoring system",
-                HttpStatus.FORBIDDEN
-            );
-        }
+                if (!monitorResult.success) {
+                    this.logger.warn(
+                        `Transaction monitor blocked withdrawal | User: ${user.id} | Amount: ${totalAmount} ${currency} | Reason: ${monitorResult.reason}`,
+                    );
+                    throw new GeneralTransactionException(
+                        monitorResult.reason ||
+                            "Transaction blocked by monitoring system",
+                        HttpStatus.FORBIDDEN,
+                    );
+                }
 
-        // HOLD the TOTAL amount on user's ledger
-        // hold() acquires its own distributed lock on ledger:{userId}:{currency}
-        const holdResult = await this.ledgerService.hold({
-            userId: user.id,
-            currency: currency,
-            amount: totalAmount,
-            reference: `withdrawal:${reference}`,
-            type: LedgerType.WITHDRAWAL,
-            description: `Withdrawal to ${dto.recipientWalletAddress} (Fee: ${networkFee})`,
-            metadata: {
-                destinationAddress: dto.recipientWalletAddress,
-                destinationTag: dto.destinationTag,
-                destinationTagNotRequiredConfirmed: !!dto.destinationTagNotRequiredConfirmed,
-                network: resolvedNetwork,
-                narration: dto.narration,
-                transaction_note: dto.transaction_note,
-            },
-        });
+                // HOLD the TOTAL amount on user's ledger
+                // hold() acquires its own distributed lock on ledger:{userId}:{currency}
+                const holdResult = await this.ledgerService.hold({
+                    userId: user.id,
+                    currency: currency,
+                    amount: totalAmount,
+                    reference: `withdrawal:${reference}`,
+                    type: LedgerType.WITHDRAWAL,
+                    description: `Withdrawal to ${dto.recipientWalletAddress} (Fee: ${networkFee})`,
+                    metadata: {
+                        destinationAddress: dto.recipientWalletAddress,
+                        destinationTag: dto.destinationTag,
+                        destinationTagNotRequiredConfirmed:
+                            !!dto.destinationTagNotRequiredConfirmed,
+                        network: resolvedNetwork,
+                        narration: dto.narration,
+                        transaction_note: dto.transaction_note,
+                    },
+                });
 
-        if (!holdResult.success) {
-            this.logger.error(`Failed to hold balance for withdrawal | ${JSON.stringify({
-                userId: user.id,
-                currency,
-                amount: totalAmount,
-                error: holdResult.error,
-            })}`);
-            throw new IncompleteAccountSetupException(
-                holdResult.error || "Failed to process withdrawal",
-                HttpStatus.BAD_REQUEST
-            );
-        }
+                if (!holdResult.success) {
+                    this.logger.error(
+                        `Failed to hold balance for withdrawal | ${JSON.stringify(
+                            {
+                                userId: user.id,
+                                currency,
+                                amount: totalAmount,
+                                error: holdResult.error,
+                            },
+                        )}`,
+                    );
+                    throw new IncompleteAccountSetupException(
+                        holdResult.error || "Failed to process withdrawal",
+                        HttpStatus.BAD_REQUEST,
+                    );
+                }
 
-        // Check main wallet liquidity (Check against clean amount sent or total? Usually total if we pay fee from same wallet)
-        const mainWalletBalance = await this.getMainWalletBalance(currency);
-        // We only send 'dto.amount' to the user, but we might pay 'networkFee' from the wallet too.
-        // Safest to check we have totalAmount.
-        const hasLiquidity = mainWalletBalance.greaterThanOrEqualTo(totalAmount);
+                // Check main wallet liquidity (Check against clean amount sent or total? Usually total if we pay fee from same wallet)
+                const mainWalletBalance =
+                    await this.getMainWalletBalance(currency);
+                // We only send 'dto.amount' to the user, but we might pay 'networkFee' from the wallet too.
+                // Safest to check we have totalAmount.
+                const hasLiquidity =
+                    mainWalletBalance.greaterThanOrEqualTo(totalAmount);
 
-        // Get fiat equivalent for record (using base amount for value tracking usually, but let's track total value out)
-        const amtFiat = await this.getAmountInNaira(currency, dto.amount);
+                // Get fiat equivalent for record (using base amount for value tracking usually, but let's track total value out)
+                const amtFiat = await this.getAmountInNaira(
+                    currency,
+                    dto.amount,
+                );
 
-        // Create order record (will be updated with provider ID once executed)
-        const createdOrder = await this.prisma.order.create({
-            data: {
-                orderCategory: OrderCategory.SEND,
-                status: hasLiquidity ? OrderStatus.processing : OrderStatus.pending,
-                streamlinedStatus: getStreamlinedStatus(hasLiquidity ? OrderStatus.processing : OrderStatus.pending),
-                orderReference: reference,
-                transactionId: transactionId,
-                userId: user.id,
-                currency: currency,
-                narration: dto.narration,
-                transaction_note: dto.transaction_note,
-                recipient: dto.recipientWalletAddress,
-                destinationTag: dto.destinationTag,
-                amount: dto.amount, // The amount receiving
-                fee: networkFee.toNumber(), // The fee paid
-                total: totalAmount.toNumber(), // The total deducted
-                reason: !dto.destinationTag && this.requiresDestinationTag(currency, resolvedNetwork)
-                    ? "NO_DESTINATION_TAG_CONFIRMED_BY_USER"
-                    : undefined,
-                amountInFiat: amtFiat?.amount,
-                rateAtConversion: amtFiat?.rate,
-                sender: user.email,
-                sourceType: resolvedNetwork || currency,
-                ledgerEntryId: holdResult.entryId,
-                network: dto.network ?? undefined,
-            },
-        });
+                // Create order record (will be updated with provider ID once executed)
+                const createdOrder = await this.prisma.order.create({
+                    data: {
+                        orderCategory: OrderCategory.SEND,
+                        status: hasLiquidity
+                            ? OrderStatus.processing
+                            : OrderStatus.pending,
+                        streamlinedStatus: getStreamlinedStatus(
+                            hasLiquidity
+                                ? OrderStatus.processing
+                                : OrderStatus.pending,
+                        ),
+                        orderReference: reference,
+                        transactionId: transactionId,
+                        userId: user.id,
+                        currency: currency,
+                        narration: dto.narration,
+                        transaction_note: dto.transaction_note,
+                        recipient: dto.recipientWalletAddress,
+                        destinationTag: dto.destinationTag,
+                        amount: dto.amount, // The amount receiving
+                        fee: networkFee.toNumber(), // The fee paid
+                        total: totalAmount.toNumber(), // The total deducted
+                        reason:
+                            !dto.destinationTag &&
+                            this.requiresDestinationTag(
+                                currency,
+                                resolvedNetwork,
+                            )
+                                ? "NO_DESTINATION_TAG_CONFIRMED_BY_USER"
+                                : undefined,
+                        amountInFiat: amtFiat?.amount,
+                        rateAtConversion: amtFiat?.rate,
+                        sender: user.email,
+                        sourceType: resolvedNetwork || currency,
+                        ledgerEntryId: holdResult.entryId,
+                        network: dto.network ?? undefined,
+                    },
+                });
 
-        // Emit transaction update immediately
-        this.wsGateway.notifyTransactionUpdate(user.id, {
-            type: "transaction_update",
-            transaction: {
-                id: createdOrder.id,
-                transactionId: createdOrder.transactionId,
-                status: createdOrder.status,
-                streamlinedStatus: createdOrder.streamlinedStatus,
-                orderCategory: createdOrder.orderCategory,
-                amount: createdOrder.amount,
-                currency: createdOrder.currency,
-                createdAt: createdOrder.createdAt,
-                updatedAt: createdOrder.updatedAt,
-            },
-        });
+                // Emit transaction update immediately
+                this.wsGateway.notifyTransactionUpdate(user.id, {
+                    type: "transaction_update",
+                    transaction: {
+                        id: createdOrder.id,
+                        transactionId: createdOrder.transactionId,
+                        status: createdOrder.status,
+                        streamlinedStatus: createdOrder.streamlinedStatus,
+                        orderCategory: createdOrder.orderCategory,
+                        amount: createdOrder.amount,
+                        currency: createdOrder.currency,
+                        createdAt: createdOrder.createdAt,
+                        updatedAt: createdOrder.updatedAt,
+                    },
+                });
 
-        if (hasLiquidity) {
-            // Execute withdrawal from main wallet immediately
-            return await this.executeWithdrawalFromMainWallet(user, createdOrder, dto, holdResult.entryId, resolvedNetwork);
-        }
+                if (hasLiquidity) {
+                    // Execute withdrawal from main wallet immediately
+                    return await this.executeWithdrawalFromMainWallet(
+                        user,
+                        createdOrder,
+                        dto,
+                        holdResult.entryId,
+                        resolvedNetwork,
+                    );
+                }
 
-        // Add to queue - withdrawal will be processed when liquidity is available
-        return await this.queueWithdrawalForLiquidity({
-            user, createdOrder, dto, holdEntryId: holdResult.entryId, reference, currency, totalAmount, mainWalletBalance,
-        });
+                // Add to queue - withdrawal will be processed when liquidity is available
+                return await this.queueWithdrawalForLiquidity({
+                    user,
+                    createdOrder,
+                    dto,
+                    holdEntryId: holdResult.entryId,
+                    reference,
+                    currency,
+                    totalAmount,
+                    mainWalletBalance,
+                });
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
@@ -896,15 +1049,21 @@ export class SendService {
     /**
      * Blocks withdrawal if the user has pending deposit sweeps.
      */
-    private async assertNoPendingSweeps(userId: number, currency: string): Promise<void> {
-        const hasPendingSweeps = await this.sweepService.hasPendingSweeps(userId, currency);
+    private async assertNoPendingSweeps(
+        userId: number,
+        currency: string,
+    ): Promise<void> {
+        const hasPendingSweeps = await this.sweepService.hasPendingSweeps(
+            userId,
+            currency,
+        );
         if (hasPendingSweeps) {
             this.logger.warn(
-                `Withdrawal blocked by pending sweep | userId: ${userId}, currency: ${currency}`
+                `Withdrawal blocked by pending sweep | userId: ${userId}, currency: ${currency}`,
             );
             throw new IncompleteAccountSetupException(
                 "Please wait for your recent deposit to be confirmed before withdrawing. This usually takes a few minutes.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
     }
@@ -922,7 +1081,16 @@ export class SendService {
         totalAmount: Decimal;
         mainWalletBalance: Decimal;
     }) {
-        const { user, createdOrder, dto, holdEntryId, reference, currency, totalAmount, mainWalletBalance } = opts;
+        const {
+            user,
+            createdOrder,
+            dto,
+            holdEntryId,
+            reference,
+            currency,
+            totalAmount,
+            mainWalletBalance,
+        } = opts;
         const queueResult = await this.withdrawalQueueService.addToQueue({
             holdEntryId,
             userId: user.id,
@@ -935,24 +1103,25 @@ export class SendService {
             await this.ledgerService.releaseHold(
                 `withdrawal:${reference}`,
                 false,
-                "Failed to queue withdrawal"
+                "Failed to queue withdrawal",
             );
             throw new IncompleteAccountSetupException(
                 "Failed to process withdrawal. Please try again.",
-                HttpStatus.INTERNAL_SERVER_ERROR
+                HttpStatus.INTERNAL_SERVER_ERROR,
             );
         }
 
         await this.slackWebhookService.sendAlert(
             "LOW_LIQUIDITY_QUEUE",
             {
-                text: `⚠️ Withdrawal queued due to low liquidity\n` +
+                text:
+                    `⚠️ Withdrawal queued due to low liquidity\n` +
                     `User: ${user.id} (${user.email})\n` +
                     `Amount: ${totalAmount} ${currency}\n` +
                     `Queue Position: ${queueResult.queueEntry?.position}\n` +
                     `Main Wallet Balance: ${mainWalletBalance.toString()} ${currency}`,
             },
-            { alertKey: `queue:${reference}` }
+            { alertKey: `queue:${reference}` },
         );
 
         this.wsGateway.notifyWithdrawalQueued(user.id, {
@@ -980,7 +1149,8 @@ export class SendService {
             data: {
                 transactionId: createdOrder.transactionId,
                 status: "queued",
-                statusHint: "Your withdrawal is being processed. This may take a few minutes.",
+                statusHint:
+                    "Your withdrawal is being processed. This may take a few minutes.",
                 queuePosition: queueResult.queueEntry?.position,
                 amount: String(createdOrder.amount),
                 currency: createdOrder.currency,
@@ -988,13 +1158,18 @@ export class SendService {
                 total: String(createdOrder.total),
                 recipient: {
                     details: {
-                        address: createdOrder.recipient || dto.recipientWalletAddress || "",
+                        address:
+                            createdOrder.recipient ||
+                            dto.recipientWalletAddress ||
+                            "",
                         destination_tag: dto.destinationTag || "",
                         name: null,
                     },
                     type: "coin_address",
                 },
-                created_at: createdOrder.createdAt?.toISOString() || new Date().toISOString(),
+                created_at:
+                    createdOrder.createdAt?.toISOString() ||
+                    new Date().toISOString(),
             },
         });
     }
@@ -1008,13 +1183,20 @@ export class SendService {
      */
     private async getMainWalletBalance(currency: string): Promise<Decimal> {
         try {
-            const wallet = await this.tradingProvider.getUserWallet("me", currency.toLowerCase());
-            return wallet?.data ? new Decimal(wallet.data.balance || "0") : new Decimal(0);
+            const wallet = await this.tradingProvider.getUserWallet(
+                "me",
+                currency.toLowerCase(),
+            );
+            return wallet?.data
+                ? new Decimal(wallet.data.balance || "0")
+                : new Decimal(0);
         } catch (error) {
-            this.logger.error(`Failed to get main wallet balance | ${JSON.stringify({
-                currency,
-                error: error.message,
-            })}`);
+            this.logger.error(
+                `Failed to get main wallet balance | ${JSON.stringify({
+                    currency,
+                    error: error.message,
+                })}`,
+            );
             return new Decimal(0);
         }
     }
@@ -1027,7 +1209,7 @@ export class SendService {
         order: any,
         dto: WithdrawerRequestDto,
         holdEntryId: string,
-        resolvedNetwork?: string
+        resolvedNetwork?: string,
     ) {
         try {
             const requestRes = await this.tradingProvider.createWithdrawal({
@@ -1056,7 +1238,9 @@ export class SendService {
                     fee: providerFee,
                     total: updatedTotal.toNumber(),
                     status: OrderStatus.processing,
-                    streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
+                    streamlinedStatus: getStreamlinedStatus(
+                        OrderStatus.processing,
+                    ),
                 },
             });
 
@@ -1076,11 +1260,11 @@ export class SendService {
                 enableEmail: true,
                 emailPayload: {
                     email: user.email,
-                    transactionType: 'withdrawal',
+                    transactionType: "withdrawal",
                     transactionId: order.transactionId,
                     amount: String(order.amount),
                     currency: order.currency,
-                    status: 'processing',
+                    status: "processing",
                     date: new Date().toISOString(),
                 },
                 enablePush: true,
@@ -1094,10 +1278,12 @@ export class SendService {
                 },
             });
         } catch (error) {
-            this.logger.error(`Failed to execute withdrawal | ${JSON.stringify({
-                orderId: order.id,
-                error: error.message,
-            })}`);
+            this.logger.error(
+                `Failed to execute withdrawal | ${JSON.stringify({
+                    orderId: order.id,
+                    error: error.message,
+                })}`,
+            );
 
             // Queue the withdrawal instead of failing completely
             const queueResult = await this.withdrawalQueueService.addToQueue({
@@ -1113,7 +1299,9 @@ export class SendService {
                 where: { id: order.id },
                 data: {
                     status: OrderStatus.pending,
-                    streamlinedStatus: getStreamlinedStatus(OrderStatus.pending),
+                    streamlinedStatus: getStreamlinedStatus(
+                        OrderStatus.pending,
+                    ),
                     reason: `Queued: ${error.message}`,
                 },
             });
@@ -1134,7 +1322,8 @@ export class SendService {
                 data: {
                     transactionId: order.transactionId,
                     status: "queued",
-                    statusHint: "Your withdrawal is being processed. This may take a few minutes.",
+                    statusHint:
+                        "Your withdrawal is being processed. This may take a few minutes.",
                     // Include order details for frontend rendering
                     amount: String(order.amount),
                     currency: order.currency,
@@ -1142,26 +1331,30 @@ export class SendService {
                     total: String(order.total),
                     recipient: {
                         details: {
-                            address: order.recipient || dto.recipientWalletAddress || "",
+                            address:
+                                order.recipient ||
+                                dto.recipientWalletAddress ||
+                                "",
                             destination_tag: dto.destinationTag || "",
                             name: null,
                         },
                         type: "coin_address",
                     },
-                    created_at: order.createdAt?.toISOString() || new Date().toISOString(),
+                    created_at:
+                        order.createdAt?.toISOString() ||
+                        new Date().toISOString(),
                 },
             });
         }
     }
-
-
 
     /**
      * Cancels a pending withdrawal request
      */
     async cancelWithdrawerRequest(user: User, dto: CancelWithdrawerRequestDto) {
         const providerUserIds = ["me", user.cryptoSubAccountId].filter(
-            (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
+            (value, index, array): value is string =>
+                Boolean(value) && array.indexOf(value) === index,
         );
 
         let requestRes: any;
@@ -1183,9 +1376,9 @@ export class SendService {
             throw lastError instanceof Error
                 ? lastError
                 : new GeneralTransactionException(
-                    "Unable to cancel withdrawal request at this time",
-                    HttpStatus.BAD_REQUEST
-                );
+                      "Unable to cancel withdrawal request at this time",
+                      HttpStatus.BAD_REQUEST,
+                  );
         }
 
         return buildResponse({
@@ -1197,14 +1390,17 @@ export class SendService {
     /**
      * Processing for internal P2P transfers
      */
-    private async processInternalTransfer(user: User, dto: WithdrawerRequestDto) {
+    private async processInternalTransfer(
+        user: User,
+        dto: WithdrawerRequestDto,
+    ) {
         const currency = dto.currency.toUpperCase();
         const totalAmount = dto.amount;
 
         if (!dto.recipientEmail) {
             throw new IncompleteAccountSetupException(
                 "Recipient email is required for internal transfers",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -1222,14 +1418,14 @@ export class SendService {
         if (!recipient) {
             throw new IncompleteAccountSetupException(
                 "No account found with this email address. Please check and try again.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
         if (recipient.id === user.id) {
             throw new IncompleteAccountSetupException(
                 "Cannot send funds to yourself",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -1264,10 +1460,15 @@ export class SendService {
                         amount: String(existingOrder.amount ?? totalAmount),
                         currency: existingOrder.currency ?? currency,
                         fee: String(existingOrder.fee ?? 0),
-                        total: String(existingOrder.total ?? existingOrder.amount ?? totalAmount),
+                        total: String(
+                            existingOrder.total ??
+                                existingOrder.amount ??
+                                totalAmount,
+                        ),
                         recipient: {
                             details: {
-                                address: existingOrder.recipient || recipient.email,
+                                address:
+                                    existingOrder.recipient || recipient.email,
                                 destination_tag: "",
                                 name: null,
                             },
@@ -1284,56 +1485,64 @@ export class SendService {
         // From this point on, the user's intent is clear — record failures in history
         try {
             // 3. Check Balance
-            const balance = await this.ledgerService.getBalance(user.id, currency);
+            const balance = await this.ledgerService.getBalance(
+                user.id,
+                currency,
+            );
             if (balance.available.lessThan(totalAmount)) {
                 throw new IncompleteAccountSetupException(
                     `Insufficient balance. Available: ${balance.available.toString()} ${currency}`,
-                    HttpStatus.BAD_REQUEST
+                    HttpStatus.BAD_REQUEST,
                 );
             }
 
             // TASK-006: Wrap validation + transfer inside distributed lock scope
             // This prevents race conditions where balance changes between validation and transfer
-            const transferResult = await this.ledgerService.runWithMultiUserLocks(
-                [user.id, recipient.id],
-                currency,
-                async () => {
-                    // 4. Validation (Monitor) - now inside lock scope
-                    const monitorResult = await this.transactionMonitor.validateBeforeExecution({
-                        userId: user.id,
-                        currency,
-                        amount: totalAmount,
-                        operationType: "SEND", // Monitor as SEND
-                        reference: `send:${reference}`,
-                    });
+            const transferResult =
+                await this.ledgerService.runWithMultiUserLocks(
+                    [user.id, recipient.id],
+                    currency,
+                    async () => {
+                        // 4. Validation (Monitor) - now inside lock scope
+                        const monitorResult =
+                            await this.transactionMonitor.validateBeforeExecution(
+                                {
+                                    userId: user.id,
+                                    currency,
+                                    amount: totalAmount,
+                                    operationType: "SEND", // Monitor as SEND
+                                    reference: `send:${reference}`,
+                                },
+                            );
 
-                    if (!monitorResult.success) {
-                        this.logger.warn(
-                            `Transaction monitor blocked internal send | User: ${user.id} | Amount: ${totalAmount} | Reason: ${monitorResult.reason}`
-                        );
-                        throw new GeneralTransactionException(
-                            monitorResult.reason || "Transaction blocked by monitoring system",
-                            HttpStatus.FORBIDDEN
-                        );
-                    }
+                        if (!monitorResult.success) {
+                            this.logger.warn(
+                                `Transaction monitor blocked internal send | User: ${user.id} | Amount: ${totalAmount} | Reason: ${monitorResult.reason}`,
+                            );
+                            throw new GeneralTransactionException(
+                                monitorResult.reason ||
+                                    "Transaction blocked by monitoring system",
+                                HttpStatus.FORBIDDEN,
+                            );
+                        }
 
-                    // 5. Execute Atomic Transfer with skipLocking since we already hold the locks
-                    return await this.ledgerService.internalTransfer(
-                        user.id,
-                        recipient.id,
-                        currency,
-                        totalAmount,
-                        reference,
-                        dto.narration || dto.transaction_note,
-                        true // skipLocking - caller already holds locks
-                    );
-                }
-            );
+                        // 5. Execute Atomic Transfer with skipLocking since we already hold the locks
+                        return await this.ledgerService.internalTransfer(
+                            user.id,
+                            recipient.id,
+                            currency,
+                            totalAmount,
+                            reference,
+                            dto.narration || dto.transaction_note,
+                            true, // skipLocking - caller already holds locks
+                        );
+                    },
+                );
 
             if (!transferResult.success) {
                 throw new GeneralTransactionException(
                     transferResult.error || "Transfer failed",
-                    HttpStatus.INTERNAL_SERVER_ERROR
+                    HttpStatus.INTERNAL_SERVER_ERROR,
                 );
             }
 
@@ -1394,7 +1603,8 @@ export class SendService {
                     fee: 0, // No fee for internal transfers
                     amountInFiat: amtFiat?.amount,
                     rateAtConversion: amtFiat?.rate,
-                    ledgerEntryId: transferResult.creditEntryId || transferResult.entryId, // Issue #3 fix: use recipient's credit entry
+                    ledgerEntryId:
+                        transferResult.creditEntryId || transferResult.entryId, // Issue #3 fix: use recipient's credit entry
                     fulfilled: true,
                 },
             });
@@ -1456,7 +1666,7 @@ export class SendService {
                 });
             } catch (orderError) {
                 this.logger.error(
-                    `Failed to record failed internal transfer order | User: ${user.id} | Ref: ${reference} | Error: ${orderError.message}`
+                    `Failed to record failed internal transfer order | User: ${user.id} | Ref: ${reference} | Error: ${orderError.message}`,
                 );
             }
 

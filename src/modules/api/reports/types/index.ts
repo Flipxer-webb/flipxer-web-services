@@ -70,8 +70,8 @@ export interface TaxReportRow {
 }
 
 export interface ReportConfig {
-    type: 'transactions' | 'users' | 'revenue' | 'tax';
-    format: 'csv' | 'json';
+    type: "transactions" | "users" | "revenue" | "tax";
+    format: "csv" | "json";
     filters: ReportFilters;
     includeHeaders?: boolean;
 }

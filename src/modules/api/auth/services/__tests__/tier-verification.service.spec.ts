@@ -4,7 +4,9 @@ import { HttpException } from "@nestjs/common";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     DuplicateUserException: class extends Error {},
@@ -12,7 +14,9 @@ jest.mock("@/modules/api/user", () => ({
 }));
 
 jest.mock("@/modules/api/trade/gateway/v1", () => ({
-    WsGateway: class { server = { to: jest.fn() } },
+    WsGateway: class {
+        server = { to: jest.fn() };
+    },
 }));
 
 jest.mock("@/config", () => ({
@@ -77,7 +81,11 @@ import {
 
 function makePrisma() {
     return {
-        user: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+        user: {
+            findUnique: jest.fn(),
+            findFirst: jest.fn(),
+            update: jest.fn(),
+        },
         kycStageAttempt: {
             findFirst: jest.fn(),
             findMany: jest.fn(),
@@ -140,7 +148,10 @@ describe("TierVerificationService", () => {
             sendEmail: jest.fn(),
             sendMailWithTemplate: jest.fn().mockResolvedValue(undefined),
         };
-        mockWsGateway = { server: { to: jest.fn() }, notifyProfileUpdate: jest.fn() };
+        mockWsGateway = {
+            server: { to: jest.fn() },
+            notifyProfileUpdate: jest.fn(),
+        };
         mockAuthService = {
             analyzeAddressDocumentSignals: jest.fn().mockResolvedValue(null),
             analyzeIncomeDocumentSignals: jest.fn().mockResolvedValue(null),
@@ -155,14 +166,18 @@ describe("TierVerificationService", () => {
                 },
             ],
         });
-        prisma.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 0 } });
+        prisma.kycStageAttempt.aggregate.mockResolvedValue({
+            _max: { attemptNo: 0 },
+        });
         prisma.kycStageAttempt.findMany.mockResolvedValue([]);
         prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
         prisma.kycStageAttempt.create.mockResolvedValue({ id: 1 });
         prisma.kycStageAttempt.findFirst.mockResolvedValue({ id: 1 });
         prisma.kycStageAttempt.update.mockResolvedValue({ id: 1 });
         mockUploadService = {
-            upload: jest.fn().mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
+            upload: jest
+                .fn()
+                .mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
             uploadImage: jest
                 .fn()
                 .mockResolvedValue({ url: "https://cdn.test.com/doc.pdf" }),
@@ -182,7 +197,10 @@ describe("TierVerificationService", () => {
                 { provide: UploadFactory, useValue: mockUploadFactory },
                 { provide: TierService, useValue: mockTierService },
                 { provide: EmailService, useValue: mockEmailService },
-                { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
+                {
+                    provide: NotificationDispatcher,
+                    useValue: mockNotificationDispatcher,
+                },
                 { provide: WsGateway, useValue: mockWsGateway },
                 { provide: "AUTH_SERVICE", useValue: mockAuthService },
             ],
@@ -232,7 +250,9 @@ describe("TierVerificationService", () => {
 
         it("returns a pending response when address verification is already pending", async () => {
             (validateDocumentFile as jest.Mock).mockClear();
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             prisma.user.findUnique.mockResolvedValue({
                 kycStageAttempts: [
                     {
@@ -252,7 +272,8 @@ describe("TierVerificationService", () => {
                 service.verifyAddress(
                     {
                         ...mockUser,
-                        addressDocumentUrl: "https://cdn.test.com/address-pending.png",
+                        addressDocumentUrl:
+                            "https://cdn.test.com/address-pending.png",
                     },
                     mockFile,
                 ),
@@ -294,7 +315,9 @@ describe("TierVerificationService", () => {
         });
 
         it("should flag for manual review when OCR requires it", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.4,
                 matchedName: false,
@@ -306,9 +329,13 @@ describe("TierVerificationService", () => {
             });
 
             const result = await service.verifyAddress(mockUser, mockFile);
-            expect(result.message).toBe("Address verification is pending review");
+            expect(result.message).toBe(
+                "Address verification is pending review",
+            );
             expect(result.data.status).toBe("PENDING");
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(
+                mockUser.id,
+            );
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -330,7 +357,9 @@ describe("TierVerificationService", () => {
         });
 
         it("routes clean address verification passes to manual review", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.95,
                 matchedName: true,
@@ -342,7 +371,9 @@ describe("TierVerificationService", () => {
             });
 
             const result = await service.verifyAddress(mockUser, mockFile);
-            expect(result.message).toBe("Address verification is pending review");
+            expect(result.message).toBe(
+                "Address verification is pending review",
+            );
             expect(result.data.status).toBe("PENDING");
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -354,7 +385,9 @@ describe("TierVerificationService", () => {
                     }),
                 }),
             );
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(
+                mockUser.id,
+            );
             expect(mockNotificationDispatcher.notify).toHaveBeenCalledWith(
                 expect.objectContaining({
                     title: "Document Submitted",
@@ -379,8 +412,12 @@ describe("TierVerificationService", () => {
                 nameMatches: true,
                 documentDate: "2026-04-20",
             };
-            mockAuthService.analyzeAddressDocumentSignals.mockResolvedValue(providerSignals);
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            mockAuthService.analyzeAddressDocumentSignals.mockResolvedValue(
+                providerSignals,
+            );
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.95,
                 matchedName: true,
@@ -392,7 +429,9 @@ describe("TierVerificationService", () => {
 
             await service.verifyAddress(mockUser, mockFile);
 
-            expect(mockAuthService.analyzeAddressDocumentSignals).toHaveBeenCalledWith(mockUser, mockFile);
+            expect(
+                mockAuthService.analyzeAddressDocumentSignals,
+            ).toHaveBeenCalledWith(mockUser, mockFile);
             expect(validateAddressDocument).toHaveBeenCalledWith(
                 mockFile.buffer,
                 "John",
@@ -404,7 +443,9 @@ describe("TierVerificationService", () => {
         });
 
         it("keeps the persisted Dojah preview payload on address submit-from-preview", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
 
             await service.verifyAddressFromPreview(
                 mockUser,
@@ -451,7 +492,9 @@ describe("TierVerificationService", () => {
         });
 
         it("should auto-reject a clear high-confidence address mismatch", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.93,
                 matchedName: false,
@@ -464,7 +507,9 @@ describe("TierVerificationService", () => {
 
             const result = await service.verifyAddress(mockUser, mockFile);
 
-            expect(result.message).toBe("The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.");
+            expect(result.message).toBe(
+                "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+            );
             expect(result.data.status).toBe("REJECTED");
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -473,11 +518,14 @@ describe("TierVerificationService", () => {
                         status: KycAttemptStatus.REJECTED,
                         providerStatus: KycProviderStatus.FAILED,
                         decisionMode: KycDecisionMode.AUTO,
-                        reasonMessage: "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+                        reasonMessage:
+                            "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
                     }),
                 }),
             );
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(
+                mockUser.id,
+            );
             expect(mockNotificationDispatcher.notify).toHaveBeenCalledWith(
                 expect.objectContaining({
                     title: "Address Verification Rejected",
@@ -485,14 +533,17 @@ describe("TierVerificationService", () => {
                     enablePush: true,
                 }),
             );
-            expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(mockUser.id);
+            expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(
+                mockUser.id,
+            );
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "tpl-rejected",
                     merge_info: expect.objectContaining({
                         first_name: "John",
                         document_type: "Address",
-                        rejection_reason: "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+                        rejection_reason:
+                            "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
                         status: "Rejected",
                     }),
                 }),
@@ -506,7 +557,9 @@ describe("TierVerificationService", () => {
                 originalname: "utility-bill.pdf",
             } as Express.Multer.File;
 
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0,
                 matchedName: false,
@@ -539,7 +592,9 @@ describe("TierVerificationService", () => {
                 },
             );
 
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             mockUploadService.uploadCompressedImage.mockRejectedValue(
                 compressionError,
             );
@@ -561,7 +616,9 @@ describe("TierVerificationService", () => {
                 originalname: "utility-bill.pdf",
             } as Express.Multer.File;
 
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockRejectedValue(
                 new OcrDocumentPreparationError(
                     "Unsupported or unreadable PDF document. Please upload a valid PDF or image file.",
@@ -648,7 +705,9 @@ describe("TierVerificationService", () => {
         });
 
         it("should queue manual review for a valid Nigerian bank statement", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateIncomeDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.93,
                 matchedName: true,
@@ -680,7 +739,9 @@ describe("TierVerificationService", () => {
                 mockFile,
             );
             expect(result.data.status).toBe("PENDING");
-            expect(result.message).toBe("Your bank statement passed automated checks and is pending manual review.");
+            expect(result.message).toBe(
+                "Your bank statement passed automated checks and is pending manual review.",
+            );
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
@@ -710,8 +771,12 @@ describe("TierVerificationService", () => {
                 country: "Nigeria",
                 countryCode: "NG",
             };
-            mockAuthService.analyzeIncomeDocumentSignals.mockResolvedValue(providerSignals);
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            mockAuthService.analyzeIncomeDocumentSignals.mockResolvedValue(
+                providerSignals,
+            );
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateIncomeDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.93,
                 matchedName: true,
@@ -747,7 +812,9 @@ describe("TierVerificationService", () => {
                 mockFile,
             );
 
-            expect(mockAuthService.analyzeIncomeDocumentSignals).toHaveBeenCalledWith(eligibleIncomeUser, mockFile);
+            expect(
+                mockAuthService.analyzeIncomeDocumentSignals,
+            ).toHaveBeenCalledWith(eligibleIncomeUser, mockFile);
             expect(validateIncomeDocument).toHaveBeenCalledWith(
                 mockFile.buffer,
                 "John",
@@ -793,7 +860,9 @@ describe("TierVerificationService", () => {
                     },
                 ],
             });
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
 
             await service.verifyIncomeFromPreview(
                 eligibleIncomeUser,
@@ -839,7 +908,9 @@ describe("TierVerificationService", () => {
         });
 
         it("should auto-reject when the bank statement fails the automated rules", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateIncomeDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.9,
                 matchedName: false,
@@ -870,7 +941,9 @@ describe("TierVerificationService", () => {
                 eligibleIncomeUser,
                 mockFile,
             );
-            expect(result.message).toBe("The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.");
+            expect(result.message).toBe(
+                "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.",
+            );
             expect(result.data.status).toBe("REJECTED");
             expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -910,7 +983,9 @@ describe("TierVerificationService", () => {
         it("should throw if account password is wrong", async () => {
             const bcrypt = require("bcryptjs");
             bcrypt.compare.mockResolvedValue(false);
-            prisma.user.findUnique.mockResolvedValue({ password: createTestSecret() });
+            prisma.user.findUnique.mockResolvedValue({
+                password: createTestSecret(),
+            });
             const tradingPassword = createTestSecret();
             const accountPassword = createTestSecret();
 
@@ -918,7 +993,7 @@ describe("TierVerificationService", () => {
                 service.createTradingPassword(mockUser, {
                     tradingPassword,
                     accountPassword,
-                } as any)
+                } as any),
             ).rejects.toThrow();
         });
     });
@@ -932,7 +1007,9 @@ describe("TierVerificationService", () => {
         });
 
         it("hasTradingPassword returns true when password exists", async () => {
-            prisma.user.findUnique.mockResolvedValue({ tradingPassword: createTestSecret() });
+            prisma.user.findUnique.mockResolvedValue({
+                tradingPassword: createTestSecret(),
+            });
 
             const result = await service.hasTradingPassword(mockUser);
             expect(result.data.hasTradingPassword).toBe(true);
@@ -941,13 +1018,20 @@ describe("TierVerificationService", () => {
         it("getVerificationStatus throws when user is not found", async () => {
             prisma.user.findUnique.mockResolvedValue(null);
 
-            await expect(service.getVerificationStatus(mockUser)).rejects.toThrow("User not found");
+            await expect(
+                service.getVerificationStatus(mockUser),
+            ).rejects.toThrow("User not found");
         });
 
         it("sendReviewNotification returns early when user has no email", async () => {
-            prisma.user.findUnique.mockResolvedValue({ email: null, firstName: "NoMail" });
+            prisma.user.findUnique.mockResolvedValue({
+                email: null,
+                firstName: "NoMail",
+            });
 
-            await expect(service.sendReviewNotification(1, "address", true)).resolves.toBeUndefined();
+            await expect(
+                service.sendReviewNotification(1, "address", true),
+            ).resolves.toBeUndefined();
         });
 
         it("approveDocument handles business documents flow", async () => {
@@ -962,7 +1046,7 @@ describe("TierVerificationService", () => {
                         businessDocumentVerificationStatus: expect.any(String),
                         isDocumentVerified: true,
                     }),
-                })
+                }),
             );
             expect(mockNotificationDispatcher.notify).toHaveBeenCalled();
             expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(1);
@@ -971,7 +1055,11 @@ describe("TierVerificationService", () => {
         it("rejectDocument handles business documents flow", async () => {
             prisma.user.update.mockResolvedValue({});
 
-            const result = await service.rejectDocument(1, "business", "invalid docs");
+            const result = await service.rejectDocument(
+                1,
+                "business",
+                "invalid docs",
+            );
 
             expect(result.message).toContain("rejected");
             expect(prisma.user.update).toHaveBeenCalledWith(
@@ -980,7 +1068,7 @@ describe("TierVerificationService", () => {
                         businessDocumentVerificationStatus: expect.any(String),
                         businessDocumentsUploaded: false,
                     }),
-                })
+                }),
             );
             expect(mockNotificationDispatcher.notify).toHaveBeenCalled();
             expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(1);

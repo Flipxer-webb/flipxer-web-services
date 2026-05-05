@@ -1,9 +1,34 @@
-import { Injectable, Logger, BadRequestException, Inject } from "@nestjs/common";
+import {
+    Injectable,
+    Logger,
+    BadRequestException,
+    Inject,
+} from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
-import { DocumentVerificationStatus, IdentityIdType, KycAttemptEventType, KycAttemptStatus, KycStage, KycStatus, Prisma, UserType } from "@prisma/client";
-import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
+import {
+    DocumentVerificationStatus,
+    IdentityIdType,
+    KycAttemptEventType,
+    KycAttemptStatus,
+    KycStage,
+    KycStatus,
+    Prisma,
+    UserType,
+} from "@prisma/client";
+import {
+    startOfMonth,
+    endOfMonth,
+    startOfWeek,
+    endOfWeek,
+    startOfDay,
+    endOfDay,
+    startOfQuarter,
+    endOfQuarter,
+    startOfYear,
+    endOfYear,
+} from "date-fns";
 import {
     GetKycQueueDto,
     KycDecisionDto,
@@ -25,7 +50,13 @@ import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cach
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { IdentityResolutionService } from "@/modules/api/auth/services/identity-resolution.service";
 import { AuditLogService } from "@/modules/api/audit-log";
-import { cloudinaryConfig, emailTemplateConfig, imagekitConfig, mailConfig, COMPANY_NAME } from "@/config";
+import {
+    cloudinaryConfig,
+    emailTemplateConfig,
+    imagekitConfig,
+    mailConfig,
+    COMPANY_NAME,
+} from "@/config";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { validateAddressDocument, validateIncomeDocument } from "@/libs/ocr";
@@ -116,29 +147,30 @@ interface AdminKycAttemptDetail {
     decisionHistory: AdminKycAttemptDecisionHistoryItem[];
 }
 
-const stageAttemptLookupSelect = Prisma.validator<Prisma.KycStageAttemptSelect>()({
-    id: true,
-    userId: true,
-    stage: true,
-    method: true,
-    attemptNo: true,
-    isCurrent: true,
-    status: true,
-    providerStatus: true,
-    reasonMessage: true,
-    evidenceSummary: true,
-    reviewNote: true,
-    reviewerId: true,
-    providerRef: true,
-    submittedAt: true,
-    reviewedAt: true,
-    version: true,
-    evidenceAssets: {
-        select: {
-            storageUrl: true,
+const stageAttemptLookupSelect =
+    Prisma.validator<Prisma.KycStageAttemptSelect>()({
+        id: true,
+        userId: true,
+        stage: true,
+        method: true,
+        attemptNo: true,
+        isCurrent: true,
+        status: true,
+        providerStatus: true,
+        reasonMessage: true,
+        evidenceSummary: true,
+        reviewNote: true,
+        reviewerId: true,
+        providerRef: true,
+        submittedAt: true,
+        reviewedAt: true,
+        version: true,
+        evidenceAssets: {
+            select: {
+                storageUrl: true,
+            },
         },
-    },
-});
+    });
 
 type StageAttemptLookupRecord = Prisma.KycStageAttemptGetPayload<{
     select: typeof stageAttemptLookupSelect;
@@ -203,7 +235,8 @@ type DojahParsedDocument = Record<string, any>;
 @Injectable()
 export class KycService {
     private readonly logger = new Logger(KycService.name);
-    private readonly getProfileCacheKey = (userId: number) => `user:profile:${userId}`;
+    private readonly getProfileCacheKey = (userId: number) =>
+        `user:profile:${userId}`;
 
     private readonly actionableStatuses = new Set(["PENDING", "ESCALATED"]);
 
@@ -219,7 +252,7 @@ export class KycService {
         private readonly auditLogService: AuditLogService,
         @Inject(IdentityComplianceInjectionToken.DOJAH)
         private readonly dojahService: DojahService,
-    ) { }
+    ) {}
 
     // ==================== KYC QUEUE ====================
 
@@ -285,7 +318,12 @@ export class KycService {
                                 {
                                     journeyType: "INDIVIDUAL",
                                     stage: {
-                                        in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                                        in: [
+                                            "GOVERNMENT_ID",
+                                            "IDENTITY_DOCUMENT",
+                                            "ADDRESS",
+                                            "INCOME",
+                                        ],
                                     },
                                 },
                                 {
@@ -345,7 +383,10 @@ export class KycService {
             } = user;
             const normalizedUser = this.normalizeVerificationState(user);
             const { verificationSnapshot } = normalizedUser;
-            const queueMetadata = this.buildQueueMetadata(normalizedUser, resolvedQueueView);
+            const queueMetadata = this.buildQueueMetadata(
+                normalizedUser,
+                resolvedQueueView,
+            );
 
             return {
                 ...queueUser,
@@ -366,7 +407,8 @@ export class KycService {
                 needsReview: queueMetadata.needsReview,
                 queueView: resolvedQueueView,
                 queueReason: queueMetadata.queueReason,
-                blockingVerificationTypes: queueMetadata.blockingVerificationTypes,
+                blockingVerificationTypes:
+                    queueMetadata.blockingVerificationTypes,
                 oldestSubmittedAt: queueMetadata.oldestSubmittedAt,
                 latestReviewAt: queueMetadata.latestReviewAt,
                 queueSortAt: queueMetadata.queueSortAt,
@@ -379,7 +421,12 @@ export class KycService {
         return buildResponse({
             message: "KYC queue retrieved successfully",
             data: {
-                meta: buildPaginationMeta(pageNumber, pageSize, count, users.length),
+                meta: buildPaginationMeta(
+                    pageNumber,
+                    pageSize,
+                    count,
+                    users.length,
+                ),
                 records: enrichedUsers,
             },
         });
@@ -404,7 +451,12 @@ export class KycService {
                             {
                                 journeyType: "INDIVIDUAL",
                                 stage: {
-                                    in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                                    in: [
+                                        "GOVERNMENT_ID",
+                                        "IDENTITY_DOCUMENT",
+                                        "ADDRESS",
+                                        "INCOME",
+                                    ],
                                 },
                             },
                             {
@@ -495,22 +547,30 @@ export class KycService {
             orderBy: { createdAt: "desc" },
             take: 20,
         });
-        const auditHistory = this.buildAdminAuditHistory(user.kycAttemptEvents ?? [], auditLogs);
+        const auditHistory = this.buildAdminAuditHistory(
+            user.kycAttemptEvents ?? [],
+            auditLogs,
+        );
 
         const attemptHistory = this.buildAttemptHistory(user);
         const activeAttempts = this.buildCurrentAttemptSummaries(user);
-        const currentAttemptByVerificationType = activeAttempts.reduce<Record<string, AdminKycAttemptSummary>>((accumulator, attempt) => {
+        const currentAttemptByVerificationType = activeAttempts.reduce<
+            Record<string, AdminKycAttemptSummary>
+        >((accumulator, attempt) => {
             accumulator[attempt.verificationType] = attempt;
             return accumulator;
         }, {});
-        const attemptDetailsByVerificationType = this.buildAttemptDetailsByVerificationType({
-            user,
-            attemptHistory,
-            currentAttemptByVerificationType,
-            attemptRecordByVerificationType: this.buildAttemptRecordByVerificationType(user),
-            auditLogs,
-        });
-        const currentBusinessAttempt = currentAttemptByVerificationType.BUSINESS_DOCUMENT;
+        const attemptDetailsByVerificationType =
+            this.buildAttemptDetailsByVerificationType({
+                user,
+                attemptHistory,
+                currentAttemptByVerificationType,
+                attemptRecordByVerificationType:
+                    this.buildAttemptRecordByVerificationType(user),
+                auditLogs,
+            });
+        const currentBusinessAttempt =
+            currentAttemptByVerificationType.BUSINESS_DOCUMENT;
 
         return buildResponse({
             message: "KYC user detail retrieved successfully",
@@ -534,12 +594,18 @@ export class KycService {
                     dateOfBirth: user.dateOfBirth,
                     gender: user.gender,
                 },
-                businessInfo: user.userType === "BUSINESS" ? {
-                    record: user.businessRecord,
-                    documents: user.businessDocument,
-                    submitted: Boolean(currentBusinessAttempt || user.businessDocument),
-                    status: currentBusinessAttempt?.status ?? null,
-                } : null,
+                businessInfo:
+                    user.userType === "BUSINESS"
+                        ? {
+                              record: user.businessRecord,
+                              documents: user.businessDocument,
+                              submitted: Boolean(
+                                  currentBusinessAttempt ||
+                                  user.businessDocument,
+                              ),
+                              status: currentBusinessAttempt?.status ?? null,
+                          }
+                        : null,
                 activeAttempts,
                 attemptHistory,
                 currentAttemptByVerificationType,
@@ -556,7 +622,10 @@ export class KycService {
         dto: AdminKycAttemptDecisionDto,
         adminId?: number,
     ): Promise<ApiResponse> {
-        const attempt = await this.resolveAttemptContext(attemptId, dto.verificationType);
+        const attempt = await this.resolveAttemptContext(
+            attemptId,
+            dto.verificationType,
+        );
 
         if (!attempt) {
             return buildResponse({
@@ -580,7 +649,10 @@ export class KycService {
             return response;
         }
 
-        const updatedAttempt = await this.getAttemptSummaryById(attempt.attemptId, attempt.verificationType);
+        const updatedAttempt = await this.getAttemptSummaryById(
+            attempt.attemptId,
+            attempt.verificationType,
+        );
         const stage = updatedAttempt?.stage ?? attempt.stage;
         const status = updatedAttempt?.status ?? response?.data?.status ?? null;
 
@@ -593,7 +665,8 @@ export class KycService {
                 stage,
                 status,
                 reviewerId: updatedAttempt?.reviewerId ?? adminId ?? null,
-                reviewedAt: updatedAttempt?.reviewedAt ?? new Date().toISOString(),
+                reviewedAt:
+                    updatedAttempt?.reviewedAt ?? new Date().toISOString(),
                 version: updatedAttempt?.version ?? dto.expectedVersion,
                 nextAction: this.buildAdminAttemptNextAction(status, stage),
                 attempt: updatedAttempt,
@@ -606,7 +679,10 @@ export class KycService {
         dto: RunKycAttemptRecheckDto,
         adminId?: number,
     ): Promise<ApiResponse> {
-        const attempt = await this.resolveAttemptContext(attemptId, dto.verificationType);
+        const attempt = await this.resolveAttemptContext(
+            attemptId,
+            dto.verificationType,
+        );
 
         if (!attempt) {
             return buildResponse({
@@ -615,12 +691,16 @@ export class KycService {
             });
         }
 
-        this.ensureLookupProviderSupported(dto.provider, attempt.verificationType);
+        this.ensureLookupProviderSupported(
+            dto.provider,
+            attempt.verificationType,
+        );
 
         const response = await this.runProviderLookup(
             {
                 userId: attempt.userId,
-                verificationType: attempt.verificationType as AdminKycProviderLookupType,
+                verificationType:
+                    attempt.verificationType as AdminKycProviderLookupType,
             },
             adminId,
         );
@@ -635,7 +715,7 @@ export class KycService {
         return buildResponse({
             message: response.message,
             data: {
-            attemptId: attempt.attemptId,
+                attemptId: attempt.attemptId,
                 userId: attempt.userId,
                 verificationType: attempt.verificationType,
                 stage,
@@ -643,9 +723,17 @@ export class KycService {
                 providerStatus: this.resolveLookupOutcomeFromResults(results),
                 lookedUpAt: response.data.lookedUpAt,
                 historyRecordId: response.data.historyRecordId ?? null,
-                extractedFields: this.buildAttemptExtractedFieldsFromLookupResults(results),
-                comparisonSummary: this.buildAttemptComparisonSummaryFromLookupResults(results),
-                evidenceSummary: this.buildAttemptEvidenceSummaryFromLookupResults(attempt.verificationType, results),
+                extractedFields:
+                    this.buildAttemptExtractedFieldsFromLookupResults(results),
+                comparisonSummary:
+                    this.buildAttemptComparisonSummaryFromLookupResults(
+                        results,
+                    ),
+                evidenceSummary:
+                    this.buildAttemptEvidenceSummaryFromLookupResults(
+                        attempt.verificationType,
+                        results,
+                    ),
                 nextAction: {
                     type: "WAIT",
                     stage,
@@ -657,7 +745,10 @@ export class KycService {
         });
     }
 
-    async runProviderLookup(dto: RunKycProviderLookupDto, adminId?: number): Promise<ApiResponse> {
+    async runProviderLookup(
+        dto: RunKycProviderLookupDto,
+        adminId?: number,
+    ): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: dto.userId },
             include: {
@@ -719,14 +810,23 @@ export class KycService {
                 results = [await this.runIncomeLookup(user, lookedUpAt)];
                 break;
             case "BUSINESS_DOCUMENT":
-                results = await this.runBusinessDocumentLookup(user, lookedUpAt);
+                results = await this.runBusinessDocumentLookup(
+                    user,
+                    lookedUpAt,
+                );
                 break;
             default:
-                throw new BadRequestException(`Unsupported lookup type: ${dto.verificationType}`);
+                throw new BadRequestException(
+                    `Unsupported lookup type: ${dto.verificationType}`,
+                );
         }
 
-        const hasSuccess = results.some((result) => result.status === "SUCCESS");
-        const allSuccessful = results.every((result) => result.status === "SUCCESS");
+        const hasSuccess = results.some(
+            (result) => result.status === "SUCCESS",
+        );
+        const allSuccessful = results.every(
+            (result) => result.status === "SUCCESS",
+        );
         let outcome: AdminLookupOutcome = "FAILED";
         if (allSuccessful) {
             outcome = "SUCCESS";
@@ -741,14 +841,15 @@ export class KycService {
             message = `${dto.verificationType} lookup completed with partial failures`;
         }
 
-        const persistedLookupRecord = await this.persistVerificationLookupHistory(
-            user,
-            dto.verificationType,
-            results,
-            outcome,
-            lookedUpAt,
-            adminId,
-        );
+        const persistedLookupRecord =
+            await this.persistVerificationLookupHistory(
+                user,
+                dto.verificationType,
+                results,
+                outcome,
+                lookedUpAt,
+                adminId,
+            );
 
         await this.auditLogService.log({
             adminId,
@@ -759,7 +860,9 @@ export class KycService {
                 verificationType: dto.verificationType,
                 outcome,
                 resultKeys: results.map((result) => result.key),
-                providerRefs: results.map((result) => result.providerRef).filter(Boolean),
+                providerRefs: results
+                    .map((result) => result.providerRef)
+                    .filter(Boolean),
                 kycLookupHistoryId: persistedLookupRecord.id,
             },
         });
@@ -784,9 +887,18 @@ export class KycService {
         lookedUpAt: string,
         adminId?: number,
     ): Promise<{ id: number }> {
-        const lookupMetadata = this.resolveLookupHistoryAttemptMetadata(user, verificationType);
-        const note = this.buildLookupHistoryNote(verificationType, outcome, results);
-        const providerRef = results.find((result) => result.providerRef)?.providerRef ?? lookupMetadata.providerRef;
+        const lookupMetadata = this.resolveLookupHistoryAttemptMetadata(
+            user,
+            verificationType,
+        );
+        const note = this.buildLookupHistoryNote(
+            verificationType,
+            outcome,
+            results,
+        );
+        const providerRef =
+            results.find((result) => result.providerRef)?.providerRef ??
+            lookupMetadata.providerRef;
 
         const payload: PersistedAdminLookupHistoryPayload = {
             source: "ADMIN_PROVIDER_LOOKUP",
@@ -823,27 +935,42 @@ export class KycService {
         currentVersion: number;
         providerRef: string | null;
     } {
-        const currentAttempt = this.getCurrentStageAttemptForVerificationType(user, verificationType);
-        const latestEvent = this.getLatestAttemptEventForVerificationType(user?.kycAttemptEvents, verificationType);
-        const structuredPayload = this.getAttemptStructuredRecord(latestEvent?.payload);
-        const lookupPayload = this.getPersistedLookupHistoryPayload(latestEvent?.payload);
+        const currentAttempt = this.getCurrentStageAttemptForVerificationType(
+            user,
+            verificationType,
+        );
+        const latestEvent = this.getLatestAttemptEventForVerificationType(
+            user?.kycAttemptEvents,
+            verificationType,
+        );
+        const structuredPayload = this.getAttemptStructuredRecord(
+            latestEvent?.payload,
+        );
+        const lookupPayload = this.getPersistedLookupHistoryPayload(
+            latestEvent?.payload,
+        );
         let eventVersion: number | null = null;
         if (typeof structuredPayload?.attemptVersion === "number") {
             eventVersion = structuredPayload.attemptVersion;
         }
 
         return {
-            attemptId: currentAttempt?.id
-                ?? latestEvent?.attemptId
-                ?? lookupPayload?.attemptId
-                ?? (typeof structuredPayload?.attemptId === "number" ? structuredPayload.attemptId : null),
+            attemptId:
+                currentAttempt?.id ??
+                latestEvent?.attemptId ??
+                lookupPayload?.attemptId ??
+                (typeof structuredPayload?.attemptId === "number"
+                    ? structuredPayload.attemptId
+                    : null),
             currentStatus: currentAttempt?.status
                 ? this.mapStageAttemptStatusToKycStatus(currentAttempt.status)
                 : this.resolveLookupHistoryStatus(user, verificationType),
-            currentVersion: typeof currentAttempt?.version === "number"
-                ? currentAttempt.version
-                : eventVersion ?? 1,
-            providerRef: currentAttempt?.providerRef ?? latestEvent?.providerRef ?? null,
+            currentVersion:
+                typeof currentAttempt?.version === "number"
+                    ? currentAttempt.version
+                    : (eventVersion ?? 1),
+            providerRef:
+                currentAttempt?.providerRef ?? latestEvent?.providerRef ?? null,
         };
     }
 
@@ -851,21 +978,38 @@ export class KycService {
         attemptEvents: AttemptEventLookupRecord[] | undefined,
         verificationType: AdminKycProviderLookupType,
     ): AttemptEventLookupRecord | null {
-        return (attemptEvents ?? []).find((event) => this.doesAttemptEventMatchVerificationType(event, verificationType)) ?? null;
+        return (
+            (attemptEvents ?? []).find((event) =>
+                this.doesAttemptEventMatchVerificationType(
+                    event,
+                    verificationType,
+                ),
+            ) ?? null
+        );
     }
 
-    private doesAttemptEventMatchVerificationType(event: AttemptEventLookupRecord, verificationType: string): boolean {
-        const lookupPayload = this.getPersistedLookupHistoryPayload(event?.payload);
+    private doesAttemptEventMatchVerificationType(
+        event: AttemptEventLookupRecord,
+        verificationType: string,
+    ): boolean {
+        const lookupPayload = this.getPersistedLookupHistoryPayload(
+            event?.payload,
+        );
         if (lookupPayload?.lookupType === verificationType) {
             return true;
         }
 
-        const structuredPayload = this.getAttemptStructuredRecord(event?.payload);
+        const structuredPayload = this.getAttemptStructuredRecord(
+            event?.payload,
+        );
         if (structuredPayload?.verificationType === verificationType) {
             return true;
         }
 
-        if (event?.stage !== this.mapVerificationTypeToAttemptStage(verificationType)) {
+        if (
+            event?.stage !==
+            this.mapVerificationTypeToAttemptStage(verificationType)
+        ) {
             return false;
         }
 
@@ -896,9 +1040,12 @@ export class KycService {
             lookedUpAt: params.lookedUpAt,
         });
 
-        const providerName = this.resolveLookupEventProviderName(params.results);
+        const providerName = this.resolveLookupEventProviderName(
+            params.results,
+        );
         const providerRef = this.resolveLookupEventProviderRef(params.results);
-        const actorType = typeof params.adminId === "number" ? "ADMIN" : "SYSTEM";
+        const actorType =
+            typeof params.adminId === "number" ? "ADMIN" : "SYSTEM";
         return await (this.prisma as any).kycAttemptEvent.create({
             data: {
                 attemptId: attempt.id,
@@ -909,7 +1056,9 @@ export class KycService {
                 actorType,
                 actorId: params.adminId ?? null,
                 providerName: providerName ?? undefined,
-                providerStatus: this.mapLookupOutcomeToProviderStatus(params.outcome),
+                providerStatus: this.mapLookupOutcomeToProviderStatus(
+                    params.outcome,
+                ),
                 providerRef: providerRef ?? undefined,
                 note: params.note,
                 payload: params.payload as unknown as Prisma.InputJsonValue,
@@ -936,17 +1085,24 @@ export class KycService {
             return existingAttempt;
         }
 
-        const stage = this.mapVerificationTypeToAttemptStage(params.verificationType) as KycStage;
-        const journeyType = this.mapVerificationTypeToJourneyType(params.verificationType) as any;
-        const method = this.mapVerificationTypeToAttemptMethod(params.verificationType) as any;
+        const stage = this.mapVerificationTypeToAttemptStage(
+            params.verificationType,
+        ) as KycStage;
+        const journeyType = this.mapVerificationTypeToJourneyType(
+            params.verificationType,
+        ) as any;
+        const method = this.mapVerificationTypeToAttemptMethod(
+            params.verificationType,
+        ) as any;
         const submittedAt = new Date(params.lookedUpAt);
-        const nextAttemptAggregate = await this.prisma.kycStageAttempt.aggregate({
-            where: {
-                userId: params.userId,
-                stage,
-            },
-            _max: { attemptNo: true },
-        });
+        const nextAttemptAggregate =
+            await this.prisma.kycStageAttempt.aggregate({
+                where: {
+                    userId: params.userId,
+                    stage,
+                },
+                _max: { attemptNo: true },
+            });
 
         return await this.prisma.kycStageAttempt.create({
             data: {
@@ -956,11 +1112,17 @@ export class KycService {
                 method,
                 attemptNo: (nextAttemptAggregate._max.attemptNo ?? 0) + 1,
                 isCurrent: true,
-                status: this.mapKycStatusToStageAttemptStatus(params.currentStatus),
-                providerStatus: this.mapKycStatusToStageProviderStatus(params.currentStatus),
+                status: this.mapKycStatusToStageAttemptStatus(
+                    params.currentStatus,
+                ),
+                providerStatus: this.mapKycStatusToStageProviderStatus(
+                    params.currentStatus,
+                ),
                 providerRef: params.providerRef ?? null,
                 version: params.currentVersion,
-                submittedAt: Number.isNaN(submittedAt.getTime()) ? undefined : submittedAt,
+                submittedAt: Number.isNaN(submittedAt.getTime())
+                    ? undefined
+                    : submittedAt,
             } as Prisma.KycStageAttemptUncheckedCreateInput,
             select: {
                 id: true,
@@ -982,13 +1144,19 @@ export class KycService {
         attemptId?: number | null,
     ): Promise<DecisionShadowAttempt | null> {
         if (typeof attemptId === "number") {
-            const method = this.mapVerificationTypeToAttemptMethod(verificationType) as any;
+            const method = this.mapVerificationTypeToAttemptMethod(
+                verificationType,
+            ) as any;
             const linkedAttempt = await this.prisma.kycStageAttempt.findFirst({
                 where: {
                     id: attemptId,
                     userId,
-                    journeyType: this.mapVerificationTypeToJourneyType(verificationType) as any,
-                    stage: this.mapVerificationTypeToAttemptStage(verificationType) as any,
+                    journeyType: this.mapVerificationTypeToJourneyType(
+                        verificationType,
+                    ) as any,
+                    stage: this.mapVerificationTypeToAttemptStage(
+                        verificationType,
+                    ) as any,
                     ...(method ? { method } : {}),
                 },
                 select: {
@@ -1012,7 +1180,8 @@ export class KycService {
         const stage = this.mapVerificationTypeToAttemptStage(verificationType);
         const attemptWhere: any = {
             userId,
-            journeyType: this.mapVerificationTypeToJourneyType(verificationType),
+            journeyType:
+                this.mapVerificationTypeToJourneyType(verificationType),
             stage,
             isCurrent: true,
         };
@@ -1046,11 +1215,20 @@ export class KycService {
             return null;
         }
 
-        return await this.resolveShadowAttemptForVerification(userId, verificationType);
+        return await this.resolveShadowAttemptForVerification(
+            userId,
+            verificationType,
+        );
     }
 
-    private resolveLookupEventProviderName(results: AdminKycLookupResult[]): string | null {
-        const providerNames = [...new Set(results.map((result) => result.provider).filter(Boolean))];
+    private resolveLookupEventProviderName(
+        results: AdminKycLookupResult[],
+    ): string | null {
+        const providerNames = [
+            ...new Set(
+                results.map((result) => result.provider).filter(Boolean),
+            ),
+        ];
         if (providerNames.length !== 1) {
             return null;
         }
@@ -1066,12 +1244,25 @@ export class KycService {
         return null;
     }
 
-    private resolveLookupEventProviderRef(results: AdminKycLookupResult[]): string | null {
-        const providerRefs = [...new Set(results.map((result) => result.providerRef).filter((value): value is string => typeof value === "string" && value.length > 0))];
+    private resolveLookupEventProviderRef(
+        results: AdminKycLookupResult[],
+    ): string | null {
+        const providerRefs = [
+            ...new Set(
+                results
+                    .map((result) => result.providerRef)
+                    .filter(
+                        (value): value is string =>
+                            typeof value === "string" && value.length > 0,
+                    ),
+            ),
+        ];
         return providerRefs[0] ?? null;
     }
 
-    private mapLookupOutcomeToProviderStatus(outcome: AdminLookupOutcome): string {
+    private mapLookupOutcomeToProviderStatus(
+        outcome: AdminLookupOutcome,
+    ): string {
         switch (outcome) {
             case "SUCCESS":
                 return "PASSED";
@@ -1094,26 +1285,62 @@ export class KycService {
 
         const normalizedUser = this.normalizeVerificationState(user);
         const { verificationSnapshot } = normalizedUser;
-        const currentBusinessAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "BUSINESS_DOCUMENT");
-        const fallbackStatusByVerificationType: Record<AdminKycProviderLookupType, KycStatus> = {
-            BVN: this.resolveStageManagedLookupStatus(normalizedUser, "BVN", verificationSnapshot.bvnVerified),
-            NIN: this.resolveStageManagedLookupStatus(normalizedUser, "NIN", verificationSnapshot.ninVerified),
-            DOCUMENT: this.resolveDocumentLookupStatus(normalizedUser.documentVerificationStatus, normalizedUser.documentVerified),
-            ADDRESS: this.resolveStageManagedLookupStatus(normalizedUser, "ADDRESS", verificationSnapshot.addressVerified, verificationSnapshot.addressStatus),
-            INCOME: this.resolveStageManagedLookupStatus(normalizedUser, "INCOME", verificationSnapshot.incomeVerified, verificationSnapshot.incomeStatus),
+        const currentBusinessAttempt =
+            this.getCurrentStageAttemptForVerificationType(
+                normalizedUser,
+                "BUSINESS_DOCUMENT",
+            );
+        const fallbackStatusByVerificationType: Record<
+            AdminKycProviderLookupType,
+            KycStatus
+        > = {
+            BVN: this.resolveStageManagedLookupStatus(
+                normalizedUser,
+                "BVN",
+                verificationSnapshot.bvnVerified,
+            ),
+            NIN: this.resolveStageManagedLookupStatus(
+                normalizedUser,
+                "NIN",
+                verificationSnapshot.ninVerified,
+            ),
+            DOCUMENT: this.resolveDocumentLookupStatus(
+                normalizedUser.documentVerificationStatus,
+                normalizedUser.documentVerified,
+            ),
+            ADDRESS: this.resolveStageManagedLookupStatus(
+                normalizedUser,
+                "ADDRESS",
+                verificationSnapshot.addressVerified,
+                verificationSnapshot.addressStatus,
+            ),
+            INCOME: this.resolveStageManagedLookupStatus(
+                normalizedUser,
+                "INCOME",
+                verificationSnapshot.incomeVerified,
+                verificationSnapshot.incomeStatus,
+            ),
             BUSINESS_DOCUMENT: currentBusinessAttempt?.status
-                ? this.mapStageAttemptStatusToKycStatus(currentBusinessAttempt.status)
+                ? this.mapStageAttemptStatusToKycStatus(
+                      currentBusinessAttempt.status,
+                  )
                 : KycStatus.PENDING,
         };
 
-        return fallbackStatusByVerificationType[verificationType] ?? KycStatus.PENDING;
+        return (
+            fallbackStatusByVerificationType[verificationType] ??
+            KycStatus.PENDING
+        );
     }
 
     private resolveDocumentLookupStatus(
         verificationStatus?: DocumentVerificationStatus | null,
         isVerified = false,
     ): KycStatus {
-        if (isVerified || verificationStatus === DocumentVerificationStatus.VERIFIED) {
+        if (
+            isVerified ||
+            verificationStatus === DocumentVerificationStatus.VERIFIED
+        ) {
             return KycStatus.APPROVED;
         }
 
@@ -1133,7 +1360,9 @@ export class KycService {
             return `${verificationType} investigative lookup captured from Dojah`;
         }
 
-        const failedCount = results.filter((result) => result.status === "FAILED").length;
+        const failedCount = results.filter(
+            (result) => result.status === "FAILED",
+        ).length;
         if (outcome === "PARTIAL_FAILURE") {
             return `${verificationType} investigative lookup captured with ${failedCount} provider issue${failedCount === 1 ? "" : "s"}`;
         }
@@ -1164,7 +1393,8 @@ export class KycService {
                 firstName: entity.first_name ?? null,
                 lastName: entity.last_name ?? null,
                 dateOfBirth: entity.date_of_birth ?? null,
-                phoneNumber: entity.phone_number1 ?? entity.phone_number ?? null,
+                phoneNumber:
+                    entity.phone_number1 ?? entity.phone_number ?? null,
                 gender: entity.gender ?? null,
                 ...comparisonSummary,
             },
@@ -1182,7 +1412,15 @@ export class KycService {
         label: string;
         lookedUpAt: string;
     }): Promise<AdminKycLookupResult> {
-        const { user, identifier, missingIdentifierMessage, request, key, label, lookedUpAt } = params;
+        const {
+            user,
+            identifier,
+            missingIdentifierMessage,
+            request,
+            key,
+            label,
+            lookedUpAt,
+        } = params;
 
         if (!identifier) {
             throw new BadRequestException(missingIdentifierMessage);
@@ -1190,7 +1428,13 @@ export class KycService {
 
         try {
             const response = await request();
-            return this.buildIdentityLookupResult(user, key, label, response, lookedUpAt);
+            return this.buildIdentityLookupResult(
+                user,
+                key,
+                label,
+                response,
+                lookedUpAt,
+            );
         } catch (error) {
             return this.buildLookupErrorResult(key, label, lookedUpAt, error);
         }
@@ -1220,20 +1464,34 @@ export class KycService {
         } = params;
 
         if (!identifier) {
-            throw new BadRequestException(`Missing ${key} identifier for business lookup`);
+            throw new BadRequestException(
+                `Missing ${key} identifier for business lookup`,
+            );
         }
 
         try {
             const response = await request();
             const entity = (response?.data?.entity ?? {}) as DojahLookupEntity;
-            const providerName = (entity[providerNameField] as string | null | undefined) ?? null;
-            const normalizedProviderName = this.normalizeLookupText(providerName);
-            const nameMatches = expectedName && normalizedProviderName
-                ? normalizedProviderName.includes(expectedName) || expectedName.includes(normalizedProviderName)
-                : null;
-            const providerNameSummary = providerNameField === "company_name"
-                ? { providerCompanyName: providerName, companyName: providerName }
-                : { providerTaxpayerName: providerName, taxpayerName: providerName };
+            const providerName =
+                (entity[providerNameField] as string | null | undefined) ??
+                null;
+            const normalizedProviderName =
+                this.normalizeLookupText(providerName);
+            const nameMatches =
+                expectedName && normalizedProviderName
+                    ? normalizedProviderName.includes(expectedName) ||
+                      expectedName.includes(normalizedProviderName)
+                    : null;
+            const providerNameSummary =
+                providerNameField === "company_name"
+                    ? {
+                          providerCompanyName: providerName,
+                          companyName: providerName,
+                      }
+                    : {
+                          providerTaxpayerName: providerName,
+                          taxpayerName: providerName,
+                      };
             const additionalSummary = extraSummary?.(entity);
             const summary: Record<string, unknown> = {
                 verified: true,
@@ -1261,43 +1519,56 @@ export class KycService {
         }
     }
 
-    private async runBvnLookup(user: any, lookedUpAt: string): Promise<AdminKycLookupResult> {
+    private async runBvnLookup(
+        user: any,
+        lookedUpAt: string,
+    ): Promise<AdminKycLookupResult> {
         return this.runIdentityLookup({
             user,
             identifier: user.bvn,
             missingIdentifierMessage: "This user does not have a BVN on record",
-            request: () => this.dojahService.verifyBvn({
-                bvn: user.bvn,
-                first_name: user.firstName ?? undefined,
-                last_name: user.lastName ?? undefined,
-                dob: user.dateOfBirth ?? undefined,
-            }),
+            request: () =>
+                this.dojahService.verifyBvn({
+                    bvn: user.bvn,
+                    first_name: user.firstName ?? undefined,
+                    last_name: user.lastName ?? undefined,
+                    dob: user.dateOfBirth ?? undefined,
+                }),
             key: "BVN",
             label: "BVN lookup",
             lookedUpAt,
         });
     }
 
-    private async runNinLookup(user: any, lookedUpAt: string): Promise<AdminKycLookupResult> {
+    private async runNinLookup(
+        user: any,
+        lookedUpAt: string,
+    ): Promise<AdminKycLookupResult> {
         return this.runIdentityLookup({
             user,
             identifier: user.nin,
             missingIdentifierMessage: "This user does not have a NIN on record",
-            request: () => this.dojahService.verifyNin({
-                nin: user.nin,
-                first_name: user.firstName ?? undefined,
-                last_name: user.lastName ?? undefined,
-                dob: user.dateOfBirth ?? undefined,
-            }),
+            request: () =>
+                this.dojahService.verifyNin({
+                    nin: user.nin,
+                    first_name: user.firstName ?? undefined,
+                    last_name: user.lastName ?? undefined,
+                    dob: user.dateOfBirth ?? undefined,
+                }),
             key: "NIN",
             label: "NIN lookup",
             lookedUpAt,
         });
     }
 
-    private async runDocumentLookup(user: any, lookedUpAt: string): Promise<AdminKycLookupResult> {
+    private async runDocumentLookup(
+        user: any,
+        lookedUpAt: string,
+    ): Promise<AdminKycLookupResult> {
         if (!user.userDocument?.documentImageUrl) {
-            throw new BadRequestException("This user does not have a submitted identity document to recheck");
+            throw new BadRequestException(
+                "This user does not have a submitted identity document to recheck",
+            );
         }
 
         try {
@@ -1308,27 +1579,45 @@ export class KycService {
             });
 
             const parsed = (analysis?.parsed ?? {}) as DojahParsedDocument;
-            const analysisEntity = (analysis?.response?.data?.entity ?? {}) as DojahLookupEntity;
-            const extractedName = [parsed.firstName, parsed.lastName].filter(Boolean).join(" ").trim() || null;
-            const expectedName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null;
-            const nameMatches = expectedName && extractedName
-                ? this.normalizeLookupText(extractedName) === this.normalizeLookupText(expectedName)
-                : null;
+            const analysisEntity = (analysis?.response?.data?.entity ??
+                {}) as DojahLookupEntity;
+            const extractedName =
+                [parsed.firstName, parsed.lastName]
+                    .filter(Boolean)
+                    .join(" ")
+                    .trim() || null;
+            const expectedName =
+                [user.firstName, user.lastName]
+                    .filter(Boolean)
+                    .join(" ")
+                    .trim() || null;
+            const nameMatches =
+                expectedName && extractedName
+                    ? this.normalizeLookupText(extractedName) ===
+                      this.normalizeLookupText(expectedName)
+                    : null;
             const expectedDateOfBirth = user.dateOfBirth ?? null;
             const providerDateOfBirth = parsed.dateOfBirth ?? null;
-            const dobMatches = expectedDateOfBirth && providerDateOfBirth
-                ? this.normalizeLookupDate(providerDateOfBirth) === this.normalizeLookupDate(expectedDateOfBirth)
-                : null;
+            const dobMatches =
+                expectedDateOfBirth && providerDateOfBirth
+                    ? this.normalizeLookupDate(providerDateOfBirth) ===
+                      this.normalizeLookupDate(expectedDateOfBirth)
+                    : null;
             const expectedDocumentType = user.userDocument.type ?? null;
             const providerDocumentType = parsed.documentType ?? null;
-            const documentTypeMatches = expectedDocumentType && providerDocumentType
-                ? this.normalizeLookupText(providerDocumentType) === this.normalizeLookupText(expectedDocumentType)
-                : null;
-            const expectedDocumentNumber = user.userDocument.documentNumber ?? null;
+            const documentTypeMatches =
+                expectedDocumentType && providerDocumentType
+                    ? this.normalizeLookupText(providerDocumentType) ===
+                      this.normalizeLookupText(expectedDocumentType)
+                    : null;
+            const expectedDocumentNumber =
+                user.userDocument.documentNumber ?? null;
             const providerDocumentNumber = parsed.documentNumber ?? null;
-            const documentNumberMatches = expectedDocumentNumber && providerDocumentNumber
-                ? this.normalizeLookupText(providerDocumentNumber) === this.normalizeLookupText(expectedDocumentNumber)
-                : null;
+            const documentNumberMatches =
+                expectedDocumentNumber && providerDocumentNumber
+                    ? this.normalizeLookupText(providerDocumentNumber) ===
+                      this.normalizeLookupText(expectedDocumentNumber)
+                    : null;
 
             return {
                 key: "DOCUMENT",
@@ -1338,7 +1627,8 @@ export class KycService {
                 providerRef: analysisEntity.reference_id ?? null,
                 summary: {
                     verified: parsed.isValid ?? false,
-                    documentType: parsed.documentType ?? user.userDocument.type ?? null,
+                    documentType:
+                        parsed.documentType ?? user.userDocument.type ?? null,
                     extractedName,
                     nameMatches,
                     expectedName,
@@ -1361,17 +1651,30 @@ export class KycService {
                 lookedUpAt,
             };
         } catch (error) {
-            return this.buildLookupErrorResult("DOCUMENT", "Document OCR lookup", lookedUpAt, error, user.userDocument.documentImageUrl);
+            return this.buildLookupErrorResult(
+                "DOCUMENT",
+                "Document OCR lookup",
+                lookedUpAt,
+                error,
+                user.userDocument.documentImageUrl,
+            );
         }
     }
 
-    private async runAddressLookup(user: any, lookedUpAt: string): Promise<AdminKycLookupResult> {
+    private async runAddressLookup(
+        user: any,
+        lookedUpAt: string,
+    ): Promise<AdminKycLookupResult> {
         if (!user.addressDocumentUrl) {
-            throw new BadRequestException("This user does not have a submitted address document to recheck");
+            throw new BadRequestException(
+                "This user does not have a submitted address document to recheck",
+            );
         }
 
         try {
-            const { buffer, mimeType } = await this.downloadLookupDocument(user.addressDocumentUrl);
+            const { buffer, mimeType } = await this.downloadLookupDocument(
+                user.addressDocumentUrl,
+            );
             const validation = await validateAddressDocument(
                 buffer,
                 user.firstName ?? "",
@@ -1389,15 +1692,23 @@ export class KycService {
                 summary: {
                     verified: validation.isValid,
                     confidence: validation.confidence ?? null,
-                    expectedName: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null,
+                    expectedName:
+                        [user.firstName, user.lastName]
+                            .filter(Boolean)
+                            .join(" ")
+                            .trim() || null,
                     nameMatches: validation.matchedName ?? null,
                     expectedAddress: user.residentialAddress ?? null,
-                    addressMatches: validation.matchedResidentialAddress ?? null,
+                    addressMatches:
+                        validation.matchedResidentialAddress ?? null,
                     addressIndicatorsFound: validation.matchedAddress ?? null,
-                    requiresManualReview: validation.requiresManualReview ?? null,
+                    requiresManualReview:
+                        validation.requiresManualReview ?? null,
                     documentDate: validation.documentDate ?? null,
                     isRecent: validation.isRecent ?? null,
-                    textExcerpt: this.buildLookupTextExcerpt(validation.extractedText),
+                    textExcerpt: this.buildLookupTextExcerpt(
+                        validation.extractedText,
+                    ),
                     reason: validation.reason ?? null,
                 },
                 rawResponse: validation,
@@ -1405,24 +1716,39 @@ export class KycService {
                 lookedUpAt,
             };
         } catch (error) {
-            return this.buildLookupErrorResult("ADDRESS", "Address OCR lookup", lookedUpAt, error, user.addressDocumentUrl, "OCR");
+            return this.buildLookupErrorResult(
+                "ADDRESS",
+                "Address OCR lookup",
+                lookedUpAt,
+                error,
+                user.addressDocumentUrl,
+                "OCR",
+            );
         }
     }
 
-    private async runIncomeLookup(user: any, lookedUpAt: string): Promise<AdminKycLookupResult> {
+    private async runIncomeLookup(
+        user: any,
+        lookedUpAt: string,
+    ): Promise<AdminKycLookupResult> {
         if (!user.incomeDocumentUrl) {
-            throw new BadRequestException("This user does not have a submitted income document to recheck");
+            throw new BadRequestException(
+                "This user does not have a submitted income document to recheck",
+            );
         }
 
         try {
-            const { buffer, mimeType } = await this.downloadLookupDocument(user.incomeDocumentUrl);
+            const { buffer, mimeType } = await this.downloadLookupDocument(
+                user.incomeDocumentUrl,
+            );
             const validation = await validateIncomeDocument(
                 buffer,
                 user.firstName ?? "",
                 user.lastName ?? "",
                 mimeType,
             );
-            const isVerified = validation.isValid && !validation.requiresManualReview;
+            const isVerified =
+                validation.isValid && !validation.requiresManualReview;
 
             return {
                 key: "INCOME",
@@ -1433,12 +1759,19 @@ export class KycService {
                 summary: {
                     verified: isVerified,
                     confidence: validation.confidence ?? null,
-                    expectedName: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null,
+                    expectedName:
+                        [user.firstName, user.lastName]
+                            .filter(Boolean)
+                            .join(" ")
+                            .trim() || null,
                     nameMatches: validation.matchedName ?? null,
-                    requiresManualReview: validation.requiresManualReview ?? null,
+                    requiresManualReview:
+                        validation.requiresManualReview ?? null,
                     documentDate: validation.documentDate ?? null,
                     isRecent: validation.isRecent ?? null,
-                    textExcerpt: this.buildLookupTextExcerpt(validation.extractedText),
+                    textExcerpt: this.buildLookupTextExcerpt(
+                        validation.extractedText,
+                    ),
                     reason: validation.reason ?? null,
                 },
                 rawResponse: validation,
@@ -1446,22 +1779,46 @@ export class KycService {
                 lookedUpAt,
             };
         } catch (error) {
-            return this.buildLookupErrorResult("INCOME", "Income OCR lookup", lookedUpAt, error, user.incomeDocumentUrl, "OCR");
+            return this.buildLookupErrorResult(
+                "INCOME",
+                "Income OCR lookup",
+                lookedUpAt,
+                error,
+                user.incomeDocumentUrl,
+                "OCR",
+            );
         }
     }
 
-    private async runBusinessDocumentLookup(user: any, lookedUpAt: string): Promise<AdminKycLookupResult[]> {
+    private async runBusinessDocumentLookup(
+        user: any,
+        lookedUpAt: string,
+    ): Promise<AdminKycLookupResult[]> {
         const businessName = user.businessRecord?.businessName ?? "";
         const expectedName = this.normalizeLookupText(businessName);
         const businessDocument = user.businessDocument;
         const businessResults: AdminKycLookupResult[] = [];
 
         if (businessDocument?.cacDocumentNumber) {
-            businessResults.push(await this.lookupBusinessCacResult(businessDocument.cacDocumentNumber, businessName, expectedName, lookedUpAt));
+            businessResults.push(
+                await this.lookupBusinessCacResult(
+                    businessDocument.cacDocumentNumber,
+                    businessName,
+                    expectedName,
+                    lookedUpAt,
+                ),
+            );
         }
 
         if (user.businessRecord?.taxIdentificationNumber) {
-            businessResults.push(await this.lookupBusinessTinResult(user.businessRecord.taxIdentificationNumber, businessName, expectedName, lookedUpAt));
+            businessResults.push(
+                await this.lookupBusinessTinResult(
+                    user.businessRecord.taxIdentificationNumber,
+                    businessName,
+                    expectedName,
+                    lookedUpAt,
+                ),
+            );
         }
 
         if (businessDocument?.cacImageUrl) {
@@ -1475,7 +1832,9 @@ export class KycService {
         }
 
         if (businessResults.length === 0) {
-            throw new BadRequestException("This business user does not have stored business verification artifacts to recheck");
+            throw new BadRequestException(
+                "This business user does not have stored business verification artifacts to recheck",
+            );
         }
 
         return businessResults;
@@ -1533,12 +1892,19 @@ export class KycService {
             });
 
             const parsed = (analysis?.parsed ?? {}) as DojahParsedDocument;
-            const analysisEntity = (analysis?.response?.data?.entity ?? {}) as DojahLookupEntity;
-            const extractedName = [parsed.firstName, parsed.lastName].filter(Boolean).join(" ").trim() || null;
+            const analysisEntity = (analysis?.response?.data?.entity ??
+                {}) as DojahLookupEntity;
+            const extractedName =
+                [parsed.firstName, parsed.lastName]
+                    .filter(Boolean)
+                    .join(" ")
+                    .trim() || null;
             const extractedNumber = parsed.documentNumber ?? null;
-            const numberMatches = extractedNumber && cacDocumentNumber
-                ? this.normalizeLookupText(extractedNumber) === this.normalizeLookupText(cacDocumentNumber)
-                : null;
+            const numberMatches =
+                extractedNumber && cacDocumentNumber
+                    ? this.normalizeLookupText(extractedNumber) ===
+                      this.normalizeLookupText(cacDocumentNumber)
+                    : null;
 
             return {
                 key: "CAC_OCR",
@@ -1560,32 +1926,66 @@ export class KycService {
                 lookedUpAt,
             };
         } catch (error) {
-            return this.buildLookupErrorResult("CAC_OCR", "CAC document OCR", lookedUpAt, error, cacImageUrl);
+            return this.buildLookupErrorResult(
+                "CAC_OCR",
+                "CAC document OCR",
+                lookedUpAt,
+                error,
+                cacImageUrl,
+            );
         }
     }
 
     private buildAttemptDetailsByVerificationType(params: {
         user: any;
         attemptHistory: AdminKycAttemptSummary[];
-        currentAttemptByVerificationType: Record<string, AdminKycAttemptSummary>;
+        currentAttemptByVerificationType: Record<
+            string,
+            AdminKycAttemptSummary
+        >;
         attemptRecordByVerificationType: Record<string, any>;
         auditLogs: any[];
     }): Record<string, AdminKycAttemptDetail> {
-        const { user, attemptHistory, currentAttemptByVerificationType, attemptRecordByVerificationType, auditLogs } = params;
+        const {
+            user,
+            attemptHistory,
+            currentAttemptByVerificationType,
+            attemptRecordByVerificationType,
+            auditLogs,
+        } = params;
         const details: Record<string, AdminKycAttemptDetail> = {};
         const attemptEvents = user.kycAttemptEvents ?? [];
 
-        for (const verificationType of ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"]) {
-            const attempt = currentAttemptByVerificationType[verificationType]
-                ?? attemptHistory.find((candidate) => candidate.verificationType === verificationType)
-                ?? null;
-            const lookupHistory = this.buildAttemptLookupHistory(attemptEvents, verificationType as AdminKycProviderLookupType);
-            const decisionHistory = this.buildAttemptDecisionHistory(attemptEvents, auditLogs, verificationType);
+        for (const verificationType of [
+            "BVN",
+            "NIN",
+            "DOCUMENT",
+            "ADDRESS",
+            "INCOME",
+            "BUSINESS_DOCUMENT",
+        ]) {
+            const attempt =
+                currentAttemptByVerificationType[verificationType] ??
+                attemptHistory.find(
+                    (candidate) =>
+                        candidate.verificationType === verificationType,
+                ) ??
+                null;
+            const lookupHistory = this.buildAttemptLookupHistory(
+                attemptEvents,
+                verificationType as AdminKycProviderLookupType,
+            );
+            const decisionHistory = this.buildAttemptDecisionHistory(
+                attemptEvents,
+                auditLogs,
+                verificationType,
+            );
             const detail = this.buildAttemptDetail({
                 verificationType,
                 user,
                 attempt,
-                attemptRecord: attemptRecordByVerificationType[verificationType] ?? null,
+                attemptRecord:
+                    attemptRecordByVerificationType[verificationType] ?? null,
                 attemptEvents,
                 lookupHistory,
                 decisionHistory,
@@ -1622,34 +2022,75 @@ export class KycService {
         lookupHistory: AdminKycAttemptLookupHistoryItem[];
         decisionHistory: AdminKycAttemptDecisionHistoryItem[];
     }): AdminKycAttemptDetail | null {
-        const { verificationType, user, attempt, attemptRecord, attemptEvents, lookupHistory, decisionHistory } = params;
-        const hasLegacyEvidence = this.hasLegacyAttemptEvidence(verificationType, user);
-        const useLegacyFallbackValues = !this.isStageManagedVerificationType(verificationType) || !this.isStageAttemptRecord(attemptRecord);
+        const {
+            verificationType,
+            user,
+            attempt,
+            attemptRecord,
+            attemptEvents,
+            lookupHistory,
+            decisionHistory,
+        } = params;
+        const hasLegacyEvidence = this.hasLegacyAttemptEvidence(
+            verificationType,
+            user,
+        );
+        const useLegacyFallbackValues =
+            !this.isStageManagedVerificationType(verificationType) ||
+            !this.isStageAttemptRecord(attemptRecord);
 
         if (!attempt && lookupHistory.length === 0 && !hasLegacyEvidence) {
             return null;
         }
 
         const latestLookupResults = lookupHistory[0]?.results ?? [];
-        const attemptExtractedFields = this.getAttemptStructuredRecord(attemptRecord?.extractedFields);
-        const attemptComparisonSummary = this.getAttemptStructuredRecord(attemptRecord?.comparisonSummary);
-        const attemptEvidenceSummary = this.buildAttemptStructuredEvidenceSummary(verificationType, attemptRecord);
+        const attemptExtractedFields = this.getAttemptStructuredRecord(
+            attemptRecord?.extractedFields,
+        );
+        const attemptComparisonSummary = this.getAttemptStructuredRecord(
+            attemptRecord?.comparisonSummary,
+        );
+        const attemptEvidenceSummary =
+            this.buildAttemptStructuredEvidenceSummary(
+                verificationType,
+                attemptRecord,
+            );
         const fallbackExtractedFields = useLegacyFallbackValues
             ? this.buildFallbackAttemptExtractedFields(verificationType, user)
             : null;
         const fallbackComparisonSummary = useLegacyFallbackValues
             ? this.buildFallbackAttemptComparisonSummary(verificationType, user)
             : null;
-        const fallbackEvidenceSummary = this.buildFallbackAttemptEvidenceSummary(verificationType, user);
+        const fallbackEvidenceSummary =
+            this.buildFallbackAttemptEvidenceSummary(verificationType, user);
 
         return {
             attempt,
-            extractedFields: this.buildAttemptExtractedFieldsFromLookupResults(latestLookupResults)
-                ?? this.mergeStructuredSummary(fallbackExtractedFields, attemptExtractedFields),
-            comparisonSummary: this.buildAttemptComparisonSummaryFromLookupResults(latestLookupResults)
-                ?? this.mergeStructuredSummary(fallbackComparisonSummary, attemptComparisonSummary),
-            evidenceSummary: this.buildAttemptEvidenceSummaryFromLookupResults(verificationType, latestLookupResults)
-                ?? this.mergeStructuredSummary(fallbackEvidenceSummary, attemptEvidenceSummary),
+            extractedFields:
+                this.buildAttemptExtractedFieldsFromLookupResults(
+                    latestLookupResults,
+                ) ??
+                this.mergeStructuredSummary(
+                    fallbackExtractedFields,
+                    attemptExtractedFields,
+                ),
+            comparisonSummary:
+                this.buildAttemptComparisonSummaryFromLookupResults(
+                    latestLookupResults,
+                ) ??
+                this.mergeStructuredSummary(
+                    fallbackComparisonSummary,
+                    attemptComparisonSummary,
+                ),
+            evidenceSummary:
+                this.buildAttemptEvidenceSummaryFromLookupResults(
+                    verificationType,
+                    latestLookupResults,
+                ) ??
+                this.mergeStructuredSummary(
+                    fallbackEvidenceSummary,
+                    attemptEvidenceSummary,
+                ),
             rawProviderResponse: this.resolveAttemptRawProviderResponse(
                 verificationType,
                 user,
@@ -1658,7 +2099,12 @@ export class KycService {
                 attemptEvents,
                 attempt?.attemptId ?? null,
             ),
-            rawEvidence: this.buildAttemptRawEvidence(verificationType, user, attempt?.attemptId ?? 0, attemptRecord),
+            rawEvidence: this.buildAttemptRawEvidence(
+                verificationType,
+                user,
+                attempt?.attemptId ?? 0,
+                attemptRecord,
+            ),
             lookupHistory,
             decisionHistory,
         };
@@ -1668,7 +2114,10 @@ export class KycService {
         attemptEvents: any[],
         verificationType: AdminKycProviderLookupType,
     ): AdminKycAttemptLookupHistoryItem[] {
-        return this.buildAttemptLookupHistoryFromEvents(attemptEvents, verificationType);
+        return this.buildAttemptLookupHistoryFromEvents(
+            attemptEvents,
+            verificationType,
+        );
     }
 
     private buildAttemptLookupHistoryFromEvents(
@@ -1695,13 +2144,23 @@ export class KycService {
                     historyRecordId,
                     outcome: payload.outcome,
                     lookedUpAt: payload.lookedUpAt,
-                    requestedByAdminId: payload.requestedByAdminId ?? (event.actorType === "ADMIN" ? event.actorId ?? null : null),
+                    requestedByAdminId:
+                        payload.requestedByAdminId ??
+                        (event.actorType === "ADMIN"
+                            ? (event.actorId ?? null)
+                            : null),
                     note: event.note ?? null,
                     results: payload.results,
                 };
             })
-            .filter((entry): entry is AdminKycAttemptLookupHistoryItem => Boolean(entry))
-            .sort((left, right) => new Date(right.lookedUpAt).getTime() - new Date(left.lookedUpAt).getTime());
+            .filter((entry): entry is AdminKycAttemptLookupHistoryItem =>
+                Boolean(entry),
+            )
+            .sort(
+                (left, right) =>
+                    new Date(right.lookedUpAt).getTime() -
+                    new Date(left.lookedUpAt).getTime(),
+            );
     }
 
     private buildAttemptDecisionHistory(
@@ -1709,9 +2168,17 @@ export class KycService {
         auditLogs: any[],
         verificationType: string,
     ): AdminKycAttemptDecisionHistoryItem[] {
-        const eventHistory = this.buildAttemptDecisionHistoryFromEvents(attemptEvents, verificationType);
+        const eventHistory = this.buildAttemptDecisionHistoryFromEvents(
+            attemptEvents,
+            verificationType,
+        );
         const auditHistory = auditLogs
-            .filter((entry) => entry.details?.verificationType === verificationType && typeof entry.action === "string" && entry.action.startsWith("KYC_"))
+            .filter(
+                (entry) =>
+                    entry.details?.verificationType === verificationType &&
+                    typeof entry.action === "string" &&
+                    entry.action.startsWith("KYC_"),
+            )
             .map((entry) => ({
                 action: entry.action,
                 note: entry.details?.note ?? null,
@@ -1725,13 +2192,22 @@ export class KycService {
 
         const mergedHistory = [...eventHistory];
         for (const auditEntry of auditHistory) {
-            if (!eventHistory.some((eventEntry) => this.isDuplicateDecisionHistoryEntry(eventEntry, auditEntry))) {
+            if (
+                !eventHistory.some((eventEntry) =>
+                    this.isDuplicateDecisionHistoryEntry(
+                        eventEntry,
+                        auditEntry,
+                    ),
+                )
+            ) {
                 mergedHistory.push(auditEntry);
             }
         }
 
         return mergedHistory.sort(
-            (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+            (left, right) =>
+                new Date(right.createdAt).getTime() -
+                new Date(left.createdAt).getTime(),
         );
     }
 
@@ -1743,16 +2219,30 @@ export class KycService {
             .map((event) => ({
                 event,
                 payload: this.getPersistedDecisionEventPayload(event.payload),
-                verificationType: this.resolveAttemptEventVerificationType(event),
+                verificationType:
+                    this.resolveAttemptEventVerificationType(event),
             }))
-            .filter((entry) => entry.verificationType === verificationType && this.isDecisionEventType(entry.event.eventType))
+            .filter(
+                (entry) =>
+                    entry.verificationType === verificationType &&
+                    this.isDecisionEventType(entry.event.eventType),
+            )
             .map(({ event, payload }) => ({
-                action: payload?.auditAction ?? this.mapDecisionEventTypeToAuditAction(event.eventType),
+                action:
+                    payload?.auditAction ??
+                    this.mapDecisionEventTypeToAuditAction(event.eventType),
                 note: event.note ?? payload?.note ?? null,
-                adminId: event.actorType === "ADMIN" ? event.actorId ?? null : null,
+                adminId:
+                    event.actorType === "ADMIN"
+                        ? (event.actorId ?? null)
+                        : null,
                 createdAt: event.createdAt,
             }))
-            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+            .sort(
+                (left, right) =>
+                    new Date(right.createdAt).getTime() -
+                    new Date(left.createdAt).getTime(),
+            );
     }
 
     private isDuplicateDecisionHistoryEntry(
@@ -1763,9 +2253,10 @@ export class KycService {
             return false;
         }
 
-        const adminIdsMatch = left.adminId === right.adminId
-            || left.adminId === null
-            || right.adminId === null;
+        const adminIdsMatch =
+            left.adminId === right.adminId ||
+            left.adminId === null ||
+            right.adminId === null;
 
         if (!adminIdsMatch) {
             return false;
@@ -1799,8 +2290,12 @@ export class KycService {
     ): AdminKycAuditHistoryItem[] {
         const eventHistory = attemptEvents
             .map((event) => this.mapAttemptEventToAuditHistoryItem(event))
-            .filter((entry): entry is AdminKycAuditHistoryItem => Boolean(entry));
-        const auditHistory = auditLogs.map((entry) => this.mapAuditLogToAdminHistoryItem(entry));
+            .filter((entry): entry is AdminKycAuditHistoryItem =>
+                Boolean(entry),
+            );
+        const auditHistory = auditLogs.map((entry) =>
+            this.mapAuditLogToAdminHistoryItem(entry),
+        );
 
         if (eventHistory.length === 0) {
             return auditHistory;
@@ -1808,25 +2303,42 @@ export class KycService {
 
         const mergedHistory = [...eventHistory];
         for (const auditEntry of auditHistory) {
-            if (!eventHistory.some((eventEntry) => this.isDuplicateAdminAuditHistoryEntry(eventEntry, auditEntry))) {
+            if (
+                !eventHistory.some((eventEntry) =>
+                    this.isDuplicateAdminAuditHistoryEntry(
+                        eventEntry,
+                        auditEntry,
+                    ),
+                )
+            ) {
                 mergedHistory.push(auditEntry);
             }
         }
 
         return mergedHistory.sort(
-            (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+            (left, right) =>
+                new Date(right.createdAt).getTime() -
+                new Date(left.createdAt).getTime(),
         );
     }
 
-    private mapAttemptEventToAuditHistoryItem(event: any): AdminKycAuditHistoryItem | null {
-        const lookupPayload = this.getPersistedLookupHistoryPayload(event?.payload);
-        const decisionPayload = this.getPersistedDecisionEventPayload(event?.payload);
+    private mapAttemptEventToAuditHistoryItem(
+        event: any,
+    ): AdminKycAuditHistoryItem | null {
+        const lookupPayload = this.getPersistedLookupHistoryPayload(
+            event?.payload,
+        );
+        const decisionPayload = this.getPersistedDecisionEventPayload(
+            event?.payload,
+        );
         let action: string | null = null;
 
         if (event?.eventType === "ADMIN_RECHECK" || lookupPayload) {
             action = "KYC_PROVIDER_LOOKUP";
         } else if (this.isDecisionEventType(event?.eventType)) {
-            action = decisionPayload?.auditAction ?? this.mapDecisionEventTypeToAuditAction(event.eventType);
+            action =
+                decisionPayload?.auditAction ??
+                this.mapDecisionEventTypeToAuditAction(event.eventType);
         }
 
         if (!action) {
@@ -1837,21 +2349,29 @@ export class KycService {
             source: "ATTEMPT_EVENT",
             action,
             verificationType: this.resolveAttemptEventVerificationType(event),
-            eventType: typeof event?.eventType === "string" ? event.eventType : null,
-            attemptId: typeof event?.attemptId === "number" ? event.attemptId : null,
-            adminId: event?.actorType === "ADMIN" ? event.actorId ?? null : null,
+            eventType:
+                typeof event?.eventType === "string" ? event.eventType : null,
+            attemptId:
+                typeof event?.attemptId === "number" ? event.attemptId : null,
+            adminId:
+                event?.actorType === "ADMIN" ? (event.actorId ?? null) : null,
             note: event?.note ?? decisionPayload?.note ?? null,
             createdAt: event.createdAt,
         };
     }
 
-    private mapAuditLogToAdminHistoryItem(entry: any): AdminKycAuditHistoryItem {
+    private mapAuditLogToAdminHistoryItem(
+        entry: any,
+    ): AdminKycAuditHistoryItem {
         return {
             source: "AUDIT_LOG",
             action: entry.action,
             verificationType: entry.details?.verificationType ?? null,
             eventType: null,
-            attemptId: typeof entry.details?.attemptId === "number" ? entry.details.attemptId : null,
+            attemptId:
+                typeof entry.details?.attemptId === "number"
+                    ? entry.details.attemptId
+                    : null,
             adminId: entry.adminId ?? null,
             note: entry.details?.note ?? null,
             createdAt: entry.createdAt,
@@ -1862,12 +2382,21 @@ export class KycService {
         left: AdminKycAuditHistoryItem,
         right: AdminKycAuditHistoryItem,
     ): boolean {
-        if (left.action !== right.action || left.verificationType !== right.verificationType) {
+        if (
+            left.action !== right.action ||
+            left.verificationType !== right.verificationType
+        ) {
             return false;
         }
 
-        const notesMatch = left.note === right.note || left.note === null || right.note === null;
-        const adminIdsMatch = left.adminId === right.adminId || left.adminId === null || right.adminId === null;
+        const notesMatch =
+            left.note === right.note ||
+            left.note === null ||
+            right.note === null;
+        const adminIdsMatch =
+            left.adminId === right.adminId ||
+            left.adminId === null ||
+            right.adminId === null;
 
         if (!notesMatch || !adminIdsMatch) {
             return false;
@@ -1878,16 +2407,27 @@ export class KycService {
         return Math.abs(leftTime - rightTime) < 5000;
     }
 
-    private buildLatestAttemptActivityIndex(attemptEvents: any[]): Map<number, AdminKycAuditHistoryItem> {
-        const latestActivityByAttemptId = new Map<number, AdminKycAuditHistoryItem>();
+    private buildLatestAttemptActivityIndex(
+        attemptEvents: any[],
+    ): Map<number, AdminKycAuditHistoryItem> {
+        const latestActivityByAttemptId = new Map<
+            number,
+            AdminKycAuditHistoryItem
+        >();
 
-        for (const historyItem of this.buildAdminAuditHistory(attemptEvents, [])) {
+        for (const historyItem of this.buildAdminAuditHistory(
+            attemptEvents,
+            [],
+        )) {
             if (typeof historyItem.attemptId !== "number") {
                 continue;
             }
 
             if (!latestActivityByAttemptId.has(historyItem.attemptId)) {
-                latestActivityByAttemptId.set(historyItem.attemptId, historyItem);
+                latestActivityByAttemptId.set(
+                    historyItem.attemptId,
+                    historyItem,
+                );
             }
         }
 
@@ -1906,7 +2446,8 @@ export class KycService {
         return {
             ...attempt,
             latestActivityAt: latestActivity.createdAt,
-            latestActivityType: latestActivity.eventType ?? latestActivity.action,
+            latestActivityType:
+                latestActivity.eventType ?? latestActivity.action,
             latestActivityNote: latestActivity.note,
             latestActivityAdminId: latestActivity.adminId,
         };
@@ -1918,14 +2459,28 @@ export class KycService {
         attemptId: number,
         attemptRecord?: any,
     ): AdminKycAttemptEvidenceItem[] {
-        if (this.isStageAttemptRecord(attemptRecord) && Array.isArray(attemptRecord.evidenceAssets) && attemptRecord.evidenceAssets.length > 0) {
-            return attemptRecord.evidenceAssets.map((asset: any, index: number) => ({
-                id: asset.id ?? (attemptId * 10 + index + 1),
-                kind: this.mapStageEvidenceKindToAdminKind(verificationType, asset.kind, asset.side),
-                label: this.getStageEvidenceLabel(verificationType, asset.kind, asset.side),
-                url: asset.storageUrl,
-                mimeType: asset.mimeType ?? null,
-            }));
+        if (
+            this.isStageAttemptRecord(attemptRecord) &&
+            Array.isArray(attemptRecord.evidenceAssets) &&
+            attemptRecord.evidenceAssets.length > 0
+        ) {
+            return attemptRecord.evidenceAssets.map(
+                (asset: any, index: number) => ({
+                    id: asset.id ?? attemptId * 10 + index + 1,
+                    kind: this.mapStageEvidenceKindToAdminKind(
+                        verificationType,
+                        asset.kind,
+                        asset.side,
+                    ),
+                    label: this.getStageEvidenceLabel(
+                        verificationType,
+                        asset.kind,
+                        asset.side,
+                    ),
+                    url: asset.storageUrl,
+                    mimeType: asset.mimeType ?? null,
+                }),
+            );
         }
 
         switch (verificationType) {
@@ -1933,38 +2488,76 @@ export class KycService {
                 return [
                     user.userDocument?.documentImageUrl
                         ? {
-                            id: attemptId * 10 + 1,
-                            kind: "DOCUMENT_FRONT",
-                            label: "Identity document front",
-                            url: user.userDocument.documentImageUrl,
-                            mimeType: null,
-                        }
+                              id: attemptId * 10 + 1,
+                              kind: "DOCUMENT_FRONT",
+                              label: "Identity document front",
+                              url: user.userDocument.documentImageUrl,
+                              mimeType: null,
+                          }
                         : null,
                     user.userDocument?.documentImageUrl2
                         ? {
-                            id: attemptId * 10 + 2,
-                            kind: "DOCUMENT_BACK",
-                            label: "Identity document back",
-                            url: user.userDocument.documentImageUrl2,
-                            mimeType: null,
-                        }
+                              id: attemptId * 10 + 2,
+                              kind: "DOCUMENT_BACK",
+                              label: "Identity document back",
+                              url: user.userDocument.documentImageUrl2,
+                              mimeType: null,
+                          }
                         : null,
                 ].filter(Boolean) as AdminKycAttemptEvidenceItem[];
             case "ADDRESS":
                 return user.addressDocumentUrl
-                    ? [{ id: attemptId * 10 + 1, kind: "ADDRESS_DOCUMENT", label: "Address document", url: user.addressDocumentUrl, mimeType: null }]
+                    ? [
+                          {
+                              id: attemptId * 10 + 1,
+                              kind: "ADDRESS_DOCUMENT",
+                              label: "Address document",
+                              url: user.addressDocumentUrl,
+                              mimeType: null,
+                          },
+                      ]
                     : [];
             case "INCOME":
                 return user.incomeDocumentUrl
-                    ? [{ id: attemptId * 10 + 1, kind: "INCOME_DOCUMENT", label: "Income document", url: user.incomeDocumentUrl, mimeType: null }]
+                    ? [
+                          {
+                              id: attemptId * 10 + 1,
+                              kind: "INCOME_DOCUMENT",
+                              label: "Income document",
+                              url: user.incomeDocumentUrl,
+                              mimeType: null,
+                          },
+                      ]
                     : [];
             case "BUSINESS_DOCUMENT":
                 return [
-                    ["CAC_DOCUMENT", "CAC Certificate", user.businessDocument?.cacImageUrl],
-                    ["AOA_DOCUMENT", "Articles of Association", user.businessDocument?.articleOfAssociationImageUrl],
-                    ["BOARD_RESOLUTION", "Board Resolution", user.businessDocument?.boardResolutionAuthorizedAcctOpeningImageUrl],
-                    ["BENEFICIAL_OWNER_ADDRESS", "Beneficial Owner Address", user.businessDocument?.proofOfAddressForBeneficialOwner],
-                    ["BENEFICIAL_OWNER_ID", "Beneficial Owner ID", user.businessDocument?.meansOfIdentificationForBeneficialOwner],
+                    [
+                        "CAC_DOCUMENT",
+                        "CAC Certificate",
+                        user.businessDocument?.cacImageUrl,
+                    ],
+                    [
+                        "AOA_DOCUMENT",
+                        "Articles of Association",
+                        user.businessDocument?.articleOfAssociationImageUrl,
+                    ],
+                    [
+                        "BOARD_RESOLUTION",
+                        "Board Resolution",
+                        user.businessDocument
+                            ?.boardResolutionAuthorizedAcctOpeningImageUrl,
+                    ],
+                    [
+                        "BENEFICIAL_OWNER_ADDRESS",
+                        "Beneficial Owner Address",
+                        user.businessDocument?.proofOfAddressForBeneficialOwner,
+                    ],
+                    [
+                        "BENEFICIAL_OWNER_ID",
+                        "Beneficial Owner ID",
+                        user.businessDocument
+                            ?.meansOfIdentificationForBeneficialOwner,
+                    ],
                 ]
                     .filter(([, , url]) => Boolean(url))
                     .map(([kind, label, url], index) => ({
@@ -1979,7 +2572,9 @@ export class KycService {
         }
     }
 
-    private buildAttemptExtractedFieldsFromLookupResults(results: AdminKycLookupResult[]): Record<string, any> | null {
+    private buildAttemptExtractedFieldsFromLookupResults(
+        results: AdminKycLookupResult[],
+    ): Record<string, any> | null {
         if (results.length === 0) {
             return null;
         }
@@ -1994,7 +2589,9 @@ export class KycService {
         }, {});
     }
 
-    private buildAttemptComparisonSummaryFromLookupResults(results: AdminKycLookupResult[]): Record<string, any> | null {
+    private buildAttemptComparisonSummaryFromLookupResults(
+        results: AdminKycLookupResult[],
+    ): Record<string, any> | null {
         if (results.length === 0) {
             return null;
         }
@@ -2003,14 +2600,19 @@ export class KycService {
             return results[0].summary ?? null;
         }
 
-        return results.reduce<Record<string, any>>((accumulator, result) => ({
-            ...accumulator,
-            ...result.summary,
-            [`${result.key}Status`]: result.status,
-        }), {
-            verified: results.every((result) => result.status === "SUCCESS"),
-            lookupCount: results.length,
-        });
+        return results.reduce<Record<string, any>>(
+            (accumulator, result) => ({
+                ...accumulator,
+                ...result.summary,
+                [`${result.key}Status`]: result.status,
+            }),
+            {
+                verified: results.every(
+                    (result) => result.status === "SUCCESS",
+                ),
+                lookupCount: results.length,
+            },
+        );
     }
 
     private buildAttemptEvidenceSummaryFromLookupResults(
@@ -2035,8 +2637,12 @@ export class KycService {
         return {
             verificationType,
             providerStatus: this.resolveLookupOutcomeFromResults(results),
-            providerRefs: results.map((result) => result.providerRef).filter(Boolean),
-            documentUrls: results.map((result) => result.documentUrl).filter(Boolean),
+            providerRefs: results
+                .map((result) => result.providerRef)
+                .filter(Boolean),
+            documentUrls: results
+                .map((result) => result.documentUrl)
+                .filter(Boolean),
             lookupCount: results.length,
             ...this.buildAttemptComparisonSummaryFromLookupResults(results),
         };
@@ -2049,22 +2655,34 @@ export class KycService {
         switch (verificationType) {
             case "DOCUMENT":
                 return {
-                    firstName: user.userDocument?.dojahExtractedFirstName ?? null,
+                    firstName:
+                        user.userDocument?.dojahExtractedFirstName ?? null,
                     lastName: user.userDocument?.dojahExtractedLastName ?? null,
                     dateOfBirth: user.userDocument?.dojahExtractedDob ?? null,
-                    documentType: user.userDocument?.dojahDocumentType ?? user.userDocument?.type ?? null,
-                    documentNumber: user.userDocument?.dojahExtractedDocNumber ?? null,
-                    expiryDate: user.userDocument?.dojahExtractedExpiryDate ?? null,
+                    documentType:
+                        user.userDocument?.dojahDocumentType ??
+                        user.userDocument?.type ??
+                        null,
+                    documentNumber:
+                        user.userDocument?.dojahExtractedDocNumber ?? null,
+                    expiryDate:
+                        user.userDocument?.dojahExtractedExpiryDate ?? null,
                 };
             case "BUSINESS_DOCUMENT":
                 return {
-                    cacCompanyName: user.businessDocument?.cacCompanyName ?? null,
-                    tinTaxpayerName: user.businessDocument?.tinTaxpayerName ?? null,
-                    cacOcrExtractedNumber: user.businessDocument?.cacOcrExtractedNumber ?? null,
-                    cacOcrExtractedName: user.businessDocument?.cacOcrExtractedName ?? null,
+                    cacCompanyName:
+                        user.businessDocument?.cacCompanyName ?? null,
+                    tinTaxpayerName:
+                        user.businessDocument?.tinTaxpayerName ?? null,
+                    cacOcrExtractedNumber:
+                        user.businessDocument?.cacOcrExtractedNumber ?? null,
+                    cacOcrExtractedName:
+                        user.businessDocument?.cacOcrExtractedName ?? null,
                 };
             case "ADDRESS":
-                return user.residentialAddress ? { residentialAddress: user.residentialAddress } : null;
+                return user.residentialAddress
+                    ? { residentialAddress: user.residentialAddress }
+                    : null;
             default:
                 return null;
         }
@@ -2074,11 +2692,17 @@ export class KycService {
         verificationType: string,
         user: any,
     ): Record<string, any> | null {
-        const expectedName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null;
-        const extractedName = [user.userDocument?.dojahExtractedFirstName, user.userDocument?.dojahExtractedLastName]
-            .filter(Boolean)
-            .join(" ")
-            .trim() || null;
+        const expectedName =
+            [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+            null;
+        const extractedName =
+            [
+                user.userDocument?.dojahExtractedFirstName,
+                user.userDocument?.dojahExtractedLastName,
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .trim() || null;
 
         switch (verificationType) {
             case "DOCUMENT":
@@ -2087,11 +2711,15 @@ export class KycService {
                     providerName: extractedName,
                     nameMatches: user.userDocument?.dojahNameMatches ?? null,
                     expectedDateOfBirth: user.dateOfBirth ?? null,
-                    providerDateOfBirth: user.userDocument?.dojahExtractedDob ?? null,
+                    providerDateOfBirth:
+                        user.userDocument?.dojahExtractedDob ?? null,
                     expectedDocumentType: user.userDocument?.type ?? null,
-                    providerDocumentType: user.userDocument?.dojahDocumentType ?? null,
-                    expectedDocumentNumber: user.userDocument?.documentNumber ?? null,
-                    providerDocumentNumber: user.userDocument?.dojahExtractedDocNumber ?? null,
+                    providerDocumentType:
+                        user.userDocument?.dojahDocumentType ?? null,
+                    expectedDocumentNumber:
+                        user.userDocument?.documentNumber ?? null,
+                    providerDocumentNumber:
+                        user.userDocument?.dojahExtractedDocNumber ?? null,
                 };
             case "ADDRESS":
                 return {
@@ -2104,13 +2732,22 @@ export class KycService {
                 };
             case "BUSINESS_DOCUMENT":
                 return {
-                    expectedCompanyName: user.businessRecord?.businessName ?? null,
-                    providerCompanyName: user.businessDocument?.cacCompanyName ?? null,
-                    providerTaxpayerName: user.businessDocument?.tinTaxpayerName ?? null,
-                    nameMatches: user.businessDocument?.cacNameMatches ?? user.businessDocument?.tinNameMatches ?? null,
-                    expectedCacNumber: user.businessDocument?.cacDocumentNumber ?? null,
-                    providerCacNumber: user.businessDocument?.cacOcrExtractedNumber ?? null,
-                    numberMatches: user.businessDocument?.cacOcrNumberMatches ?? null,
+                    expectedCompanyName:
+                        user.businessRecord?.businessName ?? null,
+                    providerCompanyName:
+                        user.businessDocument?.cacCompanyName ?? null,
+                    providerTaxpayerName:
+                        user.businessDocument?.tinTaxpayerName ?? null,
+                    nameMatches:
+                        user.businessDocument?.cacNameMatches ??
+                        user.businessDocument?.tinNameMatches ??
+                        null,
+                    expectedCacNumber:
+                        user.businessDocument?.cacDocumentNumber ?? null,
+                    providerCacNumber:
+                        user.businessDocument?.cacOcrExtractedNumber ?? null,
+                    numberMatches:
+                        user.businessDocument?.cacOcrNumberMatches ?? null,
                 };
             default:
                 return null;
@@ -2133,9 +2770,13 @@ export class KycService {
                 return {
                     verified: normalizedUser.documentVerified,
                     documentType: normalizedUser.userDocument?.type ?? null,
-                    documentNumber: normalizedUser.userDocument?.documentNumber ?? null,
-                    countryCode: normalizedUser.userDocument?.dojahCountryCode ?? null,
-                    extractedExpiryDate: normalizedUser.userDocument?.dojahExtractedExpiryDate ?? null,
+                    documentNumber:
+                        normalizedUser.userDocument?.documentNumber ?? null,
+                    countryCode:
+                        normalizedUser.userDocument?.dojahCountryCode ?? null,
+                    extractedExpiryDate:
+                        normalizedUser.userDocument?.dojahExtractedExpiryDate ??
+                        null,
                 };
             case "ADDRESS":
                 return {
@@ -2155,15 +2796,19 @@ export class KycService {
                     verified: false,
                     status: null,
                     businessName: user.businessRecord?.businessName ?? null,
-                    taxIdentificationNumber: user.businessRecord?.taxIdentificationNumber ?? null,
-                    cacDocumentNumber: user.businessDocument?.cacDocumentNumber ?? null,
+                    taxIdentificationNumber:
+                        user.businessRecord?.taxIdentificationNumber ?? null,
+                    cacDocumentNumber:
+                        user.businessDocument?.cacDocumentNumber ?? null,
                 };
             default:
                 return null;
         }
     }
 
-    private getAttemptStructuredRecord(value: unknown): Record<string, any> | null {
+    private getAttemptStructuredRecord(
+        value: unknown,
+    ): Record<string, any> | null {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
             return null;
         }
@@ -2179,9 +2824,13 @@ export class KycService {
             return null;
         }
 
-        const summary = this.getAttemptStructuredRecord(attemptRecord.evidenceSummary);
+        const summary = this.getAttemptStructuredRecord(
+            attemptRecord.evidenceSummary,
+        );
         const documentUrls = Array.isArray(attemptRecord.evidenceAssets)
-            ? attemptRecord.evidenceAssets.map((asset: any) => asset.storageUrl).filter(Boolean)
+            ? attemptRecord.evidenceAssets
+                  .map((asset: any) => asset.storageUrl)
+                  .filter(Boolean)
             : [];
 
         if (!summary && documentUrls.length === 0) {
@@ -2230,16 +2879,24 @@ export class KycService {
             }));
         }
 
-        const importedLegacyProviderResponse = this.getImportedLegacyProviderResponse(attemptEvents, attemptId);
+        const importedLegacyProviderResponse =
+            this.getImportedLegacyProviderResponse(attemptEvents, attemptId);
 
         if (this.isStageAttemptRecord(attemptRecord)) {
-            if (importedLegacyProviderResponse !== null && importedLegacyProviderResponse !== undefined) {
+            if (
+                importedLegacyProviderResponse !== null &&
+                importedLegacyProviderResponse !== undefined
+            ) {
                 return importedLegacyProviderResponse;
             }
 
-            return this.getAttemptStructuredRecord(attemptRecord.reasonDetails)
-                ?? this.getAttemptStructuredRecord(attemptRecord.comparisonSummary)
-                ?? null;
+            return (
+                this.getAttemptStructuredRecord(attemptRecord.reasonDetails) ??
+                this.getAttemptStructuredRecord(
+                    attemptRecord.comparisonSummary,
+                ) ??
+                null
+            );
         }
 
         switch (verificationType) {
@@ -2256,7 +2913,10 @@ export class KycService {
         }
     }
 
-    private hasLegacyAttemptEvidence(verificationType: string, user: any): boolean {
+    private hasLegacyAttemptEvidence(
+        verificationType: string,
+        user: any,
+    ): boolean {
         switch (verificationType) {
             case "BVN":
                 return Boolean(user.bvn);
@@ -2275,7 +2935,9 @@ export class KycService {
         }
     }
 
-    private getPersistedLookupHistoryPayload(payload: unknown): PersistedAdminLookupHistoryPayload | null {
+    private getPersistedLookupHistoryPayload(
+        payload: unknown,
+    ): PersistedAdminLookupHistoryPayload | null {
         if (!payload) {
             return null;
         }
@@ -2293,14 +2955,20 @@ export class KycService {
             return null;
         }
 
-        if (candidate.source !== "ADMIN_PROVIDER_LOOKUP" || !candidate.lookupType || !Array.isArray(candidate.results)) {
+        if (
+            candidate.source !== "ADMIN_PROVIDER_LOOKUP" ||
+            !candidate.lookupType ||
+            !Array.isArray(candidate.results)
+        ) {
             return null;
         }
 
         return candidate as PersistedAdminLookupHistoryPayload;
     }
 
-    private getPersistedDecisionEventPayload(payload: unknown): PersistedAdminDecisionEventPayload | null {
+    private getPersistedDecisionEventPayload(
+        payload: unknown,
+    ): PersistedAdminDecisionEventPayload | null {
         if (!payload) {
             return null;
         }
@@ -2318,7 +2986,12 @@ export class KycService {
             return null;
         }
 
-        if (candidate.source !== "ADMIN_DECISION" || !candidate.verificationType || !candidate.action || !candidate.auditAction) {
+        if (
+            candidate.source !== "ADMIN_DECISION" ||
+            !candidate.verificationType ||
+            !candidate.action ||
+            !candidate.auditAction
+        ) {
             return null;
         }
 
@@ -2326,30 +2999,43 @@ export class KycService {
     }
 
     private resolveAttemptEventVerificationType(event: any): string | null {
-        const lookupPayload = this.getPersistedLookupHistoryPayload(event?.payload);
+        const lookupPayload = this.getPersistedLookupHistoryPayload(
+            event?.payload,
+        );
         if (lookupPayload?.lookupType) {
             return lookupPayload.lookupType;
         }
 
-        const decisionPayload = this.getPersistedDecisionEventPayload(event?.payload);
+        const decisionPayload = this.getPersistedDecisionEventPayload(
+            event?.payload,
+        );
         if (decisionPayload?.verificationType) {
             return decisionPayload.verificationType;
         }
 
-        if (typeof event?.stage === "string" && event.stage !== "GOVERNMENT_ID") {
+        if (
+            typeof event?.stage === "string" &&
+            event.stage !== "GOVERNMENT_ID"
+        ) {
             return this.mapStageAttemptToVerificationType(event.stage);
         }
 
         return null;
     }
 
-    private resolveLookupOutcomeFromResults(results: AdminKycLookupResult[]): AdminLookupOutcome {
+    private resolveLookupOutcomeFromResults(
+        results: AdminKycLookupResult[],
+    ): AdminLookupOutcome {
         if (results.length === 0) {
             return "FAILED";
         }
 
-        const hasSuccess = results.some((result) => result.status === "SUCCESS");
-        const allSuccessful = results.every((result) => result.status === "SUCCESS");
+        const hasSuccess = results.some(
+            (result) => result.status === "SUCCESS",
+        );
+        const allSuccessful = results.every(
+            (result) => result.status === "SUCCESS",
+        );
 
         if (allSuccessful) {
             return "SUCCESS";
@@ -2368,8 +3054,15 @@ export class KycService {
     ): Promise<AdminKycAttemptSummary | null> {
         const stagedAttempt = await this.findStageAttemptById(attemptId);
         if (stagedAttempt) {
-            const resolvedVerificationType = this.mapStageAttemptToVerificationType(stagedAttempt.stage, stagedAttempt.method);
-            if (!verificationType || verificationType === resolvedVerificationType) {
+            const resolvedVerificationType =
+                this.mapStageAttemptToVerificationType(
+                    stagedAttempt.stage,
+                    stagedAttempt.method,
+                );
+            if (
+                !verificationType ||
+                verificationType === resolvedVerificationType
+            ) {
                 return this.buildAdminAttemptSummary(stagedAttempt);
             }
         }
@@ -2388,8 +3081,15 @@ export class KycService {
     } | null> {
         const stagedAttempt = await this.findStageAttemptById(attemptId);
         if (stagedAttempt) {
-            const resolvedVerificationType = this.mapStageAttemptToVerificationType(stagedAttempt.stage, stagedAttempt.method);
-            if (!verificationType || resolvedVerificationType === verificationType) {
+            const resolvedVerificationType =
+                this.mapStageAttemptToVerificationType(
+                    stagedAttempt.stage,
+                    stagedAttempt.method,
+                );
+            if (
+                !verificationType ||
+                resolvedVerificationType === verificationType
+            ) {
                 return {
                     attemptId: stagedAttempt.id,
                     userId: stagedAttempt.userId,
@@ -2402,14 +3102,19 @@ export class KycService {
         return null;
     }
 
-    private async findStageAttemptById(attemptId: number): Promise<StageAttemptLookupRecord | null> {
+    private async findStageAttemptById(
+        attemptId: number,
+    ): Promise<StageAttemptLookupRecord | null> {
         return await this.prisma.kycStageAttempt.findUnique({
             where: { id: attemptId },
             select: stageAttemptLookupSelect,
         });
     }
 
-    private buildAdminAttemptNextAction(status?: string | null, stage?: string | null): {
+    private buildAdminAttemptNextAction(
+        status?: string | null,
+        stage?: string | null,
+    ): {
         type: "WAIT" | "COMPLETE" | "RESUBMIT";
         stage: string | null | undefined;
         label: string;
@@ -2437,11 +3142,15 @@ export class KycService {
             type: "RESUBMIT",
             stage,
             label: "Resubmit",
-            message: "Another submission is required before review can continue.",
+            message:
+                "Another submission is required before review can continue.",
         };
     }
 
-    private ensureLookupProviderSupported(provider: AdminLookupProvider, verificationType: string): void {
+    private ensureLookupProviderSupported(
+        provider: AdminLookupProvider,
+        verificationType: string,
+    ): void {
         const supportedProviders: Record<string, AdminLookupProvider[]> = {
             BVN: ["DOJAH"],
             NIN: ["DOJAH"],
@@ -2452,7 +3161,9 @@ export class KycService {
         };
 
         if (!supportedProviders[verificationType]?.includes(provider)) {
-            throw new BadRequestException(`Provider ${provider} is not supported for ${verificationType} rechecks`);
+            throw new BadRequestException(
+                `Provider ${provider} is not supported for ${verificationType} rechecks`,
+            );
         }
     }
 
@@ -2464,7 +3175,8 @@ export class KycService {
         documentUrl?: string | null,
         provider: AdminLookupProvider = "DOJAH",
     ): AdminKycLookupResult {
-        const message = error instanceof Error ? error.message : "Provider lookup failed";
+        const message =
+            error instanceof Error ? error.message : "Provider lookup failed";
         return {
             key,
             label,
@@ -2481,22 +3193,38 @@ export class KycService {
         };
     }
 
-    private buildIdentityLookupSummary(user: any, entity: DojahLookupEntity): Record<string, string | boolean | null> {
-        const expectedName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null;
-        const providerName = [entity.first_name, entity.last_name].filter(Boolean).join(" ").trim() || null;
-        const nameMatches = expectedName && providerName
-            ? this.normalizeLookupText(providerName) === this.normalizeLookupText(expectedName)
-            : null;
+    private buildIdentityLookupSummary(
+        user: any,
+        entity: DojahLookupEntity,
+    ): Record<string, string | boolean | null> {
+        const expectedName =
+            [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+            null;
+        const providerName =
+            [entity.first_name, entity.last_name]
+                .filter(Boolean)
+                .join(" ")
+                .trim() || null;
+        const nameMatches =
+            expectedName && providerName
+                ? this.normalizeLookupText(providerName) ===
+                  this.normalizeLookupText(expectedName)
+                : null;
         const expectedDateOfBirth = user.dateOfBirth ?? null;
         const providerDateOfBirth = entity.date_of_birth ?? null;
-        const dobMatches = expectedDateOfBirth && providerDateOfBirth
-            ? this.normalizeLookupDate(providerDateOfBirth) === this.normalizeLookupDate(expectedDateOfBirth)
-            : null;
+        const dobMatches =
+            expectedDateOfBirth && providerDateOfBirth
+                ? this.normalizeLookupDate(providerDateOfBirth) ===
+                  this.normalizeLookupDate(expectedDateOfBirth)
+                : null;
         const expectedPhoneNumber = user.phone ?? null;
-        const providerPhoneNumber = entity.phone_number1 ?? entity.phone_number ?? null;
-        const phoneMatches = expectedPhoneNumber && providerPhoneNumber
-            ? this.normalizeLookupPhone(providerPhoneNumber) === this.normalizeLookupPhone(expectedPhoneNumber)
-            : null;
+        const providerPhoneNumber =
+            entity.phone_number1 ?? entity.phone_number ?? null;
+        const phoneMatches =
+            expectedPhoneNumber && providerPhoneNumber
+                ? this.normalizeLookupPhone(providerPhoneNumber) ===
+                  this.normalizeLookupPhone(expectedPhoneNumber)
+                : null;
 
         return {
             expectedName,
@@ -2511,7 +3239,10 @@ export class KycService {
         };
     }
 
-    private buildLookupTextExcerpt(value?: string | null, maxLength = 180): string | null {
+    private buildLookupTextExcerpt(
+        value?: string | null,
+        maxLength = 180,
+    ): string | null {
         if (!value) {
             return null;
         }
@@ -2557,12 +3288,16 @@ export class KycService {
             try {
                 trustedOrigins.add(new URL(imagekitConfig.url).origin);
             } catch {
-                this.logger.warn("Invalid IMAGEKIT_URL configured; skipping URL origin allowlist entry");
+                this.logger.warn(
+                    "Invalid IMAGEKIT_URL configured; skipping URL origin allowlist entry",
+                );
             }
         }
 
         if (cloudinaryConfig.cloud_name) {
-            trustedOrigins.add(`https://res.cloudinary.com/${cloudinaryConfig.cloud_name}`);
+            trustedOrigins.add(
+                `https://res.cloudinary.com/${cloudinaryConfig.cloud_name}`,
+            );
         }
 
         trustedOrigins.add("https://ik.imagekit.io");
@@ -2570,21 +3305,32 @@ export class KycService {
         return trustedOrigins;
     }
 
-    private resolveTrustedDocumentSource(trustedUrl: URL): { hostname: string; port?: number; pathPrefix?: string } | null {
+    private resolveTrustedDocumentSource(
+        trustedUrl: URL,
+    ): { hostname: string; port?: number; pathPrefix?: string } | null {
         if (imagekitConfig.url) {
             try {
                 const configuredImagekitUrl = new URL(imagekitConfig.url);
-                const configuredPathPrefix = configuredImagekitUrl.pathname === "/"
-                    ? undefined
-                    : configuredImagekitUrl.pathname.replace(/\/+$/, "");
+                const configuredPathPrefix =
+                    configuredImagekitUrl.pathname === "/"
+                        ? undefined
+                        : this.trimTrailingSlashes(
+                              configuredImagekitUrl.pathname,
+                          );
 
                 if (
-                    trustedUrl.origin === configuredImagekitUrl.origin
-                    && (!configuredPathPrefix || trustedUrl.pathname === configuredPathPrefix || trustedUrl.pathname.startsWith(`${configuredPathPrefix}/`))
+                    trustedUrl.origin === configuredImagekitUrl.origin &&
+                    (!configuredPathPrefix ||
+                        trustedUrl.pathname === configuredPathPrefix ||
+                        trustedUrl.pathname.startsWith(
+                            `${configuredPathPrefix}/`,
+                        ))
                 ) {
                     return {
                         hostname: configuredImagekitUrl.hostname,
-                        port: configuredImagekitUrl.port ? Number(configuredImagekitUrl.port) : undefined,
+                        port: configuredImagekitUrl.port
+                            ? Number(configuredImagekitUrl.port)
+                            : undefined,
                         pathPrefix: configuredPathPrefix,
                     };
                 }
@@ -2594,9 +3340,9 @@ export class KycService {
         }
 
         if (
-            cloudinaryConfig.cloud_name
-            && trustedUrl.origin === "https://res.cloudinary.com"
-            && trustedUrl.pathname.startsWith(`/${cloudinaryConfig.cloud_name}/`)
+            cloudinaryConfig.cloud_name &&
+            trustedUrl.origin === "https://res.cloudinary.com" &&
+            trustedUrl.pathname.startsWith(`/${cloudinaryConfig.cloud_name}/`)
         ) {
             return {
                 hostname: "res.cloudinary.com",
@@ -2611,6 +3357,16 @@ export class KycService {
         }
 
         return null;
+    }
+
+    private trimTrailingSlashes(value: string): string {
+        let endIndex = value.length;
+
+        while (endIndex > 0 && value.charCodeAt(endIndex - 1) === 47) {
+            endIndex -= 1;
+        }
+
+        return value.slice(0, endIndex);
     }
 
     private resolveTrustedDocumentUrl(rawUrl: string): URL | null {
@@ -2628,7 +3384,9 @@ export class KycService {
         }
     }
 
-    private buildTrustedDocumentRequest(trustedUrl: URL): { hostname: string; port?: number; requestPath: string } | null {
+    private buildTrustedDocumentRequest(
+        trustedUrl: URL,
+    ): { hostname: string; port?: number; requestPath: string } | null {
         if (trustedUrl.username || trustedUrl.password || trustedUrl.hash) {
             return null;
         }
@@ -2650,7 +3408,10 @@ export class KycService {
         };
     }
 
-    private getErrorMessage(error: unknown, fallback = "Unknown error"): string {
+    private getErrorMessage(
+        error: unknown,
+        fallback = "Unknown error",
+    ): string {
         if (error instanceof Error && error.message) {
             return error.message;
         }
@@ -2661,26 +3422,33 @@ export class KycService {
 
         try {
             const serialized = JSON.stringify(error);
-            return serialized && serialized !== "{}"
-                ? serialized
-                : fallback;
+            return serialized && serialized !== "{}" ? serialized : fallback;
         } catch {
             return fallback;
         }
     }
 
-    private async downloadLookupDocument(rawUrl: string): Promise<{ buffer: Buffer; mimeType?: string }> {
+    private async downloadLookupDocument(
+        rawUrl: string,
+    ): Promise<{ buffer: Buffer; mimeType?: string }> {
         const trustedUrl = this.resolveTrustedDocumentUrl(rawUrl);
         if (!trustedUrl) {
-            throw new BadRequestException("Stored document URL is not trusted for investigative lookup");
+            throw new BadRequestException(
+                "Stored document URL is not trusted for investigative lookup",
+            );
         }
 
         const trustedRequest = this.buildTrustedDocumentRequest(trustedUrl);
         if (!trustedRequest) {
-            throw new BadRequestException("Stored document URL is not trusted for investigative lookup");
+            throw new BadRequestException(
+                "Stored document URL is not trusted for investigative lookup",
+            );
         }
 
-        const response = await new Promise<{ buffer: Buffer; headers: Record<string, string | string[] | undefined> }>((resolve, reject) => {
+        const response = await new Promise<{
+            buffer: Buffer;
+            headers: Record<string, string | string[] | undefined>;
+        }>((resolve, reject) => {
             const request = httpsRequest(
                 {
                     hostname: trustedRequest.hostname,
@@ -2693,18 +3461,27 @@ export class KycService {
                     const statusCode = downloadResponse.statusCode ?? 0;
                     if (statusCode < 200 || statusCode >= 300) {
                         downloadResponse.resume();
-                        reject(new BadRequestException(`Trusted document download failed with status ${statusCode}`));
+                        reject(
+                            new BadRequestException(
+                                `Trusted document download failed with status ${statusCode}`,
+                            ),
+                        );
                         return;
                     }
 
                     const chunks: Buffer[] = [];
                     downloadResponse.on("data", (chunk) => {
-                        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                        chunks.push(
+                            Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+                        );
                     });
                     downloadResponse.on("end", () => {
                         resolve({
                             buffer: Buffer.concat(chunks),
-                            headers: downloadResponse.headers as Record<string, string | string[] | undefined>,
+                            headers: downloadResponse.headers as Record<
+                                string,
+                                string | string[] | undefined
+                            >,
                         });
                     });
                     downloadResponse.on("error", reject);
@@ -2712,7 +3489,9 @@ export class KycService {
             );
 
             request.on("timeout", () => {
-                request.destroy(new Error("Timed out downloading investigative document"));
+                request.destroy(
+                    new Error("Timed out downloading investigative document"),
+                );
             });
             request.on("error", reject);
             request.end();
@@ -2728,23 +3507,39 @@ export class KycService {
         };
     }
 
-    private buildKycUpdateData(action: string, verificationType?: string): Prisma.UserUpdateInput {
+    private buildKycUpdateData(
+        action: string,
+        verificationType?: string,
+    ): Prisma.UserUpdateInput {
         if (!verificationType) return {};
 
         if (action === "APPROVE") {
             const verificationMap: Record<string, Prisma.UserUpdateInput> = {
-                DOCUMENT: { isDocumentVerified: true, documentVerificationStatus: "VERIFIED" },
-                BUSINESS_DOCUMENT: { isDocumentVerified: true, businessDocumentVerificationStatus: "VERIFIED" },
+                DOCUMENT: {
+                    isDocumentVerified: true,
+                    documentVerificationStatus: "VERIFIED",
+                },
+                BUSINESS_DOCUMENT: {
+                    isDocumentVerified: true,
+                    businessDocumentVerificationStatus: "VERIFIED",
+                },
             };
             return verificationMap[verificationType] || {};
         }
 
         if (action === "REJECT") {
             const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
-                DOCUMENT: { isDocumentVerified: false, documentVerificationStatus: "DECLINED" },
+                DOCUMENT: {
+                    isDocumentVerified: false,
+                    documentVerificationStatus: "DECLINED",
+                },
                 ADDRESS: { addressDocumentUrl: null },
                 INCOME: { incomeDocumentUrl: null },
-                BUSINESS_DOCUMENT: { isDocumentVerified: false, businessDocumentVerificationStatus: "DECLINED", businessDocumentsUploaded: false },
+                BUSINESS_DOCUMENT: {
+                    isDocumentVerified: false,
+                    businessDocumentVerificationStatus: "DECLINED",
+                    businessDocumentsUploaded: false,
+                },
             };
             return rejectionMap[verificationType] || {};
         }
@@ -2758,7 +3553,9 @@ export class KycService {
         dto: UpdateUserVerificationDto,
     ): void {
         if (dto.documentVerified !== undefined) {
-            const documentStatus = dto.documentVerified ? DocumentVerificationStatus.VERIFIED : null;
+            const documentStatus = dto.documentVerified
+                ? DocumentVerificationStatus.VERIFIED
+                : null;
 
             if (userType === UserType.BUSINESS) {
                 updateData.businessDocumentVerificationStatus = documentStatus;
@@ -2768,7 +3565,10 @@ export class KycService {
         }
     }
 
-    async processKycDecision(dto: KycDecisionDto, adminId?: number): Promise<ApiResponse> {
+    async processKycDecision(
+        dto: KycDecisionDto,
+        adminId?: number,
+    ): Promise<ApiResponse> {
         const { userId, action, note, verificationType, version } = dto;
 
         const user = await this.prisma.user.findUnique({
@@ -2780,11 +3580,15 @@ export class KycService {
         }
 
         if (!verificationType) {
-            throw new BadRequestException("Verification type is required for KYC decisions.");
+            throw new BadRequestException(
+                "Verification type is required for KYC decisions.",
+            );
         }
 
         if (!action) {
-            throw new BadRequestException("Decision action is required for KYC decisions.");
+            throw new BadRequestException(
+                "Decision action is required for KYC decisions.",
+            );
         }
 
         // Validate/record transition first so illegal transitions do not mutate user flags.
@@ -2801,31 +3605,43 @@ export class KycService {
             return transitionResult;
         }
 
-        let updateData: Prisma.UserUpdateInput = this.buildKycUpdateData(action, verificationType);
+        let updateData: Prisma.UserUpdateInput = this.buildKycUpdateData(
+            action,
+            verificationType,
+        );
 
-        const updatedUser = Object.keys(updateData).length > 0
-            ? await this.prisma.user.update({
-                where: { id: userId },
-                data: updateData,
-                select: this.buildAdminVerificationSelect(),
-            })
-            : await this.prisma.user.findUnique({
-                where: { id: userId },
-                select: this.buildAdminVerificationSelect(),
-            });
+        const updatedUser =
+            Object.keys(updateData).length > 0
+                ? await this.prisma.user.update({
+                      where: { id: userId },
+                      data: updateData,
+                      select: this.buildAdminVerificationSelect(),
+                  })
+                : await this.prisma.user.findUnique({
+                      where: { id: userId },
+                      select: this.buildAdminVerificationSelect(),
+                  });
 
-        await this.syncLegacyDocumentStatusAfterDecision(userId, verificationType, action);
-
-        const currentAttempt = await this.resolveDecisionBridgeContext(userId, verificationType);
-
-        const updatedStageAttempt = await this.applyDecisionToCurrentStageAttempt({
+        await this.syncLegacyDocumentStatusAfterDecision(
             userId,
             verificationType,
             action,
-            note,
-            adminId,
-            currentAttempt,
-        });
+        );
+
+        const currentAttempt = await this.resolveDecisionBridgeContext(
+            userId,
+            verificationType,
+        );
+
+        const updatedStageAttempt =
+            await this.applyDecisionToCurrentStageAttempt({
+                userId,
+                verificationType,
+                action,
+                note,
+                adminId,
+                currentAttempt,
+            });
 
         // Recalculate tier from verification flags and flush profile cache
         const syncedUser = await this.tierService.syncTierAndCache(userId);
@@ -2876,16 +3692,26 @@ export class KycService {
 
         // KC-002: fire-and-forget — notification/email failure should not
         // block the response after the KYC decision has been committed.
-        this.notificationDispatcher.notify({
-            userId,
-            title,
-            body,
-            category: "security",
-            enablePush: true,
-        }).catch((e) => this.logger.error(`Failed to send KYC push notification to user ${userId}: ${e.message}`));
+        this.notificationDispatcher
+            .notify({
+                userId,
+                title,
+                body,
+                category: "security",
+                enablePush: true,
+            })
+            .catch((e) =>
+                this.logger.error(
+                    `Failed to send KYC push notification to user ${userId}: ${e.message}`,
+                ),
+            );
 
         // Send Email
-        this.sendKycEmail(user, action, verificationType, note).catch((e) => this.logger.error(`Failed to send KYC email to user ${userId}: ${e.message}`));
+        this.sendKycEmail(user, action, verificationType, note).catch((e) =>
+            this.logger.error(
+                `Failed to send KYC email to user ${userId}: ${e.message}`,
+            ),
+        );
 
         // Push real-time profile update to connected client
         this.wsGateway.notifyProfileUpdate(userId);
@@ -2905,7 +3731,9 @@ export class KycService {
             return;
         }
 
-        const statusByAction: Partial<Record<KycDecisionAction, DocumentVerificationStatus>> = {
+        const statusByAction: Partial<
+            Record<KycDecisionAction, DocumentVerificationStatus>
+        > = {
             APPROVE: DocumentVerificationStatus.VERIFIED,
             REJECT: DocumentVerificationStatus.DECLINED,
             ESCALATE: DocumentVerificationStatus.PENDING,
@@ -2918,7 +3746,9 @@ export class KycService {
 
         const safeUserId = Number(userId);
         if (!Number.isSafeInteger(safeUserId) || safeUserId <= 0) {
-            throw new BadRequestException("Invalid user id for document status sync");
+            throw new BadRequestException(
+                "Invalid user id for document status sync",
+            );
         }
 
         await this.prisma.$executeRaw`
@@ -2945,15 +3775,20 @@ export class KycService {
             version?: number | null;
         } | null;
     }): Promise<void> {
-        if (!this.isAttemptOwnedDecisionVerificationType(params.verificationType)) {
+        if (
+            !this.isAttemptOwnedDecisionVerificationType(
+                params.verificationType,
+            )
+        ) {
             return;
         }
 
-        const attempt = params.attempt
-            ?? await this.resolveShadowAttemptForVerification(
+        const attempt =
+            params.attempt ??
+            (await this.resolveShadowAttemptForVerification(
                 params.userId,
                 params.verificationType,
-            );
+            ));
 
         if (!attempt) {
             return;
@@ -2966,9 +3801,10 @@ export class KycService {
             auditAction: this.mapDecisionActionToAuditAction(params.action),
             note: params.note ?? params.attempt?.reviewNote ?? null,
             attemptId: attempt.id,
-            attemptVersion: typeof (params.attempt?.version ?? attempt.version) === "number"
-                ? (params.attempt?.version ?? attempt.version)
-                : null,
+            attemptVersion:
+                typeof (params.attempt?.version ?? attempt.version) === "number"
+                    ? (params.attempt?.version ?? attempt.version)
+                    : null,
         };
 
         try {
@@ -2979,15 +3815,19 @@ export class KycService {
                     journeyType: attempt.journeyType,
                     stage: attempt.stage,
                     eventType: this.mapDecisionActionToEventType(params.action),
-                    actorType: typeof params.adminId === "number" ? "ADMIN" : "SYSTEM",
+                    actorType:
+                        typeof params.adminId === "number" ? "ADMIN" : "SYSTEM",
                     actorId: params.adminId ?? null,
                     note: payload.note ?? undefined,
                     payload: payload as unknown as Prisma.InputJsonValue,
                 },
             });
         } catch (error) {
-            const message = error instanceof Error ? error.message : "Unknown error";
-            this.logger.error(`Failed to shadow-write KYC decision event for user ${params.userId}: ${message}`);
+            const message =
+                error instanceof Error ? error.message : "Unknown error";
+            this.logger.error(
+                `Failed to shadow-write KYC decision event for user ${params.userId}: ${message}`,
+            );
         }
     }
 
@@ -3008,40 +3848,57 @@ export class KycService {
             reviewedAt?: Date | null;
             version?: number | null;
         } | null;
-    }): Promise<{ id: number; journeyType: string; stage: string; version?: number | null } | null> {
-        if (!this.isAttemptOwnedDecisionVerificationType(params.verificationType)) {
+    }): Promise<{
+        id: number;
+        journeyType: string;
+        stage: string;
+        version?: number | null;
+    } | null> {
+        if (
+            !this.isAttemptOwnedDecisionVerificationType(
+                params.verificationType,
+            )
+        ) {
             return null;
         }
 
-        const attempt = params.currentAttempt ?? await this.resolveShadowAttemptForVerification(
-            params.userId,
-            params.verificationType,
-        );
+        const attempt =
+            params.currentAttempt ??
+            (await this.resolveShadowAttemptForVerification(
+                params.userId,
+                params.verificationType,
+            ));
 
         if (!attempt) {
             return null;
         }
 
-        const nextVersion = typeof attempt.version === "number"
-            ? attempt.version + 1
-            : null;
+        const nextVersion =
+            typeof attempt.version === "number" ? attempt.version + 1 : null;
         const decisionNote = params.note ?? attempt.reviewNote ?? null;
         const stageUpdateData: any = {
             status: this.mapDecisionActionToStageAttemptStatus(params.action),
-            providerStatus: this.mapDecisionActionToStageProviderStatus(params.action),
+            providerStatus: this.mapDecisionActionToStageProviderStatus(
+                params.action,
+            ),
             decisionMode: "MANUAL",
             reviewerId: params.adminId ?? attempt.reviewerId ?? null,
             reviewNote: decisionNote,
-            reviewedAt: params.action === "ESCALATE"
-                ? attempt.reviewedAt ?? null
-                : attempt.reviewedAt ?? new Date(),
-            escalatedAt: params.action === "ESCALATE"
-                ? attempt.reviewedAt ?? new Date()
-                : null,
+            reviewedAt:
+                params.action === "ESCALATE"
+                    ? (attempt.reviewedAt ?? null)
+                    : (attempt.reviewedAt ?? new Date()),
+            escalatedAt:
+                params.action === "ESCALATE"
+                    ? (attempt.reviewedAt ?? new Date())
+                    : null,
             providerRef: attempt.providerRef ?? null,
             reasonCode: null,
             reasonMessage: params.action === "APPROVE" ? null : decisionNote,
-            reasonDetails: params.action === "APPROVE" || !decisionNote ? Prisma.DbNull : { reason: decisionNote },
+            reasonDetails:
+                params.action === "APPROVE" || !decisionNote
+                    ? Prisma.DbNull
+                    : { reason: decisionNote },
         };
 
         if (typeof nextVersion === "number") {
@@ -3059,7 +3916,9 @@ export class KycService {
         };
     }
 
-    private mapDecisionActionToStageAttemptStatus(action: KycDecisionAction): KycAttemptStatus {
+    private mapDecisionActionToStageAttemptStatus(
+        action: KycDecisionAction,
+    ): KycAttemptStatus {
         switch (action) {
             case "APPROVE":
                 return KycAttemptStatus.APPROVED;
@@ -3070,7 +3929,9 @@ export class KycService {
         }
     }
 
-    private mapDecisionActionToStageProviderStatus(action: KycDecisionAction): string {
+    private mapDecisionActionToStageProviderStatus(
+        action: KycDecisionAction,
+    ): string {
         switch (action) {
             case "APPROVE":
                 return "PASSED";
@@ -3107,10 +3968,12 @@ export class KycService {
         user: any,
         action: "APPROVE" | "REJECT" | "ESCALATE",
         verificationType?: string,
-        reason?: string
+        reason?: string,
     ): Promise<void> {
         if (!user.email) {
-            this.logger.warn(`Cannot send KYC email: user ${user.id} has no email`);
+            this.logger.warn(
+                `Cannot send KYC email: user ${user.id} has no email`,
+            );
             return;
         }
 
@@ -3118,7 +3981,9 @@ export class KycService {
         if (action === "ESCALATE") {
             const escalatedTemplateKey = emailTemplateConfig.document_escalated;
             if (!escalatedTemplateKey) {
-                this.logger.warn(`Email template not configured for KYC escalation`);
+                this.logger.warn(
+                    `Email template not configured for KYC escalation`,
+                );
                 return;
             }
 
@@ -3130,7 +3995,9 @@ export class KycService {
                 INCOME: "Income",
                 BUSINESS_DOCUMENT: "Business Documents",
             };
-            const documentTypeFriendly = verificationType ? (friendlyTypeMap[verificationType] || verificationType) : "KYC Verification";
+            const documentTypeFriendly = verificationType
+                ? friendlyTypeMap[verificationType] || verificationType
+                : "KYC Verification";
 
             try {
                 await this.emailService.sendMailWithTemplate({
@@ -3145,7 +4012,9 @@ export class KycService {
                 });
                 this.logger.log(`KYC escalation email sent to ${user.email}`);
             } catch (error) {
-                this.logger.error(`Failed to send KYC escalation email to ${user.email}: ${this.getErrorMessage(error)}`);
+                this.logger.error(
+                    `Failed to send KYC escalation email to ${user.email}: ${this.getErrorMessage(error)}`,
+                );
             }
             return;
         }
@@ -3156,7 +4025,9 @@ export class KycService {
             : emailTemplateConfig.document_rejected;
 
         if (!templateKey) {
-            this.logger.warn(`Email template not configured for KYC ${approved ? "approval" : "rejection"}`);
+            this.logger.warn(
+                `Email template not configured for KYC ${approved ? "approval" : "rejection"}`,
+            );
             return;
         }
 
@@ -3168,7 +4039,9 @@ export class KycService {
             INCOME: "Income",
             BUSINESS_DOCUMENT: "Business Documents",
         };
-        const documentTypeFriendly = verificationType ? (friendlyTypeMap[verificationType] || verificationType) : "KYC Verification";
+        const documentTypeFriendly = verificationType
+            ? friendlyTypeMap[verificationType] || verificationType
+            : "KYC Verification";
 
         try {
             await this.emailService.sendMailWithTemplate({
@@ -3185,13 +4058,19 @@ export class KycService {
             });
             this.logger.log(`KYC email sent to ${user.email} (${action})`);
         } catch (error) {
-            this.logger.error(`Failed to send KYC email to ${user.email}: ${this.getErrorMessage(error)}`);
+            this.logger.error(
+                `Failed to send KYC email to ${user.email}: ${this.getErrorMessage(error)}`,
+            );
         }
     }
 
     // ==================== USER TIER MANAGEMENT ====================
 
-    async updateUserTier(userId: number, dto: UpdateUserTierDto, adminId?: number): Promise<ApiResponse> {
+    async updateUserTier(
+        userId: number,
+        dto: UpdateUserTierDto,
+        adminId?: number,
+    ): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -3229,7 +4108,7 @@ export class KycService {
         const calculatedTier = this.tierService.calculateTier(user);
         if (dto.tier > calculatedTier) {
             this.logger.warn(
-                `SECURITY: Admin ${adminId} requested tier ${dto.tier} above calculated tier ${calculatedTier} for user ${userId}. Clamped to ${calculatedTier}. Reason: ${dto.reason || 'none provided'}`
+                `SECURITY: Admin ${adminId} requested tier ${dto.tier} above calculated tier ${calculatedTier} for user ${userId}. Clamped to ${calculatedTier}. Reason: ${dto.reason || "none provided"}`,
             );
             dto.tier = calculatedTier;
         }
@@ -3272,7 +4151,7 @@ export class KycService {
     async updateUserVerification(
         userId: number,
         dto: UpdateUserVerificationDto,
-        adminId?: number
+        adminId?: number,
     ): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -3329,44 +4208,88 @@ export class KycService {
         }
 
         if (dto.bvnVerified !== undefined) {
-            changes.bvn = { from: verificationSnapshot.bvnVerified, to: dto.bvnVerified };
-            await this.applyStageManagedManualVerificationDecision(userId, "BVN", dto.bvnVerified, adminId, dto.reason);
+            changes.bvn = {
+                from: verificationSnapshot.bvnVerified,
+                to: dto.bvnVerified,
+            };
+            await this.applyStageManagedManualVerificationDecision(
+                userId,
+                "BVN",
+                dto.bvnVerified,
+                adminId,
+                dto.reason,
+            );
         }
         if (dto.ninVerified !== undefined) {
-            changes.nin = { from: verificationSnapshot.ninVerified, to: dto.ninVerified };
-            await this.applyStageManagedManualVerificationDecision(userId, "NIN", dto.ninVerified, adminId, dto.reason);
+            changes.nin = {
+                from: verificationSnapshot.ninVerified,
+                to: dto.ninVerified,
+            };
+            await this.applyStageManagedManualVerificationDecision(
+                userId,
+                "NIN",
+                dto.ninVerified,
+                adminId,
+                dto.reason,
+            );
         }
         if (dto.documentVerified !== undefined) {
             updateData.isDocumentVerified = dto.documentVerified;
-            changes.document = { from: normalizedUser.documentVerified, to: dto.documentVerified };
+            changes.document = {
+                from: normalizedUser.documentVerified,
+                to: dto.documentVerified,
+            };
         }
         if (dto.addressVerified !== undefined) {
-            changes.address = { from: verificationSnapshot.addressVerified, to: dto.addressVerified };
+            changes.address = {
+                from: verificationSnapshot.addressVerified,
+                to: dto.addressVerified,
+            };
             if (dto.addressVerified === false) {
                 updateData.addressDocumentUrl = null;
             }
-            await this.applyStageManagedManualVerificationDecision(userId, "ADDRESS", dto.addressVerified, adminId, dto.reason);
+            await this.applyStageManagedManualVerificationDecision(
+                userId,
+                "ADDRESS",
+                dto.addressVerified,
+                adminId,
+                dto.reason,
+            );
         }
         if (dto.incomeVerified !== undefined) {
-            changes.income = { from: verificationSnapshot.incomeVerified, to: dto.incomeVerified };
+            changes.income = {
+                from: verificationSnapshot.incomeVerified,
+                to: dto.incomeVerified,
+            };
             if (dto.incomeVerified === false) {
                 updateData.incomeDocumentUrl = null;
             }
-            await this.applyStageManagedManualVerificationDecision(userId, "INCOME", dto.incomeVerified, adminId, dto.reason);
+            await this.applyStageManagedManualVerificationDecision(
+                userId,
+                "INCOME",
+                dto.incomeVerified,
+                adminId,
+                dto.reason,
+            );
         }
 
-        this.normalizeManualVerificationStatuses(user.userType, updateData, dto);
+        this.normalizeManualVerificationStatuses(
+            user.userType,
+            updateData,
+            dto,
+        );
 
-        const updatedUser = Object.keys(updateData).length > 0
-            ? await this.prisma.user.update({
-                where: { id: userId },
-                data: updateData,
-                select: this.buildAdminVerificationSelect(),
-            })
-            : await this.prisma.user.findUnique({
-                where: { id: userId },
-                select: this.buildAdminVerificationSelect(),
-            });
+        const updatedUser =
+            Object.keys(updateData).length > 0
+                ? await this.prisma.user.update({
+                      where: { id: userId },
+                      data: updateData,
+                      select: this.buildAdminVerificationSelect(),
+                  })
+                : await this.prisma.user.findUnique({
+                      where: { id: userId },
+                      select: this.buildAdminVerificationSelect(),
+                  });
 
         // Identity graph: link BVN/NIN to identity subject when admin marks verified
         await this.resolveIdentityForAdmin(dto, user, userId);
@@ -3396,27 +4319,52 @@ export class KycService {
 
     private async resolveIdentityForAdmin(
         dto: UpdateUserVerificationDto,
-        user: { firstName: string | null; lastName: string | null; dateOfBirth: Date | null; bvn: string | null; nin: string | null },
+        user: {
+            firstName: string | null;
+            lastName: string | null;
+            dateOfBirth: Date | null;
+            bvn: string | null;
+            nin: string | null;
+        },
         userId: number,
     ): Promise<void> {
-        const biographic = user.firstName && user.lastName && user.dateOfBirth
-            ? { firstName: user.firstName, lastName: user.lastName, dateOfBirth: user.dateOfBirth.toISOString().split("T")[0] }
-            : undefined;
+        const biographic =
+            user.firstName && user.lastName && user.dateOfBirth
+                ? {
+                      firstName: user.firstName,
+                      lastName: user.lastName,
+                      dateOfBirth: user.dateOfBirth.toISOString().split("T")[0],
+                  }
+                : undefined;
 
         if (dto.bvnVerified === true && user.bvn) {
-            await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, user.bvn, userId, biographic);
+            await this.identityResolution.resolveOrCreate(
+                IdentityIdType.BVN,
+                user.bvn,
+                userId,
+                biographic,
+            );
         }
         if (dto.ninVerified === true && user.nin) {
-            await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, user.nin, userId, biographic);
+            await this.identityResolution.resolveOrCreate(
+                IdentityIdType.NIN,
+                user.nin,
+                userId,
+                biographic,
+            );
         }
     }
 
     // ==================== KYC STATISTICS ====================
 
     async getKycStats(query: GetKycStatsDto): Promise<ApiResponse> {
-        const { startDate, endDate } = query.startDate && query.endDate
-            ? { startDate: new Date(query.startDate), endDate: endOfDay(new Date(query.endDate)) }
-            : this.getDateRange(query.period || "month");
+        const { startDate, endDate } =
+            query.startDate && query.endDate
+                ? {
+                      startDate: new Date(query.startDate),
+                      endDate: endOfDay(new Date(query.endDate)),
+                  }
+                : this.getDateRange(query.period || "month");
 
         const nonAdminWhere = { userType: { not: UserType.ADMIN } } as const;
 
@@ -3479,9 +4427,20 @@ export class KycService {
                                 some: {
                                     isCurrent: true,
                                     journeyType: "INDIVIDUAL",
-                                    stage: { in: this.getStageManagedJourneyStages() },
-                                    status: { in: [KycAttemptStatus.APPROVED, KycAttemptStatus.REJECTED, KycAttemptStatus.EXPIRED] },
-                                    reviewedAt: { gte: startDate, lte: endDate },
+                                    stage: {
+                                        in: this.getStageManagedJourneyStages(),
+                                    },
+                                    status: {
+                                        in: [
+                                            KycAttemptStatus.APPROVED,
+                                            KycAttemptStatus.REJECTED,
+                                            KycAttemptStatus.EXPIRED,
+                                        ],
+                                    },
+                                    reviewedAt: {
+                                        gte: startDate,
+                                        lte: endDate,
+                                    },
                                 },
                             },
                         },
@@ -3491,8 +4450,17 @@ export class KycService {
                                     isCurrent: true,
                                     journeyType: "BUSINESS",
                                     stage: "BUSINESS_DOCUMENT",
-                                    status: { in: [KycAttemptStatus.APPROVED, KycAttemptStatus.REJECTED, KycAttemptStatus.EXPIRED] },
-                                    reviewedAt: { gte: startDate, lte: endDate },
+                                    status: {
+                                        in: [
+                                            KycAttemptStatus.APPROVED,
+                                            KycAttemptStatus.REJECTED,
+                                            KycAttemptStatus.EXPIRED,
+                                        ],
+                                    },
+                                    reviewedAt: {
+                                        gte: startDate,
+                                        lte: endDate,
+                                    },
                                 },
                             },
                         },
@@ -3543,19 +4511,34 @@ export class KycService {
             }),
 
             this.prisma.user.count({
-                where: { ...nonAdminWhere, createdAt: { gte: startDate, lte: endDate } },
+                where: {
+                    ...nonAdminWhere,
+                    createdAt: { gte: startDate, lte: endDate },
+                },
             }),
         ]);
 
         const openWorkCount = awaitingUserCount + needsReviewCount;
 
         // Build tier distribution from groupBy result
-        const tierCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+        const tierCounts: Record<number, number> = {
+            0: 0,
+            1: 0,
+            2: 0,
+            3: 0,
+            4: 0,
+        };
         for (const group of tierGroups) {
             const t = group.tier ?? 0;
             if (t in tierCounts) tierCounts[t] = group._count._all;
         }
-        const { 0: tier0Count, 1: tier1Count, 2: tier2Count, 3: tier3Count, 4: tier4Count } = tierCounts;
+        const {
+            0: tier0Count,
+            1: tier1Count,
+            2: tier2Count,
+            3: tier3Count,
+            4: tier4Count,
+        } = tierCounts;
         const percentage = (count: number): string =>
             totalUsers > 0 ? ((count / totalUsers) * 100).toFixed(2) : "0.00";
 
@@ -3570,21 +4553,49 @@ export class KycService {
                     escalated: escalatedCount,
                     rejected: rejectedCount,
                     resolvedInPeriod,
-                    kycCompletionRate: totalUsers > 0
-                        ? (((totalUsers - openWorkCount) / totalUsers) * 100).toFixed(2)
-                        : "0.00",
+                    kycCompletionRate:
+                        totalUsers > 0
+                            ? (
+                                  ((totalUsers - openWorkCount) / totalUsers) *
+                                  100
+                              ).toFixed(2)
+                            : "0.00",
                 },
                 tierDistribution: {
-                    tier0: { count: tier0Count, percentage: percentage(tier0Count) },
-                    tier1: { count: tier1Count, percentage: percentage(tier1Count) },
-                    tier2: { count: tier2Count, percentage: percentage(tier2Count) },
-                    tier3: { count: tier3Count, percentage: percentage(tier3Count) },
-                    tier4: { count: tier4Count, percentage: percentage(tier4Count) },
+                    tier0: {
+                        count: tier0Count,
+                        percentage: percentage(tier0Count),
+                    },
+                    tier1: {
+                        count: tier1Count,
+                        percentage: percentage(tier1Count),
+                    },
+                    tier2: {
+                        count: tier2Count,
+                        percentage: percentage(tier2Count),
+                    },
+                    tier3: {
+                        count: tier3Count,
+                        percentage: percentage(tier3Count),
+                    },
+                    tier4: {
+                        count: tier4Count,
+                        percentage: percentage(tier4Count),
+                    },
                 },
                 verificationBreakdown: {
-                    bvn: { verified: bvnVerified, rate: percentage(bvnVerified) },
-                    nin: { verified: ninVerified, rate: percentage(ninVerified) },
-                    document: { verified: documentVerified, rate: percentage(documentVerified) },
+                    bvn: {
+                        verified: bvnVerified,
+                        rate: percentage(bvnVerified),
+                    },
+                    nin: {
+                        verified: ninVerified,
+                        rate: percentage(ninVerified),
+                    },
+                    document: {
+                        verified: documentVerified,
+                        rate: percentage(documentVerified),
+                    },
                 },
                 periodMetrics: {
                     newUsers: newUsersInPeriod,
@@ -3605,48 +4616,73 @@ export class KycService {
             case "week":
                 return { startDate: startOfWeek(now), endDate: endOfWeek(now) };
             case "month":
-                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+                return {
+                    startDate: startOfMonth(now),
+                    endDate: endOfMonth(now),
+                };
             case "quarter":
-                return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
+                return {
+                    startDate: startOfQuarter(now),
+                    endDate: endOfQuarter(now),
+                };
             case "year":
                 return { startDate: startOfYear(now), endDate: endOfYear(now) };
             case "all":
                 return { startDate: new Date(0), endDate: now };
             default:
-                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+                return {
+                    startDate: startOfMonth(now),
+                    endDate: endOfMonth(now),
+                };
         }
     }
 
     // ==================== DOCUMENT APPROVAL ====================
 
-    async approveDocument(dto: ApproveDocumentDto, adminId: number): Promise<ApiResponse> {
-        this.logger.log(`Admin ${adminId} approving ${dto.documentType} document for user ${dto.userId}`);
+    async approveDocument(
+        dto: ApproveDocumentDto,
+        adminId: number,
+    ): Promise<ApiResponse> {
+        this.logger.log(
+            `Admin ${adminId} approving ${dto.documentType} document for user ${dto.userId}`,
+        );
         return await this.processKycDecision(
             {
                 userId: dto.userId,
                 action: "APPROVE",
-                verificationType: this.mapDocumentTypeToVerificationType(dto.documentType),
+                verificationType: this.mapDocumentTypeToVerificationType(
+                    dto.documentType,
+                ),
                 version: dto.version,
             },
-            adminId
+            adminId,
         );
     }
 
-    async rejectDocument(dto: RejectDocumentDto, adminId: number): Promise<ApiResponse> {
-        this.logger.log(`Admin ${adminId} rejecting ${dto.documentType} document for user ${dto.userId}: ${dto.reason}`);
+    async rejectDocument(
+        dto: RejectDocumentDto,
+        adminId: number,
+    ): Promise<ApiResponse> {
+        this.logger.log(
+            `Admin ${adminId} rejecting ${dto.documentType} document for user ${dto.userId}: ${dto.reason}`,
+        );
         return await this.processKycDecision(
             {
                 userId: dto.userId,
                 action: "REJECT",
-                verificationType: this.mapDocumentTypeToVerificationType(dto.documentType),
+                verificationType: this.mapDocumentTypeToVerificationType(
+                    dto.documentType,
+                ),
                 note: dto.reason,
                 version: dto.version,
             },
-            adminId
+            adminId,
         );
     }
 
-    private mapDocumentTypeToVerificationType(documentType: "address" | "income" | "business"): string {
+    private mapDocumentTypeToVerificationType(
+        documentType: "address" | "income" | "business",
+    ): string {
         const map: Record<string, string> = {
             address: "ADDRESS",
             income: "INCOME",
@@ -3655,8 +4691,15 @@ export class KycService {
         return map[documentType] || "DOCUMENT";
     }
 
-    private resolveQueueView(queueView?: string, status?: string): KycQueueView {
-        if (queueView === "ACTIONABLE" || queueView === "AWAITING_USER" || queueView === "RESOLVED") {
+    private resolveQueueView(
+        queueView?: string,
+        status?: string,
+    ): KycQueueView {
+        if (
+            queueView === "ACTIONABLE" ||
+            queueView === "AWAITING_USER" ||
+            queueView === "RESOLVED"
+        ) {
             return queueView;
         }
         if (queueView === "all") {
@@ -3665,26 +4708,49 @@ export class KycService {
         if (status === "PENDING" || status === "NEEDS_REVIEW" || !status) {
             return "ACTIONABLE";
         }
-        if (status === "APPROVED" || status === "REJECTED" || status === "ESCALATED") {
+        if (
+            status === "APPROVED" ||
+            status === "REJECTED" ||
+            status === "ESCALATED"
+        ) {
             return "RESOLVED";
         }
         return "ALL";
     }
 
     private isStageManagedVerificationType(verificationType: string): boolean {
-        return ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"].includes(verificationType);
+        return [
+            "BVN",
+            "NIN",
+            "DOCUMENT",
+            "ADDRESS",
+            "INCOME",
+            "BUSINESS_DOCUMENT",
+        ].includes(verificationType);
     }
 
-    private isAttemptOwnedDecisionVerificationType(verificationType: string): boolean {
-        return this.isStageManagedVerificationType(verificationType)
-            || verificationType === "BUSINESS_DOCUMENT";
+    private isAttemptOwnedDecisionVerificationType(
+        verificationType: string,
+    ): boolean {
+        return (
+            this.isStageManagedVerificationType(verificationType) ||
+            verificationType === "BUSINESS_DOCUMENT"
+        );
     }
 
     private isStageAttemptRecord(record: any): boolean {
-        return Boolean(record && typeof record === "object" && typeof record.stage === "string" && !record.verificationType);
+        return Boolean(
+            record &&
+            typeof record === "object" &&
+            typeof record.stage === "string" &&
+            !record.verificationType,
+        );
     }
 
-    private mapStageAttemptToVerificationType(stage: string, method?: string | null): string {
+    private mapStageAttemptToVerificationType(
+        stage: string,
+        method?: string | null,
+    ): string {
         if (stage === "IDENTITY_DOCUMENT") {
             return "DOCUMENT";
         }
@@ -3693,7 +4759,10 @@ export class KycService {
             return stage;
         }
 
-        if (stage === "GOVERNMENT_ID" && (method === "BVN" || method === "NIN")) {
+        if (
+            stage === "GOVERNMENT_ID" &&
+            (method === "BVN" || method === "NIN")
+        ) {
             return method;
         }
 
@@ -3717,10 +4786,17 @@ export class KycService {
     }
 
     private getStageManagedJourneyStages(): KycStage[] {
-        return [KycStage.GOVERNMENT_ID, KycStage.IDENTITY_DOCUMENT, KycStage.ADDRESS, KycStage.INCOME];
+        return [
+            KycStage.GOVERNMENT_ID,
+            KycStage.IDENTITY_DOCUMENT,
+            KycStage.ADDRESS,
+            KycStage.INCOME,
+        ];
     }
 
-    private mapAdminStatusToStageAttemptStatuses(status: string): KycAttemptStatus[] {
+    private mapAdminStatusToStageAttemptStatuses(
+        status: string,
+    ): KycAttemptStatus[] {
         switch (status) {
             case "APPROVED":
                 return [KycAttemptStatus.APPROVED];
@@ -3730,20 +4806,27 @@ export class KycService {
                 return [KycAttemptStatus.ESCALATED];
             case "PENDING":
             default:
-                return [KycAttemptStatus.SUBMITTED, KycAttemptStatus.PENDING_REVIEW];
+                return [
+                    KycAttemptStatus.SUBMITTED,
+                    KycAttemptStatus.PENDING_REVIEW,
+                ];
         }
     }
 
     private resolveStageAttemptDocumentUrl(attempt: any): string | null {
         const evidenceAssetUrl = Array.isArray(attempt?.evidenceAssets)
-            ? attempt.evidenceAssets.find((asset: any) => typeof asset?.storageUrl === "string")?.storageUrl ?? null
+            ? (attempt.evidenceAssets.find(
+                  (asset: any) => typeof asset?.storageUrl === "string",
+              )?.storageUrl ?? null)
             : null;
 
         if (evidenceAssetUrl) {
             return evidenceAssetUrl;
         }
 
-        const evidenceSummary = this.getAttemptStructuredRecord(attempt?.evidenceSummary);
+        const evidenceSummary = this.getAttemptStructuredRecord(
+            attempt?.evidenceSummary,
+        );
         if (typeof evidenceSummary?.documentUrl === "string") {
             return evidenceSummary.documentUrl;
         }
@@ -3761,19 +4844,30 @@ export class KycService {
         return ((user.kycStageAttempts ?? []) as any[])
             .map((attempt) => this.buildAdminAttemptSummary(attempt))
             .sort((left, right) => {
-            const leftTime = new Date(left.reviewedAt || left.submittedAt).getTime();
-            const rightTime = new Date(right.reviewedAt || right.submittedAt).getTime();
-            return rightTime - leftTime;
-        });
+                const leftTime = new Date(
+                    left.reviewedAt || left.submittedAt,
+                ).getTime();
+                const rightTime = new Date(
+                    right.reviewedAt || right.submittedAt,
+                ).getTime();
+                return rightTime - leftTime;
+            });
     }
 
-    private buildAttemptRecordByVerificationType(user: any): Record<string, any> {
+    private buildAttemptRecordByVerificationType(
+        user: any,
+    ): Record<string, any> {
         const records = [
-            ...((user.kycStageAttempts ?? []).map((attempt: any) => ({
-                verificationType: this.mapStageAttemptToVerificationType(attempt.stage, attempt.method),
+            ...(user.kycStageAttempts ?? []).map((attempt: any) => ({
+                verificationType: this.mapStageAttemptToVerificationType(
+                    attempt.stage,
+                    attempt.method,
+                ),
                 record: attempt,
-                sortAt: new Date(attempt.reviewedAt || attempt.submittedAt).getTime(),
-            }))),
+                sortAt: new Date(
+                    attempt.reviewedAt || attempt.submittedAt,
+                ).getTime(),
+            })),
         ].sort((left, right) => right.sortAt - left.sortAt);
 
         return records.reduce<Record<string, any>>((accumulator, entry) => {
@@ -3784,13 +4878,19 @@ export class KycService {
         }, {});
     }
 
-    private getImportedLegacyProviderResponse(attemptEvents: any[], attemptId?: number | null): unknown {
+    private getImportedLegacyProviderResponse(
+        attemptEvents: any[],
+        attemptId?: number | null,
+    ): unknown {
         if (typeof attemptId !== "number") {
             return null;
         }
 
-        const importedEvent = attemptEvents.find((event) =>
-            event?.attemptId === attemptId && event?.eventType === KycAttemptEventType.IMPORTED_LEGACY_HISTORY,
+        const importedEvent = attemptEvents.find(
+            (event) =>
+                event?.attemptId === attemptId &&
+                event?.eventType ===
+                    KycAttemptEventType.IMPORTED_LEGACY_HISTORY,
         );
         const payload = this.getAttemptStructuredRecord(importedEvent?.payload);
         return payload?.providerRawResponse ?? null;
@@ -3824,7 +4924,11 @@ export class KycService {
         evidenceKind: string,
         evidenceSide?: string | null,
     ): string {
-        const kind = this.mapStageEvidenceKindToAdminKind(verificationType, evidenceKind, evidenceSide);
+        const kind = this.mapStageEvidenceKindToAdminKind(
+            verificationType,
+            evidenceKind,
+            evidenceSide,
+        );
         const labels: Record<string, string> = {
             DOCUMENT_FRONT: "Identity document front",
             DOCUMENT_BACK: "Identity document back",
@@ -3837,9 +4941,15 @@ export class KycService {
 
     private buildAdminAttemptSummary(
         attempt: any,
-        options: { queueReason?: string | null; attemptNumbers?: Map<number, number> } = {},
+        options: {
+            queueReason?: string | null;
+            attemptNumbers?: Map<number, number>;
+        } = {},
     ): AdminKycAttemptSummary {
-        const verificationType = this.mapStageAttemptToVerificationType(attempt.stage, attempt.method);
+        const verificationType = this.mapStageAttemptToVerificationType(
+            attempt.stage,
+            attempt.method,
+        );
         const status = this.mapStageAttemptStatusToAdminStatus(attempt.status);
 
         return {
@@ -3849,7 +4959,10 @@ export class KycService {
             method: attempt.method ?? null,
             status,
             providerStatus: attempt.providerStatus ?? null,
-            attemptNo: attempt.attemptNo ?? options.attemptNumbers?.get(attempt.id) ?? null,
+            attemptNo:
+                attempt.attemptNo ??
+                options.attemptNumbers?.get(attempt.id) ??
+                null,
             version: this.resolveAdminAttemptVersion(attempt),
             submittedAt: attempt.submittedAt,
             reviewedAt: attempt.reviewedAt ?? null,
@@ -3860,11 +4973,16 @@ export class KycService {
             isActive: attempt.isCurrent ?? true,
             queueReason: options.queueReason ?? null,
             recommendedDecision: this.getRecommendedDecisionForAttempt(status),
-            allowedActions: this.getAllowedAttemptActions(verificationType, status),
+            allowedActions: this.getAllowedAttemptActions(
+                verificationType,
+                status,
+            ),
         };
     }
 
-    private mapVerificationTypeToAttemptStage(verificationType: string): string {
+    private mapVerificationTypeToAttemptStage(
+        verificationType: string,
+    ): string {
         const stageMap: Record<string, string> = {
             BVN: "GOVERNMENT_ID",
             NIN: "GOVERNMENT_ID",
@@ -3883,19 +5001,27 @@ export class KycService {
             : "INDIVIDUAL";
     }
 
-    private mapVerificationTypeToAttemptMethod(verificationType: string): string | null {
+    private mapVerificationTypeToAttemptMethod(
+        verificationType: string,
+    ): string | null {
         if (verificationType === "BVN" || verificationType === "NIN") {
             return verificationType;
         }
 
-        if (["DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"].includes(verificationType)) {
+        if (
+            ["DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"].includes(
+                verificationType,
+            )
+        ) {
             return "DOCUMENT";
         }
 
         return null;
     }
 
-    private getRecommendedDecisionForAttempt(status: string): AdminKycRecommendedDecision | null {
+    private getRecommendedDecisionForAttempt(
+        status: string,
+    ): AdminKycRecommendedDecision | null {
         if (status === "APPROVED") return "APPROVE";
         if (status === "REJECTED") return "REJECT";
         if (this.actionableStatuses.has(status)) return "REVIEW";
@@ -3908,7 +5034,10 @@ export class KycService {
             : null;
     }
 
-    private getAllowedAttemptActions(verificationType: string, status: string): AdminKycAttemptAction[] {
+    private getAllowedAttemptActions(
+        verificationType: string,
+        status: string,
+    ): AdminKycAttemptAction[] {
         const actions: AdminKycAttemptAction[] = [];
 
         if (this.actionableStatuses.has(status)) {
@@ -3923,33 +5052,67 @@ export class KycService {
     }
 
     private canRecheckVerificationType(verificationType: string): boolean {
-        return ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"].includes(verificationType);
+        return [
+            "BVN",
+            "NIN",
+            "DOCUMENT",
+            "ADDRESS",
+            "INCOME",
+            "BUSINESS_DOCUMENT",
+        ].includes(verificationType);
     }
 
     private buildQueueMetadata(user: any, queueView: KycQueueView) {
-        const latestActivityByAttemptId = this.buildLatestAttemptActivityIndex(user.kycAttemptEvents ?? []);
+        const latestActivityByAttemptId = this.buildLatestAttemptActivityIndex(
+            user.kycAttemptEvents ?? [],
+        );
         const activeVerifications = this.buildCurrentAttemptSummaries(user)
-            .map((attempt) => this.attachLatestAttemptActivity(attempt, latestActivityByAttemptId))
+            .map((attempt) =>
+                this.attachLatestAttemptActivity(
+                    attempt,
+                    latestActivityByAttemptId,
+                ),
+            )
             .sort(
-            (left, right) => new Date(left.submittedAt).getTime() - new Date(right.submittedAt).getTime(),
+                (left, right) =>
+                    new Date(left.submittedAt).getTime() -
+                    new Date(right.submittedAt).getTime(),
             );
-        const actionableVerifications = activeVerifications.filter((kv) => kv.status === "PENDING");
+        const actionableVerifications = activeVerifications.filter(
+            (kv) => kv.status === "PENDING",
+        );
         const latestVerification = [...activeVerifications].sort(
             (left, right) => {
-                const leftTime = new Date(left.latestActivityAt || left.reviewedAt || left.submittedAt).getTime();
-                const rightTime = new Date(right.latestActivityAt || right.reviewedAt || right.submittedAt).getTime();
+                const leftTime = new Date(
+                    left.latestActivityAt ||
+                        left.reviewedAt ||
+                        left.submittedAt,
+                ).getTime();
+                const rightTime = new Date(
+                    right.latestActivityAt ||
+                        right.reviewedAt ||
+                        right.submittedAt,
+                ).getTime();
                 return rightTime - leftTime;
             },
         )[0];
-        const blockingVerificationTypes = this.getBlockingVerificationTypes(user);
-        const queueReason = actionableVerifications.length > 0
-            ? this.getSubmittedForReviewReason(actionableVerifications)
-            : this.getAwaitingUserReason(blockingVerificationTypes, user.userType);
-        const oldestSubmittedAt = actionableVerifications[0]?.submittedAt ?? null;
+        const blockingVerificationTypes =
+            this.getBlockingVerificationTypes(user);
+        const queueReason =
+            actionableVerifications.length > 0
+                ? this.getSubmittedForReviewReason(actionableVerifications)
+                : this.getAwaitingUserReason(
+                      blockingVerificationTypes,
+                      user.userType,
+                  );
+        const oldestSubmittedAt =
+            actionableVerifications[0]?.submittedAt ?? null;
         const latestAttempt = latestVerification
             ? { ...latestVerification, queueReason }
             : null;
-        const actionableAttempts = actionableVerifications.map((verification) => ({ ...verification, queueReason }));
+        const actionableAttempts = actionableVerifications.map(
+            (verification) => ({ ...verification, queueReason }),
+        );
         const activeAttempt = actionableAttempts[0] ?? latestAttempt;
 
         return {
@@ -3957,8 +5120,16 @@ export class KycService {
             queueReason,
             blockingVerificationTypes,
             oldestSubmittedAt,
-            latestReviewAt: latestVerification?.latestActivityAt ?? latestVerification?.reviewedAt ?? null,
-            queueSortAt: oldestSubmittedAt || latestVerification?.latestActivityAt || latestVerification?.submittedAt || user.updatedAt || user.createdAt,
+            latestReviewAt:
+                latestVerification?.latestActivityAt ??
+                latestVerification?.reviewedAt ??
+                null,
+            queueSortAt:
+                oldestSubmittedAt ||
+                latestVerification?.latestActivityAt ||
+                latestVerification?.submittedAt ||
+                user.updatedAt ||
+                user.createdAt,
             queueView,
             activeAttempt,
             latestAttempt,
@@ -3969,24 +5140,77 @@ export class KycService {
     private getBlockingVerificationTypes(user: any): string[] {
         const normalizedUser = this.normalizeVerificationState(user);
         const { verificationSnapshot } = normalizedUser;
-        const currentGovernmentAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "BVN")
-            ?? this.getCurrentStageAttemptForVerificationType(normalizedUser, "NIN");
-        const currentDocumentAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "DOCUMENT");
-        const currentAddressAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "ADDRESS");
-        const currentIncomeAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "INCOME");
-        const currentBusinessAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "BUSINESS_DOCUMENT");
+        const currentGovernmentAttempt =
+            this.getCurrentStageAttemptForVerificationType(
+                normalizedUser,
+                "BVN",
+            ) ??
+            this.getCurrentStageAttemptForVerificationType(
+                normalizedUser,
+                "NIN",
+            );
+        const currentDocumentAttempt =
+            this.getCurrentStageAttemptForVerificationType(
+                normalizedUser,
+                "DOCUMENT",
+            );
+        const currentAddressAttempt =
+            this.getCurrentStageAttemptForVerificationType(
+                normalizedUser,
+                "ADDRESS",
+            );
+        const currentIncomeAttempt =
+            this.getCurrentStageAttemptForVerificationType(
+                normalizedUser,
+                "INCOME",
+            );
+        const currentBusinessAttempt =
+            this.getCurrentStageAttemptForVerificationType(
+                normalizedUser,
+                "BUSINESS_DOCUMENT",
+            );
         const pending: string[] = [];
         if (!normalizedUser.emailVerified) pending.push("EMAIL");
         if (!normalizedUser.phoneVerified) pending.push("PHONE");
-        if (!verificationSnapshot.bvnVerified && !verificationSnapshot.ninVerified && !normalizedUser.bvn && !normalizedUser.nin && !currentGovernmentAttempt) pending.push("BVN");
-        if (!normalizedUser.documentVerified && !normalizedUser.userDocument && !currentDocumentAttempt) pending.push("DOCUMENT");
-        if (!verificationSnapshot.addressVerified && !normalizedUser.addressDocumentUrl && !currentAddressAttempt) pending.push("ADDRESS");
-        if (!verificationSnapshot.incomeVerified && !normalizedUser.incomeDocumentUrl && !currentIncomeAttempt) pending.push("INCOME");
-        if (normalizedUser.userType === UserType.BUSINESS && !normalizedUser.businessDocument && !currentBusinessAttempt) pending.push("BUSINESS_DOCUMENT");
+        if (
+            !verificationSnapshot.bvnVerified &&
+            !verificationSnapshot.ninVerified &&
+            !normalizedUser.bvn &&
+            !normalizedUser.nin &&
+            !currentGovernmentAttempt
+        )
+            pending.push("BVN");
+        if (
+            !normalizedUser.documentVerified &&
+            !normalizedUser.userDocument &&
+            !currentDocumentAttempt
+        )
+            pending.push("DOCUMENT");
+        if (
+            !verificationSnapshot.addressVerified &&
+            !normalizedUser.addressDocumentUrl &&
+            !currentAddressAttempt
+        )
+            pending.push("ADDRESS");
+        if (
+            !verificationSnapshot.incomeVerified &&
+            !normalizedUser.incomeDocumentUrl &&
+            !currentIncomeAttempt
+        )
+            pending.push("INCOME");
+        if (
+            normalizedUser.userType === UserType.BUSINESS &&
+            !normalizedUser.businessDocument &&
+            !currentBusinessAttempt
+        )
+            pending.push("BUSINESS_DOCUMENT");
         return pending;
     }
 
-    private getAwaitingUserReason(blockingVerificationTypes: string[], userType: UserType): string {
+    private getAwaitingUserReason(
+        blockingVerificationTypes: string[],
+        userType: UserType,
+    ): string {
         if (blockingVerificationTypes.length === 0) {
             return userType === UserType.BUSINESS
                 ? "Awaiting additional business verification input"
@@ -4000,10 +5224,15 @@ export class KycService {
         return `Awaiting user submission for ${blockingVerificationTypes.length} verification stages`;
     }
 
-    private getSubmittedForReviewReason(actionableVerifications: Array<{ verificationType: string }>): string {
-        const submittedTarget = actionableVerifications.length === 1
-            ? this.getVerificationLabel(actionableVerifications[0].verificationType)
-            : `${actionableVerifications.length} verifications`;
+    private getSubmittedForReviewReason(
+        actionableVerifications: Array<{ verificationType: string }>,
+    ): string {
+        const submittedTarget =
+            actionableVerifications.length === 1
+                ? this.getVerificationLabel(
+                      actionableVerifications[0].verificationType,
+                  )
+                : `${actionableVerifications.length} verifications`;
 
         return `Submitted ${submittedTarget} for review`;
     }
@@ -4029,13 +5258,23 @@ export class KycService {
         searchText?: string;
         tier?: number;
     }): Prisma.UserWhereInput {
-        const { resolvedQueueView, status, verificationType, searchText, tier } = params;
+        const {
+            resolvedQueueView,
+            status,
+            verificationType,
+            searchText,
+            tier,
+        } = params;
         const andConditions: Prisma.UserWhereInput[] = [];
-        const verificationFilter = this.buildKycStatusFilter(resolvedQueueView, status);
+        const verificationFilter = this.buildKycStatusFilter(
+            resolvedQueueView,
+            status,
+        );
         const typeConditions = this.buildKycTypeConditions(verificationType);
         const searchCondition = this.buildKycSearchCondition(searchText);
 
-        if (Object.keys(verificationFilter).length > 0) andConditions.push(verificationFilter);
+        if (Object.keys(verificationFilter).length > 0)
+            andConditions.push(verificationFilter);
         if (typeConditions.length > 0) andConditions.push(...typeConditions);
         if (tier !== undefined) andConditions.push({ tier });
         if (searchCondition) andConditions.push(searchCondition);
@@ -4051,7 +5290,9 @@ export class KycService {
         status?: string,
     ): Prisma.UserWhereInput {
         const stageManagedStages = this.getStageManagedJourneyStages();
-        const buildBusinessStageCondition = (statuses: string[]): Prisma.UserWhereInput => ({
+        const buildBusinessStageCondition = (
+            statuses: string[],
+        ): Prisma.UserWhereInput => ({
             kycStageAttempts: {
                 some: {
                     isCurrent: true,
@@ -4062,7 +5303,11 @@ export class KycService {
             },
         });
 
-        if (status === "APPROVED" || status === "REJECTED" || status === "ESCALATED") {
+        if (
+            status === "APPROVED" ||
+            status === "REJECTED" ||
+            status === "ESCALATED"
+        ) {
             return {
                 OR: [
                     {
@@ -4071,11 +5316,17 @@ export class KycService {
                                 isCurrent: true,
                                 journeyType: "INDIVIDUAL",
                                 stage: { in: stageManagedStages },
-                                status: { in: this.mapAdminStatusToStageAttemptStatuses(status) },
+                                status: {
+                                    in: this.mapAdminStatusToStageAttemptStatuses(
+                                        status,
+                                    ),
+                                },
                             },
                         },
                     },
-                    buildBusinessStageCondition(this.mapAdminStatusToStageAttemptStatuses(status)),
+                    buildBusinessStageCondition(
+                        this.mapAdminStatusToStageAttemptStatuses(status),
+                    ),
                 ],
             };
         }
@@ -4089,11 +5340,17 @@ export class KycService {
                                 isCurrent: true,
                                 journeyType: "INDIVIDUAL",
                                 stage: { in: stageManagedStages },
-                                status: { in: this.mapAdminStatusToStageAttemptStatuses("PENDING") },
+                                status: {
+                                    in: this.mapAdminStatusToStageAttemptStatuses(
+                                        "PENDING",
+                                    ),
+                                },
                             },
                         },
                     },
-                    buildBusinessStageCondition(this.mapAdminStatusToStageAttemptStatuses("PENDING")),
+                    buildBusinessStageCondition(
+                        this.mapAdminStatusToStageAttemptStatuses("PENDING"),
+                    ),
                 ],
             };
         }
@@ -4111,11 +5368,23 @@ export class KycService {
                                 isCurrent: true,
                                 journeyType: "INDIVIDUAL",
                                 stage: { in: stageManagedStages },
-                                status: { in: ["APPROVED", "REJECTED", "ESCALATED", "EXPIRED"] },
+                                status: {
+                                    in: [
+                                        "APPROVED",
+                                        "REJECTED",
+                                        "ESCALATED",
+                                        "EXPIRED",
+                                    ],
+                                },
                             },
                         },
                     },
-                    buildBusinessStageCondition(["APPROVED", "REJECTED", "ESCALATED", "EXPIRED"]),
+                    buildBusinessStageCondition([
+                        "APPROVED",
+                        "REJECTED",
+                        "ESCALATED",
+                        "EXPIRED",
+                    ]),
                 ],
             };
         }
@@ -4211,8 +5480,14 @@ export class KycService {
                                     some: {
                                         isCurrent: true,
                                         journeyType: "INDIVIDUAL",
-                                        stage: { in: this.getStageManagedJourneyStages() },
-                                        status: { in: this.mapAdminStatusToStageAttemptStatuses("PENDING") },
+                                        stage: {
+                                            in: this.getStageManagedJourneyStages(),
+                                        },
+                                        status: {
+                                            in: this.mapAdminStatusToStageAttemptStatuses(
+                                                "PENDING",
+                                            ),
+                                        },
                                     },
                                 },
                             },
@@ -4222,7 +5497,11 @@ export class KycService {
                                         isCurrent: true,
                                         journeyType: "BUSINESS",
                                         stage: "BUSINESS_DOCUMENT",
-                                        status: { in: this.mapAdminStatusToStageAttemptStatuses("PENDING") },
+                                        status: {
+                                            in: this.mapAdminStatusToStageAttemptStatuses(
+                                                "PENDING",
+                                            ),
+                                        },
                                     },
                                 },
                             },
@@ -4233,7 +5512,9 @@ export class KycService {
         };
     }
 
-    private buildKycTypeConditions(verificationType?: string): Prisma.UserWhereInput[] {
+    private buildKycTypeConditions(
+        verificationType?: string,
+    ): Prisma.UserWhereInput[] {
         if (!verificationType || verificationType === "all") {
             return [];
         }
@@ -4330,7 +5611,9 @@ export class KycService {
         return typeMap[verificationType] ? [typeMap[verificationType]] : [];
     }
 
-    private buildKycSearchCondition(searchText?: string): Prisma.UserWhereInput | null {
+    private buildKycSearchCondition(
+        searchText?: string,
+    ): Prisma.UserWhereInput | null {
         if (!searchText) {
             return null;
         }
@@ -4370,35 +5653,64 @@ export class KycService {
 
         return {
             ...user,
-            emailVerified: user?.emailVerified ?? user?.isEmailVerified ?? false,
-            phoneVerified: user?.phoneVerified ?? user?.isPhoneVerified ?? false,
-            documentVerified: user?.documentVerified ?? user?.isDocumentVerified ?? false,
+            emailVerified:
+                user?.emailVerified ?? user?.isEmailVerified ?? false,
+            phoneVerified:
+                user?.phoneVerified ?? user?.isPhoneVerified ?? false,
+            documentVerified:
+                user?.documentVerified ?? user?.isDocumentVerified ?? false,
             verificationSnapshot,
         };
     }
 
-    private getCurrentStageAttemptForVerificationType(user: any, verificationType: string) {
+    private getCurrentStageAttemptForVerificationType(
+        user: any,
+        verificationType: string,
+    ) {
         switch (verificationType) {
             case "BVN":
-                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "GOVERNMENT_ID", "BVN");
+                return getCurrentIndividualStageAttempt(
+                    user?.kycStageAttempts,
+                    "GOVERNMENT_ID",
+                    "BVN",
+                );
             case "NIN":
-                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "GOVERNMENT_ID", "NIN");
+                return getCurrentIndividualStageAttempt(
+                    user?.kycStageAttempts,
+                    "GOVERNMENT_ID",
+                    "NIN",
+                );
             case "DOCUMENT":
-                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "IDENTITY_DOCUMENT");
+                return getCurrentIndividualStageAttempt(
+                    user?.kycStageAttempts,
+                    "IDENTITY_DOCUMENT",
+                );
             case "ADDRESS":
-                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "ADDRESS");
+                return getCurrentIndividualStageAttempt(
+                    user?.kycStageAttempts,
+                    "ADDRESS",
+                );
             case "INCOME":
-                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "INCOME");
+                return getCurrentIndividualStageAttempt(
+                    user?.kycStageAttempts,
+                    "INCOME",
+                );
             case "BUSINESS_DOCUMENT":
-                return (user?.kycStageAttempts ?? []).find(
-                    (attempt: any) => attempt?.isCurrent !== false && attempt?.stage === "BUSINESS_DOCUMENT",
-                ) ?? null;
+                return (
+                    (user?.kycStageAttempts ?? []).find(
+                        (attempt: any) =>
+                            attempt?.isCurrent !== false &&
+                            attempt?.stage === "BUSINESS_DOCUMENT",
+                    ) ?? null
+                );
             default:
                 return null;
         }
     }
 
-    private mapStageAttemptStatusToKycStatus(status?: string | null): KycStatus {
+    private mapStageAttemptStatusToKycStatus(
+        status?: string | null,
+    ): KycStatus {
         switch (status) {
             case "APPROVED":
                 return KycStatus.APPROVED;
@@ -4414,7 +5726,9 @@ export class KycService {
         }
     }
 
-    private mapKycStatusToStageAttemptStatus(status: KycStatus): KycAttemptStatus {
+    private mapKycStatusToStageAttemptStatus(
+        status: KycStatus,
+    ): KycAttemptStatus {
         switch (status) {
             case KycStatus.APPROVED:
                 return KycAttemptStatus.APPROVED;
@@ -4448,7 +5762,10 @@ export class KycService {
         isVerified: boolean,
         fallbackStatus?: DocumentVerificationStatus | null,
     ): KycStatus {
-        const currentAttempt = this.getCurrentStageAttemptForVerificationType(user, verificationType);
+        const currentAttempt = this.getCurrentStageAttemptForVerificationType(
+            user,
+            verificationType,
+        );
 
         if (currentAttempt?.status) {
             return this.mapStageAttemptStatusToKycStatus(currentAttempt.status);
@@ -4515,18 +5832,31 @@ export class KycService {
         version?: number;
         adminId?: number;
     }): Promise<ApiResponse | null> {
-        const { userId, verificationType, action, note, version, adminId } = params;
-        const isAttemptOwnedDecision = this.isAttemptOwnedDecisionVerificationType(verificationType);
-        const currentAttempt = await this.resolveDecisionBridgeContext(userId, verificationType);
+        const { userId, verificationType, action, note, version, adminId } =
+            params;
+        const isAttemptOwnedDecision =
+            this.isAttemptOwnedDecisionVerificationType(verificationType);
+        const currentAttempt = await this.resolveDecisionBridgeContext(
+            userId,
+            verificationType,
+        );
 
         if (isAttemptOwnedDecision) {
-            this.assertDecisionPreconditions({ activeVerification: null, currentAttempt, verificationType, action });
+            this.assertDecisionPreconditions({
+                activeVerification: null,
+                currentAttempt,
+                verificationType,
+                action,
+            });
             return null;
         }
 
         const expectedVersion = this.resolveDecisionVersion(null, version);
 
-        const kycStatusMap: Record<string, "APPROVED" | "REJECTED" | "ESCALATED"> = {
+        const kycStatusMap: Record<
+            string,
+            "APPROVED" | "REJECTED" | "ESCALATED"
+        > = {
             APPROVE: "APPROVED",
             REJECT: "REJECTED",
             ESCALATE: "ESCALATED",
@@ -4546,7 +5876,9 @@ export class KycService {
             return null;
         } catch (error) {
             if (error instanceof BadRequestException) {
-                this.logger.warn(`KYC state transition rejected: ${error.message}`);
+                this.logger.warn(
+                    `KYC state transition rejected: ${error.message}`,
+                );
                 return buildResponse({
                     message: error.message,
                     data: { userId, verificationType, action },
@@ -4562,9 +5894,13 @@ export class KycService {
         verificationType: string;
         action: KycDecisionAction;
     }): void {
-        const { activeVerification, currentAttempt, verificationType, action } = params;
-        const currentStatus = activeVerification?.status
-            ?? (currentAttempt?.status ? this.mapStageAttemptStatusToAdminStatus(currentAttempt.status) : null);
+        const { activeVerification, currentAttempt, verificationType, action } =
+            params;
+        const currentStatus =
+            activeVerification?.status ??
+            (currentAttempt?.status
+                ? this.mapStageAttemptStatusToAdminStatus(currentAttempt.status)
+                : null);
 
         if (!currentStatus) {
             throw new BadRequestException(
@@ -4578,7 +5914,10 @@ export class KycService {
             );
         }
 
-        if ((action === "APPROVE" || action === "REJECT") && !this.actionableStatuses.has(currentStatus)) {
+        if (
+            (action === "APPROVE" || action === "REJECT") &&
+            !this.actionableStatuses.has(currentStatus)
+        ) {
             throw new BadRequestException(
                 `${verificationType} verification is no longer actionable. Current status: ${currentStatus}.`,
             );
@@ -4597,5 +5936,4 @@ export class KycService {
             ? activeVerification.version
             : undefined;
     }
-
 }

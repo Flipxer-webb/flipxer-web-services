@@ -1,16 +1,35 @@
-import { BadRequestException, Body, Controller, Get, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import {
+    BadRequestException,
+    Body,
+    Controller,
+    Get,
+    Patch,
+    Post,
+    Req,
+    UseGuards,
+} from "@nestjs/common";
 import { Request } from "express";
 import { ApiBearerAuth, ApiTags, ApiOperation } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { PermissionGuard } from "@/modules/api/authorize/guards/permission.guard";
-import { UserTypes, ADMIN_USER_TYPES, Permissions } from "@/modules/api/authorize/decorator";
+import {
+    UserTypes,
+    ADMIN_USER_TYPES,
+    Permissions,
+} from "@/modules/api/authorize/decorator";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { AuditLogService } from "@/modules/api/audit-log";
 import { buildResponse } from "@/utils/api-response-util";
-import { CreateSwapPairDto, BulkUpdateSwapPairDto } from "../../../trade/dtos/create-swap-pair.dto";
-import { SUPPORTED_ASSETS, SWAP_TARGET_CURRENCY } from "../../../trade/constants";
+import {
+    CreateSwapPairDto,
+    BulkUpdateSwapPairDto,
+} from "../../../trade/dtos/create-swap-pair.dto";
+import {
+    SUPPORTED_ASSETS,
+    SWAP_TARGET_CURRENCY,
+} from "../../../trade/constants";
 
 @ApiTags("Admin Swap Pairs")
 @Controller("admin/swap-pairs")
@@ -74,7 +93,7 @@ export class AdminSwapPairController {
     async getSwapPairs() {
         // Fetch all specific pairs
         const pairs = await this.db.swapPair.findMany({
-            orderBy: [{ fromCurrency: 'asc' }, { toCurrency: 'asc' }]
+            orderBy: [{ fromCurrency: "asc" }, { toCurrency: "asc" }],
         });
         return buildResponse({ message: "Swap pairs retrieved", data: pairs });
     }
@@ -97,8 +116,8 @@ export class AdminSwapPairController {
             where: {
                 fromCurrency_toCurrency: {
                     fromCurrency,
-                    toCurrency
-                }
+                    toCurrency,
+                },
             },
             update: {
                 rate,
@@ -116,7 +135,12 @@ export class AdminSwapPairController {
             action: "UPSERT_SWAP_PAIR",
             resource: "swap_pair",
             resourceId: `${fromCurrency}_${toCurrency}`,
-            details: { fromCurrency, toCurrency, rate, isActive: effectiveIsActive },
+            details: {
+                fromCurrency,
+                toCurrency,
+                rate,
+                isActive: effectiveIsActive,
+            },
             adminId: (req as any).user?.id,
             ipAddress: req.ip,
             userAgent: req.headers["user-agent"],
@@ -127,7 +151,10 @@ export class AdminSwapPairController {
 
     @Permissions([PermissionName.SETTINGS_UPDATE])
     @Post("generate")
-    @ApiOperation({ summary: "Generate all possible permutations of Swap Pairs (Inactive by default)" })
+    @ApiOperation({
+        summary:
+            "Generate all possible permutations of Swap Pairs (Inactive by default)",
+    })
     async generateAllPairs(@Req() req: Request) {
         const assets = Array.from(SUPPORTED_ASSETS);
 
@@ -140,7 +167,7 @@ export class AdminSwapPairController {
                     fromCurrency: fromC,
                     toCurrency: toC,
                     rate: 0,
-                    isActive: false
+                    isActive: false,
                 });
             }
         }
@@ -172,7 +199,9 @@ export class AdminSwapPairController {
 
     @Permissions([PermissionName.SETTINGS_UPDATE])
     @Patch("bulk")
-    @ApiOperation({ summary: "Bulk Update Swap Pairs (e.g. Activate all USDT pairs)" })
+    @ApiOperation({
+        summary: "Bulk Update Swap Pairs (e.g. Activate all USDT pairs)",
+    })
     async bulkUpdate(@Body() dto: BulkUpdateSwapPairDto, @Req() req: Request) {
         const { targetCurrency, isActive, rateMultiplier } = dto;
         const target = targetCurrency.toUpperCase();
@@ -191,9 +220,11 @@ export class AdminSwapPairController {
 
         if (rateMultiplier) {
             // Complex update: Rate = Rate * Multiplier
-            // Only updates ACTIVE or EXISTING rates? 
+            // Only updates ACTIVE or EXISTING rates?
             // Logic: Update all matching pairs
-            const pairs = await this.db.swapPair.findMany({ where: whereClause });
+            const pairs = await this.db.swapPair.findMany({
+                where: whereClause,
+            });
             let updatedCount = 0;
 
             await this.prisma.$transaction(async (tx: any) => {
@@ -201,8 +232,16 @@ export class AdminSwapPairController {
                     if (p.rate > 0) {
                         const newRate = p.rate * rateMultiplier;
                         await tx.swapPair.update({
-                            where: { fromCurrency_toCurrency: { fromCurrency: p.fromCurrency, toCurrency: p.toCurrency } },
-                            data: { rate: newRate, ...(isActive !== undefined && { isActive }) },
+                            where: {
+                                fromCurrency_toCurrency: {
+                                    fromCurrency: p.fromCurrency,
+                                    toCurrency: p.toCurrency,
+                                },
+                            },
+                            data: {
+                                rate: newRate,
+                                ...(isActive !== undefined && { isActive }),
+                            },
                         });
                         updatedCount++;
                     }
@@ -211,20 +250,26 @@ export class AdminSwapPairController {
             await this.auditLogService.log({
                 action: "BULK_UPDATE_SWAP_PAIRS",
                 resource: "swap_pair",
-                details: { targetCurrency: target, rateMultiplier, isActive, updatedCount },
+                details: {
+                    targetCurrency: target,
+                    rateMultiplier,
+                    isActive,
+                    updatedCount,
+                },
                 adminId: (req as any).user?.id,
                 ipAddress: req.ip,
                 userAgent: req.headers["user-agent"],
             });
-            return buildResponse({ message: `Bulk updated rates for ${updatedCount} pairs related to ${target}.` });
-
+            return buildResponse({
+                message: `Bulk updated rates for ${updatedCount} pairs related to ${target}.`,
+            });
         } else {
             // Simple batch update (e.g. enable/disable)
             const result = await this.db.swapPair.updateMany({
                 where: whereClause,
                 data: {
-                    ...(isActive !== undefined && { isActive })
-                }
+                    ...(isActive !== undefined && { isActive }),
+                },
             });
             await this.auditLogService.log({
                 action: "BULK_UPDATE_SWAP_PAIRS",
@@ -234,7 +279,10 @@ export class AdminSwapPairController {
                 ipAddress: req.ip,
                 userAgent: req.headers["user-agent"],
             });
-            return buildResponse({ message: `Bulk updated ${result.count} pairs related to ${target}.`, data: result });
+            return buildResponse({
+                message: `Bulk updated ${result.count} pairs related to ${target}.`,
+                data: result,
+            });
         }
     }
 }

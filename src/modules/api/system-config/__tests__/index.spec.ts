@@ -1,37 +1,51 @@
 import { MODULE_METADATA } from "@nestjs/common/constants";
 
 jest.mock("../services/system-settings.service", () => ({
-    SystemSettingsService: class SystemSettingsServiceStub { readonly stub = true; },
+    SystemSettingsService: class SystemSettingsServiceStub {
+        readonly stub = true;
+    },
     __esModule: true,
 }));
 
 jest.mock("../services/feature-flag.service", () => ({
-    FeatureFlagService: class FeatureFlagServiceStub { readonly stub = true; },
+    FeatureFlagService: class FeatureFlagServiceStub {
+        readonly stub = true;
+    },
     __esModule: true,
 }));
 
 jest.mock("../services/maintenance-mode.service", () => ({
-    MaintenanceModeService: class MaintenanceModeServiceStub { readonly stub = true; },
+    MaintenanceModeService: class MaintenanceModeServiceStub {
+        readonly stub = true;
+    },
     __esModule: true,
 }));
 
 jest.mock("../controllers/v1/admin/system-settings.controller", () => ({
-    AdminSystemSettingsController: class AdminSystemSettingsControllerStub { readonly stub = true; },
+    AdminSystemSettingsController: class AdminSystemSettingsControllerStub {
+        readonly stub = true;
+    },
     __esModule: true,
 }));
 
 jest.mock("../controllers/v1/admin/feature-flag.controller", () => ({
-    AdminFeatureFlagController: class AdminFeatureFlagControllerStub { readonly stub = true; },
+    AdminFeatureFlagController: class AdminFeatureFlagControllerStub {
+        readonly stub = true;
+    },
     __esModule: true,
 }));
 
 jest.mock("../middleware/maintenance.middleware", () => ({
-    MaintenanceMiddleware: class MaintenanceMiddlewareStub { readonly stub = true; },
+    MaintenanceMiddleware: class MaintenanceMiddlewareStub {
+        readonly stub = true;
+    },
     __esModule: true,
 }));
 
 jest.mock("../../session", () => ({
-    SessionModule: class SessionModuleStub { readonly stub = true; },
+    SessionModule: class SessionModuleStub {
+        readonly stub = true;
+    },
     __esModule: true,
 }));
 
@@ -40,10 +54,22 @@ import { MaintenanceMiddleware } from "../middleware/maintenance.middleware";
 
 describe("SystemConfigModule", () => {
     it("registers imports/controllers/providers/exports metadata", () => {
-        const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, SystemConfigModule) as unknown[];
-        const controllers = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, SystemConfigModule) as unknown[];
-        const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SystemConfigModule) as unknown[];
-        const exportsMeta = Reflect.getMetadata(MODULE_METADATA.EXPORTS, SystemConfigModule) as unknown[];
+        const imports = Reflect.getMetadata(
+            MODULE_METADATA.IMPORTS,
+            SystemConfigModule,
+        ) as unknown[];
+        const controllers = Reflect.getMetadata(
+            MODULE_METADATA.CONTROLLERS,
+            SystemConfigModule,
+        ) as unknown[];
+        const providers = Reflect.getMetadata(
+            MODULE_METADATA.PROVIDERS,
+            SystemConfigModule,
+        ) as unknown[];
+        const exportsMeta = Reflect.getMetadata(
+            MODULE_METADATA.EXPORTS,
+            SystemConfigModule,
+        ) as unknown[];
 
         expect(Array.isArray(imports)).toBe(true);
         expect(Array.isArray(controllers)).toBe(true);

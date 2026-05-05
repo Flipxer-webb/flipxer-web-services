@@ -47,7 +47,7 @@ import {
 })
 export class TradingController {
     private readonly logger = new Logger(TradingController.name);
-    constructor(private readonly tradingService: TradingService) { }
+    constructor(private readonly tradingService: TradingService) {}
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "List supported assets" })
@@ -105,7 +105,7 @@ export class TradingController {
     @Get("get-wallet-info")
     async getWalletAddress(
         @Query() dto: GetWalletDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.getWalletAddress(user.id, dto);
     }
@@ -119,7 +119,7 @@ export class TradingController {
     @Get("wallet-addresses")
     async getWalletAddresses(
         @Query() dto: GetWalletAddressesDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.getWalletAddresses(user.id, dto);
     }
@@ -131,11 +131,11 @@ export class TradingController {
     @Post("initiate-wallet-address-generation")
     async initiateWalletCreation(
         @Body() dto: InitiateWalletCreationDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.initiateWalletAddressCreation(
             user.id,
-            dto
+            dto,
         );
     }
 
@@ -167,19 +167,21 @@ export class TradingController {
     @Post("buy/order")
     async buyCryptoOrder(
         @Body() dto: BuyCryptoOrderDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.buyCryptoOrder(user, dto);
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Get buy order payment status (polling fallback)" })
+    @ApiOperation({
+        summary: "Get buy order payment status (polling fallback)",
+    })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Get("buy/status/:reference")
     async getBuyOrderStatus(
         @Param("reference") reference: string,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.getBuyOrderStatus(reference, user.id);
     }
@@ -191,7 +193,7 @@ export class TradingController {
     @Post("buy/cancel/:reference")
     async cancelBuyOrder(
         @Param("reference") reference: string,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.cancelBuyOrder(reference, user.id);
     }
@@ -203,9 +205,12 @@ export class TradingController {
     @Post("buy/pending-notify/:reference")
     async notifyPendingBuyOrder(
         @Param("reference") reference: string,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
-        return await this.tradingService.notifyPendingBuyOrder(reference, user.id);
+        return await this.tradingService.notifyPendingBuyOrder(
+            reference,
+            user.id,
+        );
     }
 
     @HttpCode(HttpStatus.OK)
@@ -215,7 +220,7 @@ export class TradingController {
     @Post("buy/confirm-sent/:reference")
     async confirmPaymentSent(
         @Param("reference") reference: string,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.confirmPaymentSent(reference, user.id);
     }
@@ -227,7 +232,7 @@ export class TradingController {
     @Post("sell/quote")
     async sellCryptoRequest(
         @Body() dto: InitiateSellOrderDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.sellCryptoQuoteRequest(user, dto);
     }
@@ -242,19 +247,21 @@ export class TradingController {
     @Post("sell/order")
     async sellCryptoOrder(
         @Body() dto: SellCryptoOrderDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.sellCryptoOrder(user, dto);
     }
 
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Get swap estimate (avoids creating quota limits)" })
+    @ApiOperation({
+        summary: "Get swap estimate (avoids creating quota limits)",
+    })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("estimate-swap")
     async getSwapEstimate(
         @Body() dto: PlaceInstantSwapRequestDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.getSwapEstimate(user, dto);
     }
@@ -266,9 +273,11 @@ export class TradingController {
     @Post("request-instant-swap-quote")
     async createInstantSwap(
         @Body() dto: PlaceInstantSwapRequestDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
-        this.logger.debug(`Legacy quote request from old frontend: ${JSON.stringify(dto)}`);
+        this.logger.debug(
+            `Legacy quote request from old frontend: ${JSON.stringify(dto)}`,
+        );
         return await this.tradingService.createInstantSwap(user, dto);
     }
 
@@ -279,13 +288,13 @@ export class TradingController {
     @Post("confirm-instant-swap-quote")
     async confirmInstantSwapQuote(
         @Body() dto: ConfirmInstantSwapQuoteDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
-        this.logger.debug(`Legacy swap confirm received: ${JSON.stringify(dto)}`);
+        this.logger.debug(
+            `Legacy swap confirm received: ${JSON.stringify(dto)}`,
+        );
         return await this.tradingService.confirmInstantSwapQuote(user, dto);
     }
-
-
 
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Refresh instant swap quote" })
@@ -294,7 +303,7 @@ export class TradingController {
     @Post("refresh-instant-swap-quote")
     async refreshInstantSwapQuote(
         @Body() dto: RefreshInstantSwapRequestDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.refreshInstantSwap(user, dto);
     }
@@ -307,7 +316,7 @@ export class TradingController {
     @Post("withdrawer-request")
     async withdrawerRequest(
         @Body() dto: WithdrawerRequestDto,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.withdrawerRequest(user, dto);
     }
@@ -334,14 +343,16 @@ export class TradingController {
     @Get("order-status/:transactionId")
     async getOrderStatus(
         @Param("transactionId") transactionId: string,
-        @User() user: UserModel
+        @User() user: UserModel,
     ) {
         return await this.tradingService.getOrderStatus(user, transactionId);
     }
 
-
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: "Queue a provider deposit sync to catch any missed transactions" })
+    @ApiOperation({
+        summary:
+            "Queue a provider deposit sync to catch any missed transactions",
+    })
     @UseGuards(AuthGuard)
     @ApiBearerAuth("access-token")
     @Post("sync-deposits")

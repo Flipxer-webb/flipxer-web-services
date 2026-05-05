@@ -5,8 +5,14 @@ import { StructuredLoggerService } from "../services/structured-logger.service";
 
 describe("LoggerModule", () => {
     it("registers expected providers and exports", () => {
-        const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, LoggerModule) as unknown[];
-        const exportsMeta = Reflect.getMetadata(MODULE_METADATA.EXPORTS, LoggerModule) as unknown[];
+        const providers = Reflect.getMetadata(
+            MODULE_METADATA.PROVIDERS,
+            LoggerModule,
+        ) as unknown[];
+        const exportsMeta = Reflect.getMetadata(
+            MODULE_METADATA.EXPORTS,
+            LoggerModule,
+        ) as unknown[];
 
         expect(Array.isArray(providers)).toBe(true);
         expect(Array.isArray(exportsMeta)).toBe(true);
@@ -25,6 +31,9 @@ describe("LoggerModule", () => {
         moduleRef.configure(consumer);
 
         expect(apply).toHaveBeenCalledWith(RequestTracingMiddleware);
-        expect(apply.mock.results[0].value.forRoutes).toHaveBeenCalledWith({ method: 5, path: "{*path}" });
+        expect(apply.mock.results[0].value.forRoutes).toHaveBeenCalledWith({
+            method: 5,
+            path: "{*path}",
+        });
     });
 });

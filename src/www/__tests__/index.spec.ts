@@ -112,7 +112,10 @@ jest.mock("@/modules", () => ({
     AppModule: { marker: "app-module" },
 }));
 
-const AllExceptionsFilterMock = jest.fn(function AllExceptionsFilterMock(this: { host?: unknown }, host: unknown) {
+const AllExceptionsFilterMock = jest.fn(function AllExceptionsFilterMock(
+    this: { host?: unknown },
+    host: unknown,
+) {
     this.host = host;
 });
 
@@ -192,7 +195,7 @@ describe("createServer", () => {
             expect.objectContaining({
                 origin: ["https://allowed.app", "http://localhost:3000"],
                 credentials: true,
-            })
+            }),
         );
 
         expect(createSwaggerDocumentMock).toHaveBeenCalled();
@@ -226,7 +229,7 @@ describe("createServer", () => {
 
         expect(expressOptionsMock).toHaveBeenCalledWith(
             "/*path",
-            expect.any(Function)
+            expect.any(Function),
         );
 
         const optionsHandler = expressOptionsMock.mock.calls[0][1];
@@ -237,15 +240,21 @@ describe("createServer", () => {
         });
 
         const allowedRes = makeRes();
-        optionsHandler({ headers: { origin: "https://allowed.app" } }, allowedRes);
+        optionsHandler(
+            { headers: { origin: "https://allowed.app" } },
+            allowedRes,
+        );
         expect(allowedRes.header).toHaveBeenCalledWith(
             "Access-Control-Allow-Origin",
-            "https://allowed.app"
+            "https://allowed.app",
         );
         expect(allowedRes.sendStatus).toHaveBeenCalledWith(204);
 
         const disallowedRes = makeRes();
-        optionsHandler({ headers: { origin: "https://evil.app" } }, disallowedRes);
+        optionsHandler(
+            { headers: { origin: "https://evil.app" } },
+            disallowedRes,
+        );
         expect(disallowedRes.sendStatus).toHaveBeenCalledWith(403);
 
         const noOriginRes = makeRes();
@@ -280,7 +289,10 @@ describe("createServer", () => {
             throw new TypeError("Expected webhook handlers to be registered");
         }
 
-        const fincraReq = { headers: { "x-fincra-signature": "sig" }, url: "/" };
+        const fincraReq = {
+            headers: { "x-fincra-signature": "sig" },
+            url: "/",
+        };
         const fincraNext = jest.fn();
         rootHandler(fincraReq, {}, fincraNext);
         expect(fincraReq.url).toBe("/webhook/fincra");
@@ -349,7 +361,6 @@ describe("createServer", () => {
         expect(directives.connectSrc).toContain(
             "https://securetoken.googleapis.com",
         );
-
 
         // Verify existing domains are still present
         expect(directives.connectSrc).toContain("'self'");

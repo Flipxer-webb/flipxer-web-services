@@ -6,7 +6,12 @@
  * audit history on KycAttemptEvent.
  */
 
-import { Injectable, Logger, ConflictException, BadRequestException } from "@nestjs/common";
+import {
+    Injectable,
+    Logger,
+    ConflictException,
+    BadRequestException,
+} from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
     KycActorType,
@@ -31,7 +36,8 @@ const stageManagedVerificationTypes = [
     "BUSINESS_DOCUMENT",
 ] as const;
 
-export type StageManagedVerificationType = (typeof stageManagedVerificationTypes)[number];
+export type StageManagedVerificationType =
+    (typeof stageManagedVerificationTypes)[number];
 
 export type KycTransitionStatus =
     | "PENDING"
@@ -58,10 +64,12 @@ export interface TransitionResult {
     isActive: boolean;
 }
 
-const stageManagedVerificationTypeSet = new Set<string>(stageManagedVerificationTypes);
+const stageManagedVerificationTypeSet = new Set<string>(
+    stageManagedVerificationTypes,
+);
 
 const LEGAL_TRANSITIONS: Record<string, Set<string>> = {
-    "null": new Set(["PENDING", "APPROVED"]),
+    null: new Set(["PENDING", "APPROVED"]),
     PENDING: new Set(["APPROVED", "REJECTED", "ESCALATED"]),
     REJECTED: new Set(["RESUBMITTED"]),
     RESUBMITTED: new Set(["PENDING"]),
@@ -101,10 +109,13 @@ export class KycStateMachineService {
         toStatusRaw: KycTransitionStatus,
         metadata: TransitionMetadata = {},
     ): Promise<TransitionResult> {
-        const verificationType = this.normalizeVerificationType(verificationTypeRaw);
+        const verificationType =
+            this.normalizeVerificationType(verificationTypeRaw);
         const toStatus = this.normaliseStatus(toStatusRaw);
         const current = await this.findCurrentAttempt(userId, verificationType);
-        const currentStatus = current ? this.mapAttemptStatusToKycStatus(current.status) : null;
+        const currentStatus = current
+            ? this.mapAttemptStatusToKycStatus(current.status)
+            : null;
         const fromKey = currentStatus ?? "null";
 
         if (currentStatus === toStatus) {
@@ -122,13 +133,13 @@ export class KycStateMachineService {
         }
 
         if (
-            metadata.expectedVersion !== undefined
-            && current
-            && current.version !== metadata.expectedVersion
+            metadata.expectedVersion !== undefined &&
+            current &&
+            current.version !== metadata.expectedVersion
         ) {
             throw new ConflictException(
                 `KYC record for user ${userId} ${verificationType} was modified concurrently ` +
-                `(expected version ${metadata.expectedVersion}, found ${current.version})`,
+                    `(expected version ${metadata.expectedVersion}, found ${current.version})`,
             );
         }
 
@@ -139,14 +150,29 @@ export class KycStateMachineService {
                 );
             }
 
-            return this.handleResubmission(userId, verificationType, current, metadata);
+            return this.handleResubmission(
+                userId,
+                verificationType,
+                current,
+                metadata,
+            );
         }
 
         if (!current) {
-            return this.createAttempt(userId, verificationType, toStatus, metadata);
+            return this.createAttempt(
+                userId,
+                verificationType,
+                toStatus,
+                metadata,
+            );
         }
 
-        return this.updateAttempt(current, verificationType, toStatus, metadata);
+        return this.updateAttempt(
+            current,
+            verificationType,
+            toStatus,
+            metadata,
+        );
     }
 
     private async findCurrentAttempt(
@@ -154,7 +180,8 @@ export class KycStateMachineService {
         verificationType: StageManagedVerificationType,
     ): Promise<CurrentAttemptRecord | null> {
         const stage = this.mapVerificationTypeToStage(verificationType);
-        const journeyType = this.mapVerificationTypeToJourneyType(verificationType);
+        const journeyType =
+            this.mapVerificationTypeToJourneyType(verificationType);
         const method = this.mapVerificationTypeToMethod(verificationType);
 
         return await this.prisma.kycStageAttempt.findFirst({
@@ -177,15 +204,17 @@ export class KycStateMachineService {
         meta: TransitionMetadata,
     ): Promise<TransitionResult> {
         const stage = this.mapVerificationTypeToStage(verificationType);
-        const journeyType = this.mapVerificationTypeToJourneyType(verificationType);
+        const journeyType =
+            this.mapVerificationTypeToJourneyType(verificationType);
         const method = this.mapVerificationTypeToMethod(verificationType);
-        const nextAttemptAggregate = await this.prisma.kycStageAttempt.aggregate({
-            where: {
-                userId,
-                stage,
-            },
-            _max: { attemptNo: true },
-        });
+        const nextAttemptAggregate =
+            await this.prisma.kycStageAttempt.aggregate({
+                where: {
+                    userId,
+                    stage,
+                },
+                _max: { attemptNo: true },
+            });
         const attemptStatus = this.mapKycStatusToAttemptStatus(status);
         const now = new Date();
         const reviewedAt = this.isDecisionStatus(status) ? now : null;
@@ -204,10 +233,14 @@ export class KycStateMachineService {
                 providerStatus: this.mapKycStatusToProviderStatus(status),
                 decisionMode: KycDecisionMode.MANUAL,
                 providerRef: meta.providerRef ?? null,
-                reasonMessage: status === KycStatus.APPROVED ? null : meta.reviewNote ?? null,
-                reasonDetails: status === KycStatus.APPROVED || !meta.reviewNote
-                    ? Prisma.DbNull
-                    : { reviewNote: meta.reviewNote },
+                reasonMessage:
+                    status === KycStatus.APPROVED
+                        ? null
+                        : (meta.reviewNote ?? null),
+                reasonDetails:
+                    status === KycStatus.APPROVED || !meta.reviewNote
+                        ? Prisma.DbNull
+                        : { reviewNote: meta.reviewNote },
                 evidenceSummary: this.buildEvidenceSummary(meta),
                 reviewerId: meta.reviewerId ?? null,
                 reviewNote: meta.reviewNote ?? null,
@@ -217,7 +250,12 @@ export class KycStateMachineService {
             select: currentAttemptSelect,
         });
 
-        await this.appendAttemptEvent(attempt, verificationType, this.mapKycStatusToEventType(status), meta);
+        await this.appendAttemptEvent(
+            attempt,
+            verificationType,
+            this.mapKycStatusToEventType(status),
+            meta,
+        );
 
         this.logger.log(
             `[KYC-SM] Created: user ${userId} ${verificationType} → ${status} (v${attempt.version})`,
@@ -243,10 +281,14 @@ export class KycStateMachineService {
                 providerRef: meta.providerRef ?? undefined,
                 reviewerId: meta.reviewerId ?? undefined,
                 reviewNote: meta.reviewNote ?? undefined,
-                reasonMessage: status === KycStatus.APPROVED ? null : meta.reviewNote ?? null,
-                reasonDetails: status === KycStatus.APPROVED || !meta.reviewNote
-                    ? Prisma.DbNull
-                    : { reviewNote: meta.reviewNote },
+                reasonMessage:
+                    status === KycStatus.APPROVED
+                        ? null
+                        : (meta.reviewNote ?? null),
+                reasonDetails:
+                    status === KycStatus.APPROVED || !meta.reviewNote
+                        ? Prisma.DbNull
+                        : { reviewNote: meta.reviewNote },
                 evidenceSummary: this.buildEvidenceSummary(meta),
                 reviewedAt: this.isDecisionStatus(status) ? now : undefined,
                 escalatedAt: status === KycStatus.ESCALATED ? now : null,
@@ -254,7 +296,12 @@ export class KycStateMachineService {
             select: currentAttemptSelect,
         });
 
-        await this.appendAttemptEvent(updatedAttempt, verificationType, this.mapKycStatusToEventType(status), meta);
+        await this.appendAttemptEvent(
+            updatedAttempt,
+            verificationType,
+            this.mapKycStatusToEventType(status),
+            meta,
+        );
 
         this.logger.log(
             `[KYC-SM] Updated: attempt ${current.id} → ${status} (v${updatedAttempt.version})`,
@@ -269,18 +316,21 @@ export class KycStateMachineService {
         previousAttempt: CurrentAttemptRecord,
         meta: TransitionMetadata,
     ): Promise<TransitionResult> {
-        const nextAttemptAggregate = await this.prisma.kycStageAttempt.aggregate({
-            where: {
-                userId,
-                stage: previousAttempt.stage,
-            },
-            _max: { attemptNo: true },
-        });
+        const nextAttemptAggregate =
+            await this.prisma.kycStageAttempt.aggregate({
+                where: {
+                    userId,
+                    stage: previousAttempt.stage,
+                },
+                _max: { attemptNo: true },
+            });
         const newVersion = previousAttempt.version + 1;
 
         await this.prisma.kycStageAttempt.update({
             where: { id: previousAttempt.id },
-            data: { isCurrent: false } as Prisma.KycStageAttemptUncheckedUpdateInput,
+            data: {
+                isCurrent: false,
+            } as Prisma.KycStageAttemptUncheckedUpdateInput,
         });
 
         const attempt = await this.prisma.kycStageAttempt.create({
@@ -289,7 +339,9 @@ export class KycStateMachineService {
                 journeyType: previousAttempt.journeyType,
                 stage: previousAttempt.stage,
                 method: previousAttempt.method,
-                attemptNo: (nextAttemptAggregate._max.attemptNo ?? previousAttempt.attemptNo) + 1,
+                attemptNo:
+                    (nextAttemptAggregate._max.attemptNo ??
+                        previousAttempt.attemptNo) + 1,
                 isCurrent: true,
                 status: KycAttemptStatus.SUBMITTED,
                 providerName: this.resolveProviderName(meta),
@@ -297,7 +349,9 @@ export class KycStateMachineService {
                 decisionMode: KycDecisionMode.MANUAL,
                 providerRef: meta.providerRef ?? null,
                 reasonMessage: meta.reviewNote ?? null,
-                reasonDetails: meta.reviewNote ? { reviewNote: meta.reviewNote } : Prisma.DbNull,
+                reasonDetails: meta.reviewNote
+                    ? { reviewNote: meta.reviewNote }
+                    : Prisma.DbNull,
                 evidenceSummary: this.buildEvidenceSummary(meta),
                 reviewNote: meta.reviewNote ?? null,
                 version: newVersion,
@@ -305,7 +359,12 @@ export class KycStateMachineService {
             select: currentAttemptSelect,
         });
 
-        await this.appendAttemptEvent(attempt, verificationType, KycAttemptEventType.RESUBMITTED, meta);
+        await this.appendAttemptEvent(
+            attempt,
+            verificationType,
+            KycAttemptEventType.RESUBMITTED,
+            meta,
+        );
 
         this.logger.log(
             `[KYC-SM] Resubmission: user ${userId} ${verificationType} v${previousAttempt.version} → v${newVersion} (PENDING)`,
@@ -327,18 +386,28 @@ export class KycStateMachineService {
                 journeyType: attempt.journeyType,
                 stage: attempt.stage,
                 eventType,
-                actorType: meta.reviewerId ? KycActorType.ADMIN : KycActorType.SYSTEM,
+                actorType: meta.reviewerId
+                    ? KycActorType.ADMIN
+                    : KycActorType.SYSTEM,
                 actorId: meta.reviewerId ?? null,
                 providerName: this.resolveProviderName(meta),
-                providerStatus: this.mapKycStatusToProviderStatus(this.mapAttemptStatusToKycStatus(attempt.status)),
+                providerStatus: this.mapKycStatusToProviderStatus(
+                    this.mapAttemptStatusToKycStatus(attempt.status),
+                ),
                 providerRef: meta.providerRef ?? undefined,
                 note: meta.reviewNote ?? undefined,
-                payload: this.buildTransitionEventPayload(verificationType, eventType, meta),
+                payload: this.buildTransitionEventPayload(
+                    verificationType,
+                    eventType,
+                    meta,
+                ),
             },
         });
     }
 
-    private buildTransitionResult(attempt: CurrentAttemptRecord): TransitionResult {
+    private buildTransitionResult(
+        attempt: CurrentAttemptRecord,
+    ): TransitionResult {
         return {
             attemptId: attempt.id,
             status: this.mapAttemptStatusToKycStatus(attempt.status),
@@ -352,7 +421,13 @@ export class KycStateMachineService {
         eventType: KycAttemptEventType,
         meta: TransitionMetadata,
     ): Prisma.InputJsonValue | undefined {
-        if (!meta.reviewNote && !meta.documentUrl && !meta.providerRef && !meta.providerRawResponse && meta.expectedVersion === undefined) {
+        if (
+            !meta.reviewNote &&
+            !meta.documentUrl &&
+            !meta.providerRef &&
+            !meta.providerRawResponse &&
+            meta.expectedVersion === undefined
+        ) {
             return undefined;
         }
 
@@ -368,7 +443,9 @@ export class KycStateMachineService {
         } as Prisma.InputJsonValue;
     }
 
-    private buildEvidenceSummary(meta: TransitionMetadata): Prisma.InputJsonValue | undefined {
+    private buildEvidenceSummary(
+        meta: TransitionMetadata,
+    ): Prisma.InputJsonValue | undefined {
         if (!meta.documentUrl) {
             return undefined;
         }
@@ -376,15 +453,21 @@ export class KycStateMachineService {
         return { documentUrl: meta.documentUrl } as Prisma.InputJsonValue;
     }
 
-    private normalizeVerificationType(verificationType: string): StageManagedVerificationType {
+    private normalizeVerificationType(
+        verificationType: string,
+    ): StageManagedVerificationType {
         if (stageManagedVerificationTypeSet.has(verificationType)) {
             return verificationType as StageManagedVerificationType;
         }
 
-        throw new BadRequestException(`Unsupported stage-managed verification type: ${verificationType}`);
+        throw new BadRequestException(
+            `Unsupported stage-managed verification type: ${verificationType}`,
+        );
     }
 
-    private mapVerificationTypeToStage(verificationType: StageManagedVerificationType): KycStage {
+    private mapVerificationTypeToStage(
+        verificationType: StageManagedVerificationType,
+    ): KycStage {
         switch (verificationType) {
             case "BVN":
             case "NIN":
@@ -400,13 +483,17 @@ export class KycStateMachineService {
         }
     }
 
-    private mapVerificationTypeToJourneyType(verificationType: StageManagedVerificationType): KycJourneyType {
+    private mapVerificationTypeToJourneyType(
+        verificationType: StageManagedVerificationType,
+    ): KycJourneyType {
         return verificationType === "BUSINESS_DOCUMENT"
             ? KycJourneyType.BUSINESS
             : KycJourneyType.INDIVIDUAL;
     }
 
-    private mapVerificationTypeToMethod(verificationType: StageManagedVerificationType): KycMethod {
+    private mapVerificationTypeToMethod(
+        verificationType: StageManagedVerificationType,
+    ): KycMethod {
         switch (verificationType) {
             case "BVN":
                 return KycMethod.BVN;
@@ -505,6 +592,12 @@ export class KycStateMachineService {
     }
 
     private isDecisionStatus(status: KycStatus): boolean {
-        return ([KycStatus.APPROVED, KycStatus.REJECTED, KycStatus.ESCALATED] as KycStatus[]).includes(status);
+        return (
+            [
+                KycStatus.APPROVED,
+                KycStatus.REJECTED,
+                KycStatus.ESCALATED,
+            ] as KycStatus[]
+        ).includes(status);
     }
 }

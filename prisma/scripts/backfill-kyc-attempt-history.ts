@@ -6,8 +6,8 @@
 
 function main(): never {
     throw new Error(
-        "prisma/scripts/backfill-kyc-attempt-history.ts was retired after the legacy KYC schema cutover. "
-        + "Use docs/kyc-stage-consolidation-migration-spec.md for historical migration context.",
+        "prisma/scripts/backfill-kyc-attempt-history.ts was retired after the legacy KYC schema cutover. " +
+            "Use docs/kyc-stage-consolidation-migration-spec.md for historical migration context.",
     );
 }
 

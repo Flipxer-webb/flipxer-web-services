@@ -16,7 +16,13 @@ import {
     startOfYear,
     endOfYear,
 } from "date-fns";
-import { GetUserListDto, UnflagUserDto, FlagUserDto, SetLimitOverrideDto, RemoveLimitOverrideDto } from "../dtos";
+import {
+    GetUserListDto,
+    UnflagUserDto,
+    FlagUserDto,
+    SetLimitOverrideDto,
+    RemoveLimitOverrideDto,
+} from "../dtos";
 import { Prisma, User, UserType, EntryStatus } from "@prisma/client";
 import { UserNotFoundException } from "../errors";
 import {
@@ -24,12 +30,21 @@ import {
     TransactionIncludeOptions,
 } from "../../transactions/types";
 import { GetUserTransactionListDto } from "../../transactions/dtos";
-import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
+import {
+    TIER_WITHDRAWAL_LIMITS,
+    TierLevel,
+} from "@/modules/shared/tier-limits";
 import { AuditLogService } from "@/modules/api/audit-log";
 import { UserService } from ".";
 
-const EXCLUDED_ADMIN_USER_TYPES: UserType[] = [UserType.ADMIN, UserType.SUPER_ADMIN];
-const CUSTOMER_USER_TYPES = new Set<UserType>([UserType.INDIVIDUAL, UserType.BUSINESS]);
+const EXCLUDED_ADMIN_USER_TYPES: UserType[] = [
+    UserType.ADMIN,
+    UserType.SUPER_ADMIN,
+];
+const CUSTOMER_USER_TYPES = new Set<UserType>([
+    UserType.INDIVIDUAL,
+    UserType.BUSINESS,
+]);
 
 @Injectable()
 export class AdminUserService {
@@ -69,7 +84,12 @@ export class AdminUserService {
                     isCurrent: true,
                     journeyType: "INDIVIDUAL",
                     stage: {
-                        in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                        in: [
+                            "GOVERNMENT_ID",
+                            "IDENTITY_DOCUMENT",
+                            "ADDRESS",
+                            "INCOME",
+                        ],
                     },
                 },
                 select: {
@@ -94,10 +114,18 @@ export class AdminUserService {
         };
     }
 
-    async getAnalyticsOverview(period?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
-        const { startDate, endDate } = startDateStr && endDateStr
-            ? { startDate: new Date(startDateStr), endDate: endOfDay(new Date(endDateStr)) }
-            : this.getDateRange(period || "month");
+    async getAnalyticsOverview(
+        period?: string,
+        startDateStr?: string,
+        endDateStr?: string,
+    ): Promise<ApiResponse> {
+        const { startDate, endDate } =
+            startDateStr && endDateStr
+                ? {
+                      startDate: new Date(startDateStr),
+                      endDate: endOfDay(new Date(endDateStr)),
+                  }
+                : this.getDateRange(period || "month");
 
         const [totalUsers, usersInPeriod] = await Promise.all([
             // Exclude admin users from total count
@@ -120,13 +148,13 @@ export class AdminUserService {
                 this.prisma.order.aggregate({
                     _sum: { amountInFiat: true },
                     where: {
-                        streamlinedStatus: 'completed',
+                        streamlinedStatus: "completed",
                     },
                 }),
                 this.prisma.order.aggregate({
                     _sum: { amountInFiat: true },
                     where: {
-                        streamlinedStatus: 'completed',
+                        streamlinedStatus: "completed",
                         createdAt: {
                             gte: startDate,
                             lte: endDate,
@@ -157,8 +185,18 @@ export class AdminUserService {
         }
         if (query.searchText) {
             where.OR = [
-                { firstName: { contains: query.searchText, mode: "insensitive" } },
-                { lastName: { contains: query.searchText, mode: "insensitive" } },
+                {
+                    firstName: {
+                        contains: query.searchText,
+                        mode: "insensitive",
+                    },
+                },
+                {
+                    lastName: {
+                        contains: query.searchText,
+                        mode: "insensitive",
+                    },
+                },
                 { email: { contains: query.searchText, mode: "insensitive" } },
                 { phone: { contains: query.searchText, mode: "insensitive" } },
             ];
@@ -169,7 +207,7 @@ export class AdminUserService {
                 ...(query.endDate && { lte: new Date(query.endDate) }),
             };
         }
-        if (query.tier !== undefined && query.tier !== '') {
+        if (query.tier !== undefined && query.tier !== "") {
             where.tier = Number.parseInt(query.tier as any, 10);
         }
         return where;
@@ -197,7 +235,7 @@ export class AdminUserService {
     /** Mutates dbQuery.where to filter by has_balance / zero_balance. */
     private async applyBalanceFilter(
         dbQuery: Prisma.UserFindManyArgs,
-        filter: "has_balance" | "zero_balance"
+        filter: "has_balance" | "zero_balance",
     ): Promise<void> {
         const balanceMap = await this.getUserBalanceMap();
         const userIdsWithBalance = Array.from(balanceMap.entries())
@@ -206,9 +244,10 @@ export class AdminUserService {
 
         dbQuery.where = {
             ...dbQuery.where,
-            id: filter === "has_balance"
-                ? { in: userIdsWithBalance }
-                : { notIn: userIdsWithBalance },
+            id:
+                filter === "has_balance"
+                    ? { in: userIdsWithBalance }
+                    : { notIn: userIdsWithBalance },
         };
     }
 
@@ -231,18 +270,19 @@ export class AdminUserService {
             .sort((a, b) =>
                 query.balanceFilter === "highest_first"
                     ? b.balance - a.balance
-                    : a.balance - b.balance
+                    : a.balance - b.balance,
             )
             .map((u) => u.id);
 
         const count = sortedUserIds.length;
 
-        const paginatedIds = query.paginated === "true"
-            ? sortedUserIds.slice(
-                  (pageNumber - 1) * pageSize,
-                  pageNumber * pageSize,
-              )
-            : sortedUserIds;
+        const paginatedIds =
+            query.paginated === "true"
+                ? sortedUserIds.slice(
+                      (pageNumber - 1) * pageSize,
+                      pageNumber * pageSize,
+                  )
+                : sortedUserIds;
 
         const usersRaw = await this.prisma.user.findMany({
             where: { ...dbQuery.where, id: { in: paginatedIds } },
@@ -250,11 +290,18 @@ export class AdminUserService {
         });
 
         const userMap = new Map(usersRaw.map((u) => [u.id, u]));
-        const users = paginatedIds.map((id) => userMap.get(id)).filter(Boolean) as User[];
+        const users = paginatedIds
+            .map((id) => userMap.get(id))
+            .filter(Boolean) as User[];
 
         const responseData: DataWithPagination<User> = {
             ...(query.paginated === "true" && {
-                meta: buildPaginationMeta(pageNumber, pageSize, count, users.length),
+                meta: buildPaginationMeta(
+                    pageNumber,
+                    pageSize,
+                    count,
+                    users.length,
+                ),
             }),
             records: users,
         };
@@ -304,13 +351,22 @@ export class AdminUserService {
         };
 
         // Handle balance-based filtering/sorting
-        if (query.balanceFilter === "has_balance" || query.balanceFilter === "zero_balance") {
+        if (
+            query.balanceFilter === "has_balance" ||
+            query.balanceFilter === "zero_balance"
+        ) {
             await this.applyBalanceFilter(dbQuery, query.balanceFilter);
         }
 
-        if (query.balanceFilter === "highest_first" || query.balanceFilter === "lowest_first") {
+        if (
+            query.balanceFilter === "highest_first" ||
+            query.balanceFilter === "lowest_first"
+        ) {
             return this.getUserListSortedByBalance(
-                dbQuery, query, resolvedPageNumber, resolvedPageSize
+                dbQuery,
+                query,
+                resolvedPageNumber,
+                resolvedPageSize,
             );
         }
 
@@ -331,7 +387,7 @@ export class AdminUserService {
                     resolvedPageNumber,
                     resolvedPageSize,
                     count,
-                    users.length
+                    users.length,
                 ),
             }),
             records: users,
@@ -348,7 +404,11 @@ export class AdminUserService {
 
         const total = await this.prisma.user.count({ where: baseWhere });
         const active = await this.countActive(query, baseWhere, total);
-        const { verified, pendingKyc } = await this.countKycStats(query, baseWhere, total);
+        const { verified, pendingKyc } = await this.countKycStats(
+            query,
+            baseWhere,
+            total,
+        );
 
         return buildResponse({
             message: "User filtered stats retrieved",
@@ -364,7 +424,9 @@ export class AdminUserService {
         if (query.status) {
             return query.status === "ACTIVE" ? total : 0;
         }
-        return this.prisma.user.count({ where: { ...baseWhere, status: "ACTIVE" } });
+        return this.prisma.user.count({
+            where: { ...baseWhere, status: "ACTIVE" },
+        });
     }
 
     private async countKycStats(
@@ -374,10 +436,15 @@ export class AdminUserService {
     ): Promise<{ verified: number; pendingKyc: number }> {
         if (query.tier !== undefined && query.tier !== "") {
             const tierNum = Number.parseInt(query.tier as any, 10);
-            return { verified: tierNum >= 1 ? total : 0, pendingKyc: tierNum === 0 ? total : 0 };
+            return {
+                verified: tierNum >= 1 ? total : 0,
+                pendingKyc: tierNum === 0 ? total : 0,
+            };
         }
         const [verified, pendingKyc] = await Promise.all([
-            this.prisma.user.count({ where: { ...baseWhere, tier: { gte: 1 } } }),
+            this.prisma.user.count({
+                where: { ...baseWhere, tier: { gte: 1 } },
+            }),
             this.prisma.user.count({ where: { ...baseWhere, tier: 0 } }),
         ]);
         return { verified, pendingKyc };
@@ -394,7 +461,7 @@ export class AdminUserService {
         if (!userDetail) {
             throw new UserNotFoundException(
                 "User not found",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
@@ -413,12 +480,18 @@ export class AdminUserService {
             kycStageAttempts: _kycStageAttempts,
             ...resolvedUserDetail
         } = userDetail;
-        const { bvn: _bvn, nin: _nin, ...sanitizedUserDetail } = resolvedUserDetail;
-        const kycJourney = userDetail.userType === UserType.INDIVIDUAL
-            ? this.userService.buildKycReadModel(userDetail).kycJourney
-            : null;
+        const {
+            bvn: _bvn,
+            nin: _nin,
+            ...sanitizedUserDetail
+        } = resolvedUserDetail;
+        const kycJourney =
+            userDetail.userType === UserType.INDIVIDUAL
+                ? this.userService.buildKycReadModel(userDetail).kycJourney
+                : null;
 
-        const withdrawalLimit = TIER_WITHDRAWAL_LIMITS[userDetail.tier as TierLevel] ?? 0;
+        const withdrawalLimit =
+            TIER_WITHDRAWAL_LIMITS[userDetail.tier as TierLevel] ?? 0;
 
         return buildResponse({
             message: "User personal info retrieved",
@@ -436,7 +509,7 @@ export class AdminUserService {
 
     async getUserTransactionList(
         query: GetUserTransactionListDto,
-        userId: number
+        userId: number,
     ) {
         const { pageNumber, pageSize, sortBy } = query;
 
@@ -513,11 +586,11 @@ export class AdminUserService {
                     resolvedPageNumber,
                     resolvedPageSize,
                     count,
-                    transactions.length
+                    transactions.length,
                 ),
             }),
             records: transactions.map((t) =>
-                shapeTransaction(t as TransactionIncludeOptions)
+                shapeTransaction(t as TransactionIncludeOptions),
             ),
         };
 
@@ -527,7 +600,10 @@ export class AdminUserService {
         });
     }
 
-    async unflagUser(dto: UnflagUserDto, adminId?: number): Promise<ApiResponse> {
+    async unflagUser(
+        dto: UnflagUserDto,
+        adminId?: number,
+    ): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: dto.id },
             select: {
@@ -545,7 +621,7 @@ export class AdminUserService {
         if (!user) {
             throw new UserNotFoundException(
                 "Account with ID not found.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -622,7 +698,7 @@ export class AdminUserService {
         if (!user) {
             throw new UserNotFoundException(
                 "Account with ID not found.",
-                HttpStatus.BAD_REQUEST
+                HttpStatus.BAD_REQUEST,
             );
         }
 
@@ -685,10 +761,18 @@ export class AdminUserService {
         });
     }
 
-    async setLimitOverride(dto: SetLimitOverrideDto, adminUserId: number): Promise<ApiResponse> {
-        const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+    async setLimitOverride(
+        dto: SetLimitOverrideDto,
+        adminUserId: number,
+    ): Promise<ApiResponse> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: dto.userId },
+        });
         if (!user) {
-            throw new UserNotFoundException("Account with ID not found.", HttpStatus.BAD_REQUEST);
+            throw new UserNotFoundException(
+                "Account with ID not found.",
+                HttpStatus.BAD_REQUEST,
+            );
         }
 
         const override = await this.prisma.limitOverride.upsert({
@@ -713,7 +797,11 @@ export class AdminUserService {
             action: "SET_LIMIT_OVERRIDE",
             resource: "user",
             resourceId: dto.userId.toString(),
-            details: { dailyLimitUSD: dto.dailyLimitUSD, reason: dto.reason, expiresAt: dto.expiresAt },
+            details: {
+                dailyLimitUSD: dto.dailyLimitUSD,
+                reason: dto.reason,
+                expiresAt: dto.expiresAt,
+            },
             adminId: adminUserId,
         });
 
@@ -728,13 +816,23 @@ export class AdminUserService {
         });
     }
 
-    async removeLimitOverride(dto: RemoveLimitOverrideDto, adminId?: number): Promise<ApiResponse> {
-        const override = await this.prisma.limitOverride.findUnique({ where: { userId: dto.userId } });
+    async removeLimitOverride(
+        dto: RemoveLimitOverrideDto,
+        adminId?: number,
+    ): Promise<ApiResponse> {
+        const override = await this.prisma.limitOverride.findUnique({
+            where: { userId: dto.userId },
+        });
         if (!override) {
-            return buildResponse({ message: "No limit override found for this user.", data: null });
+            return buildResponse({
+                message: "No limit override found for this user.",
+                data: null,
+            });
         }
 
-        await this.prisma.limitOverride.delete({ where: { userId: dto.userId } });
+        await this.prisma.limitOverride.delete({
+            where: { userId: dto.userId },
+        });
 
         await this.auditLogService.log({
             action: "REMOVE_LIMIT_OVERRIDE",
@@ -751,9 +849,13 @@ export class AdminUserService {
     }
 
     async getLimitOverride(userId: number): Promise<ApiResponse> {
-        const override = await this.prisma.limitOverride.findUnique({ where: { userId } });
+        const override = await this.prisma.limitOverride.findUnique({
+            where: { userId },
+        });
         return buildResponse({
-            message: override ? "Limit override found." : "No limit override for this user.",
+            message: override
+                ? "Limit override found."
+                : "No limit override for this user.",
             data: override ?? null,
         });
     }
@@ -766,15 +868,24 @@ export class AdminUserService {
             case "week":
                 return { startDate: startOfWeek(now), endDate: endOfWeek(now) };
             case "month":
-                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+                return {
+                    startDate: startOfMonth(now),
+                    endDate: endOfMonth(now),
+                };
             case "quarter":
-                return { startDate: startOfQuarter(now), endDate: endOfQuarter(now) };
+                return {
+                    startDate: startOfQuarter(now),
+                    endDate: endOfQuarter(now),
+                };
             case "year":
                 return { startDate: startOfYear(now), endDate: endOfYear(now) };
             case "all":
                 return { startDate: new Date(0), endDate: now };
             default:
-                return { startDate: startOfMonth(now), endDate: endOfMonth(now) };
+                return {
+                    startDate: startOfMonth(now),
+                    endDate: endOfMonth(now),
+                };
         }
     }
 }

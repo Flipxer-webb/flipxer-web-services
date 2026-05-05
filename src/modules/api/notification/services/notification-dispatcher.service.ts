@@ -20,7 +20,11 @@ import { TransactionType } from "../types/notification.type";
  * - price_alert: price alert triggers
  * - marketing: promotional / admin broadcast
  */
-export type NotificationCategory = "transaction" | "security" | "price_alert" | "marketing";
+export type NotificationCategory =
+    | "transaction"
+    | "security"
+    | "price_alert"
+    | "marketing";
 
 /**
  * Options for sending a notification through all channels
@@ -76,7 +80,7 @@ export interface NotifyOptions {
  * - WebSocket (real-time updates)
  * - Email (via NotificationEvent)
  * - Push (via Firebase)
- * 
+ *
  * Features:
  * - Uses $transaction to prevent race conditions
  * - Checks user preferences before each channel
@@ -92,7 +96,7 @@ export class NotificationDispatcher {
         private readonly wsGateway: WsGateway,
         private readonly notificationEvent: NotificationEvent,
         private readonly pushNotificationService: PushNotificationService,
-    ) { }
+    ) {}
 
     /**
      * Check if the user's push preference allows this notification category.
@@ -142,7 +146,11 @@ export class NotificationDispatcher {
      * During quiet hours, push and email are suppressed (except security).
      */
     private isInQuietHours(prefs: NotificationPreferences | null): boolean {
-        if (!prefs?.quietHoursEnabled || !prefs.quietHoursStart || !prefs.quietHoursEnd) {
+        if (
+            !prefs?.quietHoursEnabled ||
+            !prefs.quietHoursStart ||
+            !prefs.quietHoursEnd
+        ) {
             return false;
         }
         const now = new Date();
@@ -166,36 +174,37 @@ export class NotificationDispatcher {
         try {
             // 1. Query user preferences FIRST
             const prefs = await this.prisma.notificationPreferences.findUnique({
-                where: { userId: options.userId }
+                where: { userId: options.userId },
             });
 
             // 2. Atomic DB operation (fixes race condition)
             // Create notification and fetch list in same transaction
-            const { notification, notificationList } = await this.prisma.$transaction(async (tx) => {
-                const notification = await tx.notification.create({
-                    data: {
-                        title: options.title,
-                        body: options.body,
-                        userId: options.userId,
-                        target: UserNotificationTarget.SINGLE,
-                        beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                        type: NotificationType.MESSAGE,
-                        status: NotificationStatus.APPROVED,
-                        senderId: null,
-                        transactionType: options.transactionType,
-                        currency: options.currency,
-                        category: options.category,
-                    },
-                });
+            const { notification, notificationList } =
+                await this.prisma.$transaction(async (tx) => {
+                    const notification = await tx.notification.create({
+                        data: {
+                            title: options.title,
+                            body: options.body,
+                            userId: options.userId,
+                            target: UserNotificationTarget.SINGLE,
+                            beneficiary: NotificationBeneficiary.INDIVIDUAL,
+                            type: NotificationType.MESSAGE,
+                            status: NotificationStatus.APPROVED,
+                            senderId: null,
+                            transactionType: options.transactionType,
+                            currency: options.currency,
+                            category: options.category,
+                        },
+                    });
 
-                const notificationList = await tx.notification.findMany({
-                    where: { userId: options.userId },
-                    orderBy: { createdAt: "desc" },
-                    take: 20,
-                });
+                    const notificationList = await tx.notification.findMany({
+                        where: { userId: options.userId },
+                        orderBy: { createdAt: "desc" },
+                        take: 20,
+                    });
 
-                return { notification, notificationList };
-            });
+                    return { notification, notificationList };
+                });
 
             // 3. WebSocket (always sent - real-time is expected)
             try {
@@ -205,14 +214,18 @@ export class NotificationDispatcher {
                     notificationList,
                 });
             } catch (wsError) {
-                this.logger.warn(`WebSocket notification failed for user ${options.userId}: ${wsError.message}`);
+                this.logger.warn(
+                    `WebSocket notification failed for user ${options.userId}: ${wsError.message}`,
+                );
             }
 
             // Quiet hours suppress push & email (security alerts bypass quiet hours)
-            const inQuietHours = this.isInQuietHours(prefs) && options.category !== "security";
+            const inQuietHours =
+                this.isInQuietHours(prefs) && options.category !== "security";
 
             // 4. Email (if enabled and user allows it)
-            const shouldEmail = options.enableEmail &&
+            const shouldEmail =
+                options.enableEmail &&
                 options.emailPayload &&
                 !inQuietHours &&
                 this.shouldSendEmail(prefs, options.category);
@@ -224,36 +237,48 @@ export class NotificationDispatcher {
                         notice: options.body,
                     });
                 } catch (emailError) {
-                    this.logger.warn(`Email notification failed for user ${options.userId}: ${emailError.message}`);
+                    this.logger.warn(
+                        `Email notification failed for user ${options.userId}: ${emailError.message}`,
+                    );
                 }
             }
 
             // 5. Push (if enabled and user allows it)
-            const shouldPush = options.enablePush &&
+            const shouldPush =
+                options.enablePush &&
                 !inQuietHours &&
                 this.shouldSendPush(prefs, options.category);
 
             if (shouldPush) {
                 try {
-                    await this.pushNotificationService.sendToUser(options.userId, {
-                        title: options.pushTitle || options.title,
-                        body: options.pushBody || options.body,
-                        data: {
-                            type: options.transactionType || "notification",
-                            currency: options.currency || "",
-                            category: options.category || "transaction",
-                            url: this.getCategoryUrl(options.category),
+                    await this.pushNotificationService.sendToUser(
+                        options.userId,
+                        {
+                            title: options.pushTitle || options.title,
+                            body: options.pushBody || options.body,
+                            data: {
+                                type: options.transactionType || "notification",
+                                currency: options.currency || "",
+                                category: options.category || "transaction",
+                                url: this.getCategoryUrl(options.category),
+                            },
                         },
-                    });
+                    );
                 } catch (pushError) {
-                    this.logger.warn(`Push notification failed for user ${options.userId}: ${pushError.message}`);
+                    this.logger.warn(
+                        `Push notification failed for user ${options.userId}: ${pushError.message}`,
+                    );
                 }
             }
 
-            this.logger.log(`Notification sent to user ${options.userId}: ${options.title}`);
-
+            this.logger.log(
+                `Notification sent to user ${options.userId}: ${options.title}`,
+            );
         } catch (error) {
-            this.logger.error(`Failed to send notification to user ${options.userId}: ${error.message}`, error.stack);
+            this.logger.error(
+                `Failed to send notification to user ${options.userId}: ${error.message}`,
+                error.stack,
+            );
             // Don't throw - notification failures shouldn't break business logic
         }
     }
@@ -263,11 +288,15 @@ export class NotificationDispatcher {
      */
     private getCategoryUrl(category?: NotificationCategory): string {
         switch (category) {
-            case "security": return "/security";
-            case "price_alert": return "/price-alerts";
-            case "marketing": return "/dashboard";
+            case "security":
+                return "/security";
+            case "price_alert":
+                return "/price-alerts";
+            case "marketing":
+                return "/dashboard";
             case "transaction":
-            default: return "/transactions";
+            default:
+                return "/transactions";
         }
     }
 
@@ -275,24 +304,29 @@ export class NotificationDispatcher {
      * Send a transaction update via WebSocket only (no DB notification).
      * Use this for status updates where a notification already exists.
      */
-    notifyTransactionUpdate(userId: number, transaction: {
-        id: number;
-        transactionId: string;
-        status: string;
-        streamlinedStatus: string;
-        orderCategory: OrderCategory;
-        amount: number;
-        currency: string;
-        createdAt: Date;
-        updatedAt: Date;
-    }): void {
+    notifyTransactionUpdate(
+        userId: number,
+        transaction: {
+            id: number;
+            transactionId: string;
+            status: string;
+            streamlinedStatus: string;
+            orderCategory: OrderCategory;
+            amount: number;
+            currency: string;
+            createdAt: Date;
+            updatedAt: Date;
+        },
+    ): void {
         try {
             this.wsGateway.notifyTransactionUpdate(userId, {
                 type: "transaction_update",
                 transaction,
             });
         } catch (error) {
-            this.logger.warn(`Transaction update notification failed for user ${userId}: ${error.message}`);
+            this.logger.warn(
+                `Transaction update notification failed for user ${userId}: ${error.message}`,
+            );
         }
     }
 
@@ -304,7 +338,9 @@ export class NotificationDispatcher {
         try {
             this.wsGateway.notifyWalletUpdate(userId);
         } catch (error) {
-            this.logger.warn(`Wallet update notification failed for user ${userId}: ${error.message}`);
+            this.logger.warn(
+                `Wallet update notification failed for user ${userId}: ${error.message}`,
+            );
         }
     }
 }

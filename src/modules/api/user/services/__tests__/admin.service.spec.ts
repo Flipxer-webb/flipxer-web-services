@@ -3,7 +3,9 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     UserNotFoundException: class extends Error {
         status: number;
         constructor(message: string, status: number) {
@@ -22,7 +24,10 @@ import { UserService } from "..";
 
 function makePrisma() {
     const tx = {
-        flagged: { update: jest.fn(), create: jest.fn().mockResolvedValue({ id: 50 }) },
+        flagged: {
+            update: jest.fn(),
+            create: jest.fn().mockResolvedValue({ id: 50 }),
+        },
         user: { update: jest.fn() },
     };
 
@@ -66,9 +71,14 @@ describe("AdminUserService", () => {
     beforeEach(async () => {
         prisma = makePrisma();
         userService = {
-            ensureCurrentIndividualKycStageAttempts: jest.fn().mockResolvedValue(false),
+            ensureCurrentIndividualKycStageAttempts: jest
+                .fn()
+                .mockResolvedValue(false),
             buildKycReadModel: jest.fn().mockReturnValue({
-                verificationRequirements: { nextStep: "COMPLETE", details: null },
+                verificationRequirements: {
+                    nextStep: "COMPLETE",
+                    details: null,
+                },
                 kycJourney: null,
             }),
         };
@@ -78,7 +88,10 @@ describe("AdminUserService", () => {
                 AdminUserService,
                 { provide: PrismaService, useValue: prisma },
                 { provide: EmailService, useValue: { sendMail: jest.fn() } },
-                { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+                {
+                    provide: AuditLogService,
+                    useValue: { log: jest.fn().mockResolvedValue(undefined) },
+                },
                 { provide: UserService, useValue: userService },
             ],
         }).compile();
@@ -104,9 +117,17 @@ describe("AdminUserService", () => {
     it("should return filtered user stats with explicit status and tier", async () => {
         prisma.user.count.mockResolvedValue(7);
 
-        const result = await service.getUserFilteredStats({ status: "ACTIVE", tier: "1" } as any);
+        const result = await service.getUserFilteredStats({
+            status: "ACTIVE",
+            tier: "1",
+        } as any);
 
-        expect(result.data).toEqual({ total: 7, active: 7, verified: 7, pendingKyc: 0 });
+        expect(result.data).toEqual({
+            total: 7,
+            active: 7,
+            verified: 7,
+            pendingKyc: 0,
+        });
     });
 
     it("should return user info with withdrawal limit", async () => {
@@ -133,7 +154,10 @@ describe("AdminUserService", () => {
             kycStageAttempts: [],
         });
         userService.buildKycReadModel.mockReturnValue({
-            verificationRequirements: { nextStep: "IDENTITY_DOCUMENT", details: null },
+            verificationRequirements: {
+                nextStep: "IDENTITY_DOCUMENT",
+                details: null,
+            },
             kycJourney: { overallStatus: "IN_PROGRESS" },
         });
 
@@ -144,7 +168,9 @@ describe("AdminUserService", () => {
         expect(result.data.withdrawalLimit).toBeDefined();
         expect(result.data.emailVerified).toBe(true);
         expect(result.data.phoneVerified).toBe(false);
-        expect(result.data.kycJourney).toEqual({ overallStatus: "IN_PROGRESS" });
+        expect(result.data.kycJourney).toEqual({
+            overallStatus: "IN_PROGRESS",
+        });
         expect(result.data).not.toHaveProperty("verificationRequirements");
         expect(result.data).not.toHaveProperty("identifier");
         expect(result.data).not.toHaveProperty("photo");
@@ -191,7 +217,9 @@ describe("AdminUserService", () => {
             { userId: 1, balanceAfter: 10 },
             { userId: 2, balanceAfter: 0 },
         ]);
-        prisma.user.findMany.mockResolvedValue([{ id: 1, firstName: "A", lastName: "B" }]);
+        prisma.user.findMany.mockResolvedValue([
+            { id: 1, firstName: "A", lastName: "B" },
+        ]);
         prisma.user.count.mockResolvedValue(1);
 
         const result = await service.getUserList({
@@ -236,13 +264,20 @@ describe("AdminUserService", () => {
 
         const result = await service.getUserFilteredStats({} as any);
 
-        expect(result.data).toEqual({ total: 10, active: 7, verified: 6, pendingKyc: 4 });
+        expect(result.data).toEqual({
+            total: 10,
+            active: 7,
+            verified: 6,
+            pendingKyc: 4,
+        });
     });
 
     it("should throw when getUserInfo user does not exist", async () => {
         prisma.user.findUnique.mockResolvedValue(null);
 
-        await expect(service.getUserInfo(404)).rejects.toThrow("User not found");
+        await expect(service.getUserInfo(404)).rejects.toThrow(
+            "User not found",
+        );
     });
 
     it("should return paginated user transaction list", async () => {
@@ -264,7 +299,12 @@ describe("AdminUserService", () => {
         prisma.order.count.mockResolvedValue(1);
 
         const result = await service.getUserTransactionList(
-            { paginated: "true", pageNumber: 1, pageSize: 10, sortBy: "desc" } as any,
+            {
+                paginated: "true",
+                pageNumber: 1,
+                pageSize: 10,
+                sortBy: "desc",
+            } as any,
             7,
         );
 
@@ -276,7 +316,9 @@ describe("AdminUserService", () => {
     it("should throw when unflagging non-existent user", async () => {
         prisma.user.findUnique.mockResolvedValue(null);
 
-        await expect(service.unflagUser({ id: 90 } as any)).rejects.toThrow("Account with ID not found");
+        await expect(service.unflagUser({ id: 90 } as any)).rejects.toThrow(
+            "Account with ID not found",
+        );
     });
 
     it("should unflag existing flagged record via update path", async () => {
@@ -329,7 +371,10 @@ describe("AdminUserService", () => {
         const result = await service.flagUser({ id: 6, reason: "aml" } as any);
 
         expect(prisma.__tx.flagged.update).toHaveBeenCalled();
-        expect(result.data.flaggedRecord).toEqual({ flagged: true, reason: "aml" });
+        expect(result.data.flaggedRecord).toEqual({
+            flagged: true,
+            reason: "aml",
+        });
     });
 
     it("should apply date range branch when analytics overview receives custom dates", async () => {
@@ -407,7 +452,10 @@ describe("AdminUserService", () => {
             expect(prisma.limitOverride.upsert).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { userId: 1 },
-                    create: expect.objectContaining({ userId: 1, dailyLimitUSD: 5000 }),
+                    create: expect.objectContaining({
+                        userId: 1,
+                        dailyLimitUSD: 5000,
+                    }),
                 }),
             );
         });
@@ -431,14 +479,21 @@ describe("AdminUserService", () => {
             });
 
             const result = await service.setLimitOverride(
-                { userId: 2, dailyLimitUSD: 10000, reason: "Temporary boost", expiresAt: "2026-12-31T00:00:00Z" },
+                {
+                    userId: 2,
+                    dailyLimitUSD: 10000,
+                    reason: "Temporary boost",
+                    expiresAt: "2026-12-31T00:00:00Z",
+                },
                 99,
             );
 
             expect(result.data.expiresAt).toBeTruthy();
             expect(prisma.limitOverride.upsert).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    create: expect.objectContaining({ expiresAt: expect.any(Date) }),
+                    create: expect.objectContaining({
+                        expiresAt: expect.any(Date),
+                    }),
                 }),
             );
         });
@@ -446,13 +501,18 @@ describe("AdminUserService", () => {
 
     describe("removeLimitOverride", () => {
         it("should remove an existing override", async () => {
-            prisma.limitOverride.findUnique.mockResolvedValue({ userId: 1, dailyLimitUSD: 5000 });
+            prisma.limitOverride.findUnique.mockResolvedValue({
+                userId: 1,
+                dailyLimitUSD: 5000,
+            });
             prisma.limitOverride.delete.mockResolvedValue({});
 
             const result = await service.removeLimitOverride({ userId: 1 });
 
             expect(result.message).toContain("removed");
-            expect(prisma.limitOverride.delete).toHaveBeenCalledWith({ where: { userId: 1 } });
+            expect(prisma.limitOverride.delete).toHaveBeenCalledWith({
+                where: { userId: 1 },
+            });
         });
 
         it("should return message when no override exists", async () => {

@@ -12,20 +12,20 @@ export class NotificationEvent extends EventEmitter {
         super();
         this.on(
             "transaction_notification",
-            this.sendTransactionNotification.bind(this)
+            this.sendTransactionNotification.bind(this),
         );
         this.on("login_notification", this.sendLoginNotification.bind(this));
     }
     emit<K extends keyof t.NotificationEventMap>(
         eventName: K,
-        payload: t.NotificationEventMap[K]
+        payload: t.NotificationEventMap[K],
     ): boolean {
         return super.emit(eventName, payload);
     }
 
     on<K extends keyof t.NotificationEventMap>(
         eventName: K,
-        listener: (payload: t.NotificationEventMap[K]) => void
+        listener: (payload: t.NotificationEventMap[K]) => void,
     ) {
         return super.on(eventName, listener);
     }
@@ -39,10 +39,7 @@ export class NotificationEvent extends EventEmitter {
             return error;
         }
 
-        if (
-            error === null ||
-            error === undefined
-        ) {
+        if (error === null || error === undefined) {
             return error === null ? "null" : "undefined";
         }
 
@@ -65,8 +62,7 @@ export class NotificationEvent extends EventEmitter {
             if (serialized) {
                 return serialized;
             }
-        } catch {
-        }
+        } catch {}
 
         return "Unserializable error object";
     }
@@ -84,7 +80,7 @@ export class NotificationEvent extends EventEmitter {
             ];
             const validTypes = ["deposit", "withdrawal", "swap", "buy", "sell"];
 
-            const normalizedStatus = options.status?.toLowerCase().trim() || '';
+            const normalizedStatus = options.status?.toLowerCase().trim() || "";
             const normalizedType =
                 options.transactionType?.toLowerCase().trim() || "";
 
@@ -161,24 +157,24 @@ export class NotificationEvent extends EventEmitter {
                     status: normalizedStatus,
                     date: options.date,
                     // Blockchain details
-                    tx_hash: options.txHash || '',
-                    network: options.network || '',
-                    wallet_address: options.walletAddress || '',
-                    explorer_url: options.explorerUrl || '',
-                    recipient: options.recipient || '',
+                    tx_hash: options.txHash || "",
+                    network: options.network || "",
+                    wallet_address: options.walletAddress || "",
+                    explorer_url: options.explorerUrl || "",
+                    recipient: options.recipient || "",
                     // Swap details
-                    to_amount: options.toAmount || '',
-                    to_currency: options.toCurrency || '',
-                    from_amount: options.fromAmount || '',
-                    from_currency: options.fromCurrency || '',
+                    to_amount: options.toAmount || "",
+                    to_currency: options.toCurrency || "",
+                    from_amount: options.fromAmount || "",
+                    from_currency: options.fromCurrency || "",
                     // Fiat details (buy/sell)
-                    fiat_amount: options.fiatAmount || '',
-                    bank_name: options.bankName || '',
-                    account_number: options.accountNumber || '',
+                    fiat_amount: options.fiatAmount || "",
+                    bank_name: options.bankName || "",
+                    account_number: options.accountNumber || "",
                     // Additional receipt fields
-                    order_reference: options.orderReference || '',
-                    network_fee: options.networkFee || '',
-                    exchange_rate: options.exchangeRate || '',
+                    order_reference: options.orderReference || "",
+                    network_fee: options.networkFee || "",
+                    exchange_rate: options.exchangeRate || "",
                 },
             };
 
@@ -192,15 +188,13 @@ export class NotificationEvent extends EventEmitter {
 
             // Log successful send
             this.logger.log(
-                `[TransactionEmail] Sent successfully: txId=${options.transactionId} type=${transactionType} status=${normalizedStatus} recipient=${options.email}`
+                `[TransactionEmail] Sent successfully: txId=${options.transactionId} type=${transactionType} status=${normalizedStatus} recipient=${options.email}`,
             );
         } catch (error) {
             this.logger.error(
                 `[TransactionEmail] Failed to send for txId=${
                     options.transactionId
-                } recipient=${options.email}: ${
-                    this.formatError(error)
-                }`
+                } recipient=${options.email}: ${this.formatError(error)}`,
             );
         }
     }
@@ -218,7 +212,7 @@ export class NotificationEvent extends EventEmitter {
                 `[LoginNotification] Sending login notification to ${options.email} from IP ${options.ipAddress}`,
             );
 
-            const formattedLoginTime = options.loginTime 
+            const formattedLoginTime = options.loginTime
                 ? new Date(options.loginTime).toLocaleString()
                 : new Date().toLocaleString();
 
@@ -245,6 +239,4 @@ export class NotificationEvent extends EventEmitter {
             );
         }
     }
-
 }
-
