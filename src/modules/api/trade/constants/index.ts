@@ -1,4 +1,5 @@
 import { NetworkTypes } from "@prisma/client";
+import type { SupportedTradeAsset } from "../interfaces/trade";
 
 /**
  * Trade Module Constants
@@ -78,41 +79,57 @@ export const NETWORK_SEGMENT_SPLITTER = /[\s/_-]+/;
 // ==================== SUPPORTED ASSETS ====================
 
 /**
- * Set of cryptocurrency symbols supported by the platform with full Quidax wallet support.
- * Used for validation and wallet creation filtering.
+ * Canonical tradable-asset reference data shared by trade flows.
+ * This is the backend-owned source of truth for trade eligibility and display names.
  */
-export const SUPPORTED_ASSETS = new Set([
-    "BTC",   // Bitcoin
-    "ETH",   // Ethereum
-    "USDT",  // Tether
-    "USDC",  // USD Coin
-    "BNB",   // Binance Coin
-    "SOL",   // Solana
-    "XRP",   // Ripple
-    "ADA",   // Cardano
-    "DOGE",  // Dogecoin
-    "LTC",   // Litecoin
-    "TRX",   // Tron
-    "SHIB",  // Shiba Inu
-]);
+export const SUPPORTED_TRADE_ASSETS = [
+    { symbol: "BTC", name: "Bitcoin" },
+    { symbol: "ETH", name: "Ethereum" },
+    { symbol: "USDT", name: "Tether" },
+    { symbol: "USDC", name: "USD Coin" },
+    { symbol: "BNB", name: "BNB" },
+    { symbol: "SOL", name: "Solana" },
+    { symbol: "XRP", name: "XRP" },
+    { symbol: "ADA", name: "Cardano" },
+    { symbol: "DOGE", name: "Dogecoin" },
+    { symbol: "LTC", name: "Litecoin" },
+    { symbol: "TRX", name: "Tron" },
+    { symbol: "SHIB", name: "Shiba Inu" },
+] as const satisfies readonly SupportedTradeAsset[];
+
+/**
+ * Uppercase asset symbols for the 12 launch-enabled trade assets.
+ */
+export const SUPPORTED_TRADE_ASSET_SYMBOLS: ReadonlyArray<string> =
+    SUPPORTED_TRADE_ASSETS.map((asset) => asset.symbol);
+
+/**
+ * Lowercase asset symbols for DTO validation / request normalization.
+ */
+export const SUPPORTED_TRADE_ASSET_LOWERCASE_SYMBOLS: ReadonlyArray<string> =
+    SUPPORTED_TRADE_ASSET_SYMBOLS.map((symbol) => symbol.toLowerCase());
+
+/**
+ * Set of tradable cryptocurrency symbols used for validation and wallet creation filtering.
+ */
+export const SUPPORTED_ASSETS: ReadonlySet<string> = new Set(
+    SUPPORTED_TRADE_ASSETS.map((asset) => asset.symbol),
+);
 
 /**
  * Array version of supported currencies for iteration (lowercase for Quidax API)
  */
-export const SUPPORTED_CURRENCIES = [
-    "btc",
-    "eth",
-    "usdt",
-    "usdc",
-    "bnb",
-    "sol",
-    "xrp",
-    "ada",
-    "doge",
-    "ltc",
-    "trx",
-    "shib",
-] as const;
+export const SUPPORTED_CURRENCIES: ReadonlyArray<string> =
+    SUPPORTED_TRADE_ASSETS.map((asset) => asset.symbol.toLowerCase());
+
+/**
+ * Swap destinations enabled.
+ * Only asset consolidation into USDT is permitted initially.
+ */
+export const SWAP_TARGET_CURRENCY = "USDT";
+export const SWAP_ALLOWED_TARGET_CURRENCIES: ReadonlySet<string> = new Set([
+    SWAP_TARGET_CURRENCY,
+]);
 
 /**
  * All supported currencies for deposit sync (includes additional assets)
@@ -122,10 +139,14 @@ export const ALL_SUPPORTED_CURRENCIES_FOR_SYNC = [
     "btc",
     "eth",
     "usdc",
+    "bnb",
     "sol",
     "xrp",
-    "bnb",
+    "ada",
+    "doge",
+    "ltc",
     "trx",
+    "shib",
     "matic",
     "avax",
 ] as const;
@@ -169,10 +190,11 @@ export const EXTENDED_TRANSACTION_TIMEOUT_MS = 40000;
 export const DEFAULT_TRANSACTION_MAX_WAIT_MS = 5000;
 
 /**
- * Minimum buy size expressed in USDT-equivalent.
- * A zero default preserves current behavior until a product threshold is defined.
+ * Minimum trade sizes expressed in USDT-equivalent.
  */
-export const MIN_BUY_AMOUNT_USDT = 0;
+export const MIN_BUY_AMOUNT_USDT = 3;
+export const MIN_SELL_AMOUNT_USDT = 3;
+export const MIN_SWAP_AMOUNT_USDT = 10;
 
 // ==================== TIER & LIMITS ====================
 

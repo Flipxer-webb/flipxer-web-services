@@ -1,13 +1,24 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { TradeHelpersService } from "../trade-helpers.service";
 import { NetworkTypes } from "@prisma/client";
+import { RateService } from "../rate.service";
 
 describe("TradeHelpersService", () => {
     let service: TradeHelpersService;
+    let mockRateService: { getAssetRate: jest.Mock };
 
     beforeEach(async () => {
+        mockRateService = {
+            getAssetRate: jest
+                .fn()
+                .mockResolvedValue({ buyRate: 1650000, sellRate: 1640000 }),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
-            providers: [TradeHelpersService],
+            providers: [
+                TradeHelpersService,
+                { provide: RateService, useValue: mockRateService },
+            ],
         }).compile();
 
         service = module.get<TradeHelpersService>(TradeHelpersService);
@@ -153,6 +164,70 @@ describe("TradeHelpersService", () => {
             };
             const result = service.safeJsonStringify(obj);
             expect(result).toContain("deep");
+        });
+    });
+
+    describe("ensureSupportedTradeAsset", () => {
+        it("normalizes supported assets", () => {
+            expect(service.ensureSupportedTradeAsset("btc", "buy")).toBe("BTC");
+            expect(service.ensureSupportedTradeAsset(" usdt ", "swap")).toBe(
+                "USDT",
+            );
+        });
+
+        it("rejects assets outside the 12 supported trade set", () => {
+            expect(() =>
+                service.ensureSupportedTradeAsset("BUSD", "buy"),
+            ).toThrow(
+                "Unsupported buy asset. Only the 12 supported assets are enabled.",
+            );
+        });
+    });
+
+    describe("validateMinimumAmountInUSDT", () => {
+        it("should skip validation when the minimum is disabled", async () => {
+            await expect(
+                service.validateMinimumAmountInUSDT(1, "BTC", 0, "buy"),
+            ).resolves.not.toThrow();
+
+            expect(mockRateService.getAssetRate).not.toHaveBeenCalled();
+        });
+
+        it("should skip rate conversion for USDT amounts", async () => {
+            await expect(
+                service.validateMinimumAmountInUSDT(5, "USDT", 3, "buy"),
+            ).resolves.not.toThrow();
+
+            expect(mockRateService.getAssetRate).not.toHaveBeenCalled();
+        });
+
+        it("should throw when a USDT amount is below the minimum", async () => {
+            await expect(
+                service.validateMinimumAmountInUSDT(1, "USDT", 3, "buy"),
+            ).rejects.toThrow("Minimum buy amount is 3 USDT equivalent");
+        });
+
+        it("should convert non-USDT assets using current buy rates", async () => {
+            mockRateService.getAssetRate
+                .mockResolvedValueOnce({ buyRate: 50000, sellRate: 50000 })
+                .mockResolvedValueOnce({ buyRate: 1, sellRate: 1 });
+
+            await expect(
+                service.validateMinimumAmountInUSDT(0.0001, "BTC", 3, "buy"),
+            ).resolves.not.toThrow();
+
+            expect(mockRateService.getAssetRate).toHaveBeenNthCalledWith(1, "BTC");
+            expect(mockRateService.getAssetRate).toHaveBeenNthCalledWith(2, "USDT");
+        });
+
+        it("should include the trade type when a converted amount is below the minimum", async () => {
+            mockRateService.getAssetRate
+                .mockResolvedValueOnce({ buyRate: 50000, sellRate: 50000 })
+                .mockResolvedValueOnce({ buyRate: 1, sellRate: 1 });
+
+            await expect(
+                service.validateMinimumAmountInUSDT(0.00005, "BTC", 10, "swap"),
+            ).rejects.toThrow("Minimum swap amount is 10 USDT equivalent");
         });
     });
 });

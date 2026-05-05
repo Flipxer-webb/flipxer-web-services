@@ -43,16 +43,22 @@ jest.mock("@/modules/api/user", () => ({
 }));
 
 jest.mock("@/modules/core/rate-limit/guards/rate-limiter.guard", () => ({
+    RATE_LIMIT_KEY: "rateLimit",
     RateLimiterGuard: class {
         isStub() {
             return true;
         }
     },
-    RateLimit: () => () => undefined,
+    RateLimit: (options: unknown) => {
+        const { SetMetadata } = jest.requireActual("@nestjs/common");
+        return SetMetadata("rateLimit", options);
+    },
     StrictRateLimit: () => () => undefined,
     __esModule: true,
 }));
 
+import { settingsSecuritySendOtpRateLimit, settingsSecuritySendOtpWindowSeconds, settingsSecurityVerifyRateLimit, settingsSecurityVerifyWindowSeconds } from "@/config";
+import { RATE_LIMIT_KEY } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { SettingController } from "../index";
 
 describe("SettingController", () => {
@@ -219,5 +225,27 @@ describe("SettingController", () => {
 
         expect(settingService.getTransactionSecurityRequirements).toHaveBeenNthCalledWith(1, user, 1200.5);
         expect(settingService.getTransactionSecurityRequirements).toHaveBeenNthCalledWith(2, user, 0);
+    });
+
+    it("applies settings-specific rate limits to otp send and verify endpoints", () => {
+        const sendOtpRateLimit = Reflect.getMetadata(
+            RATE_LIMIT_KEY,
+            SettingController.prototype.sendTransactionOtp,
+        );
+        const verifyRateLimit = Reflect.getMetadata(
+            RATE_LIMIT_KEY,
+            SettingController.prototype.verifySecurityMethod,
+        );
+
+        expect(sendOtpRateLimit).toEqual({
+            limit: settingsSecuritySendOtpRateLimit,
+            windowSeconds: settingsSecuritySendOtpWindowSeconds,
+            failOpen: false,
+        });
+        expect(verifyRateLimit).toEqual({
+            limit: settingsSecurityVerifyRateLimit,
+            windowSeconds: settingsSecurityVerifyWindowSeconds,
+            failOpen: false,
+        });
     });
 });

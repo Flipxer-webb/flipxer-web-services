@@ -1,4 +1,5 @@
 import {
+    isQuidaxThrottleError,
     QuidaxAuthorizationError,
     QuidaxError,
     QuidaxGenericError,
@@ -38,5 +39,20 @@ describe("quidax error classes", () => {
         expect(errorWithCode.status).toBe(400);
         expect(errorWithCode.code).toBe("E0101");
         expect(errorWithoutCode.code).toBeUndefined();
+    });
+
+    it("detects throttle errors from provider wrappers and status-bearing objects", () => {
+        const cloudflareBlock = new QuidaxGenericError(
+            "<title>Attention Required! | Cloudflare</title><h2>You are unable to access quidax.io</h2>",
+        );
+        cloudflareBlock.status = 403;
+
+        expect(isQuidaxThrottleError(new QuidaxTooManyRequestError("rate-limited"))).toBe(true);
+        expect(isQuidaxThrottleError({ status: 444 })).toBe(true);
+        expect(isQuidaxThrottleError({ getStatus: () => 429 })).toBe(true);
+        expect(isQuidaxThrottleError(cloudflareBlock)).toBe(true);
+        expect(isQuidaxThrottleError({ getStatus: () => 500 })).toBe(false);
+        expect(isQuidaxThrottleError(new Error("boom"))).toBe(false);
+        expect(isQuidaxThrottleError(null)).toBe(false);
     });
 });

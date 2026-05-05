@@ -1,5 +1,11 @@
 import { buildResponse } from "@/utils/api-response-util";
 import {
+    settingsSecuritySendOtpRateLimit,
+    settingsSecuritySendOtpWindowSeconds,
+    settingsSecurityVerifyRateLimit,
+    settingsSecurityVerifyWindowSeconds,
+} from "@/config";
+import {
     Body,
     Controller,
     Get,
@@ -31,7 +37,10 @@ import {
     // UpdateAllowedIpDto,
 } from "../../dtos";
 import { AuthGuard, TwoFactorGuard } from "@/modules/api/auth/guard";
-import { RateLimiterGuard } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
+import {
+    RateLimit,
+    RateLimiterGuard,
+} from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { User } from "@/modules/api/user/decorators";
 import { User as UserModel } from "@prisma/client";
 
@@ -39,7 +48,7 @@ import { User as UserModel } from "@prisma/client";
 @Controller({
     path: "settings",
 })
-@UseGuards(RateLimiterGuard)
+
 export class SettingController {
     constructor(
         private readonly settingService: SettingService,
@@ -154,7 +163,7 @@ export class SettingController {
 
     // ==================== Two-Factor Authentication ====================
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Get 2FA status" })
@@ -163,7 +172,7 @@ export class SettingController {
         return this.settingService.get2FAStatus(user);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Setup 2FA - Get QR code" })
@@ -172,7 +181,7 @@ export class SettingController {
         return this.settingService.setup2FA(user);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Enable 2FA" })
@@ -181,7 +190,7 @@ export class SettingController {
         return this.settingService.enable2FA(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Disable 2FA" })
@@ -190,7 +199,7 @@ export class SettingController {
         return this.settingService.disable2FA(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Verify 2FA code for transactions" })
@@ -201,7 +210,7 @@ export class SettingController {
 
     // ==================== Security Preferences ====================
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Get security preferences" })
@@ -210,7 +219,7 @@ export class SettingController {
         return this.settingService.getSecurityPreferences(user);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Update security preferences" })
@@ -222,7 +231,7 @@ export class SettingController {
         return this.settingService.updateSecurityPreferences(user, dto);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Set or update trading password" })
@@ -234,7 +243,7 @@ export class SettingController {
         return this.settingService.setTradingPassword(user, dto);
     }
 
-    @UseGuards(AuthGuard, TwoFactorGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard, TwoFactorGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Generate new backup codes" })
@@ -243,7 +252,7 @@ export class SettingController {
         return this.settingService.generateNewBackupCodes(user);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Get backup codes count" })
@@ -252,7 +261,12 @@ export class SettingController {
         return this.settingService.getBackupCodesCount(user);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({
+        limit: settingsSecuritySendOtpRateLimit,
+        windowSeconds: settingsSecuritySendOtpWindowSeconds,
+        failOpen: false,
+    })
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Send transaction OTP via SMS or Email" })
@@ -264,7 +278,12 @@ export class SettingController {
         return this.settingService.sendTransactionOtp(user, dto.method);
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({
+        limit: settingsSecurityVerifyRateLimit,
+        windowSeconds: settingsSecurityVerifyWindowSeconds,
+        failOpen: false,
+    })
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Verify security method (unified endpoint)" })
@@ -281,7 +300,7 @@ export class SettingController {
         };
     }
 
-    @UseGuards(AuthGuard)
+    @UseGuards(AuthGuard, RateLimiterGuard)
     @ApiBearerAuth("access-token")
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: "Get security requirements for transaction amount" })

@@ -240,6 +240,40 @@ export const isProduction: boolean = process.env.ENVIRONMENT === "production";
 export const port: number = Number.parseInt(process.env.PORT ?? "4000");
 export const frontendDevUrl = process.env.FRONTEND_DEV_DOMAIN;
 export const frontendUrl = process.env.FRONTEND_URL;
+
+const parsePositiveIntegerEnv = (
+    value: string | undefined,
+    fallback: number,
+): number => {
+    const parsed = Number.parseInt(value ?? "", 10);
+
+    if (Number.isNaN(parsed) || parsed <= 0) {
+        return fallback;
+    }
+
+    return parsed;
+};
+
+export const settingsSecurityVerifyRateLimit = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_VERIFY_RATE_LIMIT,
+    20,
+);
+
+export const settingsSecurityVerifyWindowSeconds = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_VERIFY_WINDOW_SECONDS,
+    60,
+);
+
+export const settingsSecuritySendOtpRateLimit = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_SEND_OTP_RATE_LIMIT,
+    5,
+);
+
+export const settingsSecuritySendOtpWindowSeconds = parsePositiveIntegerEnv(
+    process.env.SETTINGS_SECURITY_SEND_OTP_WINDOW_SECONDS,
+    300,
+);
+
 // JWT
 export const jwtSecret: string = process.env.JWT_SECRET;
 export const jwt_refresh_secret: string = process.env.JWT_REFRESH_SECRET;
@@ -261,6 +295,7 @@ export interface EMailTemplateConfig {
     document_escalated: string;
     admin_invite: string;
     transaction_otp: string;
+    login_notification: string;
 }
 
 export const emailTemplateConfig: EMailTemplateConfig = {
@@ -276,6 +311,7 @@ export const emailTemplateConfig: EMailTemplateConfig = {
     document_escalated: process.env.DOCUMENT_ESCALATED_TEMPLATE || "",
     admin_invite: process.env.ADMIN_INVITE_TEMPLATE || "",
     transaction_otp: process.env.TRANSACTION_OTP_TEMPLATE || "",
+    login_notification: process.env.LOGIN_NOTIFICATION_TEMPLATE || "",
 };
 
 // Email config
@@ -285,10 +321,33 @@ export interface EMailConfig {
     senderMail: string;
 }
 
+const normalizeZeptoMailUrl = (rawUrl?: string): string => {
+    const value = (rawUrl || "").trim();
+
+    if (!value) {
+        return value;
+    }
+
+    // ZeptoMail SDK expects a host/base URL. If /v1.1 is provided,
+    // strip API path so template requests resolve to /v1.1/email/template.
+    if (!/\/v1\.1(\/|$)/i.test(value)) {
+        return value;
+    }
+
+    const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+    try {
+        const parsed = new URL(candidate);
+        return `${parsed.host}/`;
+    } catch {
+        return value;
+    }
+};
+
 export const mailConfig: EMailConfig = {
-    url: process.env.ZEPTOMAIL_URL,
+    url: normalizeZeptoMailUrl(process.env.ZEPTOMAIL_URL),
     token: process.env.ZEPTOMAIL_TOKEN,
-    senderMail: process.env.ZEPTOMAIL_SENDER,
+    senderMail: process.env.ZEPTOMAIL_SENDER?.trim(),
 };
 
 // Rest of the config remains unchanged...

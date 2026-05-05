@@ -14,7 +14,7 @@ export class QuidaxWithdrawalService {
         options: t.CreateWithdrawerRequestOptions
     ): Promise<QD.QuidaxResponse<QD.CreateWithdrawerRequestResponse>> {
         return executeQuidaxCall(
-            () => this.quidax.createWithdrawerRequest(options),
+            () => this.quidax.createWithdrawalRequest(options),
             "create withdrawer",
             this.logger
         );
@@ -24,7 +24,7 @@ export class QuidaxWithdrawalService {
         options: t.CancelWithdrawerRequestOptions
     ): Promise<QD.QuidaxResponse<QD.CancelWithdrawerRequestResponse>> {
         return executeQuidaxCall(
-            () => this.quidax.cancelWithdrawerRequest(options),
+            () => this.quidax.cancelWithdrawalRequest(options),
             "cancel withdrawer",
             this.logger
         );
@@ -35,7 +35,7 @@ export class QuidaxWithdrawalService {
         options: t.WithdrawalListOptions
     ): Promise<QD.QuidaxResponse<QD.WithdrawalListResponse>> {
         return executeQuidaxCall(
-            () => this.quidax.getWithdrawerList(user_id, options),
+            () => this.quidax.getWithdrawalList(user_id, options),
             "get withdrawer list",
             this.logger
         );
@@ -45,7 +45,7 @@ export class QuidaxWithdrawalService {
         options: t.WithdrawerDetailOptions
     ): Promise<QD.QuidaxResponse<QD.WithdrawerDetailResponse>> {
         return executeQuidaxCall(
-            () => this.quidax.getWithdrawerDetail(options),
+            () => this.quidax.getWithdrawalDetail(options),
             "get withdrawer detail",
             this.logger
         );

@@ -7,11 +7,15 @@ import { QuidaxService } from "@/modules/factory/trading/providers/quidax/servic
 import { CoinGeckoService } from "@/modules/factory/trading/providers/coingecko/services";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { CoinCapService } from "@/modules/factory/trading/providers/coincap/services";
-import { GetUserWalletResponse, GetPaymentAddressByIdOptions } from "@/libs/quidax";
+import {
+    GetUserWalletResponse,
+    GetPaymentAddressByIdOptions,
+    isQuidaxThrottleError,
+} from "@/libs/quidax";
 import {
     AccountCreationException,
     GeneralTransactionException,
-    IncompleteAccountSetupException,
+
     OutOfRangeException,
     QuidaxApiException,
     TransactionNotFoundException,
@@ -24,7 +28,7 @@ import {
     IWalletAddressCreatedSuccess,
     IWalletUpdated,
     SellQuoteResponse,
-    SupportedAssets,
+
     SwapTransactionHandlerOptions,
     TradingPair,
     WithdrawerTransactionHandlerOptions,
@@ -34,13 +38,9 @@ import {
     CryptoWalletStatus,
     EntryStatus,
     NetworkTypes,
-    NotificationBeneficiary,
-    NotificationStatus,
-    NotificationType,
     OrderCategory,
     OrderStatus,
     User,
-    UserNotificationTarget,
 } from "@prisma/client";
 import {
     CancelWithdrawerRequestDto,
@@ -79,8 +79,8 @@ import { LedgerService } from "./ledger/ledger.service";
 import { SweepService } from "./ledger/sweep.service";
 import { WebhookHandlerService } from "./webhook-handler.service";
 import {
-    DEFAULT_TRANSACTION_TIMEOUT_MS,
-    DEFAULT_TRANSACTION_MAX_WAIT_MS,
+    ALL_SUPPORTED_CURRENCIES_FOR_SYNC,
+    SUPPORTED_TRADE_ASSETS,
 } from "../constants";
 
 @Injectable()
@@ -221,11 +221,9 @@ export class TradingService {
     ) { }
 
     getSupportedAssets() {
-        const assets = Object.values(SupportedAssets);
-
         return buildResponse({
             message: "Supported assets retrieved",
-            data: assets,
+            data: SUPPORTED_TRADE_ASSETS,
         });
     }
 
@@ -267,6 +265,87 @@ export class TradingService {
 
     /**
      * Syncs wallet balance - delegates to WalletAddressService
+                code: "PASSWORD_CHANGE_COOLDOWN",
+                remainingSeconds,
+                remainingMinutes,
+                lockDurationHours: this.PASSWORD_CHANGE_LOCK_DURATION_HOURS,
+                lockExpiresAt: lockExpiresAt.toISOString(),
+            });
+        }
+    }
+
+    constructor(
+        private readonly prisma: PrismaService,
+        @Inject(TradingInjectionToken.QUIDAX)
+        private readonly quidaxService: QuidaxService,
+        private readonly cryptoAccountQueueProducer: CryptoAccountQueueProducer,
+
+        private readonly notificationMessage: NotificationMessageService,
+        private readonly wsGateway: WsGateway,
+        @Inject(TradingInjectionToken.COINGECKO)
+        private readonly coinGeckoService: CoinGeckoService,
+        @Inject(TradingInjectionToken.LIVECOINWATCH)
+        private readonly liveCoinWatchService: LiveCoinWatchService,
+        @Inject(TradingInjectionToken.COINCAP)
+        private readonly coinCapService: CoinCapService,
+        private readonly walletManagementService: WalletManagementService,
+        private readonly lockService: DistributedLockService,
+        private readonly tradeHelpers: TradeHelpersService,
+        private readonly walletAddressService: WalletAddressService,
+        private readonly buyOrderService: BuyOrderService,
+        private readonly sellOrderService: SellOrderService,
+        private readonly swapService: SwapService,
+        private readonly sendService: SendService,
+        private readonly ledgerService: LedgerService,
+        private readonly sweepService: SweepService,
+        private readonly webhookHandlerService: WebhookHandlerService
+    ) { }
+
+    getSupportedAssets() {
+        return buildResponse({
+            message: "Supported assets retrieved",
+            data: SUPPORTED_TRADE_ASSETS,
+        });
+    }
+
+    async getSupportedPaymentMethod(query: SupportedPaymentMethodDto) {
+        const result = await this.quidaxService.getPaymentMethods(query);
+
+        return buildResponse({
+            message: "Supported payment methods retrieved",
+            data: result.data,
+        });
+    }
+
+    async getPurchaseLimitForBuy(query: PurchaseLimitBuyDto) {
+        const result = await this.quidaxService.getPurchaseLimitForBuy(query);
+
+        return buildResponse({
+            message: "Purchase limit retrieved",
+            data: result.data,
+        });
+    }
+
+    getSupportedNetworks() {
+        const networks = Object.values(NetworkTypes);
+
+        return buildResponse({
+            message: "Supported networks retrieved",
+            data: networks,
+        });
+    }
+
+    getSupportedTradingPairs() {
+        const tradingPair = Object.values(TradingPair);
+
+        return buildResponse({
+            message: "Supported Trading Pairs retrieved",
+            data: tradingPair,
+        });
+    }
+
+    /**
+     * Ensures payment addresses exist for the asset - delegates to WalletAddressService
      */
     private async syncWallet(userId: number, currency: string): Promise<void> {
         return this.walletAddressService.syncWallet(userId, currency);
@@ -442,144 +521,6 @@ export class TradingService {
         });
     }
 
-    /**
-     * Executes an atomic swap (get quote + confirm in one operation)
-     * This is the recommended method for swaps as it eliminates timing issues
-     * with quote expiry by getting and confirming a quote in milliseconds.
-     */
-    async executeAtomicSwap(user: User, dto: {
-        from_currency: string;
-        to_currency: string;
-        from_amount: number;
-    }) {
-        await this.enforcePasswordChangeCooldown(user.id);
-
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        this.logger.log(`Executing atomic swap: ${dto.from_amount} ${dto.from_currency} -> ${dto.to_currency}`);
-
-        // Step 1: Get a fresh quote
-        const quoteStartTime = Date.now();
-        const quote = await this.quidaxService.createInstantSwapRequest(
-            user.cryptoSubAccountId,
-            {
-                from_currency: dto.from_currency.toLowerCase(),
-                to_currency: dto.to_currency.toLowerCase(),
-                from_amount: dto.from_amount.toString(),
-            }
-        );
-        this.logger.log(`Got quote ${quote.data.id} in ${Date.now() - quoteStartTime}ms`);
-
-        // Step 2: Immediately confirm the quote
-        const confirmStartTime = Date.now();
-        const swapInfo = await this.quidaxService.confirmInstantSwap({
-            user_id: user.cryptoSubAccountId,
-            quotation_id: quote.data.id,
-        });
-        this.logger.log(`Confirmed swap in ${Date.now() - confirmStartTime}ms`);
-
-        this.logger.log(`Atomic swap completed: ${dto.from_amount} ${dto.from_currency} -> ${swapInfo.data.received_amount} ${dto.to_currency}`);
-
-        // Step 3: Create order record (same as confirmInstantSwapQuote)
-        const amtFiat = await this.getAmountInNaira(
-            swapInfo.data.from_currency,
-            Number(swapInfo.data?.from_amount),
-            "sell"
-        );
-        const transactionId = generateId({ type: "transaction" });
-
-        if (swapInfo.data) {
-            await this.prisma.$transaction(
-                async (tx) => {
-                    await tx.order.create({
-                        data: {
-                            orderCategory: OrderCategory.SWAP,
-                            status: swapInfo.data.status,
-                            streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
-                            transactionId: transactionId,
-                            providerOrderId: swapInfo.data.id,
-                            orderReference: generateId({ type: "reference" }),
-                            userId: user.id,
-                            fromCurrency: swapInfo.data.from_currency.toUpperCase(),
-                            toCurrency: swapInfo.data.to_currency.toUpperCase(),
-                            fromAmount: +swapInfo.data?.from_amount,
-                            toAmount: +swapInfo.data?.received_amount,
-                            amount: +swapInfo.data?.from_amount,
-                            quotationId: swapInfo.data.swap_quotation.id,
-                            quoted_currency: swapInfo.data.swap_quotation.quoted_currency,
-                            quoted_price: +swapInfo.data.swap_quotation.quoted_price,
-                            executionPrice: +swapInfo.data.execution_price,
-                            amountInFiat: amtFiat?.amount,
-                            rateAtConversion: amtFiat?.rate,
-                        },
-                    });
-                },
-                { maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS, timeout: DEFAULT_TRANSACTION_TIMEOUT_MS }
-            );
-
-            // Emit transaction update for swap
-            this.wsGateway.notifyTransactionUpdate(user.id, {
-                type: "transaction_update",
-                transaction: {
-                    id: 0,
-                    transactionId: transactionId,
-                    status: swapInfo.data.status,
-                    streamlinedStatus: getStreamlinedStatus(swapInfo.data.status),
-                    orderCategory: OrderCategory.SWAP,
-                    amount: +swapInfo.data?.from_amount,
-                    currency: swapInfo.data.from_currency.toUpperCase(),
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                },
-            });
-
-            // Create and send notification
-            const message = `Your swap of ${swapInfo.data.from_amount} ${swapInfo.data.from_currency.toUpperCase()} to ${swapInfo.data.to_currency.toUpperCase()} is processing. Transaction ID: ${transactionId}`;
-
-            const createdNotification = await this.prisma.notification.create({
-                data: {
-                    title: "Swap transaction initiated",
-                    body: message,
-                    userId: user.id,
-                    target: UserNotificationTarget.SINGLE,
-                    beneficiary: NotificationBeneficiary.INDIVIDUAL,
-                    type: NotificationType.MESSAGE,
-                    status: NotificationStatus.APPROVED,
-                    senderId: null,
-                    transactionType: OrderCategory.SWAP,
-                    currency: swapInfo.data.from_currency.toUpperCase(),
-                },
-            });
-
-            const notificationList = await this.prisma.notification.findMany({
-                where: { userId: user.id },
-                orderBy: { createdAt: "desc" },
-                take: 20,
-            });
-
-            this.wsGateway.notifyUser(user.id, {
-                type: "new_notification",
-                notification: createdNotification,
-                notificationList,
-            });
-        }
-
-        return buildResponse({
-            message: "Swap executed successfully",
-            data: {
-                ...swapInfo.data,
-                transactionId: transactionId,
-                quote: quote.data,
-                // Ensure swap_quotation exists for frontend compatibility (SuccessModal needs it)
-                swap_quotation: swapInfo.data?.swap_quotation || quote.data,
-            },
-        });
-    }
 
     /**
      * Creates a withdrawal request - delegates to SendService
@@ -704,16 +645,47 @@ export class TradingService {
         });
     }
 
+    private async resolveSendWithdrawalProviderContext(
+        user: User,
+        withdrawalId: string
+    ): Promise<{ providerUserId: string; withdrawalDetail: any }> {
+        const providerUserIds = ["me", user.cryptoSubAccountId].filter(
+            (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
+        );
+
+        let lastError: unknown;
+
+        for (const providerUserId of providerUserIds) {
+            try {
+                const withdrawalDetail = await this.quidaxService.getWithdrawerDetail({
+                    user_id: providerUserId,
+                    withdrawal_id: withdrawalId,
+                });
+
+                return { providerUserId, withdrawalDetail };
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        throw lastError instanceof Error
+            ? lastError
+            : new GeneralTransactionException(
+                "Unable to resolve withdrawal on provider",
+                HttpStatus.BAD_REQUEST
+            );
+    }
+
     private async cancelSendOrderOnProvider(
         user: User,
         order: { id: number; providerOrderId: string },
         orderId: number
     ): Promise<void> {
         try {
-            const withdrawalDetail = await this.quidaxService.getWithdrawerDetail({
-                user_id: user.cryptoSubAccountId,
-                withdrawal_id: order.providerOrderId,
-            });
+            const { providerUserId, withdrawalDetail } = await this.resolveSendWithdrawalProviderContext(
+                user,
+                order.providerOrderId,
+            );
 
             const quidaxStatus = withdrawalDetail.data?.status?.toLowerCase();
 
@@ -735,14 +707,14 @@ export class TradingService {
             if (quidaxStatus === 'pending' || quidaxStatus === 'processing' || quidaxStatus === 'submitted') {
                 try {
                     await this.quidaxService.cancelWithdrawerRequest({
-                        user_id: user.cryptoSubAccountId,
+                        user_id: providerUserId,
                         withdrawal_id: order.providerOrderId,
                     });
                     this.logger.log(`Successfully cancelled withdrawal ${order.providerOrderId} on Quidax`);
                 } catch (cancelError) {
-                    this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError.message}`);
+                    this.logger.warn(`Failed to cancel on Quidax (may already be processed): ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
                     const recheckDetail = await this.quidaxService.getWithdrawerDetail({
-                        user_id: user.cryptoSubAccountId,
+                        user_id: providerUserId,
                         withdrawal_id: order.providerOrderId,
                     });
                     const recheckStatus = recheckDetail.data?.status?.toLowerCase();
@@ -767,7 +739,7 @@ export class TradingService {
             if (error instanceof GeneralTransactionException) {
                 throw error;
             }
-            this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error.message}`);
+            this.logger.error(`Error checking/cancelling withdrawal on Quidax: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -1054,6 +1026,33 @@ export class TradingService {
         } catch (assetError) {
             this.logger.error(`Failed to create AssetWallet for ${currency}: ${assetError?.message}`);
         }
+    }
+
+    async enqueueUserDepositSync(userId: number) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                cryptoSubAccountId: true,
+            },
+        });
+
+        if (!user?.cryptoSubAccountId) {
+            throw new UserNotFoundException(
+                "User not found or no crypto sub-account",
+                HttpStatus.NOT_FOUND
+            );
+        }
+
+        await this.cryptoAccountQueueProducer.enqueueDepositSync(user.id);
+
+        return buildResponse({
+            message: "Deposit sync queued",
+            data: {
+                queued: true,
+                userId: user.id,
+            },
+        });
     }
 
     // Handles successful wallet address creation webhook from Quidax
@@ -1494,16 +1493,20 @@ export class TradingService {
 
         // Check ALL supported currencies, not just those in wallet table
         // This ensures we catch deposits even if wallet address record is missing
-        const ALL_SUPPORTED_CURRENCIES: ReadonlySet<string> = new Set([
-            'usdt', 'btc', 'eth', 'usdc', 'sol', 'xrp', 'bnb', 'trx', 'matic', 'avax',
-        ]);
+        const ALL_SUPPORTED_CURRENCIES: ReadonlySet<string> = new Set(ALL_SUPPORTED_CURRENCIES_FOR_SYNC);
         // Default scan set for users with no wallet addresses yet — keeps the
         // first-deposit detection path working without polling every chain.
         const DEFAULT_NEW_USER_CURRENCIES: readonly string[] = ['btc', 'usdt', 'eth'];
 
-        // Also get user's wallet addresses for logging
+        // Only use wallet-address rows that are already active and have a
+        // resolved deposit address. This avoids polling currencies that are
+        // still pending/failed while preserving the new-user fallback below.
         const walletAddresses = await this.prisma.cryptoWalletAddress.findMany({
-            where: { userId: user.id },
+            where: {
+                userId: user.id,
+                status: CryptoWalletStatus.ACTIVE,
+                address: { not: null },
+            },
             select: { assetSymbol: true },
         });
 
@@ -1518,7 +1521,7 @@ export class TradingService {
             ? userCurrencies
             : DEFAULT_NEW_USER_CURRENCIES;
 
-        this.logger.log(`User ${user.email} has wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
+        this.logger.log(`User ${user.email} has active wallet addresses for: ${userCurrencies.join(', ') || 'NONE'}`);
         this.logger.log(`Scanning Quidax deposits for: ${currenciesToScan.join(', ')}`);
 
         const syncResults = {
@@ -1551,8 +1554,20 @@ export class TradingService {
                     await this.syncSingleDeposit(user, currency, deposit, syncResults);
                 }
             } catch (currencyError) {
+                if (isQuidaxThrottleError(currencyError)) {
+                    this.logger.warn(
+                        `Quidax deposit sync hit a cooldown-worthy response for user ${user.id} while fetching ${currency}; aborting remaining currencies so the queue guard can pause retries`,
+                    );
+                    throw currencyError;
+                }
+
+                const errorMessage =
+                    currencyError instanceof Error
+                        ? currencyError.message
+                        : String(currencyError);
+
                 this.logger.error(
-                    `Error fetching deposits for ${currency}: ${currencyError.message}`
+                    `Error fetching deposits for ${currency}: ${errorMessage}`
                 );
             }
         }
@@ -1785,11 +1800,7 @@ export class TradingService {
         };
     }
 
-    /**
-     * Lightweight order status check (DB-only, no external provider calls).
-     * Used as a polling fallback when WebSocket is unavailable.
-     */
-    async getOrderStatus(user: User, transactionId: string) {
+    private async getOrderStatusSnapshot(user: User, transactionId: string) {
         const order = await this.prisma.order.findFirst({
             where: {
                 transactionId,
@@ -1811,6 +1822,16 @@ export class TradingService {
             );
         }
 
+        return order;
+    }
+
+    /**
+     * Lightweight order status check (DB-only, no external provider calls).
+     * Used as a polling fallback when WebSocket is unavailable.
+     */
+    async getOrderStatus(user: User, transactionId: string) {
+        const order = await this.getOrderStatusSnapshot(user, transactionId);
+
         return buildResponse({
             message: "Order status retrieved",
             data: order,
@@ -1818,8 +1839,8 @@ export class TradingService {
     }
 
     /**
-     * Refresh transaction status from Quidax provider
-     * This allows users to manually trigger a status check for pending transactions
+     * Refresh transaction status using the current system of record.
+     * SEND remains provider-backed; omnibus SELL/SWAP use persisted order state.
      */
     async refreshTransactionStatus(user: User, transactionId: string) {
         // Find the transaction
@@ -1853,18 +1874,34 @@ export class TradingService {
         }
 
         if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Account setup incomplete",
-                HttpStatus.BAD_REQUEST
-            );
+            this.logger.warn(`refreshTransactionStatus: user ${user.id} has no cryptoSubAccountId`);
         }
 
         // Handle based on transaction category
         if (transaction.orderCategory === OrderCategory.SEND ||
-            transaction.orderCategory === OrderCategory.SELL) {
+            transaction.orderCategory === OrderCategory.SELL ||
+            transaction.orderCategory === OrderCategory.SWAP) {
+            // SWAP orders are settled atomically on-chain — no provider status to refresh.
+            // For omnibus orders without provider metadata, return latest DB state.
+            if (transaction.orderCategory === OrderCategory.SWAP ||
+                !user.cryptoSubAccountId || !transaction.providerOrderId) {
+                const latestOrder = await this.prisma.order.findFirst({
+                    where: { transactionId },
+                    orderBy: { updatedAt: "desc" },
+                });
+
+                return buildResponse({
+                    message: "Transaction status refreshed from order state",
+                    data: {
+                        transactionId: latestOrder?.transactionId ?? transactionId,
+                        status: latestOrder?.status ?? transaction.status,
+                        streamlinedStatus: latestOrder?.streamlinedStatus ?? transaction.streamlinedStatus,
+                        orderCategory: latestOrder?.orderCategory ?? transaction.orderCategory,
+                    },
+                });
+            }
+
             return this.refreshWithdrawalStatus(transaction, user.cryptoSubAccountId, transactionId);
-        } else if (transaction.orderCategory === OrderCategory.SWAP) {
-            return this.refreshSwapStatus(transaction, user.cryptoSubAccountId, transactionId);
         }
 
         return buildResponse({
@@ -1934,60 +1971,6 @@ export class TradingService {
         }
     }
 
-    private async refreshSwapStatus(
-        transaction: { transactionId: string; providerOrderId: string | null; status: OrderStatus; streamlinedStatus: string | null },
-        cryptoSubAccountId: string,
-        transactionId: string
-    ) {
-        if (!transaction.providerOrderId) {
-            throw new GeneralTransactionException(
-                "Provider order ID not found",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        try {
-            const response = await this.verifySwapQuoteTransaction(
-                transaction.providerOrderId,
-                cryptoSubAccountId
-            );
-
-            const quidaxStatus = response.data?.status;
-
-            if (quidaxStatus === OrderStatus.completed) {
-                await this.swapTransactionHandler({
-                    orderId: transaction.providerOrderId,
-                    status: OrderStatus.completed,
-                });
-
-                return buildResponse({
-                    message: "Swap completed successfully",
-                    data: { transactionId: transaction.transactionId, status: OrderStatus.completed, streamlinedStatus: "completed" },
-                });
-            } else if (quidaxStatus === OrderStatus.failed) {
-                await this.swapTransactionHandler({
-                    orderId: transaction.providerOrderId,
-                    status: OrderStatus.failed,
-                });
-
-                return buildResponse({
-                    message: "Swap failed",
-                    data: { transactionId: transaction.transactionId, status: OrderStatus.failed, streamlinedStatus: "failed" },
-                });
-            }
-
-            return buildResponse({
-                message: "Swap is still processing",
-                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus, providerStatus: quidaxStatus },
-            });
-        } catch (error) {
-            this.logger.error(`Error refreshing swap ${transactionId}: ${error.message}`);
-            return buildResponse({
-                message: "Unable to refresh status. Please try again later.",
-                data: { transactionId: transaction.transactionId, status: transaction.status, streamlinedStatus: transaction.streamlinedStatus },
-            });
-        }
-    }
 
     /**
      * Check if a deposit is the result of a BUY order completion

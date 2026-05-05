@@ -2,6 +2,7 @@ import { Module, Provider } from "@nestjs/common";
 import { TradingFactory } from "./factory";
 import { TradingInjectionToken } from "./types";
 import { tradingConfig } from "@/config";
+import { QuidaxGlobalLimiterService } from "./providers/quidax/services/quidax-global-limiter.service";
 
 /**
  * Legacy Quidax service provider for backward compatibility.
@@ -9,8 +10,9 @@ import { tradingConfig } from "@/config";
  */
 const quidaxService: Provider = {
     provide: TradingInjectionToken.QUIDAX,
-    useFactory() {
-        const tradingFactory = new TradingFactory(tradingConfig);
+    inject: [QuidaxGlobalLimiterService],
+    useFactory(quidaxGlobalLimiter: QuidaxGlobalLimiterService) {
+        const tradingFactory = new TradingFactory(tradingConfig, quidaxGlobalLimiter);
         return tradingFactory.buildQuidaxService();
     },
 };
@@ -21,15 +23,16 @@ const quidaxService: Provider = {
  */
 const tradingProvider: Provider = {
     provide: TradingInjectionToken.TRADING_PROVIDER,
-    useFactory() {
-        const tradingFactory = new TradingFactory(tradingConfig);
+    inject: [QuidaxGlobalLimiterService],
+    useFactory(quidaxGlobalLimiter: QuidaxGlobalLimiterService) {
+        const tradingFactory = new TradingFactory(tradingConfig, quidaxGlobalLimiter);
         return tradingFactory.buildProvider({ provider: "quidax" });
     },
 };
 
 @Module({
-    providers: [quidaxService, tradingProvider],
-    exports: [quidaxService, tradingProvider],
+    providers: [QuidaxGlobalLimiterService, quidaxService, tradingProvider],
+    exports: [QuidaxGlobalLimiterService, quidaxService, tradingProvider],
 })
 export class TradingFactoryModule {}
 

@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
-import { QuidaxService } from "@/modules/factory/trading/providers/quidax/services";
+import { ITradingProvider } from "@/modules/factory/trading/interfaces/trading-provider.interface";
 import { buildResponse } from "@/utils/api-response-util";
 import { generateId } from "@/utils";
 import { RateService } from "./rate.service";
@@ -76,8 +76,8 @@ export class SendService {
 
     constructor(
         private readonly prisma: PrismaService,
-        @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService,
+        @Inject(TradingInjectionToken.TRADING_PROVIDER)
+        private readonly tradingProvider: ITradingProvider,
         private readonly wsGateway: WsGateway,
         private readonly tradeHelpers: TradeHelpersService,
         private readonly walletAddressService: WalletAddressService,
@@ -347,9 +347,14 @@ export class SendService {
         userId: number,
         destinationAddress: string,
         currency: string,
+        network?: NetworkTypes,
+        destinationTag?: string,
     ): Promise<void> {
         const addr = destinationAddress.trim();
         const isEVMOrTRC20 = /^(0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})$/.test(addr);
+        const normalizedDestinationTag = destinationTag?.trim() || null;
+        const compareByDestinationTag = this.requiresDestinationTag(currency, network);
+        const normalizeTag = (value: string | null | undefined): string | null => value?.trim() || null;
 
         // 1. Check CryptoWalletAddress table (per-network addresses)
         const ownCryptoAddress = await this.prisma.cryptoWalletAddress.findFirst({
@@ -359,18 +364,8 @@ export class SendService {
                     ? { address: { equals: addr, mode: "insensitive" as any } }
                     : { address: addr }),
             },
-            select: { address: true, network: true },
+            select: { address: true, network: true, destination_tag: true },
         });
-
-        if (ownCryptoAddress) {
-            this.logger.warn(
-                `Blocked self-send to own deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | matchedNetwork: ${ownCryptoAddress.network}`
-            );
-            throw new IncompleteAccountSetupException(
-                "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
-                HttpStatus.BAD_REQUEST
-            );
-        }
 
         // 2. Fallback: check AssetWallet.depositAddress (older storage)
         const ownWallet = await this.prisma.assetWallet.findFirst({
@@ -380,10 +375,24 @@ export class SendService {
                     ? { depositAddress: { equals: addr, mode: "insensitive" as any } }
                     : { depositAddress: addr }),
             },
-            select: { depositAddress: true, assetCurrency: true },
+            select: { depositAddress: true, assetCurrency: true, destinationTag: true },
         });
 
-        if (ownWallet) {
+        if (!ownCryptoAddress && !ownWallet) {
+            return;
+        }
+
+        const blockSelfSend = (): never => {
+            if (ownCryptoAddress) {
+                this.logger.warn(
+                    `Blocked self-send to own deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | matchedNetwork: ${ownCryptoAddress.network}`
+                );
+                throw new IncompleteAccountSetupException(
+                    "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
             this.logger.warn(
                 `Blocked self-send to own wallet deposit address | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${ownWallet.assetCurrency}`
             );
@@ -391,7 +400,34 @@ export class SendService {
                 "Cannot withdraw to your own deposit address. The funds would return as a new deposit and you would lose the withdrawal fee. Use internal transfer instead.",
                 HttpStatus.BAD_REQUEST
             );
+        };
+
+        if (!compareByDestinationTag) {
+            blockSelfSend();
         }
+
+        const ownCryptoDestinationTag = normalizeTag(ownCryptoAddress?.destination_tag);
+        const ownWalletDestinationTag = normalizeTag(ownWallet?.destinationTag);
+        const effectiveOwnTag = ownCryptoDestinationTag ?? ownWalletDestinationTag;
+
+        if (effectiveOwnTag && normalizedDestinationTag && effectiveOwnTag === normalizedDestinationTag) {
+            blockSelfSend();
+        }
+
+        if (!effectiveOwnTag) {
+            this.logger.warn(
+                `Allowed same-address withdrawal because sender deposit metadata is incomplete | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`
+            );
+            return;
+        }
+
+        if (!normalizedDestinationTag) {
+            blockSelfSend();
+        }
+
+        this.logger.log(
+            `Allowed same-address withdrawal because destination tag differs from sender's own deposit tag | userId: ${userId} | address: ${addr.slice(0, 10)}... | currency: ${currency}`
+        );
     }
 
     /**
@@ -597,11 +633,11 @@ export class SendService {
     async getCryptoWithdrawerFee(dto: GetCryptoWithdrawerFeeDto) {
         const currency = dto.currency.toUpperCase();
 
-        // Fetch only provider fee (admin fee is removed)
-        const providerFeeInfo = await this.quidaxService.getWithdrawerFees({
-            currency: dto.currency.toLowerCase(),
-            ...(dto.network && { network: dto.network }),
-        });
+        const providerFeeInfo = await this.tradingProvider.getWithdrawalFees(
+            "me",
+            dto.currency.toLowerCase(),
+            dto.network,
+        );
 
         if (!providerFeeInfo?.data) {
             throw new IncompleteAccountSetupException(
@@ -665,11 +701,6 @@ export class SendService {
             );
         }
 
-        // Block self-sends: prevent user from sending to their own deposit address.
-        // This avoids a wasted withdrawal fee (funds leave via on-chain withdrawal
-        // and immediately return as a new deposit on the same sub-account).
-        await this.assertNotOwnDepositAddress(user.id, recipientWalletAddress, currency);
-
         // Auto-detect network from address format when not provided by the client.
         const resolvedNetwork = this.resolveNetwork(user.id, dto.network, recipientWalletAddress);
 
@@ -689,6 +720,17 @@ export class SendService {
             resolvedNetwork,
             dto.destinationTag,
             dto.destinationTagNotRequiredConfirmed,
+        );
+
+        // Block self-sends: prevent user from sending to their own deposit address.
+        // This avoids a wasted withdrawal fee (funds leave via on-chain withdrawal
+        // and immediately return as a new deposit on the same sub-account).
+        await this.assertNotOwnDepositAddress(
+            user.id,
+            recipientWalletAddress,
+            currency,
+            resolvedNetwork,
+            dto.destinationTag,
         );
 
         // Verify address with provider, falling back to local regex validation.
@@ -966,12 +1008,8 @@ export class SendService {
      */
     private async getMainWalletBalance(currency: string): Promise<Decimal> {
         try {
-            // Get balance from Quidax main account
-            const wallets = await this.quidaxService.getUserWalletList({ user_id: "me" });
-            const wallet = wallets.data?.find(
-                (w: any) => w.currency.toUpperCase() === currency.toUpperCase()
-            );
-            return wallet ? new Decimal(wallet.balance || "0") : new Decimal(0);
+            const wallet = await this.tradingProvider.getUserWallet("me", currency.toLowerCase());
+            return wallet?.data ? new Decimal(wallet.data.balance || "0") : new Decimal(0);
         } catch (error) {
             this.logger.error(`Failed to get main wallet balance | ${JSON.stringify({
                 currency,
@@ -992,26 +1030,31 @@ export class SendService {
         resolvedNetwork?: string
     ) {
         try {
-            // Execute withdrawal from main wallet (not user's sub-account)
-            const requestRes = await this.quidaxService.createWithdrawerRequest({
+            const requestRes = await this.tradingProvider.createWithdrawal({
+                userId: "me",
                 amount: order.amount.toString(),
                 currency: order.currency.toLowerCase(),
                 narration: dto.narration || order.narration,
-                transaction_note: dto.transaction_note || order.transaction_note,
-                user_id: "me", // Main wallet
-                fund_uid: dto.recipientWalletAddress,
-                fund_uid2: dto.destinationTag,
+                transactionNote: dto.transaction_note || order.transaction_note,
+                address: dto.recipientWalletAddress,
+                destinationTag: dto.destinationTag,
                 reference: order.orderReference,
                 network: resolvedNetwork || dto.network,
             });
+
+            const rawFee = requestRes.data.fee;
+            const providerFee = Array.isArray(rawFee)
+                ? rawFee.reduce((sum, f) => sum + (f.value ?? 0), 0)
+                : Number.parseFloat(String(rawFee ?? order.fee ?? 0));
+            const updatedTotal = order.amount.plus(new Decimal(providerFee));
 
             // Update order with provider details
             await this.prisma.order.update({
                 where: { id: order.id },
                 data: {
                     providerOrderId: requestRes.data.id,
-                    fee: +requestRes.data.fee,
-                    total: +requestRes.data.total,
+                    fee: providerFee,
+                    total: updatedTotal.toNumber(),
                     status: OrderStatus.processing,
                     streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
                 },
@@ -1117,17 +1160,33 @@ export class SendService {
      * Cancels a pending withdrawal request
      */
     async cancelWithdrawerRequest(user: User, dto: CancelWithdrawerRequestDto) {
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
+        const providerUserIds = ["me", user.cryptoSubAccountId].filter(
+            (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
+        );
+
+        let requestRes: any;
+        let lastError: unknown;
+
+        for (const providerUserId of providerUserIds) {
+            try {
+                requestRes = await this.tradingProvider.cancelWithdrawal({
+                    userId: providerUserId,
+                    withdrawalId: dto.withdrawal_id,
+                });
+                break;
+            } catch (error) {
+                lastError = error;
+            }
         }
 
-        const requestRes = await this.quidaxService.cancelWithdrawerRequest({
-            user_id: user.cryptoSubAccountId,
-            withdrawal_id: dto.withdrawal_id,
-        });
+        if (!requestRes) {
+            throw lastError instanceof Error
+                ? lastError
+                : new GeneralTransactionException(
+                    "Unable to cancel withdrawal request at this time",
+                    HttpStatus.BAD_REQUEST
+                );
+        }
 
         return buildResponse({
             message: "Withdrawer cancel request placed successfully",

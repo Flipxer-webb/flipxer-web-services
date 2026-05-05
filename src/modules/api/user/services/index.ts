@@ -1,4 +1,10 @@
 import { storageDirConfig, emailTemplateConfig, COMPANY_NAME, mailConfig } from "@/config";
+import {
+    MIN_BUY_AMOUNT_USDT,
+    MIN_SELL_AMOUNT_USDT,
+    MIN_SWAP_AMOUNT_USDT,
+    SUPPORTED_TRADE_ASSETS,
+} from "@/modules/api/trade/constants";
 import { createHmac } from "node:crypto";
 import { EmailService } from "@/modules/core/email/services";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -1364,11 +1370,26 @@ export class UserService {
     async getUserWallets(userId: number, query: GetUserAssetsDto) {
         const startTime = Date.now();
         const { pageNumber, pageSize, sortBy } = query;
-        const createSyntheticAsset = (currency: string) => ({
+        const supportedTradeAssetsBySymbol = new Map<string, string>(
+            SUPPORTED_TRADE_ASSETS.map((asset) => [asset.symbol, asset.name])
+        );
+        const includeSupportedAssets = query.includeSupported === "true";
+        const searchText = query.searchText?.toLowerCase();
+
+        const matchesSearch = (symbol: string, name?: string) => {
+            if (!searchText) {
+                return true;
+            }
+
+            return symbol.toLowerCase().includes(searchText)
+                || name?.toLowerCase().includes(searchText);
+        };
+
+        const createSyntheticAsset = (currency: string, assetName?: string) => ({
             id: `ledger:${userId}:${currency}`,
             userId,
             quidaxWalletId: "",
-            assetName: currency,
+            assetName: assetName ?? currency,
             assetCurrency: currency,
             balance: 0,
             locked: 0,
@@ -1452,15 +1473,38 @@ export class UserService {
                     return false;
                 }
 
-                return true;
+                return matchesSearch(
+                    normalizedCurrency,
+                    supportedTradeAssetsBySymbol.get(normalizedCurrency)
+                );
             })
             .map(([currency]) => {
                 const normalizedCurrency = currency.toUpperCase();
 
-                return createSyntheticAsset(normalizedCurrency);
+                return createSyntheticAsset(
+                    normalizedCurrency,
+                    supportedTradeAssetsBySymbol.get(normalizedCurrency)
+                );
             });
 
-        const mergedAssets = [...assets, ...syntheticAssets];
+        const mergedAssetCurrencies = new Set([
+            ...assetCurrencies,
+            ...syntheticAssets.map((asset) => asset.assetCurrency.toUpperCase()),
+        ]);
+
+        const supportedCatalogAssets = includeSupportedAssets
+            ? SUPPORTED_TRADE_ASSETS
+                .filter(({ symbol, name }) => {
+                    if (mergedAssetCurrencies.has(symbol)) {
+                        return false;
+                    }
+
+                    return matchesSearch(symbol, name);
+                })
+                .map(({ symbol, name }) => createSyntheticAsset(symbol, name))
+            : [];
+
+        const mergedAssets = [...assets, ...syntheticAssets, ...supportedCatalogAssets];
         const paginatedAssets = query.paginated === "true"
             ? mergedAssets.slice(
                 (resolvedPageNumber - 1) * resolvedPageSize,
@@ -1481,7 +1525,13 @@ export class UserService {
         const referenceCurrency = "ngn"; // Change to 'usdt' or dynamic as needed
 
         // Merge data into asset response
-        const responseData: DataWithPagination<any> = {
+        const responseData: DataWithPagination<any> & {
+            tradeMinimums: {
+                buy: number;
+                sell: number;
+                swap: number;
+            };
+        } = {
             ...(query.paginated === "true" && {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
@@ -1490,6 +1540,11 @@ export class UserService {
                     paginatedAssets.length
                 ),
             }),
+            tradeMinimums: {
+                buy: MIN_BUY_AMOUNT_USDT,
+                sell: MIN_SELL_AMOUNT_USDT,
+                swap: MIN_SWAP_AMOUNT_USDT,
+            },
             records: paginatedAssets.map((asset) => {
                 const assetCurrency = asset.assetCurrency.toLowerCase();
                 const assetCurrencyUpper = asset.assetCurrency.toUpperCase();
@@ -1771,16 +1826,9 @@ export class UserService {
         } else {
             // Disable: remove all device tokens for this user (best-effort)
             try {
-                const existingDeviceTokens = await this.prisma.deviceToken.findMany({
+                await this.prisma.deviceToken.deleteMany({
                     where: { userId: safeUserId },
-                    select: { id: true },
                 });
-
-                for (const deviceToken of existingDeviceTokens) {
-                    await this.prisma.deviceToken.delete({
-                        where: { id: deviceToken.id },
-                    });
-                }
             } catch (error) {
                 this.logger.warn(
                     `DeviceToken cleanup failed for user ${safeUserId}, continuing with legacy notificationToken cleanup: ${this.getErrorMessage(error)}`
@@ -1794,8 +1842,11 @@ export class UserService {
         }
 
         // Invalidate profile cache
-        await this.redisCacheService.del(this.getProfileCacheKey(safeUserId));
-
+        try {
+            await this.redisCacheService.del(this.getProfileCacheKey(safeUserId));
+        } catch (error) {
+            this.logger.warn(`Failed to invalidate profile cache for user ${safeUserId}: ${this.getErrorMessage(error)}`);
+        }
         return {
             message: token
                 ? "Push notifications enabled"

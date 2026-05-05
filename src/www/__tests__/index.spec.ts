@@ -1,4 +1,8 @@
-const helmetMock = jest.fn(() => "helmet-middleware");
+const helmetMock = jest.fn((config) => {
+    // Store the config for testing
+    (helmetMock as any).lastConfig = config;
+    return "helmet-middleware";
+});
 const compressionMock = jest.fn(() => "compression-middleware");
 const morganMock = jest.fn(() => "morgan-middleware");
 const waitForRedisMock = jest.fn();
@@ -319,5 +323,39 @@ describe("createServer", () => {
         expect(randomBytesMock).toHaveBeenCalledWith(16);
         expect(res.locals.cspNonce).toBe("nonce-value");
         expect(next).toHaveBeenCalled();
+    });
+
+    it("configures CSP with Firebase domains for push notifications", async () => {
+        await createServer({
+            port: 4015,
+            whitelistedDomains: [],
+        });
+
+        expect(helmetMock).toHaveBeenCalled();
+        const helmetConfig = (helmetMock as any).lastConfig;
+
+        expect(helmetConfig).toHaveProperty("contentSecurityPolicy");
+        expect(helmetConfig.contentSecurityPolicy).toHaveProperty("directives");
+
+        const { directives } = helmetConfig.contentSecurityPolicy;
+
+        // Verify connectSrc includes Firebase domains
+        expect(directives.connectSrc).toContain(
+            "https://firebaseinstallations.googleapis.com",
+        );
+        expect(directives.connectSrc).toContain("https://fcm.googleapis.com");
+        expect(directives.connectSrc).toContain("https://*.firebaseio.com");
+        expect(directives.connectSrc).toContain("https://*.googleapis.com");
+        expect(directives.connectSrc).toContain(
+            "https://securetoken.googleapis.com",
+        );
+
+
+        // Verify existing domains are still present
+        expect(directives.connectSrc).toContain("'self'");
+        expect(directives.connectSrc).toContain("https://api.fincra.com");
+        expect(directives.connectSrc).toContain("https://checkout.fincra.com");
+        expect(directives.connectSrc).toContain("https://app.quidax.io");
+        expect(directives.connectSrc).toContain("wss://*.intercom.io");
     });
 });

@@ -44,6 +44,11 @@ describe("WalletManagementService", () => {
         getPriceInUSD: jest.fn(),
     };
 
+    const quidaxGlobalLimiter = {
+        assertAllowed: jest.fn(),
+        noteThrottle: jest.fn(),
+    };
+
     beforeEach(() => {
         jest.clearAllMocks();
 
@@ -55,7 +60,8 @@ describe("WalletManagementService", () => {
         service = new WalletManagementService(
             prisma as any,
             cacheService as any,
-            coinGeckoCache as any
+            coinGeckoCache as any,
+            quidaxGlobalLimiter as any,
         );
     });
 

@@ -12,6 +12,7 @@ jest.mock("@/modules/api/user", () => ({
 import { SendService } from "../send.service";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { TradingInjectionToken } from "@/modules/factory/trading/types";
+import { Decimal } from "@prisma/client/runtime/library";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { TradeHelpersService } from "../trade-helpers.service";
 import { WalletAddressService } from "../wallet-address.service";
@@ -51,7 +52,7 @@ function availableBalance(value: number) {
 describe("SendService", () => {
     let service: SendService;
     let prisma: ReturnType<typeof makePrisma>;
-    let quidaxService: { getWithdrawerFees: jest.Mock; getUserWalletList: jest.Mock; createWithdrawerRequest: jest.Mock; cancelWithdrawerRequest: jest.Mock };
+    let tradingProvider: { getWithdrawalFees: jest.Mock; getUserWallet: jest.Mock; createWithdrawal: jest.Mock; cancelWithdrawal: jest.Mock };
     let rateLimiter: { checkLimit: jest.Mock };
     let wsGateway: { notifyTransactionUpdate: jest.Mock; notifyWalletUpdate: jest.Mock; notifyWithdrawalQueued: jest.Mock };
     let ledgerService: {
@@ -68,10 +69,10 @@ describe("SendService", () => {
     beforeEach(async () => {
         prisma = makePrisma();
         const mockQuidax = {
-            getWithdrawerFees: jest.fn(),
-            getUserWalletList: jest.fn(),
-            createWithdrawerRequest: jest.fn(),
-            cancelWithdrawerRequest: jest.fn(),
+            getWithdrawalFees: jest.fn(),
+            getUserWallet: jest.fn(),
+            createWithdrawal: jest.fn(),
+            cancelWithdrawal: jest.fn(),
         };
         const mockWsGateway = {
             notifyTransactionUpdate: jest.fn(),
@@ -108,7 +109,7 @@ describe("SendService", () => {
             providers: [
                 SendService,
                 { provide: PrismaService, useValue: prisma },
-                { provide: TradingInjectionToken.QUIDAX, useValue: mockQuidax },
+                { provide: TradingInjectionToken.TRADING_PROVIDER, useValue: mockQuidax },
                 { provide: WsGateway, useValue: mockWsGateway },
                 { provide: TradeHelpersService, useValue: mockTradeHelpers },
                 { provide: WalletAddressService, useValue: mockWalletAddress },
@@ -125,7 +126,7 @@ describe("SendService", () => {
         }).compile();
 
         service = module.get(SendService);
-        quidaxService = module.get(TradingInjectionToken.QUIDAX);
+        tradingProvider = module.get(TradingInjectionToken.TRADING_PROVIDER);
         rateLimiter = module.get(RateLimiterService);
         wsGateway = module.get(WsGateway);
         ledgerService = module.get(LedgerService);
@@ -140,7 +141,7 @@ describe("SendService", () => {
 
     describe("getCryptoWithdrawerFee", () => {
         it("should return fee info with flat fee", async () => {
-            quidaxService.getWithdrawerFees.mockResolvedValue({
+            tradingProvider.getWithdrawalFees.mockResolvedValue({
                 data: { type: "flat", fee: 0.001 },
             });
 
@@ -155,7 +156,7 @@ describe("SendService", () => {
         });
 
         it("should return fee info with percentage fee", async () => {
-            quidaxService.getWithdrawerFees.mockResolvedValue({
+            tradingProvider.getWithdrawalFees.mockResolvedValue({
                 data: { type: "percentage", fee: 1.5 }, // 1.5%
             });
 
@@ -169,7 +170,7 @@ describe("SendService", () => {
         });
 
         it("should handle range-based fee", async () => {
-            quidaxService.getWithdrawerFees.mockResolvedValue({
+            tradingProvider.getWithdrawalFees.mockResolvedValue({
                 data: {
                     type: "range",
                     fee: [
@@ -185,6 +186,30 @@ describe("SendService", () => {
             } as any);
 
             expect(result.data.networkFee).toBe(10); // 500 * 2 / 100
+        });
+
+        it("throws when provider returns null data", async () => {
+            tradingProvider.getWithdrawalFees.mockResolvedValue({ data: null });
+
+            await expect(
+                service.getCryptoWithdrawerFee({
+                    amount: 1,
+                    currency: "btc" as any,
+                } as any),
+            ).rejects.toThrow("Fee information is not available");
+        });
+
+        it("falls back to fixed fee for simple numeric fee without type", async () => {
+            tradingProvider.getWithdrawalFees.mockResolvedValue({
+                data: { fee: 0.005 },
+            });
+
+            const result = await service.getCryptoWithdrawerFee({
+                amount: 1,
+                currency: "btc" as any,
+            } as any);
+
+            expect(result.data.networkFee).toBe(0.005);
         });
     });
 
@@ -229,6 +254,89 @@ describe("SendService", () => {
             ).rejects.toThrow("Cannot withdraw to your own deposit address");
         });
 
+        it("should allow shared XRP address withdrawals when the destination tag differs from the sender's own tag", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: "12345",
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue(null);
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "67890",
+                ),
+            ).resolves.toBeUndefined();
+        });
+
+        it("should still block shared XRP address withdrawals when the destination tag matches the sender's own tag", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "12345",
+                ),
+            ).rejects.toThrow("Cannot withdraw to your own deposit address");
+        });
+
+        it("should allow shared XRP address withdrawals when the crypto wallet tag is missing but the legacy wallet tag differs", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: null,
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "67890",
+                ),
+            ).resolves.toBeUndefined();
+        });
+
+        it("should block shared XRP address withdrawals when the crypto wallet tag is missing but the legacy wallet tag matches", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: null,
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "12345",
+                ),
+            ).rejects.toThrow("Cannot withdraw to your own deposit address");
+        });
+
         it("should allow sending to other addresses", async () => {
             prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
             prisma.assetWallet.findFirst.mockResolvedValue(null);
@@ -252,6 +360,57 @@ describe("SendService", () => {
                     1, "0x742d35Cc6634C0532925a3b844Bc9e7595f0bC16", "ETH",
                 ),
             ).rejects.toThrow("Cannot withdraw to your own deposit address");
+        });
+
+        it("should allow shared-address withdrawals via legacy wallet metadata when the destination tag differs", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: "12345",
+            });
+
+            await expect(
+                (service as any).assertNotOwnDepositAddress(
+                    1,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "XRP",
+                    "ripple",
+                    "67890",
+                ),
+            ).resolves.toBeUndefined();
+        });
+
+        it("should allow shared XRP address withdrawals when both stored tags are missing and log a warning", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: null,
+            });
+            prisma.assetWallet.findFirst.mockResolvedValue({
+                depositAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                assetCurrency: "XRP",
+                destinationTag: null,
+            });
+            const warnSpy = jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
+
+            try {
+                await expect(
+                    (service as any).assertNotOwnDepositAddress(
+                        1,
+                        "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                        "XRP",
+                        "ripple",
+                        "67890",
+                    ),
+                ).resolves.toBeUndefined();
+
+                expect(warnSpy).toHaveBeenCalledWith(
+                    expect.stringContaining("sender deposit metadata is incomplete"),
+                );
+            } finally {
+                warnSpy.mockRestore();
+            }
         });
     });
 
@@ -356,7 +515,7 @@ describe("SendService", () => {
             prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
             prisma.assetWallet.findFirst.mockResolvedValue(null);
             prisma.order.findFirst.mockResolvedValue(null);
-            quidaxService.getWithdrawerFees.mockResolvedValue({
+            tradingProvider.getWithdrawalFees.mockResolvedValue({
                 data: { type: "flat", fee: 0.001 },
             });
             ledgerService.getBalance.mockResolvedValue(availableBalance(10));
@@ -368,10 +527,10 @@ describe("SendService", () => {
                 status: "processing",
                 streamlinedStatus: "pending",
                 orderCategory: "SEND",
-                amount: 1,
+                amount: new Decimal(1),
                 currency: "ETH",
-                fee: 0.001,
-                total: 1.001,
+                fee: new Decimal(0.001),
+                total: new Decimal(1.001),
                 recipient: dto.recipientWalletAddress,
                 createdAt: new Date("2026-03-29T12:00:00Z"),
                 updatedAt: new Date("2026-03-29T12:00:00Z"),
@@ -382,17 +541,17 @@ describe("SendService", () => {
         });
 
         it("executes withdrawal immediately when liquidity is available", async () => {
-            quidaxService.getUserWalletList.mockResolvedValue({
-                data: [{ currency: "eth", balance: "100" }],
+            tradingProvider.getUserWallet.mockResolvedValue({
+                data: { currency: "eth", balance: "100" },
             });
-            quidaxService.createWithdrawerRequest.mockResolvedValue({
+            tradingProvider.createWithdrawal.mockResolvedValue({
                 data: { id: "provider-1", fee: "0.001", total: "1.001" },
             });
 
             const result = await service.withdrawerRequest(user, dto);
 
             expect(result.message).toContain("placed successfully");
-            expect(quidaxService.createWithdrawerRequest).toHaveBeenCalled();
+            expect(tradingProvider.createWithdrawal).toHaveBeenCalled();
             expect(prisma.order.update).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { id: 99 },
@@ -403,8 +562,8 @@ describe("SendService", () => {
         });
 
         it("queues withdrawal when liquidity is low", async () => {
-            quidaxService.getUserWalletList.mockResolvedValue({
-                data: [{ currency: "eth", balance: "0.1" }],
+            tradingProvider.getUserWallet.mockResolvedValue({
+                data: { currency: "eth", balance: "0.1" },
             });
             prisma.order.create.mockResolvedValue({
                 id: 100,
@@ -412,10 +571,10 @@ describe("SendService", () => {
                 status: "pending",
                 streamlinedStatus: "pending",
                 orderCategory: "SEND",
-                amount: 1,
+                amount: new Decimal(1),
                 currency: "ETH",
-                fee: 0.001,
-                total: 1.001,
+                fee: new Decimal(0.001),
+                total: new Decimal(1.001),
                 recipient: dto.recipientWalletAddress,
                 createdAt: new Date("2026-03-29T12:00:00Z"),
                 updatedAt: new Date("2026-03-29T12:00:00Z"),
@@ -437,8 +596,8 @@ describe("SendService", () => {
         });
 
         it("releases hold and throws when queue add fails", async () => {
-            quidaxService.getUserWalletList.mockResolvedValue({
-                data: [{ currency: "eth", balance: "0.1" }],
+            tradingProvider.getUserWallet.mockResolvedValue({
+                data: { currency: "eth", balance: "0.1" },
             });
             withdrawalQueueService.addToQueue.mockResolvedValue({ success: false });
 
@@ -468,20 +627,48 @@ describe("SendService", () => {
                 "Rate Limit Exceeded",
             );
         });
+
+        it("blocks same-address XRP withdrawals when the sender tag is known but the recipient tag is omitted even if omission is confirmed", async () => {
+            prisma.cryptoWalletAddress.findFirst.mockResolvedValue({
+                address: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                network: "ripple",
+                destination_tag: "12345",
+            });
+
+            await expect(
+                service.withdrawerRequest(user, {
+                    ...dto,
+                    currency: "xrp",
+                    recipientWalletAddress: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    network: "ripple",
+                    destinationTag: undefined,
+                    destinationTagNotRequiredConfirmed: true,
+                }),
+            ).rejects.toThrow("Cannot withdraw to your own deposit address");
+            expect(tradingProvider.getWithdrawalFees).not.toHaveBeenCalled();
+        });
     });
 
     describe("cancelWithdrawerRequest", () => {
-        it("throws when crypto sub-account is missing", async () => {
-            await expect(
-                service.cancelWithdrawerRequest(
-                    { id: 1, cryptoSubAccountId: null } as any,
-                    { withdrawal_id: "wd-1" } as any,
-                ),
-            ).rejects.toThrow("Please complete your account setup");
+        it("cancels via main wallet when crypto sub-account is missing", async () => {
+            tradingProvider.cancelWithdrawal.mockResolvedValue({
+                data: { id: "wd-1", status: "cancelled" },
+            });
+
+            const result = await service.cancelWithdrawerRequest(
+                { id: 1, cryptoSubAccountId: null } as any,
+                { withdrawal_id: "wd-1" } as any,
+            );
+
+            expect(result.data.id).toBe("wd-1");
+            expect(tradingProvider.cancelWithdrawal).toHaveBeenCalledWith({
+                userId: "me",
+                withdrawalId: "wd-1",
+            });
         });
 
         it("delegates cancel to provider", async () => {
-            quidaxService.cancelWithdrawerRequest.mockResolvedValue({
+            tradingProvider.cancelWithdrawal.mockResolvedValue({
                 data: { id: "wd-1", status: "cancelled" },
             });
 
@@ -491,10 +678,52 @@ describe("SendService", () => {
             );
 
             expect(result.data.id).toBe("wd-1");
-            expect(quidaxService.cancelWithdrawerRequest).toHaveBeenCalledWith({
-                user_id: "sub-1",
-                withdrawal_id: "wd-1",
+            expect(tradingProvider.cancelWithdrawal).toHaveBeenCalledWith({
+                userId: "me",
+                withdrawalId: "wd-1",
             });
+        });
+
+        it("falls back to sub-account when main wallet cancel fails", async () => {
+            tradingProvider.cancelWithdrawal
+                .mockRejectedValueOnce(new Error("Not found on main"))
+                .mockResolvedValueOnce({ data: { id: "wd-1", status: "cancelled" } });
+
+            const result = await service.cancelWithdrawerRequest(
+                { id: 1, cryptoSubAccountId: "sub-1" } as any,
+                { withdrawal_id: "wd-1" } as any,
+            );
+
+            expect(result.data.status).toBe("cancelled");
+            expect(tradingProvider.cancelWithdrawal).toHaveBeenCalledTimes(2);
+            expect(tradingProvider.cancelWithdrawal).toHaveBeenLastCalledWith({
+                userId: "sub-1",
+                withdrawalId: "wd-1",
+            });
+        });
+
+        it("throws original Error when all cancel attempts fail", async () => {
+            tradingProvider.cancelWithdrawal
+                .mockRejectedValueOnce(new Error("fail-me"))
+                .mockRejectedValueOnce(new Error("fail-sub"));
+
+            await expect(
+                service.cancelWithdrawerRequest(
+                    { id: 1, cryptoSubAccountId: "sub-1" } as any,
+                    { withdrawal_id: "wd-1" } as any,
+                ),
+            ).rejects.toThrow("fail-sub");
+        });
+
+        it("throws GeneralTransactionException for non-Error failures", async () => {
+            tradingProvider.cancelWithdrawal.mockRejectedValue("string error");
+
+            await expect(
+                service.cancelWithdrawerRequest(
+                    { id: 1, cryptoSubAccountId: null } as any,
+                    { withdrawal_id: "wd-1" } as any,
+                ),
+            ).rejects.toThrow("Unable to cancel withdrawal request");
         });
     });
 
@@ -657,26 +886,29 @@ describe("SendService", () => {
             prisma.cryptoWalletAddress.findFirst.mockResolvedValue(null);
             prisma.assetWallet.findFirst.mockResolvedValue(null);
             prisma.order.findFirst.mockResolvedValue(null);
-            quidaxService.getWithdrawerFees.mockResolvedValue({ data: { type: "flat", fee: 0.001 } });
+            tradingProvider.getWithdrawalFees.mockResolvedValue({ data: { type: "flat", fee: 0.001 } });
             ledgerService.getBalance.mockResolvedValue(availableBalance(10));
             ledgerService.hold.mockResolvedValue({ success: true, entryId: "hold-1" });
             sweepService.hasPendingSweeps.mockResolvedValue(false);
             prisma.order.create.mockResolvedValue({
                 id: 100, transactionId: "txn-100", status: "processing",
                 streamlinedStatus: "pending", orderCategory: "SEND",
-                amount: 1, currency: "ETH", fee: 0.001, total: 1.001,
+                amount: new Decimal(1),
+                currency: "ETH",
+                fee: new Decimal(0.001),
+                total: new Decimal(1.001),
                 recipient: dto.recipientWalletAddress,
                 createdAt: new Date(), updatedAt: new Date(),
                 orderReference: "ref-100", narration: "test", transaction_note: "note",
             });
             // Liquidity available but execution fails
-            quidaxService.getUserWalletList.mockResolvedValue({
-                data: [{ currency: "eth", balance: "100" }],
+            tradingProvider.getUserWallet.mockResolvedValue({
+                data: { currency: "eth", balance: "100" },
             });
         });
 
         it("queues withdrawal when provider execution throws", async () => {
-            quidaxService.createWithdrawerRequest.mockRejectedValue(new Error("Provider timeout"));
+            tradingProvider.createWithdrawal.mockRejectedValue(new Error("Provider timeout"));
             withdrawalQueueService.addToQueue.mockResolvedValue({
                 success: true,
                 queueEntry: { id: "q-exec-fail", position: 1 },
@@ -724,3 +956,4 @@ describe("SendService", () => {
         });
     });
 });
+

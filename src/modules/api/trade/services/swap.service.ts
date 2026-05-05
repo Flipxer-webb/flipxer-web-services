@@ -20,7 +20,12 @@ import {
     RefreshInstantSwapRequestDto,
     ConfirmInstantSwapQuoteDto,
 } from "../dtos";
-import { QUOTE_EXPIRY_MS } from "../constants";
+import {
+    MIN_SWAP_AMOUNT_USDT,
+    QUOTE_EXPIRY_MS,
+    SWAP_ALLOWED_TARGET_CURRENCIES,
+    SWAP_TARGET_CURRENCY,
+} from "../constants";
 import { SellOrderService } from "./sell-order.service";
 import { BuyOrderService } from "./buy-order.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
@@ -32,6 +37,7 @@ import { WalletManagementService } from "../../operations/services/wallet-manage
 import { getStreamlinedStatus } from "../interfaces/trade";
 import { FailedRollbackQueueService } from "./failed-rollback-queue.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { TradeHelpersService } from "./trade-helpers.service";
 
 /**
  * Swap Service
@@ -60,7 +66,8 @@ export class SwapService {
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly failedRollbackQueueService: FailedRollbackQueueService,
-        private readonly distributedLockService: DistributedLockService
+        private readonly distributedLockService: DistributedLockService,
+        private readonly tradeHelpers: TradeHelpersService
     ) { }
 
     /**
@@ -73,6 +80,8 @@ export class SwapService {
                 HttpStatus.BAD_REQUEST
             );
         }
+
+        this.ensureSwapDirectionIsAllowed(dto.from_currency, dto.to_currency);
 
         const quote = await this.generateInternalQuote(
             user,
@@ -103,6 +112,7 @@ export class SwapService {
         toCurrency: string,
         amount: number
     ) {
+        this.ensureSwapDirectionIsAllowed(fromCurrency, toCurrency);
         let rate: number;
         let fiatAmount: number | null = null;
 
@@ -204,8 +214,31 @@ export class SwapService {
             );
         }
 
-        // 1. Atomic Read-and-Burn of Quote (Idempotency)
-        const quote = await this.redisCacheService.getDel<any>(`swap_quote:${dto.quotationId}`);
+        const quoteKey = `swap_quote:${dto.quotationId}`;
+
+        // 1. Load the quote for validation without consuming it.
+        const quotePreview = await this.redisCacheService.get<any>(quoteKey);
+
+        if (!quotePreview) {
+            throw new TransactionExpiredException(
+                "Swap quote expired or already processed. Please refresh."
+            );
+        }
+
+                this.ensureSwapDirectionIsAllowed(
+                    quotePreview.from_currency,
+                    quotePreview.to_currency,
+                );
+
+        await this.tradeHelpers.validateMinimumAmountInUSDT(
+            Number(quotePreview.from_amount),
+            quotePreview.from_currency,
+            MIN_SWAP_AMOUNT_USDT,
+            "swap",
+        );
+
+        // 2. Consume the quote atomically after validation passes.
+        const quote = await this.redisCacheService.getDel<any>(quoteKey);
 
         if (!quote) {
             throw new TransactionExpiredException(
@@ -213,7 +246,7 @@ export class SwapService {
             );
         }
 
-        // 2. Transaction Limit Check
+        // 3. Transaction Limit Check
         // Use the source crypto currency and amount for validation
         await this.transactionService.validateTransaction(
             user,
@@ -223,7 +256,7 @@ export class SwapService {
             "swap"
         );
 
-        // 3. Create Pending "Order-First" Record
+        // 4. Create Pending "Order-First" Record
         // We create one atomic SWAP order record.
         const reference = generateId({ type: "reference" });
         const transactionId = generateId({ type: "transaction" });
@@ -644,6 +677,38 @@ export class SwapService {
             );
         }
     }
+    private ensureSwapDirectionIsAllowed(fromCurrency: string, toCurrency: string) {
+        const from = this.tradeHelpers.ensureSupportedTradeAsset(
+            fromCurrency,
+            "swap",
+        );
+        const to = this.tradeHelpers.ensureSupportedTradeAsset(
+            toCurrency,
+            "swap",
+        );
+
+        if (from === to) {
+            throw new GeneralTransactionException(
+                "Swap source and destination currencies must differ",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+         if (from === SWAP_TARGET_CURRENCY) {
+            throw new GeneralTransactionException(
+                `${SWAP_TARGET_CURRENCY} swaps are limited to consolidation only. Please select a supported asset to swap into ${SWAP_TARGET_CURRENCY}`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (!SWAP_ALLOWED_TARGET_CURRENCIES.has(to)) {
+            throw new GeneralTransactionException(
+                `Swap is only available to ${SWAP_TARGET_CURRENCY}. Please contact support for other pairs.`,
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
     private mapToSwapResponse(order: any, quote: any, user: User) {
         const createdAt = order.createdAt ?? order.updatedAt ?? new Date();
         const updatedAt = order.updatedAt ?? order.createdAt ?? new Date();

@@ -28,6 +28,11 @@ import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { FailedRollbackQueueService } from "../failed-rollback-queue.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
+import { TradeHelpersService } from "../trade-helpers.service";
+import {
+    MIN_SWAP_AMOUNT_USDT,
+    SWAP_ALLOWED_TARGET_CURRENCIES,
+} from "@/modules/api/trade/constants";
 import { OrderCategory, OrderStatus } from "@prisma/client";
 
 function makePrisma() {
@@ -61,8 +66,12 @@ describe("SwapService", () => {
     let prisma: ReturnType<typeof makePrisma>;
     let sellOrderService: { calculateSellQuote: jest.Mock; executeInternalSell: jest.Mock };
     let buyOrderService: { executeInternalBuy: jest.Mock };
-    let redisCache: { set: jest.Mock; getDel: jest.Mock };
+    let redisCache: { set: jest.Mock; get: jest.Mock; getDel: jest.Mock };
     let rateService: { getAssetRate: jest.Mock };
+    let tradeHelpers: {
+        ensureSupportedTradeAsset: jest.Mock;
+        validateMinimumAmountInUSDT: jest.Mock;
+    };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -75,6 +84,7 @@ describe("SwapService", () => {
         };
         const mockRedis = {
             set: jest.fn().mockResolvedValue(undefined),
+            get: jest.fn(),
             getDel: jest.fn(),
         };
         const mockTransaction = {
@@ -95,6 +105,12 @@ describe("SwapService", () => {
         const mockLock = {
             withLock: jest.fn().mockImplementation(async (_k: string, fn: () => Promise<any>) => fn()),
         };
+        const mockTradeHelpers = {
+            ensureSupportedTradeAsset: jest.fn((asset: string) =>
+                String(asset).trim().toUpperCase(),
+            ),
+            validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -112,6 +128,7 @@ describe("SwapService", () => {
                 { provide: NotificationDispatcher, useValue: mockNotification },
                 { provide: FailedRollbackQueueService, useValue: mockFailedRollback },
                 { provide: DistributedLockService, useValue: mockLock },
+                { provide: TradeHelpersService, useValue: mockTradeHelpers },
             ],
         }).compile();
 
@@ -120,6 +137,7 @@ describe("SwapService", () => {
         buyOrderService = module.get(BuyOrderService);
         redisCache = module.get(RedisCacheService);
         rateService = module.get(RateService);
+        tradeHelpers = module.get(TradeHelpersService);
     });
 
     afterEach(() => jest.clearAllMocks());
@@ -139,6 +157,67 @@ describe("SwapService", () => {
             ).rejects.toThrow("Please complete your account setup");
         });
 
+        it("should throw when swap target is not USDT", async () => {
+            await expect(
+                service.createInstantSwap(mockUser, {
+                    from_currency: "BTC",
+                    to_currency: "ETH",
+                    from_amount: 1,
+                } as any),
+            ).rejects.toThrow(
+                "Swap is only available to USDT. Please contact support for other pairs",
+            );
+            expect((prisma as any).swapPair.findUnique).not.toHaveBeenCalled();
+        });
+
+        it("should reject swaps when source and destination currencies match", async () => {
+            await expect(
+                service.createInstantSwap(mockUser, {
+                    from_currency: "BTC",
+                    to_currency: "BTC",
+                    from_amount: 1,
+                } as any),
+            ).rejects.toThrow(
+                "Swap source and destination currencies must differ",
+            );
+            expect((prisma as any).swapPair.findUnique).not.toHaveBeenCalled();
+        });
+
+        it("should reject swaps originating from USDT to another asset", async () => {
+            await expect(
+                service.createInstantSwap(mockUser, {
+                    from_currency: "USDT",
+                    to_currency: "BTC",
+                    from_amount: 1,
+                } as any),
+            ).rejects.toThrow(
+                "USDT swaps are limited to consolidation only. Please select a supported asset to swap into USDT",
+            );
+            expect((prisma as any).swapPair.findUnique).not.toHaveBeenCalled();
+        });
+
+        it("should keep rejecting USDT-origin swaps if additional targets are enabled later", () => {
+            const allowedTargets =
+                SWAP_ALLOWED_TARGET_CURRENCIES as Set<string>;
+            const originalTargets = [...allowedTargets];
+
+            try {
+                allowedTargets.add("BTC");
+
+                expect(() =>
+                    (service as any).ensureSwapDirectionIsAllowed(
+                        "USDT",
+                        "BTC",
+                    ),
+                ).toThrow(
+                    "USDT swaps are limited to consolidation only. Please select a supported asset to swap into USDT",
+                );
+            } finally {
+                allowedTargets.clear();
+                originalTargets.forEach((target) => allowedTargets.add(target));
+            }
+        });
+
         it("should use admin swap pair rate when active", async () => {
             (prisma as any).swapPair.findUnique.mockResolvedValue({
                 isActive: true,
@@ -147,13 +226,13 @@ describe("SwapService", () => {
 
             const result = await service.createInstantSwap(mockUser, {
                 from_currency: "BTC",
-                to_currency: "ETH",
+                to_currency: "USDT",
                 from_amount: 1,
             } as any);
 
             expect(result.data.rate).toBe("15.5");
             expect(result.data.from_currency).toBe("BTC");
-            expect(result.data.to_currency).toBe("ETH");
+            expect(result.data.to_currency).toBe("USDT");
             expect(redisCache.set).toHaveBeenCalled();
         });
 
@@ -166,7 +245,7 @@ describe("SwapService", () => {
 
             const result = await service.createInstantSwap(mockUser, {
                 from_currency: "BTC",
-                to_currency: "ETH",
+                to_currency: "USDT",
                 from_amount: 0.1,
             } as any);
 
@@ -183,12 +262,30 @@ describe("SwapService", () => {
 
             const result = await service.refreshInstantSwap(mockUser, {
                 from_currency: "BTC",
-                to_currency: "ETH",
+                to_currency: "USDT",
                 from_amount: 0.1,
             } as any);
 
             expect(result.data).toBeDefined();
         });
+    });
+
+    it("should reject confirmation for non-USDT swap quotes", async () => {
+        redisCache.get.mockResolvedValue({
+            id: "quote-1",
+            user_id: 1,
+            from_currency: "BTC",
+            to_currency: "ETH",
+            from_amount: 1,
+            to_amount: 15,
+            fiat_amount: 7000000,
+            rate: 15,
+            expires_at: new Date(Date.now() + 60000).toISOString(),
+        });
+
+        await expect(
+            service.confirmInstantSwapQuote(mockUser, { quotationId: "quote-1" } as any),
+        ).rejects.toThrow("Swap is only available to USDT. Please contact support for other pairs");
     });
 
     // ── confirmInstantSwapQuote ──────────────────────────────
@@ -198,7 +295,7 @@ describe("SwapService", () => {
             id: "quote-1",
             user_id: 1,
             from_currency: "BTC",
-            to_currency: "ETH",
+            to_currency: "USDT",
             from_amount: 0.1,
             to_amount: 1.5,
             fiat_amount: 7000000,
@@ -215,14 +312,35 @@ describe("SwapService", () => {
         });
 
         it("should throw when quote expired", async () => {
-            redisCache.getDel.mockResolvedValue(null);
+            redisCache.get.mockResolvedValue(null);
 
             await expect(
                 service.confirmInstantSwapQuote(mockUser, { quotationId: "q-1" } as any),
             ).rejects.toThrow();
         });
 
+        it("should validate minimum swap amount before consuming the quote", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
+            tradeHelpers.validateMinimumAmountInUSDT.mockRejectedValue(
+                new Error("Minimum swap amount is 10 USDT equivalent."),
+            );
+
+            await expect(
+                service.confirmInstantSwapQuote(mockUser, { quotationId: "quote-1" } as any),
+            ).rejects.toThrow("Minimum swap amount is 10 USDT equivalent.");
+
+            expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
+                quoteData.from_amount,
+                quoteData.from_currency,
+                MIN_SWAP_AMOUNT_USDT,
+                "swap",
+            );
+            expect(redisCache.getDel).not.toHaveBeenCalled();
+            expect(prisma.order.create).not.toHaveBeenCalled();
+        });
+
         it("should return existing order for duplicate quotation", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
             redisCache.getDel.mockResolvedValue(quoteData);
             prisma.order.findFirst.mockResolvedValue({ id: 99, transactionId: "TX-99" });
 
@@ -235,6 +353,7 @@ describe("SwapService", () => {
         });
 
         it("should execute sell and buy legs on success", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
             redisCache.getDel.mockResolvedValue(quoteData);
             prisma.order.findFirst.mockResolvedValue(null);
             prisma.order.create.mockResolvedValue({
@@ -270,6 +389,7 @@ describe("SwapService", () => {
         });
 
         it("should rollback on buy leg failure", async () => {
+            redisCache.get.mockResolvedValue(quoteData);
             redisCache.getDel.mockResolvedValue(quoteData);
             prisma.order.findFirst.mockResolvedValue(null);
             prisma.order.create.mockResolvedValue({

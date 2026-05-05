@@ -26,13 +26,21 @@ import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { TransactionService } from "@/modules/api/auth/services/transaction.service";
-import { IncompleteAccountSetupException } from "../../errors";
+import { MIN_BUY_AMOUNT_USDT } from "@/modules/api/trade/constants";
+
 import { OrderStatus, PaymentMethod, TransactionStatus } from "@prisma/client";
 
 describe("BuyOrderService", () => {
     let service: BuyOrderService;
     let prismaService: any;
-    let walletAddressService: any;
+    let tradeHelpers: {
+        ensureSupportedTradeAsset: jest.Mock;
+        validateMinimumAmountInUSDT: jest.Mock;
+    };
+    let inboundFiatPaymentService: {
+        initializePayment: jest.Mock;
+        cleanupPendingPayment: jest.Mock;
+    };
 
     const mockUser = {
         id: 1,
@@ -128,6 +136,19 @@ describe("BuyOrderService", () => {
             cleanupPendingPayment: jest.fn().mockResolvedValue(true),
         };
 
+        const mockTradeHelpers = {
+            calculateFee: jest.fn(),
+            ensureSupportedTradeAsset: jest.fn((asset: string) =>
+                String(asset).trim().toUpperCase()
+            ),
+            validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
+            normalizeNetworkInput: jest.fn((value) =>
+                typeof value === "string" && value.trim()
+                    ? value.trim().toLowerCase()
+                    : null
+            ),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 BuyOrderService,
@@ -135,18 +156,7 @@ describe("BuyOrderService", () => {
                 { provide: InboundFiatPaymentService, useValue: mockInboundFiatPaymentService },
                 { provide: WalletAddressService, useValue: mockWalletAddressService },
                 { provide: WsGateway, useValue: mockWsGateway },
-                {
-                    provide: TradeHelpersService,
-                    useValue: {
-                        calculateFee: jest.fn(),
-                        validateMinimumAmountInUSDT: jest.fn(),
-                        normalizeNetworkInput: jest.fn((value) =>
-                            typeof value === "string" && value.trim()
-                                ? value.trim().toLowerCase()
-                                : null
-                        ),
-                    },
-                },
+                { provide: TradeHelpersService, useValue: mockTradeHelpers },
                 { provide: SlackWebhookService, useValue: { sendWebhookFailureAlert: jest.fn() } },
                 { provide: LedgerService, useValue: { pairedCredit: jest.fn() } },
                 { provide: RateService, useValue: mockRateService },
@@ -158,7 +168,8 @@ describe("BuyOrderService", () => {
 
         service = module.get<BuyOrderService>(BuyOrderService);
         prismaService = module.get(PrismaService);
-        walletAddressService = module.get(WalletAddressService);
+        tradeHelpers = module.get(TradeHelpersService);
+        inboundFiatPaymentService = module.get(InboundFiatPaymentService);
     });
 
     it("should be defined", () => {
@@ -170,14 +181,6 @@ describe("BuyOrderService", () => {
             asset: "btc",
             amount: 0.01,
         };
-
-        it("should throw IncompleteAccountSetupException when user has no crypto account", async () => {
-            const userWithoutAccount = { ...mockUser, cryptoSubAccountId: null } as any;
-
-            await expect(
-                service.buyCryptoQuoteRequest(userWithoutAccount, quoteDto)
-            ).rejects.toThrow(IncompleteAccountSetupException);
-        });
 
         it("should return quote when all conditions are met", async () => {
             prismaService.assetWallet.findFirst.mockResolvedValue({
@@ -196,12 +199,7 @@ describe("BuyOrderService", () => {
     });
 
     describe("calculateBuyQuote", () => {
-        it("should calculate quote correctly", async () => {
-            prismaService.assetWallet.findFirst.mockResolvedValue({
-                ...mockAssetWallet,
-                depositAddress: "bc1q...",
-                defaultNetwork: "btc",
-            });
+        it("should calculate quote correctly without provider wallet metadata", async () => {
             prismaService.cryptoRate.findFirst.mockResolvedValue(mockCryptoRate);
             prismaService.transactionFee.findFirst.mockResolvedValue(mockTransactionFee);
 
@@ -213,160 +211,30 @@ describe("BuyOrderService", () => {
             expect(quote).toBeDefined();
             expect(quote.buyRate).toBeDefined();
             expect(quote.cryptoBuyAmount).toBeDefined();
-        });
-
-        it("throws when requested asset wallet is missing", async () => {
-            prismaService.assetWallet.findFirst.mockResolvedValue(null);
-
-            await expect(
-                service.calculateBuyQuote(mockUser as any, { asset: "XRP", amount: 0.2 } as any),
-            ).rejects.toThrow("Asset XRP not found for the user");
-        });
-
-        it("throws when wallet exists without a deposit address/network", async () => {
-            prismaService.assetWallet.findFirst.mockResolvedValue({
-                ...mockAssetWallet,
-                depositAddress: null,
-                defaultNetwork: null,
-            });
-            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([]);
-
-            await expect(
-                service.calculateBuyQuote(mockUser as any, { asset: "BTC", amount: 0.2 } as any),
-            ).rejects.toThrow("No wallet address found for asset BTC");
-        });
-
-        it("uses the active child wallet address when the parent wallet metadata is stale", async () => {
-            prismaService.assetWallet.findFirst.mockResolvedValue({
-                ...mockAssetWallet,
-                assetCurrency: "USDC",
-                depositAddress: null,
-                destinationTag: null,
-                defaultNetwork: null,
-            });
-            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([
-                {
-                    address: "0xusdcchildaddress",
-                    network: "erc20",
-                    destination_tag: "memo-123",
-                },
+            expect(quote.availablePaymentMethods).toEqual([
+                PaymentMethod.NOMBA,
+                PaymentMethod.FINCRA,
             ]);
-            prismaService.cryptoRate.findFirst.mockResolvedValue({
-                ...mockCryptoRate,
-                symbol: "USDC",
-            });
-            prismaService.transactionFee.findFirst.mockResolvedValue({
-                ...mockTransactionFee,
-                asset: "USDC",
-            });
-
-            await expect(
-                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
-            ).resolves.toMatchObject({
-                depositAddress: "0xusdcchildaddress",
-                destinationTag: "memo-123",
-            });
-            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
-            expect(prismaService.cryptoWalletAddress.findMany).toHaveBeenCalled();
         });
 
-        it("uses the active child wallet tuple when the parent network is stale", async () => {
-            prismaService.assetWallet.findFirst.mockResolvedValue({
-                ...mockAssetWallet,
-                assetCurrency: "USDC",
-                depositAddress: "0xstaleparentaddress",
-                destinationTag: "parent-memo",
-                defaultNetwork: "   ",
-            });
-            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([
-                {
-                    address: "0xfreshchildaddress",
-                    network: "erc20",
-                    destination_tag: "child-memo",
-                },
-            ]);
-            prismaService.cryptoRate.findFirst.mockResolvedValue({
-                ...mockCryptoRate,
-                symbol: "USDC",
-            });
-            prismaService.transactionFee.findFirst.mockResolvedValue({
-                ...mockTransactionFee,
-                asset: "USDC",
+        it("honors the requested payment method on buy quotes", async () => {
+            const quote = await service.calculateBuyQuote(mockUser as any, {
+                asset: "BTC",
+                amount: 0.1,
+                paymentMethod: PaymentMethod.FINCRA,
             });
 
-            await expect(
-                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
-            ).resolves.toMatchObject({
-                depositAddress: "0xfreshchildaddress",
-                destinationTag: "child-memo",
-            });
-            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
-            expect(prismaService.cryptoWalletAddress.findMany).toHaveBeenCalled();
+            expect(quote.paymentGateway).toBe(PaymentMethod.FINCRA);
         });
 
-        it("uses refreshed parent wallet metadata before falling back to child wallets", async () => {
-            prismaService.assetWallet.findFirst
-                .mockResolvedValueOnce({
-                    ...mockAssetWallet,
-                    assetCurrency: "USDC",
-                    depositAddress: null,
-                    destinationTag: null,
-                    defaultNetwork: "   ",
-                })
-                .mockResolvedValueOnce({
-                    ...mockAssetWallet,
-                    assetCurrency: "USDC",
-                    depositAddress: "0xrefreshedparentaddress",
-                    destinationTag: "refreshed-memo",
-                    defaultNetwork: "erc20",
-                });
-            prismaService.cryptoRate.findFirst.mockResolvedValue({
-                ...mockCryptoRate,
-                symbol: "USDC",
-            });
-            prismaService.transactionFee.findFirst.mockResolvedValue({
-                ...mockTransactionFee,
-                asset: "USDC",
-            });
-
+        it("rejects unsupported payment methods on buy quotes", async () => {
             await expect(
-                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
-            ).resolves.toMatchObject({
-                depositAddress: "0xrefreshedparentaddress",
-                destinationTag: "refreshed-memo",
-            });
-            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
-            expect(prismaService.cryptoWalletAddress.findMany).not.toHaveBeenCalled();
-        });
-
-        it("rejects ambiguous multi-network child wallet fallbacks when parent metadata stays stale", async () => {
-            prismaService.assetWallet.findFirst.mockResolvedValue({
-                ...mockAssetWallet,
-                assetCurrency: "USDC",
-                depositAddress: "0xstaleparentaddress",
-                destinationTag: null,
-                defaultNetwork: "   ",
-            });
-            prismaService.cryptoWalletAddress.findMany.mockResolvedValue([
-                {
-                    address: "0xerc20address",
-                    network: "erc20",
-                    destination_tag: null,
-                },
-                {
-                    address: "TTrc20Address",
-                    network: "trc20",
-                    destination_tag: null,
-                },
-            ]);
-
-            await expect(
-                service.calculateBuyQuote(mockUser as any, { asset: "usdc", amount: 0.2 } as any),
-            ).rejects.toThrow(
-                "Unable to determine a safe wallet address for asset USDC. Please try again shortly."
-            );
-            expect(walletAddressService.syncWallet).toHaveBeenCalledWith(mockUser.id, "USDC");
-            expect(prismaService.cryptoWalletAddress.findMany).toHaveBeenCalled();
+                service.calculateBuyQuote(mockUser as any, {
+                    asset: "BTC",
+                    amount: 0.1,
+                    paymentMethod: "CARD" as any,
+                }),
+            ).rejects.toThrow("Unsupported buy payment method selected");
         });
     });
 
@@ -377,14 +245,6 @@ describe("BuyOrderService", () => {
             buyRate: 70000000,
             charge: 750,
         } as any;
-
-        it("should throw when user has no crypto account", async () => {
-            const userWithoutAccount = { ...mockUser, cryptoSubAccountId: null } as any;
-
-            await expect(
-                service.buyCryptoOrder(userWithoutAccount, orderDto)
-            ).rejects.toThrow();
-        });
 
         it("rejects idempotency keys tied to another user", async () => {
             prismaService.payment.findUnique.mockResolvedValue({
@@ -426,6 +286,31 @@ describe("BuyOrderService", () => {
             expect(res.data.paymentInfo.reference).toBe("idem-ref-2");
         });
 
+        it("rejects idempotency keys reused with a different payment method", async () => {
+            prismaService.payment.findUnique.mockResolvedValue({
+                id: 91,
+                userId: mockUser.id,
+                reference: "idem-ref-3",
+                createdAt: new Date(Date.now() - 5 * 60 * 1000),
+                totalAmount: "250000",
+                destinationBankAccountNumber: "0123456789",
+                destinationBankAccountName: "Test User",
+                destinationBankName: "Bank",
+                paymentMethod: PaymentMethod.FINCRA,
+                order: { id: 203, amount: 0.01, currency: "BTC" },
+            });
+
+            await expect(
+                service.buyCryptoOrder(mockUser as any, {
+                    ...orderDto,
+                    idempotencyKey: "idem-3",
+                    paymentMethod: PaymentMethod.NOMBA,
+                }),
+            ).rejects.toThrow(
+                "Idempotency key already used with a different payment method",
+            );
+        });
+
         it("returns an existing pending order for same user/asset/amount within expiry window", async () => {
             prismaService.payment.findUnique.mockResolvedValue(null);
             prismaService.payment.findFirst.mockResolvedValue({
@@ -447,13 +332,38 @@ describe("BuyOrderService", () => {
             expect(res.data.order.id).toBe(202);
         });
 
+        it("rejects buy orders below the minimum before pending-order lookup", async () => {
+            tradeHelpers.validateMinimumAmountInUSDT.mockRejectedValue(
+                new Error("Minimum buy amount is 3 USDT equivalent."),
+            );
+
+            await expect(
+                service.buyCryptoOrder(mockUser as any, orderDto),
+            ).rejects.toThrow("Minimum buy amount is 3 USDT equivalent.");
+
+            expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
+                orderDto.amount,
+                "BTC",
+                MIN_BUY_AMOUNT_USDT,
+                "buy",
+            );
+            expect(prismaService.payment.findFirst).not.toHaveBeenCalled();
+            expect(inboundFiatPaymentService.initializePayment).not.toHaveBeenCalled();
+        });
+
         it("creates a new buy order and returns VA payment instructions", async () => {
             prismaService.payment.findUnique.mockResolvedValue(null);
             prismaService.payment.findFirst.mockResolvedValue(null);
-            prismaService.assetWallet.findFirst.mockResolvedValue({
-                ...mockAssetWallet,
-                depositAddress: "bc1qnewaddress",
-                defaultNetwork: "btc",
+            const orderCreate = jest.fn().mockResolvedValue({
+                id: 303,
+                amount: 0.01,
+                currency: "BTC",
+                status: OrderStatus.pending,
+                streamlinedStatus: "pending",
+                orderCategory: OrderStatus.pending,
+                transactionId: "tx-303",
+                createdAt: new Date(),
+                updatedAt: new Date(),
             });
 
             (service as any).inboundFiatPaymentService.initializePayment = jest
@@ -474,17 +384,7 @@ describe("BuyOrderService", () => {
             prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
                 cb({
                     order: {
-                        create: jest.fn().mockResolvedValue({
-                            id: 303,
-                            amount: 0.01,
-                            currency: "BTC",
-                            status: OrderStatus.pending,
-                            streamlinedStatus: "pending",
-                            orderCategory: OrderStatus.pending,
-                            transactionId: "tx-303",
-                            createdAt: new Date(),
-                            updatedAt: new Date(),
-                        }),
+                        create: orderCreate,
                     },
                     payment: {
                         create: jest.fn().mockResolvedValue({ id: 404 }),
@@ -707,6 +607,65 @@ describe("BuyOrderService", () => {
             );
 
             Object.defineProperty(config, "buyPaymentProvider", { value: originalProvider, writable: true });
+        });
+
+        it("uses the requested payment method even when a different default provider is configured", async () => {
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue(null);
+            prismaService.assetWallet.findFirst.mockResolvedValue({
+                ...mockAssetWallet,
+                depositAddress: "bc1qexplicitfincra",
+                defaultNetwork: "btc",
+            });
+
+            (service as any).inboundFiatPaymentService.initializePayment = jest
+                .fn()
+                .mockResolvedValue({
+                    provider: "fincra",
+                    mode: "checkout",
+                    reference: "explicit-fincra-ref-1",
+                    amount: 100,
+                    expiryAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+                    authorizationUrl: "https://checkout.fincra.test/explicit-session-1",
+                });
+
+            const orderCreate = jest.fn().mockResolvedValue({
+                id: 304,
+                amount: 0.01,
+                currency: "BTC",
+                status: OrderStatus.pending,
+                orderCategory: "BUY",
+                transactionId: "buy-tx-304",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            });
+            const paymentCreate = jest.fn().mockResolvedValue({ id: 404 });
+            prismaService.$transaction = jest.fn().mockImplementation(async (cb: any) =>
+                cb({
+                    order: { create: orderCreate },
+                    payment: { create: paymentCreate },
+                }),
+            );
+
+            await service.buyCryptoOrder(mockUser as any, {
+                asset: "BTC",
+                amount: 0.01,
+                buyRate: 70000000,
+                charge: 750,
+                idempotencyKey: "explicit-fincra-idem-1",
+                paymentMethod: PaymentMethod.FINCRA,
+            } as any);
+
+            expect((service as any).inboundFiatPaymentService.initializePayment).toHaveBeenCalledWith(
+                expect.objectContaining({ provider: "fincra" }),
+            );
+            expect(paymentCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        paymentMethod: PaymentMethod.FINCRA,
+                    }),
+                }),
+            );
         });
     });
 

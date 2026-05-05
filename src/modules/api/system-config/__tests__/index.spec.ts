@@ -65,7 +65,12 @@ describe("SystemConfigModule", () => {
         moduleInstance.configure(consumer);
 
         expect(apply).toHaveBeenCalledWith(MaintenanceMiddleware);
-        expect(exclude).toHaveBeenCalledWith("admin/(.*)", "health(.*)");
-        expect(forRoutes).toHaveBeenCalledWith("*");
+        expect(exclude).toHaveBeenCalledWith(
+            { method: 5, path: "admin" },
+            { method: 5, path: "admin/{*path}" },
+            { method: 5, path: "health" },
+            { method: 5, path: "health/{*path}" },
+        );
+        expect(forRoutes).toHaveBeenCalledWith({ method: 5, path: "{*path}" });
     });
 });

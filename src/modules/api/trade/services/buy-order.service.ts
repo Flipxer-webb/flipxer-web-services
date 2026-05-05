@@ -24,7 +24,7 @@ import {
     User,
 } from "@prisma/client";
 import {
-    AssetNotFoundException,
+
     IncompleteAccountSetupException,
     WalletAddressNotFoundException,
 } from "../errors";
@@ -97,8 +97,26 @@ export class BuyOrderService {
         return [PaymentMethod.NOMBA, PaymentMethod.FINCRA];
     }
 
+    getAvailableBuyPaymentMethods(): PaymentMethod[] {
+        return [...this.getSupportedBuyPaymentMethods()];
+    }
+
+    private resolveBuyPaymentMethod(paymentMethod?: PaymentMethod | null): PaymentMethod {
+        if (!paymentMethod) {
+            return getPaymentMethodForBankProvider(buyPaymentProvider);
+        }
+
+        if (!this.getSupportedBuyPaymentMethods().includes(paymentMethod)) {
+            throw new BadRequestException("Unsupported buy payment method selected");
+        }
+
+        return paymentMethod;
+    }
+
     private getBuyPaymentProvider(paymentMethod?: PaymentMethod | null): InboundPaymentProvider {
-        return getBankProviderForPaymentMethod(paymentMethod) || buyPaymentProvider;
+        return getBankProviderForPaymentMethod(
+            this.resolveBuyPaymentMethod(paymentMethod),
+        ) || buyPaymentProvider;
     }
 
     private getBuyPaymentProviderLabel(paymentMethod?: PaymentMethod | null): string {
@@ -260,7 +278,10 @@ export class BuyOrderService {
 
     private ensureIdempotentRequestMatchesExistingOrder(
         dto: BuyCryptoOrderDto,
-        existingPayment: { order: { amount?: number | null; currency?: string | null } | null }
+        existingPayment: {
+            order: { amount?: number | null; currency?: string | null } | null;
+            paymentMethod?: PaymentMethod | null;
+        }
     ) {
         if (!existingPayment.order) {
             throw new BadRequestException(
@@ -279,6 +300,16 @@ export class BuyOrderService {
         if (!this.isSameCryptoAmount(dto.amount, existingPayment.order.amount)) {
             throw new BadRequestException(
                 "Idempotency key already used with a different amount"
+            );
+        }
+
+        if (
+            dto.paymentMethod &&
+            existingPayment.paymentMethod &&
+            existingPayment.paymentMethod !== dto.paymentMethod
+        ) {
+            throw new BadRequestException(
+                "Idempotency key already used with a different payment method",
             );
         }
     }
@@ -302,86 +333,11 @@ export class BuyOrderService {
         user: User,
         dto: InitiateBuyOrderDto
     ): Promise<BuyQuoteResponse> {
-        const currency = dto.asset.toUpperCase();
-        const assetWalletWhere = {
-            userId: user.id,
-            assetCurrency: currency,
-        };
-
-        if (!user.cryptoSubAccountId) {
-            throw new IncompleteAccountSetupException(
-                "Please complete your account setup or contact admin for support",
-                HttpStatus.BAD_REQUEST
-            );
-        }
-
-        let assetWallet = await this.prisma.assetWallet.findFirst({
-            where: assetWalletWhere,
-        });
-
-        if (!assetWallet) {
-            throw new AssetNotFoundException(
-                `Asset ${dto.asset} not found for the user`,
-                HttpStatus.NOT_FOUND
-            );
-        }
-
-        let normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-            assetWallet.defaultNetwork
+        const currency = this.tradeHelpers.ensureSupportedTradeAsset(
+            dto.asset,
+            "buy",
         );
-
-        if (!normalizedDefaultNetwork) {
-            await this.walletAddressService.syncWallet(user.id, currency);
-
-            assetWallet =
-                (await this.prisma.assetWallet.findFirst({
-                    where: assetWalletWhere,
-                })) ?? assetWallet;
-
-            normalizedDefaultNetwork = this.tradeHelpers.normalizeNetworkInput(
-                assetWallet.defaultNetwork
-            );
-        }
-
-        const fallbackWalletAddress =
-            !assetWallet.depositAddress || !normalizedDefaultNetwork
-                ? await this.getFallbackBuyWalletAddress({
-                    userId: user.id,
-                    assetSymbol: currency,
-                    normalizedDefaultNetwork,
-                })
-                : null;
-
-        let resolvedWalletAddress: {
-            address: string;
-            network: string | null;
-            destinationTag: string | null;
-        } | null = null;
-
-        if (assetWallet.depositAddress && normalizedDefaultNetwork) {
-            resolvedWalletAddress = {
-                address: assetWallet.depositAddress,
-                network: normalizedDefaultNetwork,
-                destinationTag: assetWallet.destinationTag ?? null,
-            };
-        } else if (fallbackWalletAddress) {
-            resolvedWalletAddress = {
-                address: fallbackWalletAddress.address,
-                network: fallbackWalletAddress.network,
-                destinationTag: fallbackWalletAddress.destination_tag ?? null,
-            };
-        }
-
-        const depositAddress = resolvedWalletAddress?.address ?? null;
-        const defaultNetwork = resolvedWalletAddress?.network ?? null;
-        const destinationTag = resolvedWalletAddress?.destinationTag ?? null;
-
-        if (!depositAddress || !defaultNetwork) {
-            throw new WalletAddressNotFoundException(
-                `No wallet address found for asset ${dto.asset}`,
-                HttpStatus.NOT_FOUND
-            );
-        }
+        const paymentMethod = this.resolveBuyPaymentMethod(dto.paymentMethod);
 
         // sell rate is used when user is buying.
         const rate = await this.rateService.getAssetRate(currency);
@@ -407,9 +363,8 @@ export class BuyOrderService {
             totalToChargeInCrypto,
             totalToChargeViaPaymentGateway,
             currency: "NGN",
-            paymentGateway: getPaymentMethodForBankProvider(buyPaymentProvider),
-            depositAddress,
-            destinationTag,
+            paymentGateway: paymentMethod,
+            availablePaymentMethods: this.getAvailableBuyPaymentMethods(),
         };
     }
 
@@ -422,6 +377,15 @@ export class BuyOrderService {
         return this.distributedLockService.withLock(
             `trade:buy:${user.id}`,
             async () => {
+                const normalizedAsset =
+                    this.tradeHelpers.ensureSupportedTradeAsset(
+                        dto.asset,
+                        "buy",
+                    );
+                const selectedPaymentMethod = this.resolveBuyPaymentMethod(
+                    dto.paymentMethod,
+                );
+
         // IDEMPOTENCY CHECK: Return existing order if same idempotencyKey was already used
         if (dto.idempotencyKey) {
             const existingPayment = await this.prisma.payment.findUnique({
@@ -441,6 +405,7 @@ export class BuyOrderService {
                         amount: existingPayment.order.amount,
                         currency: existingPayment.order.currency,
                     },
+                            paymentMethod: existingPayment.paymentMethod,
                 });
 
                 this.logger.warn(
@@ -452,7 +417,12 @@ export class BuyOrderService {
         }
 
         // Minimum amount validation
-        this.tradeHelpers.validateMinimumAmountInUSDT(dto.amount, dto.asset, MIN_BUY_AMOUNT_USDT, "buy");
+        await this.tradeHelpers.validateMinimumAmountInUSDT(
+            dto.amount,
+            normalizedAsset,
+            MIN_BUY_AMOUNT_USDT,
+            "buy",
+        );
 
 
         // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset + amount
@@ -467,7 +437,7 @@ export class BuyOrderService {
                 orderId: { not: null },
                 order: {
                     orderCategory: OrderCategory.BUY,
-                    currency: dto.asset.toUpperCase(),
+                    currency: normalizedAsset,
                     status: OrderStatus.pending,
                     amount: {
                         gte: dto.amount - BuyOrderService.CRYPTO_AMOUNT_TOLERANCE,
@@ -487,13 +457,17 @@ export class BuyOrderService {
 
         if (existingPendingPayment?.order) {
             this.logger.warn(
-                `User ${user.id} already has a pending buy order for ${dto.asset.toUpperCase()} (Order: ${existingPendingPayment.orderId}) - Returning existing order`
+                `User ${user.id} already has a pending buy order for ${normalizedAsset} (Order: ${existingPendingPayment.orderId}) - Returning existing order`
             );
 
             return this.buildExistingOrderResponse(existingPendingPayment);
         }
 
-        const responseData = await this.calculateBuyQuote(user, dto);
+        const responseData = await this.calculateBuyQuote(user, {
+            ...dto,
+            asset: normalizedAsset,
+            paymentMethod: selectedPaymentMethod,
+        });
 
         const userData = {
             id: user.id,
@@ -508,7 +482,7 @@ export class BuyOrderService {
 
         const paymentGatewayData: InboundPaymentInitializationResult =
             await this.inboundFiatPaymentService.initializePayment({
-                provider: buyPaymentProvider,
+                provider: this.getBuyPaymentProvider(selectedPaymentMethod),
                 user: userData,
                 amount,
                 callbackUrl: frontendUrl,
@@ -517,7 +491,7 @@ export class BuyOrderService {
             });
 
         const amtFiat = await this.getAmountInNaira(
-            dto.asset,
+            normalizedAsset,
             responseData.cryptoBuyAmount
         );
 
@@ -536,8 +510,7 @@ export class BuyOrderService {
                         ),
                         paymentStatus: TransactionStatus.PENDING,
                         currency: dto.asset.toUpperCase(),
-                        recipient: responseData.depositAddress,
-                        destinationTag: responseData.destinationTag,
+
                         userId: user.id,
                         amountInFiat: amtFiat?.amount,
                         rateAtConversion: amtFiat?.rate,

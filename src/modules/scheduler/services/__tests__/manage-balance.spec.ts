@@ -36,14 +36,22 @@ describe("AssetBalanceSchedulerService", () => {
         syncUserDeposits: jest.fn(),
     };
 
+    const distributedLockService = {
+        acquireLock: jest.fn(),
+        releaseLock: jest.fn(),
+    };
+
     let service: AssetBalanceSchedulerService;
 
     beforeEach(() => {
         jest.resetAllMocks();
+        distributedLockService.acquireLock.mockResolvedValue("lock-token");
+        distributedLockService.releaseLock.mockResolvedValue(true);
         service = new AssetBalanceSchedulerService(
             prisma as never,
             cryptoAccountProducer as never,
             tradingService as never,
+            distributedLockService as never,
         );
 
         jest.spyOn((service as any).logger, "debug").mockImplementation(() => undefined);
@@ -58,7 +66,7 @@ describe("AssetBalanceSchedulerService", () => {
     it("syncAllQuidaxAssetBalance enqueues users and releases lock", async () => {
         const release = jest.fn();
         (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
-        jest.spyOn(service, "getAllUserIdsWithSubAccounts").mockResolvedValue([1, 2, 3]);
+        jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([1, 2, 3]);
 
         await service.syncAllQuidaxAssetBalance();
 
@@ -66,17 +74,45 @@ describe("AssetBalanceSchedulerService", () => {
         expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(1);
         expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(2);
         expect(cryptoAccountProducer.enqueueSyncBalance).toHaveBeenCalledWith(3);
+        expect(distributedLockService.acquireLock).toHaveBeenCalledWith(
+            "job:quidax-balance-sync:process",
+            expect.objectContaining({
+                ttlMs: 20 * 60 * 1000,
+                maxWaitMs: 0,
+                strict: true,
+            }),
+        );
+        expect(distributedLockService.releaseLock).toHaveBeenCalledWith(
+            "job:quidax-balance-sync:process",
+            "lock-token",
+        );
         expect(release).toHaveBeenCalledTimes(1);
     });
 
     it("syncAllQuidaxAssetBalance still releases lock when queueing fails", async () => {
         const release = jest.fn();
         (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
-        jest.spyOn(service, "getAllUserIdsWithSubAccounts").mockResolvedValue([1]);
+        jest.spyOn(service, "getEligibleUserIdsForBalanceSync").mockResolvedValue([1]);
         cryptoAccountProducer.enqueueSyncBalance.mockRejectedValue(new Error("queue down"));
 
         await service.syncAllQuidaxAssetBalance();
 
+        expect(distributedLockService.releaseLock).toHaveBeenCalledWith(
+            "job:quidax-balance-sync:process",
+            "lock-token",
+        );
+        expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("syncAllQuidaxAssetBalance skips queueing when another instance owns the distributed lock", async () => {
+        const release = jest.fn();
+        (service as any).mutex.acquire = jest.fn().mockResolvedValue(release);
+        distributedLockService.acquireLock.mockResolvedValueOnce(null);
+
+        await service.syncAllQuidaxAssetBalance();
+
+        expect(cryptoAccountProducer.enqueueSyncBalance).not.toHaveBeenCalled();
+        expect(distributedLockService.releaseLock).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledTimes(1);
     });
 
@@ -174,7 +210,7 @@ describe("AssetBalanceSchedulerService", () => {
         expect(release).toHaveBeenCalledTimes(1);
     });
 
-    it("getAllUserIdsWithSubAccounts paginates until exhausted", async () => {
+    it("getEligibleUserIdsForBalanceSync paginates eligible users until exhausted", async () => {
         const firstBatch = Array.from({ length: 1000 }, (_, i) => ({ id: i + 1 }));
         const secondBatch = [{ id: 1001 }, { id: 1002 }];
 
@@ -183,9 +219,21 @@ describe("AssetBalanceSchedulerService", () => {
             .mockResolvedValueOnce(secondBatch)
             .mockResolvedValueOnce([]);
 
-        const result = await service.getAllUserIdsWithSubAccounts();
+        const result = await service.getEligibleUserIdsForBalanceSync();
 
         expect(prisma.user.findMany).toHaveBeenCalledTimes(2);
+        expect(prisma.user.findMany).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    cryptoSubAccountId: { not: null },
+                    OR: [
+                        { lastLogin: { gte: expect.any(Date) } },
+                        { createdAt: { gte: expect.any(Date) } },
+                    ],
+                }),
+            }),
+        );
         expect(result).toHaveLength(1002);
         expect(result[0]).toBe(1);
         expect(result.at(-1)).toBe(1002);

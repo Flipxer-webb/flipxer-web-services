@@ -28,9 +28,12 @@ export class EmailService {
             const message =
                 error instanceof Error
                     ? error.message
-                    : JSON.stringify(error);
+                    : error?.message ?? error?.error?.message ?? JSON.stringify(error);
+            const details =
+                error?.error?.details ? ` details=${JSON.stringify(error.error.details)}` : "";
             const stack = error instanceof Error ? error.stack : undefined;
-            this.logger.error(`Failed to send email: ${message}`, stack);
+
+            this.logger.error(`Failed to send email: ${message}${details}`, stack);
             throw error;
         }
     }

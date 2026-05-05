@@ -8,6 +8,11 @@ export interface TradingEventMap {
     "funding-failure": FundingFailure;
 }
 
+export interface SupportedTradeAsset {
+    symbol: string;
+    name: string;
+}
+
 export interface IWalletAddressCreatedSuccess {
     walletAddressId: string;
     walletAddress: string;
@@ -160,8 +165,7 @@ export interface BuyQuoteResponse {
     totalToChargeViaPaymentGateway: number;
     currency: string;
     paymentGateway: PaymentMethod;
-    depositAddress: string;
-    destinationTag: string;
+    availablePaymentMethods: PaymentMethod[];
 }
 
 export interface SellQuoteResponse {

@@ -234,6 +234,7 @@ import { DistributedLockService } from "@/modules/core/redisCache/services/distr
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { PermissionName } from "@/modules/api/authorize/enums/role";
+import { NotificationEvent } from "../../notification/events/notification.event";
 
 /**
  * Build a spread-safe object for a file field in update operations.
@@ -1551,6 +1552,7 @@ export class AuthService {
         @Inject(forwardRef(() => WsGateway))
         private readonly wsGateway: WsGateway,
         private readonly identityResolution: IdentityResolutionService,
+        private readonly notificationEvent: NotificationEvent,
     ) {
         this.uploadService = this.uploadFactory.build({
             provider: "imagekit",
@@ -5957,6 +5959,54 @@ export class AuthService {
         return verificationStatus;
     }
 
+    private buildLoginDeviceInfo(
+        deviceInfo: Pick<SignInOptions, "deviceName" | "deviceType" | "browser" | "os">
+    ): string {
+        const deviceParts = [
+            deviceInfo.deviceName,
+            deviceInfo.deviceType,
+            deviceInfo.browser,
+            deviceInfo.os,
+        ].filter((value): value is string => Boolean(value?.trim()));
+
+        return deviceParts.length > 0 ? deviceParts.join(" - ") : "Unknown device";
+    }
+
+    private async recordSuccessfulLogin(
+        user: {
+            id: number;
+            email?: string | null;
+            firstName?: string | null;
+            loginCount?: number | null;
+        },
+        ip: string,
+        deviceInfo: Pick<SignInOptions, "deviceName" | "deviceType" | "browser" | "os">
+    ): Promise<void> {
+        const loginTime = new Date();
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                ipAddress: ip,
+                loginCount: (user.loginCount ?? 0) + 1,
+                lastLogin: loginTime,
+            },
+        });
+
+        if (!user.email) {
+            return;
+        }
+
+        this.notificationEvent.emit("login_notification", {
+            email: user.email,
+            userId: user.id,
+            name: user.firstName || user.email.split("@")[0] || "User",
+            ipAddress: ip,
+            userAgent: this.buildLoginDeviceInfo(deviceInfo),
+            loginTime: loginTime.toISOString(),
+        });
+    }
+
     private buildLoginSuccessResponse(
         user: LoginResponseUser,
         loginPlatform: LoginPlatform,
@@ -6082,6 +6132,7 @@ export class AuthService {
             flaggedRecord: true,
             flaggedId: true,
             email: true,
+            firstName: true,
             isEmailVerified: true,
             isPhoneVerified: true,
             isPasswordCreated: true,
@@ -6188,14 +6239,7 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                ipAddress: ip,
-                loginCount: 0,
-                lastLogin: new Date(),
-            },
-        });
+        await this.recordSuccessfulLogin(user, ip, options);
 
         return this.buildLoginSuccessResponse(user, loginPlatform, tokens, sessionId);
     }
@@ -6330,6 +6374,9 @@ export class AuthService {
             where: { id: payload.sub },
             select: {
                 id: true,
+                email: true,
+                firstName: true,
+                loginCount: true,
                 twoFactorSecret: true,
                 isTwoFactorEnabled: true,
                 userType: true,
@@ -6384,14 +6431,7 @@ export class AuthService {
 
         await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-        await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                ipAddress: ip,
-                loginCount: 0,
-                lastLogin: new Date(),
-            },
-        });
+        await this.recordSuccessfulLogin(user, ip, dto);
 
         return this.buildLoginSuccessResponse(user, payload.platform, tokens, sessionId);
     }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import { Request } from "express";
 import { ApiBearerAuth, ApiTags, ApiOperation } from "@nestjs/swagger";
 import { AuthGuard, EnabledAccountGuard } from "@/modules/api/auth/guard";
@@ -10,7 +10,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { AuditLogService } from "@/modules/api/audit-log";
 import { buildResponse } from "@/utils/api-response-util";
 import { CreateSwapPairDto, BulkUpdateSwapPairDto } from "../../../trade/dtos/create-swap-pair.dto";
-import { SUPPORTED_ASSETS } from "../../../trade/constants";
+import { SUPPORTED_ASSETS, SWAP_TARGET_CURRENCY } from "../../../trade/constants";
 
 @ApiTags("Admin Swap Pairs")
 @Controller("admin/swap-pairs")
@@ -25,6 +25,47 @@ export class AdminSwapPairController {
         private readonly auditLogService: AuditLogService,
     ) {
         this.db = prisma as any;
+    }
+
+    private isSupportedActivePair(
+        fromCurrency: string,
+        toCurrency: string,
+    ): boolean {
+        return (
+            toCurrency === SWAP_TARGET_CURRENCY &&
+            fromCurrency !== SWAP_TARGET_CURRENCY
+        );
+    }
+
+    private assertSupportedPairActivationAllowed(
+        fromCurrency: string,
+        toCurrency: string,
+        isActive: boolean,
+    ): void {
+        if (isActive && !this.isSupportedActivePair(fromCurrency, toCurrency)) {
+            throw new BadRequestException(
+                `Only supported asset to ${SWAP_TARGET_CURRENCY} swap pairs can be active.`,
+            );
+        }
+    }
+
+    private buildBulkWhereClause(
+        targetCurrency: string,
+        isActivating: boolean,
+    ): any {
+        if (isActivating && targetCurrency === SWAP_TARGET_CURRENCY) {
+            return {
+                toCurrency: targetCurrency,
+                fromCurrency: { not: targetCurrency },
+            };
+        }
+
+        return {
+            OR: [
+                { fromCurrency: targetCurrency },
+                { toCurrency: targetCurrency },
+            ],
+        };
     }
 
     @Permissions([PermissionName.SETTINGS_READ])
@@ -43,6 +84,14 @@ export class AdminSwapPairController {
     @ApiOperation({ summary: "Create or Update a specific Swap Pair Override" })
     async upsertSwapPair(@Body() dto: CreateSwapPairDto, @Req() req: Request) {
         const { fromCurrency, toCurrency, rate, isActive } = dto;
+        const effectiveIsActive =
+            isActive ?? this.isSupportedActivePair(fromCurrency, toCurrency);
+
+        this.assertSupportedPairActivationAllowed(
+            fromCurrency,
+            toCurrency,
+            effectiveIsActive,
+        );
 
         const pair = await this.db.swapPair.upsert({
             where: {
@@ -53,21 +102,21 @@ export class AdminSwapPairController {
             },
             update: {
                 rate,
-                isActive: isActive ?? true
+                isActive: effectiveIsActive,
             },
             create: {
                 fromCurrency,
                 toCurrency,
                 rate,
-                isActive: isActive ?? true
-            }
+                isActive: effectiveIsActive,
+            },
         });
 
         await this.auditLogService.log({
             action: "UPSERT_SWAP_PAIR",
             resource: "swap_pair",
             resourceId: `${fromCurrency}_${toCurrency}`,
-            details: { fromCurrency, toCurrency, rate, isActive },
+            details: { fromCurrency, toCurrency, rate, isActive: effectiveIsActive },
             adminId: (req as any).user?.id,
             ipAddress: req.ip,
             userAgent: req.headers["user-agent"],
@@ -81,49 +130,44 @@ export class AdminSwapPairController {
     @ApiOperation({ summary: "Generate all possible permutations of Swap Pairs (Inactive by default)" })
     async generateAllPairs(@Req() req: Request) {
         const assets = Array.from(SUPPORTED_ASSETS);
-        let count = 0;
 
-        // Transaction is safer
-        await this.prisma.$transaction(async (tx: any) => {
-            for (const fromC of assets) {
-                for (const toC of assets) {
-                    if (fromC === toC) continue;
-
-                    // Check if exists
-                    const exists = await tx.swapPair.findUnique({
-                        where: {
-                            fromCurrency_toCurrency: {
-                                fromCurrency: fromC,
-                                toCurrency: toC
-                            }
-                        }
-                    });
-
-                    if (!exists) {
-                        await tx.swapPair.create({
-                            data: {
-                                fromCurrency: fromC,
-                                toCurrency: toC,
-                                rate: 0, // 0 = Inactive/Derived logic? No, we said >0 is override.
-                                isActive: false // Start inactive so Auto-Pilot handles them
-                            }
-                        });
-                        count++;
-                    }
-                }
+        // Generate all possible pairs (fromCurrency -> toCurrency where from !== to)
+        const allPairs = [];
+        for (const fromC of assets) {
+            for (const toC of assets) {
+                if (fromC === toC) continue;
+                allPairs.push({
+                    fromCurrency: fromC,
+                    toCurrency: toC,
+                    rate: 0,
+                    isActive: false
+                });
             }
+        }
+
+        // Single batch insert with skipDuplicates, this eliminates N² individual queries
+        // This runs as a single database operation instead of  separate queries
+        const result = await this.db.swapPair.createMany({
+            data: allPairs,
+            skipDuplicates: true, // Safely skip records that already exist
         });
 
         await this.auditLogService.log({
             action: "GENERATE_SWAP_PAIRS",
             resource: "swap_pair",
-            details: { newPairsCount: count },
+            details: {
+                newPairsCount: result.count,
+                totalPairsAttempted: allPairs.length,
+            },
             adminId: (req as any).user?.id,
             ipAddress: req.ip,
             userAgent: req.headers["user-agent"],
         });
 
-        return buildResponse({ message: `Generated ${count} new swap pair records.`, data: count });
+        return buildResponse({
+            message: `Generated ${result.count} new swap pair records.`,
+            data: result.count,
+        });
     }
 
     @Permissions([PermissionName.SETTINGS_UPDATE])
@@ -132,13 +176,15 @@ export class AdminSwapPairController {
     async bulkUpdate(@Body() dto: BulkUpdateSwapPairDto, @Req() req: Request) {
         const { targetCurrency, isActive, rateMultiplier } = dto;
         const target = targetCurrency.toUpperCase();
+        const isActivating = isActive === true;
 
-        const whereClause: any = {
-            OR: [
-                { fromCurrency: target },
-                { toCurrency: target }
-            ]
-        };
+        if (isActivating && target !== SWAP_TARGET_CURRENCY) {
+            throw new BadRequestException(
+                `Only ${SWAP_TARGET_CURRENCY}-target swap pairs can be activated.`,
+            );
+        }
+
+        const whereClause = this.buildBulkWhereClause(target, isActivating);
 
         // If rateMultiplier is provided, we need to fetch, calculate, and update one by one?
         // Or if simple update (isActive), use updateMany.
@@ -156,7 +202,7 @@ export class AdminSwapPairController {
                         const newRate = p.rate * rateMultiplier;
                         await tx.swapPair.update({
                             where: { fromCurrency_toCurrency: { fromCurrency: p.fromCurrency, toCurrency: p.toCurrency } },
-                            data: { rate: newRate, ...(isActive !== undefined && { isActive }) }
+                            data: { rate: newRate, ...(isActive !== undefined && { isActive }) },
                         });
                         updatedCount++;
                     }
